@@ -41,13 +41,7 @@
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
         "VIBRATE"
-      ],
-      "notification": {
-        "icon": "./assets/images/notification-icon.png",
-        "color": "#E6F4FE",
-        "defaultSound": true,
-        "sound": "mixkit_sci_fi_click_900.wav"
-      }
+      ]
     },
     "androidStatusBar": {
       "barStyle": "dark-content",
@@ -77,6 +71,7 @@
           }
         }
       ],
+      "expo-dev-client",
       "expo-web-browser",
       [
         "expo-notifications",
@@ -93,8 +88,7 @@
       }
     },
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     },
     "owner": "nebulanet"
   }

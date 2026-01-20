@@ -1,6 +1,6 @@
 // app/(tabs)/_layout.tsx
+import { colors } from "@/constants/colors";
 import { useAuth } from "@/hooks/useAuth";
-import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 
@@ -26,16 +26,21 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: "#fff",
           borderTopColor: "#e5e5e5",
+          borderTopWidth: 1,
           height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
+          paddingBottom: 0,
+          paddingTop: 0,
         },
-        tabBarActiveTintColor: "#007AFF",
-        tabBarInactiveTintColor: "#8e8e93",
+        tabBarActiveTintColor: colors.primary, // Use your primary color
+        tabBarInactiveTintColor: "#666",
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 16,
           fontWeight: "500",
+          marginTop: -5, // Adjust text position
+          marginBottom: 8,
         },
+        // Hide icons for text-only design
+        tabBarIcon: () => null,
       }}
     >
       {/* Home Tab */}
@@ -43,9 +48,6 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
-          ),
         }}
       />
 
@@ -54,52 +56,25 @@ export default function TabsLayout() {
         name="explore"
         options={{
           title: "Explore",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search-outline" size={size} color={color} />
-          ),
         }}
       />
 
-      {/* Create Tab - Hidden from tab bar since it's in the middle button */}
+      {/* Chat Tab */}
       <Tabs.Screen
-        name="create"
+        name="chat"
         options={{
-          title: "Create",
-          tabBarIcon: ({ focused }) => (
-            <View
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: "#007AFF",
-                justifyContent: "center",
-                alignItems: "center",
-                marginBottom: 24,
-                shadowColor: "#007AFF",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 8,
-              }}
-            >
-              <Ionicons name="add" size={28} color="white" />
-            </View>
-          ),
-          tabBarLabel: () => null,
-        }}
-      />
-
-      {/* Notifications Tab */}
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          title: "Notifications",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="notifications-outline" size={size} color={color} />
-          ),
+          title: "Chat",
           tabBarBadge: profile?.notification_settings?.direct_messages
-            ? 3
+            ? "•"
             : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.primary,
+            fontSize: 10,
+            minWidth: 8,
+            height: 8,
+            borderRadius: 4,
+            top: 12,
+          },
         }}
       />
 
@@ -108,9 +83,6 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
         }}
       />
     </Tabs>

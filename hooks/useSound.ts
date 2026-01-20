@@ -1,4 +1,3 @@
-// hooks/useSound.ts
 import { Audio } from "expo-av";
 import { useEffect, useState } from "react";
 
@@ -26,7 +25,7 @@ export function useSound() {
         sound.unloadAsync();
       }
     };
-  }, []);
+  }, [sound]); // ESLint wants 'sound' in dependency array
 
   return {
     playSound,

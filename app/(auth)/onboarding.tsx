@@ -82,7 +82,8 @@ const popularInterests = [
 ];
 
 export default function OnboardingScreen() {
-  const { user, profile, updateProfile, mutateProfile } = useAuth();
+  // Remove unused updateProfile - we'll use markOnboardingCompleted instead
+  const { user, profile, markOnboardingCompleted } = useAuth();
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(1);
@@ -102,6 +103,14 @@ export default function OnboardingScreen() {
         Alert.alert(
           "Select More Interests",
           "Please select at least 3 interests to personalize your feed.",
+          [
+            { text: "OK", style: "default" },
+            {
+              text: "Skip Anyway",
+              style: "destructive",
+              onPress: () => skipToHome(),
+            },
+          ],
         );
         return;
       }
@@ -114,59 +123,69 @@ export default function OnboardingScreen() {
   const handleCompleteOnboarding = async () => {
     setIsLoading(true);
     try {
-      // Save interests to user profile - use metadata field if available
-      const updateData: any = {};
+      // Use the new helper function from useAuth
+      const success = await markOnboardingCompleted(selectedInterests);
 
-      // Try to update using metadata field if that's how interests are stored
-      if (profile?.metadata) {
-        updateData.metadata = {
-          ...profile.metadata,
-          interests: selectedInterests,
-          onboarding_completed: true,
-        };
-      } else {
-        // Fallback: update metadata directly
-        updateData.metadata = {
-          interests: selectedInterests,
-          onboarding_completed: true,
-        };
+      if (!success) {
+        throw new Error("Failed to save onboarding data");
       }
 
-      await updateProfile.mutateAsync(updateData);
-
-      // Create user interests in database
-      if (user?.id) {
+      // Create user interests in database (optional)
+      if (user?.id && selectedInterests.length > 0) {
         try {
-          const { error } = await supabase.from("user_interests").insert(
+          await supabase.from("user_interests").insert(
             selectedInterests.map((interest) => ({
               user_id: user.id,
               interest: interest.toLowerCase(),
               created_at: new Date().toISOString(),
             })),
           );
-
-          if (error) {
-            console.error("Error saving interests:", error);
-            // Continue anyway - the profile update may have succeeded
-          }
         } catch (error) {
           console.error("Error saving interests to database:", error);
-          // Continue anyway
+          // Continue anyway - not critical
         }
       }
 
-      // Refresh profile
-      await mutateProfile();
-
-      // Redirect to home
+      // Clear navigation stack and go to home
+      router.dismissAll();
       router.replace("/(tabs)/home");
     } catch (error: any) {
       console.error("Onboarding error:", error);
       Alert.alert(
         "Error",
         "Failed to save your preferences. You can update them later in settings.",
+        [
+          {
+            text: "Go to Home",
+            onPress: () => {
+              router.dismissAll();
+              router.replace("/(tabs)/home");
+            },
+          },
+        ],
       );
-      // Still redirect to home
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const skipToHome = async () => {
+    setIsLoading(true);
+    try {
+      // Use the new helper function with empty interests
+      const success = await markOnboardingCompleted([]);
+
+      if (!success) {
+        console.warn("Failed to update profile, but continuing to home...");
+      }
+
+      // Clear navigation stack and go to home
+      router.dismissAll();
+      router.replace("/(tabs)/home");
+    } catch (error) {
+      console.error("Skip error:", error);
+      // Force navigation even if update fails
+      router.dismissAll();
       router.replace("/(tabs)/home");
     } finally {
       setIsLoading(false);
@@ -174,38 +193,45 @@ export default function OnboardingScreen() {
   };
 
   const handleSkip = () => {
-    Alert.alert(
-      "Skip Onboarding",
-      "You can always update your interests later in settings. Your feed may be less personalized.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Skip Anyway",
-          onPress: async () => {
-            try {
-              // Update onboarding completion status in metadata
-              const updateData: any = {};
-              if (profile?.metadata) {
-                updateData.metadata = {
-                  ...profile.metadata,
-                  onboarding_completed: true,
-                };
-              } else {
-                updateData.metadata = {
-                  onboarding_completed: true,
-                };
-              }
+    if (step === 2) {
+      // If on step 2, just go back to step 1
+      setStep(1);
+      return;
+    }
 
-              await updateProfile.mutateAsync(updateData);
-              router.replace("/(tabs)/home");
-            } catch (error) {
-              console.error("Error skipping onboarding:", error);
-              router.replace("/(tabs)/home");
-            }
+    if (selectedCount > 0) {
+      Alert.alert(
+        "Skip Onboarding",
+        `You've selected ${selectedCount} interest(s). Would you like to save them or skip completely?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Skip Without Saving",
+            style: "destructive",
+            onPress: skipToHome,
           },
-        },
-      ],
-    );
+          {
+            text: "Save and Continue",
+            onPress: async () => {
+              await handleCompleteOnboarding();
+            },
+          },
+        ],
+      );
+    } else {
+      Alert.alert(
+        "Skip Onboarding",
+        "You can always set up interests later in settings. Your feed will show popular content until then.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Skip Anyway",
+            style: "default",
+            onPress: skipToHome,
+          },
+        ],
+      );
+    }
   };
 
   const renderStep1 = () => (
@@ -283,12 +309,11 @@ export default function OnboardingScreen() {
           ))}
         </View>
 
-        {/* Custom interest input */}
+        {/* Custom interest note */}
         <View style={styles.customInterestContainer}>
           <Text style={styles.sectionTitle}>Add Your Own</Text>
           <Text style={styles.customInterestHint}>
-            Can&apos;t find what you&apos;re looking for? You can add custom
-            interests later in settings.
+            💡 You can add custom interests later in Settings → Feed Preferences
           </Text>
         </View>
       </ScrollView>
@@ -339,21 +364,21 @@ export default function OnboardingScreen() {
             </Text>
             <View style={styles.recommendationList}>
               <Text style={styles.recommendationItem}>
-                • Tech & Startup communities
+                • Personalized content recommendations
               </Text>
               <Text style={styles.recommendationItem}>
-                • Photography tutorials
+                • Relevant communities and groups
               </Text>
               <Text style={styles.recommendationItem}>
-                • Wellness & mindfulness content
+                • Tailored event suggestions
               </Text>
             </View>
           </View>
 
           <View style={styles.disclaimer}>
             <Text style={styles.disclaimerText}>
-              💡 You can always update your interests in settings. Your feed
-              will adapt based on what you engage with.
+              ✨ You can always update your interests in Settings → Feed
+              Preferences
             </Text>
           </View>
         </View>
@@ -363,6 +388,15 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Close button at top right - instantly skips to home */}
+      <TouchableOpacity
+        style={styles.closeButton}
+        onPress={skipToHome}
+        disabled={isLoading}
+      >
+        <Text style={styles.closeButtonText}>×</Text>
+      </TouchableOpacity>
+
       {step === 1 ? renderStep1() : renderStep2()}
 
       <View style={styles.footer}>
@@ -384,18 +418,21 @@ export default function OnboardingScreen() {
               : "Complete Setup"
           }
           onPress={handleContinue}
-          disabled={step === 1 && selectedCount < 3}
-          loading={isLoading || updateProfile.isPending}
+          loading={isLoading}
           style={styles.continueButton}
         />
 
         <TouchableOpacity
           style={styles.skipButton}
           onPress={handleSkip}
-          disabled={isLoading || updateProfile.isPending}
+          disabled={isLoading}
         >
           <Text style={styles.skipButtonText}>
-            {step === 1 ? "Skip for now" : "Back to edit"}
+            {step === 1
+              ? selectedCount === 0
+                ? "Skip setup for now"
+                : "Save and skip to app"
+              : "Back to edit"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -408,9 +445,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#ffffff",
   },
+  closeButton: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  closeButtonText: {
+    fontSize: 24,
+    color: "#666666",
+    fontWeight: "300",
+  },
   header: {
     padding: 24,
-    paddingTop: 40,
+    paddingTop: 80,
   },
   title: {
     fontSize: 28,

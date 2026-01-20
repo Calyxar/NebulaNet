@@ -97,7 +97,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// TypeScript types for all tables
+// TypeScript types for all tables (Updated with story tables)
 export type Tables = {
   profiles: {
     Row: {
@@ -154,6 +154,49 @@ export type Tables = {
       updated_at?: string;
     };
     Update: Partial<Tables["posts"]["Row"]>;
+  };
+
+  // NEW: Stories table
+  stories: {
+    Row: {
+      id: string;
+      user_id: string;
+      content: string | null;
+      media_url: string | null;
+      media_type: "image" | "video" | "text" | null;
+      expires_at: string;
+      view_count: number;
+      created_at: string;
+      updated_at: string;
+    };
+    Insert: Partial<
+      Omit<Tables["stories"]["Row"], "id" | "created_at" | "updated_at">
+    > & {
+      id?: string;
+      created_at?: string;
+      updated_at?: string;
+    };
+    Update: Partial<Tables["stories"]["Row"]>;
+  };
+
+  // NEW: Story comments table
+  story_comments: {
+    Row: {
+      id: string;
+      story_id: string;
+      user_id: string;
+      content: string;
+      created_at: string;
+      updated_at: string;
+    };
+    Insert: Partial<
+      Omit<Tables["story_comments"]["Row"], "id" | "created_at" | "updated_at">
+    > & {
+      id?: string;
+      created_at?: string;
+      updated_at?: string;
+    };
+    Update: Partial<Tables["story_comments"]["Row"]>;
   };
 
   communities: {
@@ -273,10 +316,12 @@ export type Tables = {
         | "follow"
         | "mention"
         | "join_request"
-        | "message";
+        | "message"
+        | "story_comment";
       from_user_id: string | null;
       post_id: string | null;
       comment_id: string | null;
+      story_id: string | null;
       community_id: string | null;
       conversation_id: string | null;
       message: string | null;
@@ -416,6 +461,377 @@ export type Tables = {
     Update: Partial<Tables["deleted_accounts_backup"]["Row"]>;
   };
 };
+
+// ==================== STORY FUNCTIONS ====================
+
+/**
+ * Create a story comment
+ */
+export async function createStoryComment(storyId: string, content: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  try {
+    // First check if story exists and is not expired
+    const { data: story, error: storyError } = await supabase
+      .from("stories")
+      .select("*")
+      .eq("id", storyId)
+      .gt("expires_at", new Date().toISOString())
+      .single();
+
+    if (storyError || !story) {
+      throw new Error("Story not found or has expired");
+    }
+
+    // Create the comment
+    const { data, error } = await supabase
+      .from("story_comments")
+      .insert({
+        story_id: storyId,
+        user_id: user.id,
+        content: content.trim(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Create notification for story owner if not the same user
+    if (story.user_id !== user.id) {
+      await createNotification({
+        user_id: story.user_id,
+        type: "story_comment",
+        from_user_id: user.id,
+        story_id: storyId,
+        message: `${user.id} commented on your story`,
+      });
+    }
+
+    return data;
+  } catch (error: any) {
+    console.error("Error creating story comment:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get comments for a story
+ */
+export async function getStoryComments(
+  storyId: string,
+  limit = 50,
+  offset = 0,
+) {
+  try {
+    const { data, error } = await supabase
+      .from("story_comments")
+      .select(
+        `
+        *,
+        profiles!story_comments_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("story_id", storyId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error("Error getting story comments:", error);
+    return [];
+  }
+}
+
+/**
+ * Get recent stories from followed users
+ */
+export async function getFollowingStories() {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  try {
+    // Get users that the current user follows
+    const { data: following, error: followError } = await supabase
+      .from("follows")
+      .select("following_id")
+      .eq("follower_id", user.id);
+
+    if (followError) return [];
+
+    const followingIds = following?.map((f) => f.following_id) || [];
+
+    if (followingIds.length === 0) {
+      return [];
+    }
+
+    // Get active stories from followed users
+    const { data: stories, error: storiesError } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .in("user_id", followingIds)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true });
+
+    if (storiesError) return [];
+    return stories || [];
+  } catch (error) {
+    console.error("Error getting following stories:", error);
+    return [];
+  }
+}
+
+/**
+ * Get stories for a specific user
+ */
+export async function getUserStories(userId: string) {
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("user_id", userId)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error("Error getting user stories:", error);
+    return [];
+  }
+}
+
+/**
+ * Get a single story by ID
+ */
+export async function getStoryById(storyId: string) {
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("id", storyId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error("Error getting story:", error);
+    return null;
+  }
+}
+
+/**
+ * Mark story as viewed
+ */
+export async function viewStory(storyId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  try {
+    // Check if story exists and is not expired
+    const { data: story, error: storyError } = await supabase
+      .from("stories")
+      .select("*")
+      .eq("id", storyId)
+      .gt("expires_at", new Date().toISOString())
+      .single();
+
+    if (storyError || !story) {
+      throw new Error("Story not found or has expired");
+    }
+
+    // Check if already viewed
+    const { data: existingView } = await supabase
+      .from("story_views")
+      .select("*")
+      .eq("story_id", storyId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!existingView) {
+      // Record view
+      await supabase.from("story_views").insert({
+        story_id: storyId,
+        user_id: user.id,
+        viewed_at: new Date().toISOString(),
+      });
+
+      // Increment view count
+      await supabase
+        .from("stories")
+        .update({ view_count: supabase.rpc("increment", { x: 1 }) })
+        .eq("id", storyId);
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error viewing story:", error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a story
+ */
+export async function deleteStory(storyId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { error } = await supabase
+    .from("stories")
+    .delete()
+    .eq("id", storyId)
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+  return true;
+}
+
+/**
+ * Delete a story comment
+ */
+export async function deleteStoryComment(commentId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { error } = await supabase
+    .from("story_comments")
+    .delete()
+    .eq("id", commentId)
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+  return true;
+}
+
+/**
+ * Get story statistics
+ */
+export async function getStoryStats(storyId: string) {
+  try {
+    const [{ count: viewsCount }, { count: commentsCount }] = await Promise.all(
+      [
+        supabase
+          .from("story_views")
+          .select("*", { count: "exact", head: true })
+          .eq("story_id", storyId),
+        supabase
+          .from("story_comments")
+          .select("*", { count: "exact", head: true })
+          .eq("story_id", storyId),
+      ],
+    );
+
+    return {
+      views: viewsCount || 0,
+      comments: commentsCount || 0,
+    };
+  } catch (error) {
+    console.error("Error getting story stats:", error);
+    return { views: 0, comments: 0 };
+  }
+}
+
+/**
+ * Check if user has unviewed stories from followed users
+ */
+export async function hasUnviewedStories() {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  try {
+    const followingStories = await getFollowingStories();
+
+    if (followingStories.length === 0) {
+      return false;
+    }
+
+    const storyIds = followingStories.map((story: any) => story.id);
+
+    // Get stories that have been viewed by the user
+    const { data: viewedStories } = await supabase
+      .from("story_views")
+      .select("story_id")
+      .eq("user_id", user.id)
+      .in("story_id", storyIds);
+
+    const viewedStoryIds =
+      viewedStories?.map((view: any) => view.story_id) || [];
+
+    // Return true if there are stories not viewed
+    return storyIds.some(
+      (storyId: string) => !viewedStoryIds.includes(storyId),
+    );
+  } catch (error) {
+    console.error("Error checking unviewed stories:", error);
+    return false;
+  }
+}
+
+// Helper function to create notifications
+async function createNotification(notification: {
+  user_id: string;
+  type: Tables["notifications"]["Row"]["type"];
+  from_user_id?: string;
+  post_id?: string;
+  comment_id?: string;
+  story_id?: string;
+  community_id?: string;
+  conversation_id?: string;
+  message?: string;
+}) {
+  try {
+    const { error } = await supabase.from("notifications").insert({
+      ...notification,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error("Error creating notification:", error);
+    }
+  } catch (error) {
+    console.error("Error in createNotification:", error);
+  }
+}
+
+// ==================== EXISTING FUNCTIONS (keeping all your existing ones) ====================
 
 // Auth helper functions
 export async function signInWithEmail(email: string, password: string) {
@@ -923,6 +1339,31 @@ export function subscribeToTable<T extends TableName>(
       schema: "public",
       table: table as string,
       filter,
+    },
+    callback,
+  );
+
+  channel.subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+// Subscribe to story comments in real-time
+export function subscribeToStoryComments(
+  storyId: string,
+  callback: (payload: PostgrestChangePayload) => void,
+) {
+  const channel = supabase.channel(`story-comments-${storyId}`);
+
+  channel.on(
+    "postgres_changes" as any,
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "story_comments",
+      filter: `story_id=eq.${storyId}`,
     },
     callback,
   );
@@ -1679,7 +2120,11 @@ export async function incrementShareCount(postId: string) {
   }
 }
 
-export async function createStory(content: string, mediaUrl?: string) {
+export async function createStory(
+  content: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video" | "text",
+) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
 
@@ -1689,7 +2134,9 @@ export async function createStory(content: string, mediaUrl?: string) {
       user_id: user.id,
       content,
       media_url: mediaUrl,
+      media_type: mediaType || (mediaUrl ? "image" : "text"),
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      view_count: 0,
     })
     .select()
     .single();
@@ -1698,18 +2145,101 @@ export async function createStory(content: string, mediaUrl?: string) {
   return data;
 }
 
-export async function getActiveStories() {
+export async function getActiveStories(limit = 50) {
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey(*)
+      `,
+      )
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error("Error getting active stories:", error);
+    return [];
+  }
+}
+
+// Enhanced story creation with options
+export async function createStoryWithOptions(
+  content?: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video" | "text",
+  options?: {
+    backgroundColor?: string;
+    textColor?: string;
+  },
+) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
   const { data, error } = await supabase
     .from("stories")
-    .select(
-      `
-      *,
-      profiles!stories_user_id_fkey(*)
-    `,
-    )
-    .gt("expires_at", new Date().toISOString())
-    .order("created_at", { ascending: false });
+    .insert({
+      user_id: user.id,
+      content: content || null,
+      media_url: mediaUrl || null,
+      media_type: mediaType || (mediaUrl ? "image" : "text"),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      view_count: 0,
+    })
+    .select()
+    .single();
 
   if (error) throw error;
   return data;
+}
+
+// Get stories with user data
+export async function getStoriesWithUsers() {
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error("Error getting stories with users:", error);
+    return [];
+  }
+}
+
+// Check if user has active story
+export async function hasActiveStory() {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  try {
+    const { count, error } = await supabase
+      .from("stories")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gt("expires_at", new Date().toISOString());
+
+    if (error) return false;
+    return (count || 0) > 0;
+  } catch (error) {
+    console.error("Error checking active story:", error);
+    return false;
+  }
 }

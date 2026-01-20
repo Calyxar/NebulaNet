@@ -1,10 +1,12 @@
-// app/(tabs)/home.tsx
+// app/(tabs)/home.tsx (updated with story commenting)
 import PostCard from "@/components/post/PostCard";
+import StoryCommentModal from "@/components/stories/StoryCommentModal";
 import { shareWithOptions } from "@/lib/share";
 import {
   checkIfLiked,
   checkIfSaved,
   createComment,
+  createStoryComment,
   getCurrentUserProfile,
   getFeedPosts,
   getSavesCount,
@@ -12,7 +14,6 @@ import {
   savePost,
 } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { formatDistanceToNow } from "date-fns";
 import { Link, router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -62,6 +63,10 @@ interface Story {
   user_id?: string;
   avatar_url?: string | null;
   full_name?: string | null;
+  story_content?: string;
+  story_image?: string;
+  story_type?: "text" | "image" | "video";
+  created_at?: string;
 }
 
 // Check if we're in development mode
@@ -87,8 +92,13 @@ export default function HomeScreen() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentText, setCommentText] = useState("");
   const [isCommenting, setIsCommenting] = useState(false);
+
+  // Story modal state
   const [storyModalVisible, setStoryModalVisible] = useState(false);
-  const [storyCommentText, setStoryCommentText] = useState("");
+  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const [storyViewerVisible, setStoryViewerVisible] = useState(false);
 
   // Update current time
   useEffect(() => {
@@ -113,56 +123,50 @@ export default function HomeScreen() {
       setLoading(true);
       const feedPosts = await getFeedPosts();
 
-      // In production, only show actual posts
-      // In development, we can add mock posts if needed
       if (IS_DEV && (!feedPosts || feedPosts.length === 0)) {
-        // Add sample posts for development preview only
+        // Add sample posts for development
         const devPosts: Post[] = [
           {
             id: "dev-1",
-            title:
-              "Energy's rising 🟡️ PartyPlanet Crew is taking over the night 🟢",
-            content: "Let's vibe, dance, and shine together",
-            like_count: 723,
-            comment_count: 532,
-            share_count: 250,
-            view_count: 10000,
-            created_at: new Date(Date.now() - 3600000).toISOString(),
-            user_id: "dev-user-1",
+            title: null,
+            content:
+              "Take that first step, explore new ideas, and see where it leads. The best time to start is now!",
+            like_count: 10000,
+            comment_count: 172,
+            share_count: 80,
+            view_count: 12500,
+            created_at: new Date(Date.now() - 2 * 3600000).toISOString(),
+            user_id: "dev-user-kev",
             community_id: null,
             profiles: {
-              username: "bennyblankon",
-              full_name: "Benny Blankon",
+              username: "kevhelena",
+              full_name: "Kev & Helena",
               avatar_url: null,
             },
             communities: null,
           },
           {
             id: "dev-2",
-            title: "Tomato Progress is thriving! 🟢",
+            title: null,
             content:
-              "New leaves, strong stems, and steady growth ahead 🟢 #PlantProgress #GrowStrong",
-            like_count: 420,
-            comment_count: 89,
-            share_count: 45,
-            view_count: 5000,
-            created_at: new Date(Date.now() - 7200000).toISOString(),
-            user_id: "dev-user-2",
-            community_id: "dev-comm-1",
+              "Get your hands dirty and create something beautiful! Discover the art of gerabah making – from shaping clay to adding the final touches.",
+            like_count: 8500,
+            comment_count: 324,
+            share_count: 189,
+            view_count: 18700,
+            created_at: new Date(Date.now() - 3 * 3600000).toISOString(),
+            user_id: "dev-user-valerie",
+            community_id: null,
             profiles: {
-              username: "aidenfrost",
-              full_name: "Aiden Froz",
+              username: "valerieazer",
+              full_name: "Valerie Azer",
               avatar_url: null,
             },
-            communities: {
-              name: "Farm Harmony",
-              slug: "farm-harmony",
-            },
+            communities: null,
           },
         ];
         setPosts(devPosts);
 
-        // Set default like/save states for dev posts
         const likes: Record<string, boolean> = {};
         const saves: Record<string, boolean> = {};
         const savesCount: Record<string, number> = {};
@@ -177,10 +181,8 @@ export default function HomeScreen() {
         setPostSaves(saves);
         setPostSavesCount(savesCount);
       } else {
-        // Production - only real data
         setPosts(feedPosts || []);
 
-        // Check like/save status for real posts
         if (feedPosts && feedPosts.length > 0) {
           const likes: Record<string, boolean> = {};
           const saves: Record<string, boolean> = {};
@@ -208,7 +210,7 @@ export default function HomeScreen() {
   const loadStories = useCallback(async () => {
     try {
       if (IS_DEV) {
-        // Development: Show mock stories for preview
+        // Development: Show mock stories with content
         const mockStories: Story[] = [
           {
             id: "add-story",
@@ -216,19 +218,56 @@ export default function HomeScreen() {
             hasStory: false,
             isAdd: true,
           },
-          { id: "gia", username: "Gia Monroe", hasStory: true, isAdd: false },
+          {
+            id: "gia",
+            username: "Gia Monroe",
+            hasStory: true,
+            isAdd: false,
+            avatar_url: null,
+            full_name: "Gia Monroe",
+            story_content:
+              "Just finished my morning workout! 💪 Ready to take on the day. What's everyone up to today?",
+            story_image: "https://picsum.photos/400/800?random=1",
+            story_type: "image",
+            created_at: new Date(Date.now() - 1 * 3600000).toISOString(),
+          },
           {
             id: "jeanne",
             username: "Jeanne I...",
             hasStory: true,
             isAdd: false,
+            avatar_url: null,
+            full_name: "Jeanne I",
+            story_content: "Beautiful sunset at the beach today 🌅",
+            story_image: "https://picsum.photos/400/800?random=2",
+            story_type: "image",
+            created_at: new Date(Date.now() - 2 * 3600000).toISOString(),
           },
-          { id: "keanu", username: "Keanu A...", hasStory: true, isAdd: false },
+          {
+            id: "keanu",
+            username: "Keanu A...",
+            hasStory: true,
+            isAdd: false,
+            avatar_url: null,
+            full_name: "Keanu A",
+            story_content:
+              "New recipe alert! 🍝 Just made the best pasta ever!",
+            story_image: "https://picsum.photos/400/800?random=3",
+            story_type: "image",
+            created_at: new Date(Date.now() - 3 * 3600000).toISOString(),
+          },
           {
             id: "laila",
             username: "Laila Gib...",
             hasStory: true,
             isAdd: false,
+            avatar_url: null,
+            full_name: "Laila Gib",
+            story_content:
+              "Weekend vibes 🎶 What's your favorite weekend activity?",
+            story_image: "https://picsum.photos/400/800?random=4",
+            story_type: "image",
+            created_at: new Date(Date.now() - 4 * 3600000).toISOString(),
           },
         ];
         setStories(mockStories);
@@ -246,6 +285,8 @@ export default function HomeScreen() {
             hasStory: false,
             isAdd: true,
             user_id: currentUser.id,
+            avatar_url: currentUser.avatar_url,
+            full_name: currentUser.full_name,
           },
         ];
         setStories(realStories);
@@ -277,7 +318,19 @@ export default function HomeScreen() {
   const formatTimestamp = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
-      return formatDistanceToNow(date, { addSuffix: true });
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+      if (diffHours < 1) {
+        const diffMins = Math.floor(diffMs / (1000 * 60));
+        return `${diffMins} min ago`;
+      } else if (diffHours < 24) {
+        return `${diffHours} hr ago`;
+      } else {
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        return `${diffDays} days ago`;
+      }
     } catch {
       return "Recently";
     }
@@ -287,7 +340,6 @@ export default function HomeScreen() {
     return post.profiles?.full_name || post.profiles?.username || "Anonymous";
   };
 
-  // Function to handle post interactions
   const handleLikePress = async (postId: string) => {
     try {
       const liked = await likePost(postId);
@@ -296,7 +348,6 @@ export default function HomeScreen() {
         [postId]: liked,
       }));
 
-      // Update like count in local state
       setPosts((prev) =>
         prev.map((post) => {
           if (post.id === postId) {
@@ -327,7 +378,6 @@ export default function HomeScreen() {
         author: postData.author,
       });
 
-      // Update share count in local state
       setPosts((prev) =>
         prev.map((post) => {
           if (post.id === postId) {
@@ -352,7 +402,6 @@ export default function HomeScreen() {
         [postId]: saved,
       }));
 
-      // Update saves count
       setPostSavesCount((prev) => ({
         ...prev,
         [postId]: saved
@@ -364,7 +413,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Handle comment submission
   const handleSubmitComment = async () => {
     if (!selectedPost || !commentText.trim() || isCommenting) return;
 
@@ -372,7 +420,6 @@ export default function HomeScreen() {
     try {
       await createComment(selectedPost.id, commentText);
 
-      // Update comment count in local state
       setPosts((prev) =>
         prev.map((post) => {
           if (post.id === selectedPost.id) {
@@ -385,10 +432,8 @@ export default function HomeScreen() {
         }),
       );
 
-      // Reset and close modal
       setCommentText("");
       setCommentModalVisible(false);
-
       Alert.alert("Success", "Comment posted successfully!");
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to post comment");
@@ -397,30 +442,74 @@ export default function HomeScreen() {
     }
   };
 
-  // Handle story comment
-  const handleStoryComment = async (storyId: string) => {
-    if (!storyCommentText.trim()) return;
+  // Handle story view
+  const handleViewStory = (story: Story) => {
+    if (story.isAdd) {
+      Alert.alert("Add Story", "Story creation feature coming soon!");
+    } else {
+      setSelectedStory(story);
+      setStoryViewerVisible(true);
+      setStoryProgress(0);
 
-    try {
-      // Here you would implement story commenting logic
-      // For now, just show a success message
-      Alert.alert("Success", `Comment sent to story: ${storyCommentText}`);
-      setStoryCommentText("");
-      setStoryModalVisible(false);
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to send comment");
+      // Start progress animation
+      const interval = setInterval(() => {
+        setStoryProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            handleNextStory();
+            return 0;
+          }
+          return prev + 1;
+        });
+      }, 50); // 5 seconds total for story
     }
   };
 
-  // View story
-  const handleViewStory = (story: Story) => {
-    if (story.isAdd) {
-      // Create new story
-      Alert.alert("Add Story", "Story creation feature coming soon!");
+  const handleNextStory = () => {
+    const storyStories = stories.filter((s) => !s.isAdd && s.hasStory);
+    if (storyStories.length > 0) {
+      const nextIndex = (currentStoryIndex + 1) % storyStories.length;
+      setCurrentStoryIndex(nextIndex);
+      setSelectedStory(storyStories[nextIndex]);
+      setStoryProgress(0);
     } else {
-      // View story
-      setStoryModalVisible(true);
+      setStoryViewerVisible(false);
+      setSelectedStory(null);
     }
+  };
+
+  const handlePrevStory = () => {
+    const storyStories = stories.filter((s) => !s.isAdd && s.hasStory);
+    if (storyStories.length > 0) {
+      const prevIndex =
+        (currentStoryIndex - 1 + storyStories.length) % storyStories.length;
+      setCurrentStoryIndex(prevIndex);
+      setSelectedStory(storyStories[prevIndex]);
+      setStoryProgress(0);
+    }
+  };
+
+  // Handle story comment submission
+  const handleStoryComment = async (commentText: string): Promise<boolean> => {
+    if (!selectedStory || !commentText.trim()) return false;
+
+    try {
+      // Create story comment in Supabase
+      await createStoryComment(selectedStory.id, commentText);
+
+      Alert.alert("Success", "Comment sent to story!");
+      return true;
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to send comment");
+      return false;
+    }
+  };
+
+  const handleCloseStory = () => {
+    setStoryViewerVisible(false);
+    setSelectedStory(null);
+    setStoryProgress(0);
+    setCurrentStoryIndex(0);
   };
 
   if (loading && !refreshing) {
@@ -435,7 +524,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with time and logo */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.timeContainer}>
           <Text style={styles.time}>{currentTime}</Text>
@@ -450,8 +539,11 @@ export default function HomeScreen() {
           <Text style={styles.logoText}>NebulaNet</Text>
         </View>
 
-        <TouchableOpacity style={styles.searchButton}>
-          <Ionicons name="search" size={24} color="#000" />
+        <TouchableOpacity
+          style={styles.searchButton}
+          onPress={() => router.push("/(tabs)/explore")}
+        >
+          <Ionicons name="search-outline" size={24} color="#000" />
         </TouchableOpacity>
       </View>
 
@@ -462,12 +554,13 @@ export default function HomeScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Stories Row - Only show if there are stories */}
+        {/* Stories Row */}
         {stories.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.storiesContainer}
+            contentContainerStyle={styles.storiesContent}
           >
             {stories.map((story) => (
               <TouchableOpacity
@@ -487,12 +580,16 @@ export default function HomeScreen() {
                     </View>
                   ) : (
                     <View style={styles.storyImage}>
-                      <Text style={styles.storyInitial}>
-                        {story.username
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </Text>
+                      {story.avatar_url ? (
+                        <Image
+                          source={{ uri: story.avatar_url }}
+                          style={styles.storyAvatar}
+                        />
+                      ) : (
+                        <Text style={styles.storyInitial}>
+                          {story.username.charAt(0).toUpperCase()}
+                        </Text>
+                      )}
                     </View>
                   )}
                   {story.hasStory && !story.isAdd && (
@@ -627,21 +724,9 @@ export default function HomeScreen() {
             ))
           )}
         </View>
-
-        {/* Call to Action - Only show in production when user is new */}
-        {!IS_DEV && posts.length === 0 && (
-          <View style={styles.ctaContainer}>
-            <Text style={styles.ctaTitle}>
-              Take that first step, explore new ideas, and see where it leads.
-            </Text>
-            <Text style={styles.ctaSubtitle}>
-              The best time to start is now!
-            </Text>
-          </View>
-        )}
       </ScrollView>
 
-      {/* Comment Modal */}
+      {/* Post Comment Modal */}
       <Modal
         visible={commentModalVisible}
         animationType="slide"
@@ -705,59 +790,111 @@ export default function HomeScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Story Modal */}
+      {/* Story Viewer Modal */}
       <Modal
-        visible={storyModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setStoryModalVisible(false)}
+        visible={storyViewerVisible}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={handleCloseStory}
       >
-        <View style={styles.storyModalContainer}>
-          <View style={styles.storyModalContent}>
-            <View style={styles.storyModalHeader}>
-              <TouchableOpacity
-                onPress={() => setStoryModalVisible(false)}
-                style={styles.storyCloseButton}
-              >
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-              <Text style={styles.storyModalTitle}>Story</Text>
-              <View style={styles.storyHeaderSpacer} />
-            </View>
-
-            <View style={styles.storyView}>
-              <Text style={styles.storyText}>
-                Story content would appear here
-              </Text>
-            </View>
-
-            <View style={styles.storyCommentContainer}>
-              <TextInput
-                style={styles.storyCommentInput}
-                placeholder="Send a reply..."
-                placeholderTextColor="rgba(255,255,255,0.6)"
-                value={storyCommentText}
-                onChangeText={setStoryCommentText}
-                onSubmitEditing={() => handleStoryComment("story-id")}
+        {selectedStory && (
+          <View style={styles.storyContainer}>
+            {/* Progress Bar */}
+            <View style={styles.progressBarContainer}>
+              <View
+                style={[styles.progressBar, { width: `${storyProgress}%` }]}
               />
+            </View>
+
+            {/* Header */}
+            <View style={styles.storyHeader}>
+              <View style={styles.storyUserInfo}>
+                <View style={styles.storyUserAvatar}>
+                  {selectedStory.avatar_url ? (
+                    <Image
+                      source={{ uri: selectedStory.avatar_url }}
+                      style={styles.storyHeaderAvatar}
+                    />
+                  ) : (
+                    <Text style={styles.storyHeaderInitial}>
+                      {selectedStory.username.charAt(0).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <View>
+                  <Text style={styles.storyUserName}>
+                    {selectedStory.full_name || selectedStory.username}
+                  </Text>
+                  <Text style={styles.storyTime}>
+                    {selectedStory.created_at
+                      ? formatTimestamp(selectedStory.created_at)
+                      : "Recently"}
+                  </Text>
+                </View>
+              </View>
+
               <TouchableOpacity
-                style={styles.storySendButton}
-                onPress={() => handleStoryComment("story-id")}
+                onPress={handleCloseStory}
+                style={styles.storyCloseBtn}
               >
-                <Ionicons
-                  name="send"
-                  size={20}
-                  color={
-                    storyCommentText.trim() ? "#fff" : "rgba(255,255,255,0.3)"
-                  }
-                />
+                <Ionicons name="close" size={28} color="#fff" />
               </TouchableOpacity>
             </View>
+
+            {/* Story Content */}
+            <View style={styles.storyContent}>
+              {selectedStory.story_image ? (
+                <Image
+                  source={{ uri: selectedStory.story_image }}
+                  style={styles.storyImageFull}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.storyTextContainer}>
+                  <Text style={styles.storyTextContent}>
+                    {selectedStory.story_content || "No story content"}
+                  </Text>
+                </View>
+              )}
+
+              {selectedStory.story_content && selectedStory.story_image && (
+                <View style={styles.storyTextOverlay}>
+                  <Text style={styles.storyCaption}>
+                    {selectedStory.story_content}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Navigation Buttons */}
+            <TouchableOpacity
+              style={[styles.navButton, styles.navButtonLeft]}
+              onPress={handlePrevStory}
+              activeOpacity={0.7}
+            >
+              <View style={styles.navButtonArea} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.navButton, styles.navButtonRight]}
+              onPress={handleNextStory}
+              activeOpacity={0.7}
+            >
+              <View style={styles.navButtonArea} />
+            </TouchableOpacity>
+
+            {/* Comment Input */}
+            <StoryCommentModal
+              visible={storyViewerVisible}
+              onSendComment={handleStoryComment}
+              onClose={handleCloseStory}
+              placeholder="Send a reply..."
+            />
           </View>
-        </View>
+        )}
       </Modal>
 
-      {/* FAB for creating new post - Always visible */}
+      {/* FAB for creating new post */}
       <Link href="/post/create" asChild>
         <TouchableOpacity style={styles.fab}>
           <Ionicons name="add" size={30} color="#fff" />
@@ -820,6 +957,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e5e5e5",
   },
+  storiesContent: {
+    paddingRight: 16,
+  },
   storyItem: {
     alignItems: "center",
     marginRight: 20,
@@ -854,6 +994,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
     justifyContent: "center",
     alignItems: "center",
+  },
+  storyAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   storyInitial: {
     color: "#ffffff",
@@ -933,30 +1078,6 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "600",
     fontSize: 14,
-  },
-  ctaContainer: {
-    backgroundColor: "#f8f8f8",
-    padding: 20,
-    marginHorizontal: 16,
-    marginBottom: 20,
-    borderRadius: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e5e5",
-  },
-  ctaTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 8,
-    color: "#000000",
-    lineHeight: 24,
-  },
-  ctaSubtitle: {
-    fontSize: 14,
-    color: "#666666",
-    textAlign: "center",
-    fontWeight: "500",
   },
   fab: {
     position: "absolute",
@@ -1057,60 +1178,116 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
   },
-  // Story Modal styles
-  storyModalContainer: {
+  // Story Viewer Styles
+  storyContainer: {
     flex: 1,
     backgroundColor: "#000",
   },
-  storyModalContent: {
-    flex: 1,
-    justifyContent: "space-between",
+  progressBarContainer: {
+    height: 2,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    marginTop: 8,
+    marginHorizontal: 8,
+    borderRadius: 1,
   },
-  storyModalHeader: {
+  progressBar: {
+    height: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 1,
+  },
+  storyHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
-    paddingTop: 40,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  storyCloseButton: {
+  storyUserInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  storyUserAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#333",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  storyHeaderAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  storyHeaderInitial: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  storyUserName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  storyTime: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  storyCloseBtn: {
     padding: 4,
   },
-  storyModalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  storyHeaderSpacer: {
-    width: 32,
-  },
-  storyView: {
+  storyContent: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  storyText: {
+  storyImageFull: {
+    width: "100%",
+    height: "100%",
+  },
+  storyTextContainer: {
+    padding: 20,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 12,
+    marginHorizontal: 20,
+  },
+  storyTextContent: {
+    color: "#fff",
     fontSize: 18,
-    color: "#fff",
     textAlign: "center",
+    lineHeight: 24,
   },
-  storyCommentContainer: {
-    flexDirection: "row",
-    alignItems: "center",
+  storyTextOverlay: {
+    position: "absolute",
+    bottom: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: "rgba(0,0,0,0.6)",
     padding: 16,
-    backgroundColor: "rgba(0,0,0,0.8)",
+    borderRadius: 12,
   },
-  storyCommentInput: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 14,
+  storyCaption: {
     color: "#fff",
-    marginRight: 8,
+    fontSize: 16,
+    textAlign: "center",
+    lineHeight: 22,
   },
-  storySendButton: {
-    padding: 8,
+  navButton: {
+    position: "absolute",
+    top: 0,
+    bottom: 100,
+    width: "30%",
+  },
+  navButtonLeft: {
+    left: 0,
+  },
+  navButtonRight: {
+    right: 0,
+  },
+  navButtonArea: {
+    flex: 1,
   },
 });

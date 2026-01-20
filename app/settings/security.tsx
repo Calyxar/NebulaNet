@@ -192,11 +192,8 @@ export default function SecurityScreen() {
                           "Email Sent",
                           "Verification email resent successfully",
                         );
-                      } catch (error) {
-                        Alert.alert(
-                          "Error",
-                          "Failed to resend verification email",
-                        );
+                      } catch (error: any) {
+                        Alert.alert("Error", error.message);
                       }
                     },
                   },

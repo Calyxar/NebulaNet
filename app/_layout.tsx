@@ -11,6 +11,9 @@ import React, { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+// Import useAuth hook properly
+import { useAuth } from "@/hooks/useAuth"; // <-- Add this import
+
 // Configure notification handler - only for local notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -128,8 +131,7 @@ function useDeepLinking() {
 
 // Auth redirect wrapper component
 function AuthRedirectWrapper({ children }: { children: React.ReactNode }) {
-  const { useAuth } = require("@/hooks/useAuth");
-  const { isAuthenticated, isEmailVerified, isLoading } = useAuth();
+  const { isAuthenticated, isEmailVerified, isLoading } = useAuth(); // <-- Now using the imported hook
   const segments = useSegments();
   const router = useRouter();
 

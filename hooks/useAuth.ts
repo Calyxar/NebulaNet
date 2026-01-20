@@ -6,9 +6,9 @@ import {
   supabase,
   signInWithEmail as supabaseSignIn,
   signUpWithEmail as supabaseSignUp,
-  updateProfile as supabaseUpdateProfile
+  updateProfile as supabaseUpdateProfile,
 } from "@/lib/supabase";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import Constants from "expo-constants";
@@ -25,6 +25,7 @@ export const useAuth = () => {
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const queryClient = useQueryClient();
 
   const redirectUri = makeRedirectUri({
     scheme: "nebulanet",
@@ -68,9 +69,14 @@ export const useAuth = () => {
       setIsEmailVerified(!!currentUser?.email_confirmed_at);
 
       if (currentUser) {
-        const userProfile = await getProfile(currentUser.id);
-        setProfile(userProfile);
-        console.log("👤 Profile loaded:", !!userProfile);
+        try {
+          const userProfile = await getProfile(currentUser.id);
+          setProfile(userProfile);
+          console.log("👤 Profile loaded:", !!userProfile);
+        } catch (profileError) {
+          console.error("❌ Error loading profile:", profileError);
+          setProfile(null);
+        }
       } else {
         setProfile(null);
       }
@@ -85,7 +91,7 @@ export const useAuth = () => {
     }
   }, []);
 
-  // Login mutation - COMPLETELY FIXED
+  // Login mutation
   const loginMutation = useMutation({
     mutationFn: async ({
       email,
@@ -100,11 +106,7 @@ export const useAuth = () => {
         console.log("✅ loginMutation success, user ID:", data.user?.id);
         return { data, error: null };
       } catch (error: any) {
-        console.error("❌ loginMutation error:", {
-          message: error.message,
-          name: error.name,
-          status: error.status,
-        });
+        console.error("❌ loginMutation error:", error.message);
         return { data: null, error };
       }
     },
@@ -115,15 +117,17 @@ export const useAuth = () => {
         setSession(result.data.session);
         setIsEmailVerified(!!result.data.user?.email_confirmed_at);
 
-        console.log(
-          "📧 Login onSuccess - email verified:",
-          !!result.data.user?.email_confirmed_at,
-        );
-
         if (result.data.user) {
-          getProfile(result.data.user.id).then((userProfile) => {
-            setProfile(userProfile);
-          });
+          getProfile(result.data.user.id)
+            .then((userProfile) => {
+              setProfile(userProfile);
+              // Invalidate relevant queries
+              queryClient.invalidateQueries({ queryKey: ["user"] });
+              queryClient.invalidateQueries({ queryKey: ["profile"] });
+            })
+            .catch((error) => {
+              console.error("Error loading profile after login:", error);
+            });
         }
       }
     },
@@ -169,6 +173,8 @@ export const useAuth = () => {
         if (result.data.user) {
           getProfile(result.data.user.id).then((userProfile) => {
             setProfile(userProfile);
+            queryClient.invalidateQueries({ queryKey: ["user"] });
+            queryClient.invalidateQueries({ queryKey: ["profile"] });
           });
         }
       }
@@ -188,7 +194,7 @@ export const useAuth = () => {
   const signInWithGoogle = useCallback(async () => {
     if (!googleRequest) {
       Alert.alert("Error", "Google auth not ready");
-      return;
+      return null;
     }
 
     try {
@@ -219,6 +225,7 @@ export const useAuth = () => {
     } catch (error: any) {
       console.error("❌ Google sign in error:", error);
       Alert.alert("Google Login Failed", error.message);
+      return null;
     }
   }, [googleRequest, googlePromptAsync]);
 
@@ -232,6 +239,8 @@ export const useAuth = () => {
       setUser(null);
       setProfile(null);
       setIsEmailVerified(false);
+      // Clear all queries
+      queryClient.clear();
     },
     onError: (error: Error) => {
       console.error("❌ Logout error:", error);
@@ -268,9 +277,15 @@ export const useAuth = () => {
         setIsEmailVerified(false);
 
         if (result.data.user) {
-          getProfile(result.data.user.id).then((userProfile) => {
-            setProfile(userProfile);
-          });
+          getProfile(result.data.user.id)
+            .then((userProfile) => {
+              setProfile(userProfile);
+              queryClient.invalidateQueries({ queryKey: ["user"] });
+              queryClient.invalidateQueries({ queryKey: ["profile"] });
+            })
+            .catch((error) => {
+              console.error("Error loading profile after signup:", error);
+            });
         }
       }
     },
@@ -280,19 +295,10 @@ export const useAuth = () => {
     },
   });
 
-  // Update profile mutation
+  // Update profile mutation - FIXED with proper metadata handling
   const updateProfileMutation = useMutation({
-    mutationFn: async (updates: {
-      username?: string;
-      full_name?: string;
-      avatar_url?: string;
-      bio?: string;
-      website?: string;
-      location?: string;
-      is_online?: boolean;
-      last_seen?: string;
-    }) => {
-      console.log("🔄 updateProfileMutation called");
+    mutationFn: async (updates: any) => {
+      console.log("🔄 updateProfileMutation called with:", updates);
       try {
         const data = await supabaseUpdateProfile(updates);
         console.log("✅ updateProfileMutation success");
@@ -304,7 +310,8 @@ export const useAuth = () => {
     },
     onSuccess: (result) => {
       if (result.data) {
-        setProfile(result.data);
+        setProfile((prev: any) => ({ ...prev, ...result.data }));
+        queryClient.invalidateQueries({ queryKey: ["profile"] });
       }
     },
     onError: (error: Error) => {
@@ -442,6 +449,7 @@ export const useAuth = () => {
     onSuccess: (result) => {
       if (result.data) {
         Alert.alert("Success", "Settings updated successfully");
+        queryClient.invalidateQueries({ queryKey: ["settings"] });
       }
     },
     onError: (error: Error) => {
@@ -473,6 +481,14 @@ export const useAuth = () => {
           "2FA Enabled",
           `Two-factor authentication has been enabled. Backup codes: ${result.data.backupCodes.join(", ")}`,
         );
+        // Update profile metadata
+        updateProfileMutation.mutate({
+          metadata: {
+            ...profile?.metadata,
+            two_factor_enabled: true,
+            two_factor_enabled_at: new Date().toISOString(),
+          },
+        });
       }
     },
     onError: (error: Error) => {
@@ -500,6 +516,14 @@ export const useAuth = () => {
     onSuccess: (result) => {
       if (result.data) {
         Alert.alert("Success", "Two-factor authentication has been disabled");
+        // Update profile metadata
+        updateProfileMutation.mutate({
+          metadata: {
+            ...profile?.metadata,
+            two_factor_enabled: false,
+            two_factor_disabled_at: new Date().toISOString(),
+          },
+        });
       }
     },
     onError: (error: Error) => {
@@ -541,6 +565,7 @@ export const useAuth = () => {
         setUser(null);
         setProfile(null);
         setIsEmailVerified(false);
+        queryClient.clear();
         Alert.alert(
           "Account Deactivated",
           "Your account has been deactivated. You can reactivate it by logging in again within 30 days.",
@@ -583,6 +608,7 @@ export const useAuth = () => {
         setUser(null);
         setProfile(null);
         setIsEmailVerified(false);
+        queryClient.clear();
         Alert.alert(
           "Account Deleted",
           "Your account has been permanently deleted. All your data has been removed.",
@@ -600,11 +626,15 @@ export const useAuth = () => {
       try {
         const userProfile = await getProfile(user.id);
         setProfile(userProfile);
+        queryClient.invalidateQueries({ queryKey: ["profile"] });
+        return userProfile;
       } catch (error) {
         console.error("Error mutating profile:", error);
+        return null;
       }
     }
-  }, [user?.id]);
+    return null;
+  }, [user?.id, queryClient]);
 
   // Check email verification status
   const checkEmailVerification = useCallback(async () => {
@@ -623,6 +653,50 @@ export const useAuth = () => {
     }
     return false;
   }, [user?.id]);
+
+  // Check if user has completed onboarding
+  const hasCompletedOnboarding = useCallback(() => {
+    return profile?.metadata?.onboarding_completed === true;
+  }, [profile]);
+
+  // Mark onboarding as completed
+  const markOnboardingCompleted = useCallback(
+    async (interests?: string[]) => {
+      if (!user?.id) return false;
+
+      try {
+        const updates: any = {
+          metadata: {
+            ...profile?.metadata,
+            onboarding_completed: true,
+            onboarding_completed_at: new Date().toISOString(),
+          },
+        };
+
+        if (interests && interests.length > 0) {
+          updates.metadata.interests = interests;
+        }
+
+        const { error } = await supabase
+          .from("profiles")
+          .update(updates)
+          .eq("id", user.id);
+
+        if (error) throw error;
+
+        // Refresh profile
+        const updatedProfile = await getProfile(user.id);
+        setProfile(updatedProfile);
+        queryClient.invalidateQueries({ queryKey: ["profile"] });
+
+        return true;
+      } catch (error) {
+        console.error("Error marking onboarding completed:", error);
+        return false;
+      }
+    },
+    [user?.id, profile, queryClient],
+  );
 
   // Handle Google OAuth response
   useEffect(() => {
@@ -644,40 +718,55 @@ export const useAuth = () => {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("🔔 Auth state changed:", event, "session:", !!session);
 
-      if (event === "SIGNED_IN") {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsEmailVerified(!!session?.user?.email_confirmed_at);
+      switch (event) {
+        case "SIGNED_IN":
+          setSession(session);
+          setUser(session?.user ?? null);
+          setIsEmailVerified(!!session?.user?.email_confirmed_at);
 
-        if (session?.user) {
-          try {
-            const userProfile = await getProfile(session.user.id);
-            setProfile(userProfile);
-          } catch (error) {
-            console.error("Error loading profile after sign in:", error);
+          if (session?.user) {
+            try {
+              const userProfile = await getProfile(session.user.id);
+              setProfile(userProfile);
+              queryClient.invalidateQueries({ queryKey: ["user"] });
+              queryClient.invalidateQueries({ queryKey: ["profile"] });
+            } catch (error) {
+              console.error("Error loading profile after sign in:", error);
+            }
           }
-        }
+          setIsLoading(false);
+          break;
 
-        setIsLoading(false);
-      } else if (event === "SIGNED_OUT") {
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setIsEmailVerified(false);
-        setIsLoading(false);
-      } else if (event === "TOKEN_REFRESHED") {
-        setSession(session);
-        setIsLoading(false);
-      } else if (event === "USER_UPDATED") {
-        if (session?.user) {
-          try {
-            const userProfile = await getProfile(session.user.id);
-            setProfile(userProfile);
-            setIsEmailVerified(!!session.user.email_confirmed_at);
-          } catch (error) {
-            console.error("Error updating profile:", error);
+        case "SIGNED_OUT":
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setIsEmailVerified(false);
+          queryClient.clear();
+          setIsLoading(false);
+          break;
+
+        case "TOKEN_REFRESHED":
+          setSession(session);
+          setIsLoading(false);
+          break;
+
+        case "USER_UPDATED":
+          if (session?.user) {
+            try {
+              const userProfile = await getProfile(session.user.id);
+              setProfile(userProfile);
+              setIsEmailVerified(!!session.user.email_confirmed_at);
+              queryClient.invalidateQueries({ queryKey: ["profile"] });
+            } catch (error) {
+              console.error("Error updating profile:", error);
+            }
           }
-        }
+          break;
+
+        case "INITIAL_SESSION":
+          setIsLoading(false);
+          break;
       }
     });
 
@@ -685,7 +774,7 @@ export const useAuth = () => {
       console.log("🧹 Cleaning up auth subscription");
       subscription.unsubscribe();
     };
-  }, [checkSession]);
+  }, [checkSession, queryClient]);
 
   const isAuthenticated = !!user;
 
@@ -694,7 +783,7 @@ export const useAuth = () => {
     console.log("🔌 Testing Supabase connection from hook...");
     try {
       const {
-        data: { session },
+        data: { session: currentSession },
         error,
       } = await supabase.auth.getSession();
 
@@ -703,8 +792,11 @@ export const useAuth = () => {
         return { success: false, error: error.message };
       }
 
-      console.log("✅ Connection test successful! Session exists:", !!session);
-      return { success: true, session: !!session };
+      console.log(
+        "✅ Connection test successful! Session exists:",
+        !!currentSession,
+      );
+      return { success: true, session: !!currentSession };
     } catch (error: any) {
       console.error("❌ Connection test exception:", error.message);
       return { success: false, error: error.message };
@@ -719,6 +811,10 @@ export const useAuth = () => {
     isLoading,
     isAuthenticated,
     isEmailVerified,
+
+    // Onboarding status
+    hasCompletedOnboarding,
+    markOnboardingCompleted,
 
     // Actions
     checkSession,
