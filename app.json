@@ -1,14 +1,13 @@
 {
   "expo": {
     "name": "NebulaNet",
-    "slug": "NebulaNet",
+    "slug": "nebulanet",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nebulanet",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -18,7 +17,6 @@
         "backgroundColor": "#000000"
       }
     },
-
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
@@ -77,19 +75,19 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#E6F4FE",
-          "sounds": ["./assets/sounds/mixkit_sci_fi_click_900.wav"]
+          "color": "#E6F4FE"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "e048836d-bf2b-4423-95d8-e6355b78b981"
       }
     },
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "nebulanet"
+    "owner": "alyjbak28"
   }
 }

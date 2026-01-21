@@ -32,8 +32,15 @@ export default function VerifyEmailScreen() {
   // Handle deep links for email verification
   useEffect(() => {
     const handleDeepLink = async (url: string) => {
+      console.log("Deep link received in verify-email screen:", url);
+
+      if (url.includes("verify-email-handler")) {
+        // Redirect to the dedicated handler screen
+        router.replace("/verify-email-handler");
+        return;
+      }
+
       if (url.includes("type=signup") || url.includes("type=email_change")) {
-        // Parse the token from the URL
         try {
           const urlObj = new URL(url);
           const token = urlObj.searchParams.get("token");
@@ -79,19 +86,21 @@ export default function VerifyEmailScreen() {
     // Get initial URL
     Linking.getInitialURL().then((url) => {
       if (url) {
+        console.log("Initial URL in verify-email:", url);
         handleDeepLink(url);
       }
     });
 
     // Listen for incoming links
     const subscription = Linking.addEventListener("url", ({ url }) => {
+      console.log("URL event in verify-email:", url);
       handleDeepLink(url);
     });
 
     return () => {
       subscription.remove();
     };
-  }, [checkSession]); // Added checkSession to dependencies
+  }, [checkSession]);
 
   // Countdown timer for resend cooldown
   useEffect(() => {
@@ -111,8 +120,18 @@ export default function VerifyEmailScreen() {
 
     setIsResending(true);
     try {
-      // For Expo, create the redirect URL for email verification
-      const redirectTo = Linking.createURL("/(auth)/verify-email");
+      // Get platform-specific redirect URL
+      let redirectTo = "";
+
+      if (Platform.OS === "web") {
+        // For web, use the current origin
+        redirectTo = `${window.location.origin}/verify-email-handler`;
+      } else {
+        // For mobile, use the app scheme
+        redirectTo = "nebulanet://verify-email-handler";
+      }
+
+      console.log("Sending verification email with redirectTo:", redirectTo);
 
       const { error } = await supabase.auth.resend({
         type: "signup",
@@ -127,10 +146,11 @@ export default function VerifyEmailScreen() {
       setCountdown(60); // 60 second cooldown
       Alert.alert(
         "Verification Email Sent",
-        "Please check your inbox for the verification link. If you don't see it, check your spam folder.",
+        "Please check your inbox for the verification link. Click the link to verify your email.",
         [{ text: "OK" }],
       );
     } catch (error: any) {
+      console.error("Error resending verification:", error);
       Alert.alert(
         "Error",
         error.message || "Failed to resend verification email",
@@ -161,7 +181,11 @@ export default function VerifyEmailScreen() {
       } else {
         Alert.alert(
           "Not Verified Yet",
-          "Please check your email and click the verification link.",
+          "Please check your email and click the verification link. If you already clicked it, try refreshing.",
+          [
+            { text: "Refresh", onPress: () => checkSession() },
+            { text: "Got It", style: "cancel" },
+          ],
         );
       }
     } catch {
@@ -177,10 +201,18 @@ export default function VerifyEmailScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Continue Anyway",
-          onPress: () => router.replace("/(tabs)/home"),
+          onPress: () => {
+            // Set a flag in storage that user skipped verification
+            router.replace("/(tabs)/home");
+          },
         },
       ],
     );
+  };
+
+  const handleGoToVerificationHandler = () => {
+    // Manually navigate to the verification handler
+    router.push("/verify-email-handler");
   };
 
   return (
@@ -202,7 +234,7 @@ export default function VerifyEmailScreen() {
           <View style={styles.instructionItem}>
             <Ionicons name="link-outline" size={20} color="#007AFF" />
             <Text style={styles.instructionText}>
-              Click the verification link
+              Click the verification link (opens app)
             </Text>
           </View>
           <View style={styles.instructionItem}>
@@ -211,7 +243,9 @@ export default function VerifyEmailScreen() {
               size={20}
               color="#007AFF"
             />
-            <Text style={styles.instructionText}>Return to this screen</Text>
+            <Text style={styles.instructionText}>
+              App will automatically verify and redirect
+            </Text>
           </View>
         </View>
 
@@ -252,14 +286,35 @@ export default function VerifyEmailScreen() {
               I&apos;ve Verified My Email
             </Text>
           </TouchableOpacity>
+
+          {/* Debug button - can be removed in production */}
+          <TouchableOpacity
+            style={styles.debugButton}
+            onPress={handleGoToVerificationHandler}
+          >
+            <Ionicons name="bug-outline" size={20} color="#8E8E93" />
+            <Text style={styles.debugButtonText}>
+              Debug: Go to Verification Handler
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.troubleshoot}>
-          <Text style={styles.troubleshootTitle}>Not seeing the email?</Text>
+          <Text style={styles.troubleshootTitle}>Troubleshooting Tips:</Text>
           <Text style={styles.troubleshootText}>
-            • Check your spam or junk folder{"\n"}• Make sure you entered the
-            correct email{"\n"}• Wait a few minutes and try again{"\n"}• Add
-            noreply@mail.app.supabase.io to your contacts
+            • Check spam/junk folder{"\n"}• Make sure email is correct: {email}
+            {"\n"}• Wait a few minutes for email delivery{"\n"}• Add
+            noreply@mail.app.supabase.io to contacts{"\n"}• Clicking the link
+            should open the NebulaNet app{"\n"}• If link doesn&apos;t work,
+            request a new one
+          </Text>
+        </View>
+
+        <View style={styles.warningBox}>
+          <Ionicons name="warning-outline" size={20} color="#FF9500" />
+          <Text style={styles.warningText}>
+            You won&apos;t be able to reset your password or access all features
+            until your email is verified.
           </Text>
         </View>
 
@@ -326,6 +381,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666666",
     lineHeight: 20,
+    flex: 1,
   },
   actions: {
     gap: 12,
@@ -377,11 +433,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  debugButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F2F2F7",
+    padding: 12,
+    borderRadius: 12,
+    gap: 8,
+    marginTop: 8,
+  },
+  debugButtonText: {
+    color: "#8E8E93",
+    fontSize: 14,
+    fontWeight: "500",
+  },
   troubleshoot: {
     backgroundColor: "#FFF3E0",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   troubleshootTitle: {
     fontSize: 14,
@@ -393,6 +464,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666666",
     lineHeight: 18,
+  },
+  warningBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FFF9E6",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    gap: 12,
+  },
+  warningText: {
+    fontSize: 13,
+    color: "#666666",
+    lineHeight: 18,
+    flex: 1,
   },
   skipButton: {
     flexDirection: "row",

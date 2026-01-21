@@ -1,4 +1,3 @@
-// lib/supabase.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
@@ -18,6 +17,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
     "Missing Supabase environment variables. Check your .env file!",
   );
 }
+
+// Get platform-specific redirect URL for email verification
+export const getAuthRedirectUrl = () => {
+  if (Platform.OS === "web") {
+    return "https://nebulanet.space/verify-email-handler";
+  } else {
+    return "nebulanet://verify-email-handler";
+  }
+};
 
 // Safe storage adapter
 const createSafeStorage = () => {
@@ -97,7 +105,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// TypeScript types for all tables (Updated with story tables)
+// TypeScript types for all tables
 export type Tables = {
   profiles: {
     Row: {
@@ -156,7 +164,6 @@ export type Tables = {
     Update: Partial<Tables["posts"]["Row"]>;
   };
 
-  // NEW: Stories table
   stories: {
     Row: {
       id: string;
@@ -179,7 +186,6 @@ export type Tables = {
     Update: Partial<Tables["stories"]["Row"]>;
   };
 
-  // NEW: Story comments table
   story_comments: {
     Row: {
       id: string;
@@ -197,6 +203,20 @@ export type Tables = {
       updated_at?: string;
     };
     Update: Partial<Tables["story_comments"]["Row"]>;
+  };
+
+  story_views: {
+    Row: {
+      id: string;
+      story_id: string;
+      user_id: string;
+      viewed_at: string;
+    };
+    Insert: Partial<Omit<Tables["story_views"]["Row"], "id" | "viewed_at">> & {
+      id?: string;
+      viewed_at?: string;
+    };
+    Update: Partial<Tables["story_views"]["Row"]>;
   };
 
   communities: {
@@ -462,378 +482,8 @@ export type Tables = {
   };
 };
 
-// ==================== STORY FUNCTIONS ====================
+// ==================== AUTH FUNCTIONS ====================
 
-/**
- * Create a story comment
- */
-export async function createStoryComment(storyId: string, content: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  try {
-    // First check if story exists and is not expired
-    const { data: story, error: storyError } = await supabase
-      .from("stories")
-      .select("*")
-      .eq("id", storyId)
-      .gt("expires_at", new Date().toISOString())
-      .single();
-
-    if (storyError || !story) {
-      throw new Error("Story not found or has expired");
-    }
-
-    // Create the comment
-    const { data, error } = await supabase
-      .from("story_comments")
-      .insert({
-        story_id: storyId,
-        user_id: user.id,
-        content: content.trim(),
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Create notification for story owner if not the same user
-    if (story.user_id !== user.id) {
-      await createNotification({
-        user_id: story.user_id,
-        type: "story_comment",
-        from_user_id: user.id,
-        story_id: storyId,
-        message: `${user.id} commented on your story`,
-      });
-    }
-
-    return data;
-  } catch (error: any) {
-    console.error("Error creating story comment:", error);
-    throw error;
-  }
-}
-
-/**
- * Get comments for a story
- */
-export async function getStoryComments(
-  storyId: string,
-  limit = 50,
-  offset = 0,
-) {
-  try {
-    const { data, error } = await supabase
-      .from("story_comments")
-      .select(
-        `
-        *,
-        profiles!story_comments_user_id_fkey (
-          id,
-          username,
-          full_name,
-          avatar_url
-        )
-      `,
-      )
-      .eq("story_id", storyId)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error("Error getting story comments:", error);
-    return [];
-  }
-}
-
-/**
- * Get recent stories from followed users
- */
-export async function getFollowingStories() {
-  const user = await getCurrentUser();
-  if (!user) return [];
-
-  try {
-    // Get users that the current user follows
-    const { data: following, error: followError } = await supabase
-      .from("follows")
-      .select("following_id")
-      .eq("follower_id", user.id);
-
-    if (followError) return [];
-
-    const followingIds = following?.map((f) => f.following_id) || [];
-
-    if (followingIds.length === 0) {
-      return [];
-    }
-
-    // Get active stories from followed users
-    const { data: stories, error: storiesError } = await supabase
-      .from("stories")
-      .select(
-        `
-        *,
-        profiles!stories_user_id_fkey (
-          id,
-          username,
-          full_name,
-          avatar_url
-        )
-      `,
-      )
-      .in("user_id", followingIds)
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: true });
-
-    if (storiesError) return [];
-    return stories || [];
-  } catch (error) {
-    console.error("Error getting following stories:", error);
-    return [];
-  }
-}
-
-/**
- * Get stories for a specific user
- */
-export async function getUserStories(userId: string) {
-  try {
-    const { data, error } = await supabase
-      .from("stories")
-      .select(
-        `
-        *,
-        profiles!stories_user_id_fkey (
-          id,
-          username,
-          full_name,
-          avatar_url
-        )
-      `,
-      )
-      .eq("user_id", userId)
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: true });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error("Error getting user stories:", error);
-    return [];
-  }
-}
-
-/**
- * Get a single story by ID
- */
-export async function getStoryById(storyId: string) {
-  try {
-    const { data, error } = await supabase
-      .from("stories")
-      .select(
-        `
-        *,
-        profiles!stories_user_id_fkey (
-          id,
-          username,
-          full_name,
-          avatar_url
-        )
-      `,
-      )
-      .eq("id", storyId)
-      .single();
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error("Error getting story:", error);
-    return null;
-  }
-}
-
-/**
- * Mark story as viewed
- */
-export async function viewStory(storyId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  try {
-    // Check if story exists and is not expired
-    const { data: story, error: storyError } = await supabase
-      .from("stories")
-      .select("*")
-      .eq("id", storyId)
-      .gt("expires_at", new Date().toISOString())
-      .single();
-
-    if (storyError || !story) {
-      throw new Error("Story not found or has expired");
-    }
-
-    // Check if already viewed
-    const { data: existingView } = await supabase
-      .from("story_views")
-      .select("*")
-      .eq("story_id", storyId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!existingView) {
-      // Record view
-      await supabase.from("story_views").insert({
-        story_id: storyId,
-        user_id: user.id,
-        viewed_at: new Date().toISOString(),
-      });
-
-      // Increment view count
-      await supabase
-        .from("stories")
-        .update({ view_count: supabase.rpc("increment", { x: 1 }) })
-        .eq("id", storyId);
-    }
-
-    return true;
-  } catch (error) {
-    console.error("Error viewing story:", error);
-    throw error;
-  }
-}
-
-/**
- * Delete a story
- */
-export async function deleteStory(storyId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { error } = await supabase
-    .from("stories")
-    .delete()
-    .eq("id", storyId)
-    .eq("user_id", user.id);
-
-  if (error) throw error;
-  return true;
-}
-
-/**
- * Delete a story comment
- */
-export async function deleteStoryComment(commentId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { error } = await supabase
-    .from("story_comments")
-    .delete()
-    .eq("id", commentId)
-    .eq("user_id", user.id);
-
-  if (error) throw error;
-  return true;
-}
-
-/**
- * Get story statistics
- */
-export async function getStoryStats(storyId: string) {
-  try {
-    const [{ count: viewsCount }, { count: commentsCount }] = await Promise.all(
-      [
-        supabase
-          .from("story_views")
-          .select("*", { count: "exact", head: true })
-          .eq("story_id", storyId),
-        supabase
-          .from("story_comments")
-          .select("*", { count: "exact", head: true })
-          .eq("story_id", storyId),
-      ],
-    );
-
-    return {
-      views: viewsCount || 0,
-      comments: commentsCount || 0,
-    };
-  } catch (error) {
-    console.error("Error getting story stats:", error);
-    return { views: 0, comments: 0 };
-  }
-}
-
-/**
- * Check if user has unviewed stories from followed users
- */
-export async function hasUnviewedStories() {
-  const user = await getCurrentUser();
-  if (!user) return false;
-
-  try {
-    const followingStories = await getFollowingStories();
-
-    if (followingStories.length === 0) {
-      return false;
-    }
-
-    const storyIds = followingStories.map((story: any) => story.id);
-
-    // Get stories that have been viewed by the user
-    const { data: viewedStories } = await supabase
-      .from("story_views")
-      .select("story_id")
-      .eq("user_id", user.id)
-      .in("story_id", storyIds);
-
-    const viewedStoryIds =
-      viewedStories?.map((view: any) => view.story_id) || [];
-
-    // Return true if there are stories not viewed
-    return storyIds.some(
-      (storyId: string) => !viewedStoryIds.includes(storyId),
-    );
-  } catch (error) {
-    console.error("Error checking unviewed stories:", error);
-    return false;
-  }
-}
-
-// Helper function to create notifications
-async function createNotification(notification: {
-  user_id: string;
-  type: Tables["notifications"]["Row"]["type"];
-  from_user_id?: string;
-  post_id?: string;
-  comment_id?: string;
-  story_id?: string;
-  community_id?: string;
-  conversation_id?: string;
-  message?: string;
-}) {
-  try {
-    const { error } = await supabase.from("notifications").insert({
-      ...notification,
-      is_read: false,
-      created_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      console.error("Error creating notification:", error);
-    }
-  } catch (error) {
-    console.error("Error in createNotification:", error);
-  }
-}
-
-// ==================== EXISTING FUNCTIONS (keeping all your existing ones) ====================
-
-// Auth helper functions
 export async function signInWithEmail(email: string, password: string) {
   console.log("🔐 signInWithEmail called for:", email);
 
@@ -875,11 +525,16 @@ export async function signUpWithEmail(
 ) {
   console.log("📝 signUpWithEmail called for:", email);
 
+  // Get redirect URL for email verification
+  const redirectTo = getAuthRedirectUrl();
+  console.log("🔗 Verification redirect URL:", redirectTo);
+
   const { data, error } = await supabase.auth.signUp({
     email: email.trim().toLowerCase(),
     password: password.trim(),
     options: {
       data: userData,
+      emailRedirectTo: redirectTo,
     },
   });
 
@@ -911,6 +566,51 @@ export async function signUpWithEmail(
   }
 
   return data;
+}
+
+export async function resendVerificationEmail(email: string) {
+  console.log("📧 Resending verification email to:", email);
+
+  const redirectTo = getAuthRedirectUrl();
+  console.log("🔗 Resend redirect URL:", redirectTo);
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: email.trim().toLowerCase(),
+    options: {
+      emailRedirectTo: redirectTo,
+    },
+  });
+
+  if (error) {
+    console.error("❌ Resend verification error:", error);
+    throw error;
+  }
+
+  console.log("✅ Verification email resent");
+  return true;
+}
+
+export async function verifyEmailToken(token: string, type: string = "signup") {
+  console.log("🔑 Verifying email token...");
+
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash: token,
+      type: type as any,
+    });
+
+    if (error) {
+      console.error("❌ Email verification error:", error);
+      throw error;
+    }
+
+    console.log("✅ Email verified successfully!");
+    return data;
+  } catch (error: any) {
+    console.error("❌ verifyEmailToken exception:", error);
+    throw error;
+  }
 }
 
 export async function signOut() {
@@ -968,10 +668,12 @@ export async function getCurrentSession() {
 export async function resetPassword(email: string) {
   console.log("📧 Resetting password for:", email);
 
+  const redirectTo = getAuthRedirectUrl();
+
   const { error } = await supabase.auth.resetPasswordForEmail(
     email.trim().toLowerCase(),
     {
-      redirectTo: `${process.env.EXPO_PUBLIC_APP_URL || "nebulanet://"}/(auth)/reset-password`,
+      redirectTo: `${redirectTo}?type=recovery`,
     },
   );
 
@@ -998,7 +700,30 @@ export async function updatePassword(newPassword: string) {
   console.log("✅ Password updated");
 }
 
-// Profile helper functions
+export async function updateUserEmail(newEmail: string) {
+  console.log("📧 Updating user email to:", newEmail);
+
+  const redirectTo = getAuthRedirectUrl();
+
+  const { error } = await supabase.auth.updateUser(
+    {
+      email: newEmail.trim().toLowerCase(),
+    },
+    {
+      emailRedirectTo: `${redirectTo}?type=email_change`,
+    },
+  );
+
+  if (error) {
+    console.error("❌ Update email error:", error);
+    throw error;
+  }
+
+  console.log("✅ Email update initiated");
+}
+
+// ==================== PROFILE FUNCTIONS ====================
+
 export async function updateProfile(updates: {
   username?: string;
   full_name?: string;
@@ -1072,449 +797,594 @@ export async function getProfileByUsername(username: string) {
   return data;
 }
 
-// Test connection function
-export async function testConnection() {
-  console.log("🔌 Testing Supabase connection...");
-
-  try {
-    const { data, error } = await supabase.auth.getSession();
-
-    if (error) {
-      console.error("❌ Connection test failed:", error.message);
-      return { success: false, error: error.message };
-    }
-
-    console.log("✅ Connection test successful!");
-    return { success: true, session: !!data.session };
-  } catch (error: any) {
-    console.error("❌ Connection test exception:", error.message);
-    return { success: false, error: error.message };
-  }
+export async function getCurrentUserProfile() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  return await getProfile(user.id);
 }
 
-// Account management functions
-export async function deactivateAccount() {
+// ==================== STORY FUNCTIONS ====================
+
+export async function createStory(
+  content: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video" | "text",
+) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
 
-  // Create a backup of user data before deactivation
-  const { error: backupError } = await supabase
-    .from("deactivated_accounts")
+  console.log("📸 Creating story for user:", user.id);
+
+  const { data, error } = await supabase
+    .from("stories")
     .insert({
       user_id: user.id,
-      deactivated_at: new Date().toISOString(),
-      data_backup: await getUserDataBackup(user.id),
-    });
+      content: content || null,
+      media_url: mediaUrl || null,
+      media_type: mediaType || (mediaUrl ? "image" : "text"),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      view_count: 0,
+    })
+    .select()
+    .single();
 
-  if (backupError) {
-    console.error("Failed to create backup:", backupError);
+  if (error) {
+    console.error("❌ Create story error:", error);
+    throw error;
   }
 
-  // Soft delete: Mark user as deactivated
-  const { error: deactivateError } = await supabase
-    .from("profiles")
-    .update({
-      is_deactivated: true,
-      deactivated_at: new Date().toISOString(),
-      username: `deactivated_${Date.now()}`,
-      avatar_url: null,
-      bio: null,
-      website: null,
-      location: null,
-      is_online: false,
-    })
-    .eq("id", user.id);
-
-  if (deactivateError) throw deactivateError;
-
-  // Sign out the user
-  await signOut();
-
-  return true;
+  console.log("✅ Story created:", data.id);
+  return data;
 }
 
-export async function deleteAccount() {
+export async function createStoryWithOptions(
+  content?: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video" | "text",
+  options?: {
+    backgroundColor?: string;
+    textColor?: string;
+  },
+) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
 
+  console.log("🎨 Creating story with options");
+
+  const { data, error } = await supabase
+    .from("stories")
+    .insert({
+      user_id: user.id,
+      content: content || null,
+      media_url: mediaUrl || null,
+      media_type: mediaType || (mediaUrl ? "image" : "text"),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      view_count: 0,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("❌ Create story error:", error);
+    throw error;
+  }
+
+  console.log("✅ Story created with options:", data.id);
+  return data;
+}
+
+export async function getStoryById(storyId: string) {
+  console.log("🔍 Getting story by ID:", storyId);
+
   try {
-    // 1. First, get all posts by user to delete media
-    const { data: userPosts } = await supabase
-      .from("posts")
-      .select("id, media")
-      .eq("user_id", user.id);
-
-    // 2. Delete user's posts media from storage
-    if (userPosts && userPosts.length > 0) {
-      for (const post of userPosts) {
-        if (post.media && Array.isArray(post.media)) {
-          for (const media of post.media) {
-            if (media.url) {
-              try {
-                await deleteFileFromStorage(media.url);
-              } catch (error) {
-                console.error("Error deleting media:", error);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Delete user's avatar from storage
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("avatar_url")
-      .eq("id", user.id)
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("id", storyId)
       .single();
 
-    if (profile?.avatar_url) {
-      try {
-        await deleteFileFromStorage(profile.avatar_url);
-      } catch (error) {
-        console.error("Error deleting avatar:", error);
-      }
+    if (error) {
+      console.error("❌ Get story error:", error);
+      return null;
     }
 
-    // 4. Delete user from auth
-    const { error: authError } = await supabase.auth.admin.deleteUser(user.id);
+    console.log("✅ Story found:", data.id);
+    return data;
+  } catch (error) {
+    console.error("❌ Get story exception:", error);
+    return null;
+  }
+}
 
-    if (authError) {
-      // If admin API fails, try alternative approach
-      console.log("Admin API failed, using alternative approach");
+export async function getUserStories(userId: string) {
+  console.log("🔍 Getting stories for user:", userId);
 
-      // Create a backup before hard delete
-      const { error: backupError } = await supabase
-        .from("deleted_accounts_backup")
-        .insert({
-          user_id: user.id,
-          deleted_at: new Date().toISOString(),
-          user_data: await getUserDataBackup(user.id),
-        });
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("user_id", userId)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true });
 
-      if (backupError) {
-        console.error("Backup creation failed:", backupError);
-      }
+    if (error) {
+      console.error("❌ Get user stories error:", error);
+      return [];
+    }
 
-      // Mark as deleted in profiles table
+    console.log(`✅ Found ${data?.length || 0} stories`);
+    return data || [];
+  } catch (error) {
+    console.error("❌ Get user stories exception:", error);
+    return [];
+  }
+}
+
+export async function getFollowingStories() {
+  const user = await getCurrentUser();
+  if (!user) {
+    console.log("⚠️ No user, returning empty stories");
+    return [];
+  }
+
+  console.log("🔍 Getting stories from followed users");
+
+  try {
+    // Get users that the current user follows
+    const { data: following, error: followError } = await supabase
+      .from("follows")
+      .select("following_id")
+      .eq("follower_id", user.id);
+
+    if (followError) {
+      console.error("❌ Get following error:", followError);
+      return [];
+    }
+
+    const followingIds = following?.map((f) => f.following_id) || [];
+
+    if (followingIds.length === 0) {
+      console.log("ℹ️ Not following anyone");
+      return [];
+    }
+
+    // Get active stories from followed users
+    const { data: stories, error: storiesError } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .in("user_id", followingIds)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true });
+
+    if (storiesError) {
+      console.error("❌ Get stories error:", storiesError);
+      return [];
+    }
+
+    console.log(`✅ Found ${stories?.length || 0} following stories`);
+    return stories || [];
+  } catch (error) {
+    console.error("❌ Get following stories exception:", error);
+    return [];
+  }
+}
+
+export async function getActiveStories(limit = 50) {
+  console.log("🔍 Getting active stories");
+
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey(*)
+      `,
+      )
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("❌ Get active stories error:", error);
+      return [];
+    }
+
+    console.log(`✅ Found ${data?.length || 0} active stories`);
+    return data || [];
+  } catch (error) {
+    console.error("❌ Get active stories exception:", error);
+    return [];
+  }
+}
+
+export async function getStoriesWithUsers() {
+  console.log("🔍 Getting stories with user data");
+
+  try {
+    const { data, error } = await supabase
+      .from("stories")
+      .select(
+        `
+        *,
+        profiles!stories_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("❌ Get stories with users error:", error);
+      return [];
+    }
+
+    console.log(`✅ Found ${data?.length || 0} stories with users`);
+    return data || [];
+  } catch (error) {
+    console.error("❌ Get stories with users exception:", error);
+    return [];
+  }
+}
+
+export async function createStoryComment(storyId: string, content: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("💬 Creating story comment for story:", storyId);
+
+  try {
+    // First check if story exists and is not expired
+    const { data: story, error: storyError } = await supabase
+      .from("stories")
+      .select("*")
+      .eq("id", storyId)
+      .gt("expires_at", new Date().toISOString())
+      .single();
+
+    if (storyError || !story) {
+      throw new Error("Story not found or has expired");
+    }
+
+    // Create the comment
+    const { data, error } = await supabase
+      .from("story_comments")
+      .insert({
+        story_id: storyId,
+        user_id: user.id,
+        content: content.trim(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Create notification for story owner if not the same user
+    if (story.user_id !== user.id) {
+      await createNotification({
+        user_id: story.user_id,
+        type: "story_comment",
+        from_user_id: user.id,
+        story_id: storyId,
+        message: `${user.id} commented on your story`,
+      });
+    }
+
+    console.log("✅ Story comment created:", data.id);
+    return data;
+  } catch (error: any) {
+    console.error("❌ Create story comment error:", error);
+    throw error;
+  }
+}
+
+export async function getStoryComments(
+  storyId: string,
+  limit = 50,
+  offset = 0,
+) {
+  console.log("🔍 Getting comments for story:", storyId);
+
+  try {
+    const { data, error } = await supabase
+      .from("story_comments")
+      .select(
+        `
+        *,
+        profiles!story_comments_user_id_fkey (
+          id,
+          username,
+          full_name,
+          avatar_url
+        )
+      `,
+      )
+      .eq("story_id", storyId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error("❌ Get story comments error:", error);
+      return [];
+    }
+
+    console.log(`✅ Found ${data?.length || 0} story comments`);
+    return data || [];
+  } catch (error) {
+    console.error("❌ Get story comments exception:", error);
+    return [];
+  }
+}
+
+export async function viewStory(storyId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("👀 Viewing story:", storyId);
+
+  try {
+    // Check if story exists and is not expired
+    const { data: story, error: storyError } = await supabase
+      .from("stories")
+      .select("*")
+      .eq("id", storyId)
+      .gt("expires_at", new Date().toISOString())
+      .single();
+
+    if (storyError || !story) {
+      throw new Error("Story not found or has expired");
+    }
+
+    // Check if already viewed
+    const { data: existingView } = await supabase
+      .from("story_views")
+      .select("*")
+      .eq("story_id", storyId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!existingView) {
+      // Record view
+      await supabase.from("story_views").insert({
+        story_id: storyId,
+        user_id: user.id,
+        viewed_at: new Date().toISOString(),
+      });
+
+      // Increment view count
       await supabase
-        .from("profiles")
-        .update({
-          is_deleted: true,
-          deleted_at: new Date().toISOString(),
-          username: `deleted_${Date.now()}`,
-          avatar_url: null,
-          bio: "This account has been deleted",
-          full_name: "Deleted User",
-        })
-        .eq("id", user.id);
+        .from("stories")
+        .update({ view_count: story.view_count + 1 })
+        .eq("id", storyId);
 
-      // Delete user's auth session
-      await supabase.auth.signOut();
+      console.log("✅ Story viewed and count incremented");
+    } else {
+      console.log("ℹ️ Story already viewed");
     }
 
     return true;
   } catch (error) {
-    console.error("Account deletion failed:", error);
+    console.error("❌ View story error:", error);
     throw error;
   }
 }
 
-// Helper function to get user data backup
-async function getUserDataBackup(userId: string) {
-  const [
-    { data: profile },
-    { data: posts },
-    { data: comments },
-    { data: followers },
-    { data: following },
-  ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", userId).single(),
-    supabase
-      .from("posts")
-      .select("id, title, content, created_at")
-      .eq("user_id", userId),
-    supabase
-      .from("comments")
-      .select("id, content, created_at")
-      .eq("user_id", userId),
-    supabase
-      .from("follows")
-      .select("following_id, created_at")
-      .eq("follower_id", userId),
-    supabase
-      .from("follows")
-      .select("follower_id, created_at")
-      .eq("following_id", userId),
-  ]);
-
-  return {
-    profile,
-    posts: posts || [],
-    comments: comments || [],
-    followers: followers || [],
-    following: following || [],
-    backup_created: new Date().toISOString(),
-  };
-}
-
-// Helper function to delete file from storage
-async function deleteFileFromStorage(url: string) {
-  try {
-    // Extract path from URL
-    const urlObj = new URL(url);
-    const pathParts = urlObj.pathname.split("/");
-    const bucket = pathParts[1];
-    const path = pathParts.slice(2).join("/");
-
-    const { error } = await supabase.storage.from(bucket).remove([path]);
-
-    if (error) throw error;
-  } catch (error) {
-    console.error("Storage deletion error:", error);
-    throw error;
-  }
-}
-
-// Check if account is deactivated
-export async function checkAccountStatus(userId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("is_deactivated, deactivated_at, is_deleted, deleted_at")
-    .eq("id", userId)
-    .single();
-
-  if (error) return null;
-  return data;
-}
-
-// Reactivate account
-export async function reactivateAccount() {
+export async function deleteStory(storyId: string) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      is_deactivated: false,
-      deactivated_at: null,
-      is_online: true,
-    })
-    .eq("id", user.id);
+  console.log("🗑️ Deleting story:", storyId);
 
-  if (error) throw error;
+  const { error } = await supabase
+    .from("stories")
+    .delete()
+    .eq("id", storyId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.error("❌ Delete story error:", error);
+    throw error;
+  }
+
+  console.log("✅ Story deleted");
   return true;
 }
 
-// Database helpers
-export type TableName = keyof Tables;
+export async function deleteStoryComment(commentId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
 
-// Type-safe queries
-export const from = <T extends TableName>(table: T) => {
-  return supabase.from(table);
-};
+  console.log("🗑️ Deleting story comment:", commentId);
 
-// Real-time subscriptions
-interface PostgrestChangePayload {
-  commit_timestamp: string;
-  eventType: "INSERT" | "UPDATE" | "DELETE";
-  new: any;
-  old: any;
-  schema: string;
-  table: string;
+  const { error } = await supabase
+    .from("story_comments")
+    .delete()
+    .eq("id", commentId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.error("❌ Delete story comment error:", error);
+    throw error;
+  }
+
+  console.log("✅ Story comment deleted");
+  return true;
 }
 
-export function subscribeToTable<T extends TableName>(
-  table: T,
-  event: "INSERT" | "UPDATE" | "DELETE" | "*",
-  callback: (payload: PostgrestChangePayload) => void,
-  filter?: string,
-) {
-  const channel = supabase.channel(`table-changes-${table}-${Date.now()}`);
+export async function getStoryStats(storyId: string) {
+  console.log("📊 Getting story stats for:", storyId);
 
-  channel.on(
-    "postgres_changes" as any,
-    {
-      event,
-      schema: "public",
-      table: table as string,
-      filter,
-    },
-    callback,
-  );
-
-  channel.subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}
-
-// Subscribe to story comments in real-time
-export function subscribeToStoryComments(
-  storyId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  const channel = supabase.channel(`story-comments-${storyId}`);
-
-  channel.on(
-    "postgres_changes" as any,
-    {
-      event: "INSERT",
-      schema: "public",
-      table: "story_comments",
-      filter: `story_id=eq.${storyId}`,
-    },
-    callback,
-  );
-
-  channel.subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}
-
-// Chat-specific subscriptions
-export function subscribeToConversationMessages(
-  conversationId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  const channel = supabase.channel(`conversation-messages-${conversationId}`);
-
-  channel.on(
-    "postgres_changes" as any,
-    {
-      event: "INSERT",
-      schema: "public",
-      table: "messages",
-      filter: `conversation_id=eq.${conversationId}`,
-    },
-    callback,
-  );
-
-  channel.subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}
-
-export function subscribeToUserConversations(
-  userId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  const channel = supabase.channel(`user-conversations-${userId}`);
-
-  channel.on(
-    "postgres_changes" as any,
-    {
-      event: "INSERT",
-      schema: "public",
-      table: "conversation_participants",
-      filter: `user_id=eq.${userId}`,
-    },
-    callback,
-  );
-
-  channel.on(
-    "postgres_changes" as any,
-    {
-      event: "UPDATE",
-      schema: "public",
-      table: "conversations",
-    },
-    async (payload: PostgrestChangePayload) => {
-      const { error } = await supabase
-        .from("conversation_participants")
-        .select("user_id")
-        .eq("conversation_id", payload.new.id)
-        .eq("user_id", userId)
-        .single();
-
-      if (!error) {
-        callback(payload);
-      }
-    },
-  );
-
-  channel.subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}
-
-// Subscribe to user's own profile updates
-export function subscribeToUserData(
-  userId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  return subscribeToTable("profiles", "UPDATE", callback, `id=eq.${userId}`);
-}
-
-// Subscribe to post changes
-export function subscribeToPost(
-  postId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  return subscribeToTable("posts", "*", callback, `id=eq.${postId}`);
-}
-
-// Subscribe to notification changes
-export function subscribeToUserNotifications(
-  userId: string,
-  callback: (payload: PostgrestChangePayload) => void,
-) {
-  return subscribeToTable(
-    "notifications",
-    "*",
-    callback,
-    `user_id=eq.${userId}`,
-  );
-}
-
-// Error handling wrapper
-export async function withErrorHandling<T>(operation: Promise<T>): Promise<{
-  data: T | null;
-  error: Error | null;
-}> {
   try {
-    const data = await operation;
-    return { data, error: null };
+    const [{ count: viewsCount }, { count: commentsCount }] = await Promise.all(
+      [
+        supabase
+          .from("story_views")
+          .select("*", { count: "exact", head: true })
+          .eq("story_id", storyId),
+        supabase
+          .from("story_comments")
+          .select("*", { count: "exact", head: true })
+          .eq("story_id", storyId),
+      ],
+    );
+
+    const stats = {
+      views: viewsCount || 0,
+      comments: commentsCount || 0,
+    };
+
+    console.log("✅ Story stats:", stats);
+    return stats;
   } catch (error) {
-    console.error("Supabase operation failed:", error);
-    return { data: null, error: error as Error };
+    console.error("❌ Get story stats error:", error);
+    return { views: 0, comments: 0 };
   }
 }
 
-// Search functions
-export async function searchProfiles(query: string, limit = 20) {
-  const { data: profiles, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .or(`username.ilike.%${query}%,full_name.ilike.%${query}%`)
-    .limit(limit);
+export async function hasUnviewedStories() {
+  const user = await getCurrentUser();
+  if (!user) {
+    console.log("⚠️ No user, returning false for unviewed stories");
+    return false;
+  }
 
-  if (error) throw error;
-  return profiles;
+  console.log("🔍 Checking for unviewed stories");
+
+  try {
+    const followingStories = await getFollowingStories();
+
+    if (followingStories.length === 0) {
+      console.log("ℹ️ No following stories");
+      return false;
+    }
+
+    const storyIds = followingStories.map((story: any) => story.id);
+
+    // Get stories that have been viewed by the user
+    const { data: viewedStories } = await supabase
+      .from("story_views")
+      .select("story_id")
+      .eq("user_id", user.id)
+      .in("story_id", storyIds);
+
+    const viewedStoryIds =
+      viewedStories?.map((view: any) => view.story_id) || [];
+
+    const hasUnviewed = storyIds.some(
+      (storyId: string) => !viewedStoryIds.includes(storyId),
+    );
+
+    console.log(`✅ Has unviewed stories: ${hasUnviewed}`);
+    return hasUnviewed;
+  } catch (error) {
+    console.error("❌ Check unviewed stories error:", error);
+    return false;
+  }
 }
 
-export async function searchCommunities(query: string, limit = 20) {
-  const { data: communities, error } = await supabase
-    .from("communities")
-    .select("*")
-    .or(
-      `name.ilike.%${query}%,slug.ilike.%${query}%,description.ilike.%${query}%`,
-    )
-    .limit(limit);
+export async function hasActiveStory() {
+  const user = await getCurrentUser();
+  if (!user) {
+    console.log("⚠️ No user, returning false for active story");
+    return false;
+  }
 
-  if (error) throw error;
-  return communities;
+  console.log("🔍 Checking if user has active story");
+
+  try {
+    const { count, error } = await supabase
+      .from("stories")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gt("expires_at", new Date().toISOString());
+
+    if (error) {
+      console.error("❌ Check active story error:", error);
+      return false;
+    }
+
+    const hasActive = (count || 0) > 0;
+    console.log(`✅ User has active story: ${hasActive}`);
+    return hasActive;
+  } catch (error) {
+    console.error("❌ Check active story exception:", error);
+    return false;
+  }
 }
 
-// Query functions
+// ==================== POST FUNCTIONS ====================
+
+export async function createPost(postData: {
+  title?: string;
+  content: string;
+  media?: any[];
+  community_id?: string;
+  is_public?: boolean;
+}) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("📝 Creating post");
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({
+      ...postData,
+      user_id: user.id,
+      like_count: 0,
+      comment_count: 0,
+      share_count: 0,
+      view_count: 0,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("❌ Create post error:", error);
+    throw error;
+  }
+
+  console.log("✅ Post created:", data.id);
+  return data;
+}
+
 export async function getFeedPosts(limit = 20, offset = 0) {
+  console.log("🔍 Getting feed posts");
+
   const { data, error } = await supabase
     .from("posts")
     .select(
@@ -1528,11 +1398,18 @@ export async function getFeedPosts(limit = 20, offset = 0) {
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get feed posts error:", error);
+    throw error;
+  }
+
+  console.log(`✅ Found ${data?.length || 0} feed posts`);
   return data;
 }
 
 export async function getPostById(postId: string) {
+  console.log("🔍 Getting post by ID:", postId);
+
   const { data, error } = await supabase
     .from("posts")
     .select(
@@ -1545,11 +1422,18 @@ export async function getPostById(postId: string) {
     .eq("id", postId)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get post error:", error);
+    throw error;
+  }
+
+  console.log("✅ Post found:", data.id);
   return data;
 }
 
 export async function getUserPosts(userId: string, limit = 20, offset = 0) {
+  console.log("🔍 Getting posts for user:", userId);
+
   const { data, error } = await supabase
     .from("posts")
     .select("*")
@@ -1557,11 +1441,107 @@ export async function getUserPosts(userId: string, limit = 20, offset = 0) {
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get user posts error:", error);
+    throw error;
+  }
+
+  console.log(`✅ Found ${data?.length || 0} user posts`);
+  return data;
+}
+
+export async function likePost(postId: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("❤️ Liking post:", postId);
+
+  const { data: existingLike } = await supabase
+    .from("likes")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("post_id", postId)
+    .single();
+
+  if (existingLike) {
+    await supabase.from("likes").delete().eq("id", existingLike.id);
+    await supabase
+      .from("posts")
+      .update({ like_count: (existingLike.like_count || 0) - 1 })
+      .eq("id", postId);
+    console.log("✅ Post unliked");
+    return false;
+  } else {
+    await supabase.from("likes").insert({
+      user_id: user.id,
+      post_id: postId,
+    });
+    await supabase
+      .from("posts")
+      .update({ like_count: (existingLike?.like_count || 0) + 1 })
+      .eq("id", postId);
+    console.log("✅ Post liked");
+    return true;
+  }
+}
+
+export async function checkIfLiked(postId: string): Promise<boolean> {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  console.log("🔍 Checking if post is liked:", postId);
+
+  const { data } = await supabase
+    .from("likes")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("post_id", postId)
+    .single();
+
+  const isLiked = !!data;
+  console.log(`✅ Post ${isLiked ? "is" : "is not"} liked`);
+  return isLiked;
+}
+
+export async function createComment(
+  postId: string,
+  content: string,
+  parentId?: string,
+) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("💬 Creating comment on post:", postId);
+
+  const { data, error } = await supabase
+    .from("comments")
+    .insert({
+      user_id: user.id,
+      post_id: postId,
+      content,
+      parent_id: parentId || null,
+      like_count: 0,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("❌ Create comment error:", error);
+    throw error;
+  }
+
+  await supabase
+    .from("posts")
+    .update({ comment_count: (data.comment_count || 0) + 1 })
+    .eq("id", postId);
+
+  console.log("✅ Comment created:", data.id);
   return data;
 }
 
 export async function getPostComments(postId: string, limit = 50, offset = 0) {
+  console.log("🔍 Getting comments for post:", postId);
+
   const { data, error } = await supabase
     .from("comments")
     .select(
@@ -1574,11 +1554,18 @@ export async function getPostComments(postId: string, limit = 50, offset = 0) {
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get post comments error:", error);
+    throw error;
+  }
+
+  console.log(`✅ Found ${data?.length || 0} post comments`);
   return data;
 }
 
 export async function getPostCommentsWithReplies(postId: string) {
+  console.log("🔍 Getting comments with replies for post:", postId);
+
   const { data, error } = await supabase
     .from("comments")
     .select(
@@ -1591,7 +1578,10 @@ export async function getPostCommentsWithReplies(postId: string) {
     .eq("post_id", postId)
     .order("created_at", { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get post comments with replies error:", error);
+    throw error;
+  }
 
   const user = await getCurrentUser();
   const commentMap = new Map();
@@ -1631,270 +1621,11 @@ export async function getPostCommentsWithReplies(postId: string) {
     }
   });
 
+  console.log(`✅ Found ${rootComments.length} root comments with replies`);
   return rootComments;
 }
 
-export async function getUserConversations(userId: string) {
-  const { data, error } = await supabase
-    .from("conversation_participants")
-    .select(
-      `
-      *,
-      conversations!conversation_participants_conversation_id_fkey(*)
-    `,
-    )
-    .eq("user_id", userId)
-    .order("conversations.updated_at", { ascending: false });
-
-  if (error) throw error;
-  return data;
-}
-
-export async function getConversationMessages(
-  conversationId: string,
-  limit = 50,
-  offset = 0,
-) {
-  const { data, error } = await supabase
-    .from("messages")
-    .select(
-      `
-      *,
-      profiles!messages_sender_id_fkey(username, avatar_url)
-    `,
-    )
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) throw error;
-  return data;
-}
-
-// Export Supabase types
-export type { Session, User } from "@supabase/supabase-js";
-
-// Helper type for real-time payloads
-export type RealtimePayload<T extends TableName> = {
-  commit_timestamp: string;
-  eventType: "INSERT" | "UPDATE" | "DELETE";
-  new: Tables[T]["Row"];
-  old: Tables[T]["Row"];
-  schema: string;
-  table: string;
-};
-
-// Initialize Supabase function
-export async function initializeSupabase() {
-  const { data: authData } = await supabase.auth.getSession();
-  console.log(
-    "Supabase initialized",
-    authData.session ? "User logged in" : "No user session",
-  );
-  return authData;
-}
-
-// Get current user profile
-export async function getCurrentUserProfile() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  return await getProfile(user.id);
-}
-
-// Utility functions
-export async function createPost(postData: {
-  title?: string;
-  content: string;
-  media?: any[];
-  community_id?: string;
-  is_public?: boolean;
-}) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data, error } = await supabase
-    .from("posts")
-    .insert({
-      ...postData,
-      user_id: user.id,
-      like_count: 0,
-      comment_count: 0,
-      share_count: 0,
-      view_count: 0,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function likePost(postId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data: existingLike } = await supabase
-    .from("likes")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("post_id", postId)
-    .single();
-
-  if (existingLike) {
-    await supabase.from("likes").delete().eq("id", existingLike.id);
-    await supabase
-      .from("posts")
-      .update({ like_count: supabase.rpc("decrement", { x: 1 }) })
-      .eq("id", postId);
-    return false;
-  } else {
-    await supabase.from("likes").insert({
-      user_id: user.id,
-      post_id: postId,
-    });
-    await supabase
-      .from("posts")
-      .update({ like_count: supabase.rpc("increment", { x: 1 }) })
-      .eq("id", postId);
-    return true;
-  }
-}
-
-export async function checkIfLiked(postId: string): Promise<boolean> {
-  const user = await getCurrentUser();
-  if (!user) return false;
-
-  const { data } = await supabase
-    .from("likes")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("post_id", postId)
-    .single();
-
-  return !!data;
-}
-
-export async function checkIfSaved(postId: string): Promise<boolean> {
-  const user = await getCurrentUser();
-  if (!user) return false;
-
-  const { data } = await supabase
-    .from("saves")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("post_id", postId)
-    .single();
-
-  return !!data;
-}
-
-export async function savePost(postId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data: existingSave } = await supabase
-    .from("saves")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("post_id", postId)
-    .single();
-
-  if (existingSave) {
-    await supabase.from("saves").delete().eq("id", existingSave.id);
-    return false;
-  } else {
-    await supabase.from("saves").insert({
-      user_id: user.id,
-      post_id: postId,
-    });
-    return true;
-  }
-}
-
-export async function getSavesCount(postId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from("saves")
-    .select("*", { count: "exact", head: true })
-    .eq("post_id", postId);
-
-  if (error) return 0;
-  return count || 0;
-}
-
-export async function createComment(
-  postId: string,
-  content: string,
-  parentId?: string,
-) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data, error } = await supabase
-    .from("comments")
-    .insert({
-      user_id: user.id,
-      post_id: postId,
-      content,
-      parent_id: parentId || null,
-      like_count: 0,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await supabase
-    .from("posts")
-    .update({ comment_count: supabase.rpc("increment", { x: 1 }) })
-    .eq("id", postId);
-
-  return data;
-}
-
-export async function likeComment(commentId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data: existingLike } = await supabase
-    .from("comment_likes")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("comment_id", commentId)
-    .single();
-
-  if (existingLike) {
-    await supabase.from("comment_likes").delete().eq("id", existingLike.id);
-    await supabase
-      .from("comments")
-      .update({ like_count: supabase.rpc("decrement", { x: 1 }) })
-      .eq("id", commentId);
-    return false;
-  } else {
-    await supabase.from("comment_likes").insert({
-      user_id: user.id,
-      comment_id: commentId,
-    });
-    await supabase
-      .from("comments")
-      .update({ like_count: supabase.rpc("increment", { x: 1 }) })
-      .eq("id", commentId);
-    return true;
-  }
-}
-
-export async function checkIfCommentLiked(commentId: string): Promise<boolean> {
-  const user = await getCurrentUser();
-  if (!user) return false;
-
-  const { data } = await supabase
-    .from("comment_likes")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("comment_id", commentId)
-    .single();
-
-  return !!data;
-}
+// ==================== FOLLOW FUNCTIONS ====================
 
 export async function followUser(userIdToFollow: string) {
   const user = await getCurrentUser();
@@ -1903,6 +1634,8 @@ export async function followUser(userIdToFollow: string) {
   if (user.id === userIdToFollow) {
     throw new Error("Cannot follow yourself");
   }
+
+  console.log("👤 Following user:", userIdToFollow);
 
   const { data: existingFollow } = await supabase
     .from("follows")
@@ -1916,14 +1649,15 @@ export async function followUser(userIdToFollow: string) {
 
     await supabase
       .from("profiles")
-      .update({ follower_count: supabase.rpc("decrement", { x: 1 }) })
+      .update({ follower_count: (existingFollow.follower_count || 0) - 1 })
       .eq("id", userIdToFollow);
 
     await supabase
       .from("profiles")
-      .update({ following_count: supabase.rpc("decrement", { x: 1 }) })
+      .update({ following_count: (existingFollow.following_count || 0) - 1 })
       .eq("id", user.id);
 
+    console.log("✅ User unfollowed");
     return false;
   } else {
     await supabase.from("follows").insert({
@@ -1933,21 +1667,26 @@ export async function followUser(userIdToFollow: string) {
 
     await supabase
       .from("profiles")
-      .update({ follower_count: supabase.rpc("increment", { x: 1 }) })
+      .update({ follower_count: (existingFollow?.follower_count || 0) + 1 })
       .eq("id", userIdToFollow);
 
     await supabase
       .from("profiles")
-      .update({ following_count: supabase.rpc("increment", { x: 1 }) })
+      .update({ following_count: (existingFollow?.following_count || 0) + 1 })
       .eq("id", user.id);
 
+    console.log("✅ User followed");
     return true;
   }
 }
 
+// ==================== COMMUNITY FUNCTIONS ====================
+
 export async function joinCommunity(communityId: string) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
+
+  console.log("👥 Joining community:", communityId);
 
   const { data, error } = await supabase
     .from("community_members")
@@ -1959,63 +1698,71 @@ export async function joinCommunity(communityId: string) {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Join community error:", error);
+    throw error;
+  }
 
   await supabase
     .from("communities")
-    .update({ member_count: supabase.rpc("increment", { x: 1 }) })
+    .update({ member_count: (data.member_count || 0) + 1 })
     .eq("id", communityId);
 
+  console.log("✅ Joined community");
   return data;
 }
 
-export async function leaveCommunity(communityId: string) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
+// ==================== NOTIFICATION FUNCTIONS ====================
 
-  const { error } = await supabase
-    .from("community_members")
-    .delete()
-    .eq("community_id", communityId)
-    .eq("user_id", user.id);
+async function createNotification(notification: {
+  user_id: string;
+  type: Tables["notifications"]["Row"]["type"];
+  from_user_id?: string;
+  post_id?: string;
+  comment_id?: string;
+  story_id?: string;
+  community_id?: string;
+  conversation_id?: string;
+  message?: string;
+}) {
+  console.log("🔔 Creating notification");
 
-  if (error) throw error;
+  try {
+    const { error } = await supabase.from("notifications").insert({
+      ...notification,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
 
-  await supabase
-    .from("communities")
-    .update({ member_count: supabase.rpc("decrement", { x: 1 }) })
-    .eq("id", communityId);
+    if (error) {
+      console.error("❌ Create notification error:", error);
+    } else {
+      console.log("✅ Notification created");
+    }
+  } catch (error) {
+    console.error("❌ Create notification exception:", error);
+  }
 }
 
 export async function getUnreadNotificationsCount(userId: string) {
+  console.log("🔍 Getting unread notifications count for:", userId);
+
   const { count, error } = await supabase
     .from("notifications")
     .select("*", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("is_read", false);
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Get unread notifications count error:", error);
+    throw error;
+  }
+
+  console.log(`✅ Found ${count || 0} unread notifications`);
   return count || 0;
 }
 
-export async function markNotificationAsRead(notificationId: string) {
-  const { error } = await supabase
-    .from("notifications")
-    .update({ is_read: true })
-    .eq("id", notificationId);
-
-  if (error) throw error;
-}
-
-export async function markAllNotificationsAsRead(userId: string) {
-  const { error } = await supabase
-    .from("notifications")
-    .update({ is_read: true })
-    .eq("user_id", userId)
-    .eq("is_read", false);
-
-  if (error) throw error;
-}
+// ==================== CHAT FUNCTIONS ====================
 
 export async function sendMessage(
   conversationId: string,
@@ -2025,6 +1772,8 @@ export async function sendMessage(
 ) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
+
+  console.log("💬 Sending message to conversation:", conversationId);
 
   const { data, error } = await supabase
     .from("messages")
@@ -2038,7 +1787,10 @@ export async function sendMessage(
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Send message error:", error);
+    throw error;
+  }
 
   await supabase
     .from("conversations")
@@ -2048,47 +1800,77 @@ export async function sendMessage(
     })
     .eq("id", conversationId);
 
+  console.log("✅ Message sent:", data.id);
   return data;
 }
 
-export async function createConversation(
-  userIds: string[],
-  name?: string,
-  isGroup = false,
-) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
+// ==================== REAL-TIME SUBSCRIPTIONS ====================
 
-  const allUserIds = Array.from(new Set([user.id, ...userIds]));
-
-  const { data: conversation, error: convError } = await supabase
-    .from("conversations")
-    .insert({
-      name: isGroup ? name : null,
-      is_group: isGroup,
-      unread_count: 0,
-    })
-    .select()
-    .single();
-
-  if (convError) throw convError;
-
-  const participants = allUserIds.map((userId) => ({
-    conversation_id: conversation.id,
-    user_id: userId,
-    unread_count: 0,
-  }));
-
-  const { error: partError } = await supabase
-    .from("conversation_participants")
-    .insert(participants);
-
-  if (partError) throw partError;
-
-  return conversation;
+interface PostgrestChangePayload {
+  commit_timestamp: string;
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  new: any;
+  old: any;
+  schema: string;
+  table: string;
 }
 
-// Link generation functions
+export function subscribeToStoryComments(
+  storyId: string,
+  callback: (payload: PostgrestChangePayload) => void,
+) {
+  console.log("📡 Subscribing to story comments:", storyId);
+
+  const channel = supabase.channel(`story-comments-${storyId}`);
+
+  channel.on(
+    "postgres_changes" as any,
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "story_comments",
+      filter: `story_id=eq.${storyId}`,
+    },
+    callback,
+  );
+
+  channel.subscribe();
+
+  return () => {
+    console.log("📡 Unsubscribing from story comments");
+    supabase.removeChannel(channel);
+  };
+}
+
+export function subscribeToUserConversations(
+  userId: string,
+  callback: (payload: PostgrestChangePayload) => void,
+) {
+  console.log("📡 Subscribing to user conversations:", userId);
+
+  const channel = supabase.channel(`user-conversations-${userId}`);
+
+  channel.on(
+    "postgres_changes" as any,
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "conversation_participants",
+      filter: `user_id=eq.${userId}`,
+    },
+    callback,
+  );
+
+  channel.subscribe();
+
+  return () => {
+    console.log("📡 Unsubscribing from user conversations");
+    supabase.removeChannel(channel);
+  };
+}
+
+// ==================== LINK GENERATION ====================
+
 export function generatePostLink(postId: string): string {
   return `https://nebulanet.space/post/${postId}`;
 }
@@ -2109,137 +1891,210 @@ export function generateDeepLink(
 }
 
 export async function incrementShareCount(postId: string) {
+  console.log("📈 Incrementing share count for post:", postId);
+
   const { error } = await supabase
     .from("posts")
-    .update({ share_count: supabase.rpc("increment", { x: 1 }) })
+    .update({ share_count: (await getPostById(postId)).share_count + 1 })
     .eq("id", postId);
 
   if (error) {
-    console.error("Error incrementing share count:", error);
+    console.error("❌ Increment share count error:", error);
+    throw error;
+  }
+
+  console.log("✅ Share count incremented");
+}
+
+// ==================== ACCOUNT MANAGEMENT ====================
+
+export async function deactivateAccount() {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("⏸️  Deactivating account");
+
+  // Create a backup of user data before deactivation
+  const { error: backupError } = await supabase
+    .from("deactivated_accounts")
+    .insert({
+      user_id: user.id,
+      deactivated_at: new Date().toISOString(),
+      data_backup: await getUserDataBackup(user.id),
+    });
+
+  if (backupError) {
+    console.error("Failed to create backup:", backupError);
+  }
+
+  // Soft delete: Mark user as deactivated
+  const { error: deactivateError } = await supabase
+    .from("profiles")
+    .update({
+      is_deactivated: true,
+      deactivated_at: new Date().toISOString(),
+      username: `deactivated_${Date.now()}`,
+      avatar_url: null,
+      bio: null,
+      website: null,
+      location: null,
+      is_online: false,
+    })
+    .eq("id", user.id);
+
+  if (deactivateError) {
+    console.error("❌ Deactivate account error:", deactivateError);
+    throw deactivateError;
+  }
+
+  // Sign out the user
+  await signOut();
+
+  console.log("✅ Account deactivated");
+  return true;
+}
+
+export async function deleteAccount() {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  console.log("🗑️  Deleting account");
+
+  try {
+    // Create a backup before hard delete
+    const { error: backupError } = await supabase
+      .from("deleted_accounts_backup")
+      .insert({
+        user_id: user.id,
+        deleted_at: new Date().toISOString(),
+        user_data: await getUserDataBackup(user.id),
+      });
+
+    if (backupError) {
+      console.error("Backup creation failed:", backupError);
+    }
+
+    // Mark as deleted in profiles table
+    await supabase
+      .from("profiles")
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        username: `deleted_${Date.now()}`,
+        avatar_url: null,
+        bio: "This account has been deleted",
+        full_name: "Deleted User",
+      })
+      .eq("id", user.id);
+
+    // Delete user's auth session
+    await supabase.auth.signOut();
+
+    console.log("✅ Account deleted");
+    return true;
+  } catch (error) {
+    console.error("❌ Account deletion failed:", error);
     throw error;
   }
 }
 
-export async function createStory(
-  content: string,
-  mediaUrl?: string,
-  mediaType?: "image" | "video" | "text",
-) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
+// Helper function to get user data backup
+async function getUserDataBackup(userId: string) {
+  console.log("💾 Creating user data backup");
 
-  const { data, error } = await supabase
-    .from("stories")
-    .insert({
-      user_id: user.id,
-      content,
-      media_url: mediaUrl,
-      media_type: mediaType || (mediaUrl ? "image" : "text"),
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      view_count: 0,
-    })
-    .select()
-    .single();
+  const [
+    { data: profile },
+    { data: posts },
+    { data: comments },
+    { data: followers },
+    { data: following },
+  ] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId).single(),
+    supabase
+      .from("posts")
+      .select("id, title, content, created_at")
+      .eq("user_id", userId),
+    supabase
+      .from("comments")
+      .select("id, content, created_at")
+      .eq("user_id", userId),
+    supabase
+      .from("follows")
+      .select("following_id, created_at")
+      .eq("follower_id", userId),
+    supabase
+      .from("follows")
+      .select("follower_id, created_at")
+      .eq("following_id", userId),
+  ]);
 
-  if (error) throw error;
-  return data;
+  return {
+    profile,
+    posts: posts || [],
+    comments: comments || [],
+    followers: followers || [],
+    following: following || [],
+    backup_created: new Date().toISOString(),
+  };
 }
 
-export async function getActiveStories(limit = 50) {
-  try {
-    const { data, error } = await supabase
-      .from("stories")
-      .select(
-        `
-        *,
-        profiles!stories_user_id_fkey(*)
-      `,
-      )
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false })
-      .limit(limit);
+// ==================== UTILITY FUNCTIONS ====================
 
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error("Error getting active stories:", error);
-    return [];
+export async function testConnection() {
+  console.log("🔌 Testing Supabase connection...");
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error) {
+      console.error("❌ Connection test failed:", error.message);
+      return { success: false, error: error.message };
+    }
+
+    console.log("✅ Connection test successful!");
+    return { success: true, session: !!data.session };
+  } catch (error: any) {
+    console.error("❌ Connection test exception:", error.message);
+    return { success: false, error: error.message };
   }
 }
 
-// Enhanced story creation with options
-export async function createStoryWithOptions(
-  content?: string,
-  mediaUrl?: string,
-  mediaType?: "image" | "video" | "text",
-  options?: {
-    backgroundColor?: string;
-    textColor?: string;
-  },
-) {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data, error } = await supabase
-    .from("stories")
-    .insert({
-      user_id: user.id,
-      content: content || null,
-      media_url: mediaUrl || null,
-      media_type: mediaType || (mediaUrl ? "image" : "text"),
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      view_count: 0,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function initializeSupabase() {
+  const { data: authData } = await supabase.auth.getSession();
+  console.log(
+    "Supabase initialized",
+    authData.session ? "User logged in" : "No user session",
+  );
+  return authData;
 }
 
-// Get stories with user data
-export async function getStoriesWithUsers() {
+export type TableName = keyof Tables;
+
+export const from = <T extends TableName>(table: T) => {
+  return supabase.from(table);
+};
+
+export type { Session, User } from "@supabase/supabase-js";
+
+export type RealtimePayload<T extends TableName> = {
+  commit_timestamp: string;
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  new: Tables[T]["Row"];
+  old: Tables[T]["Row"];
+  schema: string;
+  table: string;
+};
+
+// Error handling wrapper
+export async function withErrorHandling<T>(operation: Promise<T>): Promise<{
+  data: T | null;
+  error: Error | null;
+}> {
   try {
-    const { data, error } = await supabase
-      .from("stories")
-      .select(
-        `
-        *,
-        profiles!stories_user_id_fkey (
-          id,
-          username,
-          full_name,
-          avatar_url
-        )
-      `,
-      )
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const data = await operation;
+    return { data, error: null };
   } catch (error) {
-    console.error("Error getting stories with users:", error);
-    return [];
-  }
-}
-
-// Check if user has active story
-export async function hasActiveStory() {
-  const user = await getCurrentUser();
-  if (!user) return false;
-
-  try {
-    const { count, error } = await supabase
-      .from("stories")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .gt("expires_at", new Date().toISOString());
-
-    if (error) return false;
-    return (count || 0) > 0;
-  } catch (error) {
-    console.error("Error checking active story:", error);
-    return false;
+    console.error("Supabase operation failed:", error);
+    return { data: null, error: error as Error };
   }
 }
