@@ -23,12 +23,19 @@
       "bundleIdentifier": "com.nebulanet.app",
       "buildNumber": "1",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification"],
+        "NSPhotoLibraryUsageDescription": "Allow NebulaNet to access your photo library to upload profile pictures and posts.",
+        "NSCameraUsageDescription": "Allow NebulaNet to use your camera to take photos and videos for posts.",
+        "NSMicrophoneUsageDescription": "Allow NebulaNet to use your microphone for video posts."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.nebulanet.app",
       "versionCode": 1,
+      "versionName": "1.0.0",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -38,8 +45,14 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
-        "VIBRATE"
-      ]
+        "VIBRATE",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_NOTIFICATION_POLICY"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "androidStatusBar": {
       "barStyle": "dark-content",
@@ -52,7 +65,8 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
@@ -75,7 +89,8 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#E6F4FE"
+          "color": "#E6F4FE",
+          "sounds": ["./assets/sounds/mixkit_sci_fi_click_900.wav"]
         }
       ],
       "expo-font"
@@ -83,11 +98,26 @@
     "extra": {
       "eas": {
         "projectId": "e048836d-bf2b-4423-95d8-e6355b78b981"
-      }
+      },
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "appDomain": "nebulanet.space",
+      "appUrl": "https://nebulanet.space",
+      "enableAnalytics": false,
+      "enableDebug": true,
+      "appVersion": "1.0.0"
     },
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "tsconfigPaths": true
     },
-    "owner": "alyjbak28"
+    "owner": "alyjbak28",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e048836d-bf2b-4423-95d8-e6355b78b981",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

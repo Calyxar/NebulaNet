@@ -2,9 +2,16 @@
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
-import { useState } from "react";
+import * as SplashScreen from "expo-splash-screen";
+import { useEffect, useState } from "react";
+import { Platform, StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
+// Prevent splash screen from auto-hiding
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   // Create QueryClient instance
@@ -15,38 +22,141 @@ export default function RootLayout() {
           queries: {
             retry: 2,
             staleTime: 1000 * 60 * 5, // 5 minutes
+            refetchOnWindowFocus: Platform.OS === "web", // Only refetch on web
           },
         },
       }),
   );
 
+  // Load fonts - going up one directory from app/ to root
+  const [fontsLoaded, fontError] = useFonts({
+    "Inter-Regular": require("../assets/fonts/Inter-Regular.ttf"),
+    "Inter-Medium": require("../assets/fonts/Inter-Medium.ttf"),
+    "Inter-SemiBold": require("../assets/fonts/Inter-SemiBold.ttf"),
+    "Inter-Bold": require("../assets/fonts/Inter-Bold.ttf"),
+  });
+
+  // Hide splash screen when fonts are loaded
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, fontError]);
+
+  // Show nothing while loading fonts
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <AuthProvider>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                animation: "slide_from_right",
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="post" />
-              <Stack.Screen name="user" />
-              <Stack.Screen name="profile/index" />
-              <Stack.Screen name="profile/edit" />
-              <Stack.Screen name="settings" />
-              <Stack.Screen name="community" />
-              <Stack.Screen name="create" />
-              <Stack.Screen name="verify-email-handler/index" />
-              <Stack.Screen name="+not-found" />
-            </Stack>
-          </AuthProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        {Platform.OS === "ios" && <StatusBar barStyle="dark-content" />}
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <AuthProvider>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  animation: "slide_from_right",
+                  // Web-specific optimizations
+                  ...(Platform.OS === "web" && {
+                    animation: "fade",
+                    gestureEnabled: false,
+                  }),
+                }}
+              >
+                {/* Public routes */}
+                <Stack.Screen
+                  name="index"
+                  options={{
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="(auth)"
+                  options={{
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="verify-email-handler/index"
+                  options={{
+                    title: "Email Verification",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+
+                {/* Protected routes */}
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="post"
+                  options={{
+                    title: "Post",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="user"
+                  options={{
+                    title: "User Profile",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="profile/index"
+                  options={{
+                    title: "My Profile",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="profile/edit"
+                  options={{
+                    title: "Edit Profile",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="settings"
+                  options={{
+                    title: "Settings",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="community"
+                  options={{
+                    title: "Community",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+                <Stack.Screen
+                  name="create"
+                  options={{
+                    title: "Create Post",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+
+                {/* 404 Not Found - Must be last */}
+                <Stack.Screen
+                  name="+not-found"
+                  options={{
+                    title: "Not Found",
+                    animation: Platform.OS === "web" ? "fade" : "default",
+                  }}
+                />
+              </Stack>
+            </AuthProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }
