@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -25,17 +26,16 @@ export default function VerifyEmailScreen() {
   // Check if user is already verified
   useEffect(() => {
     if (user?.email_confirmed_at) {
-      router.replace("/(tabs)/home");
+      router.replace("/(auth)/onboarding");
     }
   }, [user]);
 
   // Handle deep links for email verification
   useEffect(() => {
     const handleDeepLink = async (url: string) => {
-      console.log("Deep link received in verify-email screen:", url);
+      console.log("Deep link received:", url);
 
       if (url.includes("verify-email-handler")) {
-        // Redirect to the dedicated handler screen
         router.replace("/verify-email-handler");
         return;
       }
@@ -58,13 +58,13 @@ export default function VerifyEmailScreen() {
               if (data) {
                 Alert.alert(
                   "Email Verified!",
-                  "Your email has been successfully verified. You can now access all features.",
+                  "Your email has been successfully verified.",
                   [
                     {
                       text: "Continue",
                       onPress: () => {
-                        checkSession(); // Refresh session
-                        router.replace("/(tabs)/home");
+                        checkSession();
+                        router.replace("/(auth)/onboarding");
                       },
                     },
                   ],
@@ -83,17 +83,11 @@ export default function VerifyEmailScreen() {
       }
     };
 
-    // Get initial URL
     Linking.getInitialURL().then((url) => {
-      if (url) {
-        console.log("Initial URL in verify-email:", url);
-        handleDeepLink(url);
-      }
+      if (url) handleDeepLink(url);
     });
 
-    // Listen for incoming links
     const subscription = Linking.addEventListener("url", ({ url }) => {
-      console.log("URL event in verify-email:", url);
       handleDeepLink(url);
     });
 
@@ -102,7 +96,7 @@ export default function VerifyEmailScreen() {
     };
   }, [checkSession]);
 
-  // Countdown timer for resend cooldown
+  // Countdown timer
   useEffect(() => {
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
@@ -112,26 +106,19 @@ export default function VerifyEmailScreen() {
 
   const handleResendVerification = async () => {
     if (countdown > 0) {
-      Alert.alert(
-        `Please wait ${countdown} seconds before requesting another verification email.`,
-      );
+      Alert.alert("Please Wait", `Wait ${countdown} seconds before resending.`);
       return;
     }
 
     setIsResending(true);
     try {
-      // Get platform-specific redirect URL
       let redirectTo = "";
 
       if (Platform.OS === "web") {
-        // For web, use the current origin
         redirectTo = `${window.location.origin}/verify-email-handler`;
       } else {
-        // For mobile, use the app scheme
         redirectTo = "nebulanet://verify-email-handler";
       }
-
-      console.log("Sending verification email with redirectTo:", redirectTo);
 
       const { error } = await supabase.auth.resend({
         type: "signup",
@@ -143,29 +130,17 @@ export default function VerifyEmailScreen() {
 
       if (error) throw error;
 
-      setCountdown(60); // 60 second cooldown
+      setCountdown(60);
       Alert.alert(
-        "Verification Email Sent",
-        "Please check your inbox for the verification link. Click the link to verify your email.",
-        [{ text: "OK" }],
+        "Email Sent",
+        "Please check your inbox for the verification link.",
       );
     } catch (error: any) {
       console.error("Error resending verification:", error);
-      Alert.alert(
-        "Error",
-        error.message || "Failed to resend verification email",
-      );
+      Alert.alert("Error", error.message || "Failed to resend email");
     } finally {
       setIsResending(false);
     }
-  };
-
-  const handleOpenEmailApp = () => {
-    // Open default email app based on platform
-    const emailUrl = Platform.OS === "ios" ? "message://" : "mailto:";
-    Linking.openURL(emailUrl).catch(() => {
-      Alert.alert("Error", "Could not open email app");
-    });
   };
 
   const handleCheckVerification = async () => {
@@ -173,19 +148,16 @@ export default function VerifyEmailScreen() {
       await checkSession();
 
       if (user?.email_confirmed_at) {
-        Alert.alert(
-          "Email Verified!",
-          "Your email has been successfully verified.",
-          [{ text: "Continue", onPress: () => router.replace("/(tabs)/home") }],
-        );
+        Alert.alert("Email Verified!", "Your email has been verified.", [
+          {
+            text: "Continue",
+            onPress: () => router.replace("/(auth)/onboarding"),
+          },
+        ]);
       } else {
         Alert.alert(
           "Not Verified Yet",
-          "Please check your email and click the verification link. If you already clicked it, try refreshing.",
-          [
-            { text: "Refresh", onPress: () => checkSession() },
-            { text: "Got It", style: "cancel" },
-          ],
+          "Please check your email and click the verification link.",
         );
       }
     } catch {
@@ -193,302 +165,262 @@ export default function VerifyEmailScreen() {
     }
   };
 
-  const handleSkipForNow = () => {
+  const handleSkip = () => {
     Alert.alert(
-      "Skip Email Verification",
-      "Some features will be limited until you verify your email. You can verify later in settings.",
+      "Skip Verification",
+      "Some features will be limited until you verify your email.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Continue Anyway",
-          onPress: () => {
-            // Set a flag in storage that user skipped verification
-            router.replace("/(tabs)/home");
-          },
+          onPress: () => router.replace("/(auth)/onboarding"),
         },
       ],
     );
   };
 
-  const handleGoToVerificationHandler = () => {
-    // Manually navigate to the verification handler
-    router.push("/verify-email-handler");
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Ionicons name="mail-outline" size={64} color="#007AFF" />
-          <Text style={styles.title}>Verify Your Email</Text>
-          <Text style={styles.subtitle}>We sent a verification link to:</Text>
-          <Text style={styles.email}>{email}</Text>
-        </View>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="mail-outline" size={48} color="#7C3AED" />
+            </View>
+            <Text style={styles.title}>Verify Your Email</Text>
+            <Text style={styles.subtitle}>We sent a verification link to</Text>
+            <Text style={styles.email}>{email}</Text>
+          </View>
 
-        <View style={styles.instructions}>
-          <Text style={styles.instructionsTitle}>To complete signup:</Text>
-          <View style={styles.instructionItem}>
-            <Ionicons name="mail-open-outline" size={20} color="#007AFF" />
-            <Text style={styles.instructionText}>Check your email inbox</Text>
+          {/* Instructions */}
+          <View style={styles.instructionsCard}>
+            <View style={styles.instructionItem}>
+              <View style={styles.checkIcon}>
+                <Ionicons name="checkmark-circle" size={20} color="#5C6BC0" />
+              </View>
+              <Text style={styles.instructionText}>Check your email inbox</Text>
+            </View>
+
+            <View style={styles.instructionItem}>
+              <View style={styles.checkIcon}>
+                <Ionicons name="checkmark-circle" size={20} color="#5C6BC0" />
+              </View>
+              <Text style={styles.instructionText}>
+                Click the verification link
+              </Text>
+            </View>
+
+            <View style={styles.instructionItem}>
+              <View style={styles.checkIcon}>
+                <Ionicons name="checkmark-circle" size={20} color="#5C6BC0" />
+              </View>
+              <Text style={styles.instructionText}>
+                Return to complete setup
+              </Text>
+            </View>
           </View>
-          <View style={styles.instructionItem}>
-            <Ionicons name="link-outline" size={20} color="#007AFF" />
-            <Text style={styles.instructionText}>
-              Click the verification link (opens app)
-            </Text>
+
+          {/* Action Buttons */}
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleCheckVerification}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.primaryButtonText}>
+                I&apos;ve Verified My Email
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.resendButton,
+                (isResending || countdown > 0) && styles.resendButtonDisabled,
+              ]}
+              onPress={handleResendVerification}
+              disabled={isResending || countdown > 0}
+              activeOpacity={0.9}
+            >
+              <Text
+                style={[
+                  styles.resendButtonText,
+                  (isResending || countdown > 0) &&
+                    styles.resendButtonTextDisabled,
+                ]}
+              >
+                {isResending
+                  ? "Sending..."
+                  : countdown > 0
+                    ? `Resend in ${countdown}s`
+                    : "Resend Verification Email"}
+              </Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.instructionItem}>
+
+          {/* Info Box */}
+          <View style={styles.infoBox}>
             <Ionicons
-              name="checkmark-circle-outline"
+              name="information-circle-outline"
               size={20}
-              color="#007AFF"
+              color="#9FA8DA"
             />
-            <Text style={styles.instructionText}>
-              App will automatically verify and redirect
+            <Text style={styles.infoText}>
+              Didn&apos;t receive the email? Check your spam folder or request a
+              new verification link.
             </Text>
           </View>
-        </View>
 
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.openEmailButton}
-            onPress={handleOpenEmailApp}
-          >
-            <Ionicons name="mail-outline" size={20} color="white" />
-            <Text style={styles.openEmailButtonText}>Open Email App</Text>
+          {/* Skip Link */}
+          <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
+            <Text style={styles.skipButtonText}>Skip for now</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.resendButton}
-            onPress={handleResendVerification}
-            disabled={isResending || countdown > 0}
-          >
-            <Ionicons
-              name={isResending ? "sync" : "refresh-outline"}
-              size={20}
-              color="#007AFF"
-            />
-            <Text style={styles.resendButtonText}>
-              {isResending
-                ? "Sending..."
-                : countdown > 0
-                  ? `Resend in ${countdown}s`
-                  : "Resend Verification Email"}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.checkButton}
-            onPress={handleCheckVerification}
-          >
-            <Ionicons name="checkmark-done-outline" size={20} color="#34C759" />
-            <Text style={styles.checkButtonText}>
-              I&apos;ve Verified My Email
-            </Text>
-          </TouchableOpacity>
-
-          {/* Debug button - can be removed in production */}
-          <TouchableOpacity
-            style={styles.debugButton}
-            onPress={handleGoToVerificationHandler}
-          >
-            <Ionicons name="bug-outline" size={20} color="#8E8E93" />
-            <Text style={styles.debugButtonText}>
-              Debug: Go to Verification Handler
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.troubleshoot}>
-          <Text style={styles.troubleshootTitle}>Troubleshooting Tips:</Text>
-          <Text style={styles.troubleshootText}>
-            • Check spam/junk folder{"\n"}• Make sure email is correct: {email}
-            {"\n"}• Wait a few minutes for email delivery{"\n"}• Add
-            noreply@mail.app.supabase.io to contacts{"\n"}• Clicking the link
-            should open the NebulaNet app{"\n"}• If link doesn&apos;t work,
-            request a new one
-          </Text>
-        </View>
-
-        <View style={styles.warningBox}>
-          <Ionicons name="warning-outline" size={20} color="#FF9500" />
-          <Text style={styles.warningText}>
-            You won&apos;t be able to reset your password or access all features
-            until your email is verified.
-          </Text>
-        </View>
-
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkipForNow}>
-          <Text style={styles.skipButtonText}>Skip for now</Text>
-          <Ionicons name="arrow-forward" size={16} color="#666" />
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#E8EAF6",
   },
   scrollContent: {
     flexGrow: 1,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 40,
   },
   header: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 32,
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#000000",
-    marginTop: 16,
+    color: "#000",
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#666666",
-    textAlign: "center",
+    fontSize: 15,
+    color: "#9FA8DA",
+    marginBottom: 8,
   },
   email: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000000",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  instructions: {
-    backgroundColor: "#F8F8F8",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
-  },
-  instructionsTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#000000",
-    marginBottom: 16,
+    color: "#5C6BC0",
+  },
+  instructionsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    gap: 16,
   },
   instructionItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
     gap: 12,
   },
+  checkIcon: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   instructionText: {
-    fontSize: 14,
-    color: "#666666",
-    lineHeight: 20,
     flex: 1,
+    fontSize: 15,
+    color: "#000",
+    lineHeight: 20,
   },
   actions: {
     gap: 12,
     marginBottom: 24,
   },
-  openEmailButton: {
-    flexDirection: "row",
+  primaryButton: {
+    backgroundColor: "#7C3AED",
+    paddingVertical: 18,
+    borderRadius: 28,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#007AFF",
-    padding: 16,
-    borderRadius: 12,
-    gap: 8,
+    shadowColor: "#7C3AED",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  openEmailButtonText: {
-    color: "white",
-    fontSize: 16,
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
     fontWeight: "600",
   },
   resendButton: {
-    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 18,
+    borderRadius: 28,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#007AFF",
-    gap: 8,
+    borderColor: "#7C3AED",
+  },
+  resendButtonDisabled: {
+    borderColor: "#C5CAE9",
   },
   resendButtonText: {
-    color: "#007AFF",
-    fontSize: 16,
+    color: "#7C3AED",
+    fontSize: 17,
     fontWeight: "600",
   },
-  checkButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#34C759",
-    gap: 8,
+  resendButtonTextDisabled: {
+    color: "#C5CAE9",
   },
-  checkButtonText: {
-    color: "#34C759",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  debugButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F2F2F7",
-    padding: 12,
-    borderRadius: 12,
-    gap: 8,
-    marginTop: 8,
-  },
-  debugButtonText: {
-    color: "#8E8E93",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  troubleshoot: {
-    backgroundColor: "#FFF3E0",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  troubleshootTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000000",
-    marginBottom: 8,
-  },
-  troubleshootText: {
-    fontSize: 13,
-    color: "#666666",
-    lineHeight: 18,
-  },
-  warningBox: {
+  infoBox: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#FFF9E6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
     gap: 12,
+    marginBottom: 16,
   },
-  warningText: {
-    fontSize: 13,
-    color: "#666666",
-    lineHeight: 18,
+  infoText: {
     flex: 1,
+    fontSize: 14,
+    color: "#9FA8DA",
+    lineHeight: 20,
   },
   skipButton: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
+    paddingVertical: 12,
   },
   skipButtonText: {
-    color: "#666666",
-    fontSize: 16,
-    marginRight: 4,
+    fontSize: 15,
+    color: "#9FA8DA",
+    fontWeight: "500",
   },
 });

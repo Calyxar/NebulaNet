@@ -1,5 +1,4 @@
 // app/profile/edit.tsx
-import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,15 +6,17 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function EditProfileScreen() {
   const { profile, updateProfile } = useAuth();
@@ -23,6 +24,7 @@ export default function EditProfileScreen() {
     full_name: profile?.full_name || "",
     username: profile?.username || "",
     bio: profile?.bio || "",
+    location: profile?.location || "",
   });
   const [avatar, setAvatar] = useState(profile?.avatar_url || "");
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +35,7 @@ export default function EditProfileScreen() {
     if (status !== "granted") {
       Alert.alert(
         "Permission required",
-        "We need camera roll permissions to upload photos."
+        "We need camera roll permissions to upload photos.",
       );
       return;
     }
@@ -72,7 +74,6 @@ export default function EditProfileScreen() {
         data: { publicUrl },
       } = supabase.storage.from("avatars").getPublicUrl(filePath);
 
-      // Update profile with new avatar URL
       await updateProfile.mutateAsync({ avatar_url: publicUrl });
       setAvatar(publicUrl);
     } catch {
@@ -98,123 +99,162 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit Profile</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <View style={styles.content}>
-        {/* Avatar Upload */}
-        <TouchableOpacity
-          style={styles.avatarContainer}
-          onPress={pickImage}
-          disabled={isLoading}
-        >
-          {avatar ? (
-            <Image source={{ uri: avatar }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Ionicons name="person" size={48} color="#666" />
-            </View>
-          )}
-          <View style={styles.avatarOverlay}>
-            <Ionicons name="camera" size={24} color="white" />
-          </View>
-        </TouchableOpacity>
-
-        {/* Form Fields */}
-        <View style={styles.form}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.full_name}
-              onChangeText={(text) =>
-                setFormData({ ...formData, full_name: text })
-              }
-              placeholder="Enter your full name"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Username</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.username}
-              onChangeText={(text) =>
-                setFormData({ ...formData, username: text })
-              }
-              placeholder="Enter username"
-              autoCapitalize="none"
-            />
-            <Text style={styles.inputHint}>
-              This is how others will mention you
-            </Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Bio</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={formData.bio}
-              onChangeText={(text) => setFormData({ ...formData, bio: text })}
-              placeholder="Tell us about yourself"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              maxLength={200}
-            />
-            <Text style={styles.charCount}>
-              {formData.bio.length}/200 characters
-            </Text>
-          </View>
-
-          {/* Email (read-only) */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
-            <View style={styles.emailContainer}>
-              <Text style={styles.email}>{profile?.email}</Text>
-              {profile?.email_verified ? (
-                <View style={styles.verifiedBadge}>
-                  <Ionicons name="checkmark-circle" size={16} color="#34c759" />
-                  <Text style={styles.verifiedText}>Verified</Text>
-                </View>
-              ) : (
-                <TouchableOpacity style={styles.verifyButton}>
-                  <Text style={styles.verifyButtonText}>Verify Email</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.buttonContainer}>
-          <Button
-            title="Save Changes"
-            onPress={handleSave}
-            loading={isLoading || updateProfile.isPending}
-          />
-
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
           <TouchableOpacity
-            style={styles.cancelButton}
+            style={styles.backButton}
             onPress={() => router.back()}
           >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Profile</Text>
+          <TouchableOpacity style={styles.menuButton}>
+            <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
           </TouchableOpacity>
         </View>
-      </View>
-    </ScrollView>
+
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Avatar Upload */}
+          <TouchableOpacity
+            style={styles.avatarContainer}
+            onPress={pickImage}
+            disabled={isLoading}
+          >
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={48} color="#9FA8DA" />
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Form Card */}
+          <View style={styles.formCard}>
+            {/* Name */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Name</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons
+                  name="person-outline"
+                  size={20}
+                  color="#9FA8DA"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={formData.full_name}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, full_name: text })
+                  }
+                  placeholder="Enter your full name"
+                  placeholderTextColor="#C5CAE9"
+                />
+              </View>
+            </View>
+
+            {/* Username */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Username</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons
+                  name="at"
+                  size={20}
+                  color="#9FA8DA"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={formData.username}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, username: text })
+                  }
+                  placeholder="@username"
+                  placeholderTextColor="#C5CAE9"
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+
+            {/* Location */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Location</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons
+                  name="location-outline"
+                  size={20}
+                  color="#9FA8DA"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={formData.location}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, location: text })
+                  }
+                  placeholder="Let others know where you're based"
+                  placeholderTextColor="#C5CAE9"
+                />
+              </View>
+            </View>
+
+            {/* Bio */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Bio</Text>
+              <View style={[styles.inputWrapper, styles.bioWrapper]}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color="#9FA8DA"
+                  style={styles.bioIcon}
+                />
+                <TextInput
+                  style={[styles.input, styles.bioInput]}
+                  value={formData.bio}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, bio: text })
+                  }
+                  placeholder="Tell us about yourself"
+                  placeholderTextColor="#C5CAE9"
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                  maxLength={200}
+                />
+              </View>
+              <Text style={styles.charCount}>
+                {formData.bio.length}/200 characters
+              </Text>
+            </View>
+          </View>
+
+          {/* Continue Button */}
+          <TouchableOpacity
+            style={styles.continueButton}
+            onPress={handleSave}
+            disabled={isLoading || updateProfile.isPending}
+          >
+            <Text style={styles.continueButtonText}>
+              {isLoading || updateProfile.isPending ? "Saving..." : "Continue"}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#E8EAF6",
   },
   header: {
     flexDirection: "row",
@@ -222,128 +262,120 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
+    backgroundColor: "#E8EAF6",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
+    color: "#000",
   },
-  content: {
-    padding: 20,
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
   avatarContainer: {
     alignSelf: "center",
-    marginBottom: 30,
-    position: "relative",
+    marginVertical: 24,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 3,
-    borderColor: "#007AFF",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#f0f0f0",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#D1D5F0",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#007AFF",
   },
-  avatarOverlay: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#007AFF",
-    width: 32,
-    height: 32,
+  formCard: {
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "white",
-  },
-  form: {
+    padding: 20,
     gap: 20,
-    marginBottom: 30,
+    marginBottom: 24,
   },
   inputGroup: {
     gap: 8,
   },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#000",
   },
-  input: {
-    backgroundColor: "#f8f8f8",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8F8F8",
+    borderRadius: 12,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: "#E0E0E0",
   },
-  textArea: {
-    minHeight: 100,
-    paddingTop: 12,
+  bioWrapper: {
+    alignItems: "flex-start",
+    paddingVertical: 12,
   },
-  inputHint: {
-    fontSize: 14,
-    color: "#666",
+  inputIcon: {
+    marginRight: 8,
+  },
+  bioIcon: {
+    marginRight: 8,
+    marginTop: 2,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: "#000",
+    paddingVertical: 12,
+  },
+  bioInput: {
+    minHeight: 80,
+    paddingVertical: 0,
   },
   charCount: {
     fontSize: 12,
-    color: "#999",
+    color: "#9FA8DA",
     alignSelf: "flex-end",
-    marginTop: 4,
   },
-  emailContainer: {
-    flexDirection: "row",
+  continueButton: {
+    backgroundColor: "#7C3AED",
+    paddingVertical: 18,
+    borderRadius: 28,
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#f8f8f8",
-    padding: 12,
-    borderRadius: 8,
+    shadowColor: "#7C3AED",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  email: {
-    fontSize: 16,
-    color: "#666",
-  },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  verifiedText: {
-    fontSize: 14,
-    color: "#34c759",
-    fontWeight: "500",
-  },
-  verifyButton: {
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  verifyButtonText: {
-    fontSize: 14,
-    color: "white",
-    fontWeight: "500",
-  },
-  buttonContainer: {
-    gap: 12,
-  },
-  cancelButton: {
-    alignItems: "center",
-    padding: 16,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
+  continueButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "600",
   },
 });

@@ -2,13 +2,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
-    Dimensions,
-    Image,
-    StyleSheet,
-    Text,
-    TextInput, // Add this import
-    TouchableOpacity,
-    View
+  Dimensions,
+  Image,
+  StyleSheet,
+  Text,
+  TextInput, // Add this import
+  TouchableOpacity,
+  View,
 } from "react-native";
 import StoryCommentsList from "./StoryCommentsList"; // Add this import
 
@@ -46,8 +46,7 @@ export default function StoryViewer({
   const [isSending, setIsSending] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
-  const [_isLoadingComments, _setIsLoadingComments] = useState(false); // Prefix with underscore to mark as intentionally unused
-
+  const [_isLoadingComments] = useState(false);
   // Format timestamp
   const formatTime = (dateString?: string) => {
     if (!dateString) return "";

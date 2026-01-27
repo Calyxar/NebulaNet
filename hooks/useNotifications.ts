@@ -1,4 +1,4 @@
-// hooks/useNotifications.ts
+// hooks/useNotifications.ts - COMPLETE FIXED VERSION
 import { supabase } from "@/lib/supabase";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Audio } from "expo-av";
@@ -14,12 +14,18 @@ export interface Notification {
     | "follow"
     | "mention"
     | "community_invite"
-    | "post_shared";
+    | "post_shared"
+    | "story_comment"
+    | "story_like"
+    | "message"
+    | "join_request";
   sender_id: string;
   receiver_id: string;
   post_id?: string;
   comment_id?: string;
   community_id?: string;
+  story_id?: string;
+  conversation_id?: string;
   read: boolean;
   created_at: string;
   sender: {
@@ -41,6 +47,10 @@ export interface Notification {
     id: string;
     name: string;
     slug: string;
+  };
+  story?: {
+    id: string;
+    content: string | null;
   };
 }
 
@@ -89,6 +99,7 @@ export function useNotifications() {
               Platform.OS === "android"
                 ? "mixkit_sci_fi_click_900.wav"
                 : "mixkit_sci_fi_click_900.wav",
+            badge: 1,
           },
           trigger: null, // Show immediately
         });
@@ -117,6 +128,12 @@ export function useNotifications() {
             enableVibrate: true,
           });
         }
+
+        // Request permissions
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== "granted") {
+          console.log("Notification permissions not granted");
+        }
       } catch (error) {
         console.error("Error initializing notification sound:", error);
       }
@@ -125,14 +142,15 @@ export function useNotifications() {
     initializeNotificationSound();
   }, []);
 
-  // Fetch notifications
+  // Fetch notifications with pagination
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return [];
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError || !userData?.user) return [];
+
+      const user = userData.user;
 
       const { data, error } = await supabase
         .from("notifications")
@@ -140,9 +158,11 @@ export function useNotifications() {
           `
           *,
           sender:profiles!notifications_sender_id_fkey(id, username, full_name, avatar_url),
-          post:posts!notifications_post_id_fkey(id, title, content),
+          post:posts!notifications_post_id_fkey(id, title, content, media),
           comment:comments!notifications_comment_id_fkey(id, content),
-          community:communities!notifications_community_id_fkey(id, name, slug)
+          community:communities!notifications_community_id_fkey(id, name, slug, avatar_url),
+          story:stories!notifications_story_id_fkey(id, content, media_url),
+          conversation:conversations!notifications_conversation_id_fkey(id, name, avatar_url)
         `,
         )
         .eq("receiver_id", user.id)
@@ -152,16 +172,18 @@ export function useNotifications() {
       if (error) throw error;
       return data as Notification[];
     },
-    refetchInterval: 30000,
+    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchOnWindowFocus: true,
   });
 
   // Mark as read
   const markAsRead = useMutation({
     mutationFn: async (notificationId?: string) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError || !userData?.user) throw new Error("Not authenticated");
+
+      const user = userData.user;
 
       if (notificationId) {
         // Mark single notification as read
@@ -186,6 +208,9 @@ export function useNotifications() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
+
+      // Update badge count
+      Notifications.setBadgeCountAsync(0);
     },
   });
 
@@ -205,14 +230,41 @@ export function useNotifications() {
     },
   });
 
+  // CLEAR ALL NOTIFICATIONS
+  const clearAllNotifications = useMutation({
+    mutationFn: async () => {
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError || !userData?.user) throw new Error("Not authenticated");
+
+      const user = userData.user;
+
+      // Delete all notifications for the current user
+      const { error } = await supabase
+        .from("notifications")
+        .delete()
+        .eq("receiver_id", user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
+
+      // Clear badge
+      Notifications.setBadgeCountAsync(0);
+    },
+  });
+
   // Get unread count
   const unreadCountQuery = useQuery({
     queryKey: ["notifications", "unread"],
     queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return 0;
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError || !userData?.user) return 0;
+
+      const user = userData.user;
 
       const { count, error } = await supabase
         .from("notifications")
@@ -221,6 +273,10 @@ export function useNotifications() {
         .eq("read", false);
 
       if (error) throw error;
+
+      // Update badge count
+      Notifications.setBadgeCountAsync(count || 0);
+
       return count || 0;
     },
     refetchInterval: 30000,
@@ -245,6 +301,14 @@ export function useNotifications() {
           return `🏘️ ${senderName} invited you to a community`;
         case "post_shared":
           return `🔁 ${senderName} shared your post`;
+        case "story_comment":
+          return `💬 ${senderName} commented on your story`;
+        case "story_like":
+          return `❤️ ${senderName} liked your story`;
+        case "message":
+          return `💌 ${senderName} sent you a message`;
+        case "join_request":
+          return `🙋 ${senderName} wants to join your community`;
         default:
           return "New notification";
       }
@@ -273,6 +337,16 @@ export function useNotifications() {
             : "Invited you to join a community";
         case "post_shared":
           return "Shared your post with others";
+        case "story_comment":
+          return notification.comment?.content
+            ? `Commented: ${notification.comment.content.substring(0, 80)}...`
+            : "Commented on your story";
+        case "story_like":
+          return "Liked your story";
+        case "message":
+          return "Sent you a new message";
+        case "join_request":
+          return "Requested to join your community";
         default:
           return "You have a new notification";
       }
@@ -280,50 +354,144 @@ export function useNotifications() {
     [],
   );
 
+  const getNotificationIcon = useCallback((type: Notification["type"]) => {
+    switch (type) {
+      case "like":
+        return "heart";
+      case "comment":
+        return "chatbubble";
+      case "follow":
+        return "person-add";
+      case "mention":
+        return "at";
+      case "community_invite":
+        return "people";
+      case "post_shared":
+        return "share";
+      case "story_comment":
+        return "camera";
+      case "story_like":
+        return "heart";
+      case "message":
+        return "chatbubble";
+      case "join_request":
+        return "person";
+      default:
+        return "notifications";
+    }
+  }, []);
+
+  const getNotificationColor = useCallback((type: Notification["type"]) => {
+    switch (type) {
+      case "like":
+        return "#FF3B30";
+      case "comment":
+        return "#7C3AED";
+      case "follow":
+        return "#34C759";
+      case "mention":
+        return "#FF9500";
+      case "community_invite":
+        return "#5856D6";
+      case "post_shared":
+        return "#007AFF";
+      case "story_comment":
+        return "#AF52DE";
+      case "story_like":
+        return "#FF2D55";
+      case "message":
+        return "#32D74B";
+      case "join_request":
+        return "#5AC8FA";
+      default:
+        return "#7C3AED";
+    }
+  }, []);
+
   // Real-time subscription for new notifications
   useEffect(() => {
-    if (!notificationsQuery.data || notificationsQuery.data.length === 0)
-      return;
+    let channel: any;
 
-    const channel = supabase
-      .channel("notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `receiver_id=eq.${notificationsQuery.data[0].receiver_id}`,
-        },
-        async (payload) => {
-          // Play sound for new notification
-          await playNotificationSound();
+    const setupRealtimeSubscription = async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
 
-          // Show local notification
-          const newNotification = payload.new as Notification;
-          const notificationTitle = getNotificationTitle(newNotification);
-          const notificationBody = getNotificationBody(newNotification);
+      if (!user) return;
 
-          await showLocalNotification(notificationTitle, notificationBody, {
-            notificationId: newNotification.id,
-            type: newNotification.type,
-            postId: newNotification.post_id,
-          });
+      channel = supabase
+        .channel("notifications-realtime")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `receiver_id=eq.${user.id}`,
+          },
+          async (payload) => {
+            // Play sound for new notification
+            await playNotificationSound();
 
-          // Invalidate queries to refresh data
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
-          queryClient.invalidateQueries({
-            queryKey: ["notifications", "unread"],
-          });
-        },
-      )
-      .subscribe();
+            // Show local notification
+            const newNotification = payload.new as Notification;
+            const notificationTitle = getNotificationTitle(newNotification);
+            const notificationBody = getNotificationBody(newNotification);
+
+            await showLocalNotification(notificationTitle, notificationBody, {
+              notificationId: newNotification.id,
+              type: newNotification.type,
+              postId: newNotification.post_id,
+              senderId: newNotification.sender_id,
+            });
+
+            // Invalidate queries to refresh data
+            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            queryClient.invalidateQueries({
+              queryKey: ["notifications", "unread"],
+            });
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `receiver_id=eq.${user.id}`,
+          },
+          () => {
+            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            queryClient.invalidateQueries({
+              queryKey: ["notifications", "unread"],
+            });
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "DELETE",
+            schema: "public",
+            table: "notifications",
+            filter: `receiver_id=eq.${user.id}`,
+          },
+          () => {
+            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            queryClient.invalidateQueries({
+              queryKey: ["notifications", "unread"],
+            });
+          },
+        )
+        .subscribe();
+    };
+
+    setupRealtimeSubscription();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [
-    notificationsQuery.data,
     queryClient,
     playNotificationSound,
     showLocalNotification,
@@ -331,25 +499,39 @@ export function useNotifications() {
     getNotificationBody,
   ]);
 
-  // Function to send a test notification
-  const sendTestNotification = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+  // Group notifications by date
+  const groupNotificationsByDate = useCallback(
+    (notifications: Notification[]) => {
+      const groups: { [key: string]: Notification[] } = {};
 
-    // Create a test notification
-    const { error } = await supabase.from("notifications").insert({
-      type: "follow",
-      sender_id: user.id,
-      receiver_id: user.id,
-      read: false,
-    });
+      notifications.forEach((notification) => {
+        const date = new Date(notification.created_at);
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
 
-    if (error) {
-      console.error("Error creating test notification:", error);
-    }
-  };
+        let groupKey = "";
+
+        if (date.toDateString() === today.toDateString()) {
+          groupKey = "Today";
+        } else if (date.toDateString() === yesterday.toDateString()) {
+          groupKey = "Yesterday";
+        } else if (date.getTime() > today.getTime() - 7 * 24 * 60 * 60 * 1000) {
+          groupKey = "This Week";
+        } else {
+          groupKey = "Older";
+        }
+
+        if (!groups[groupKey]) {
+          groups[groupKey] = [];
+        }
+        groups[groupKey].push(notification);
+      });
+
+      return groups;
+    },
+    [],
+  );
 
   return {
     notifications: notificationsQuery.data || [],
@@ -357,9 +539,14 @@ export function useNotifications() {
     unreadCount: unreadCountQuery.data || 0,
     markAsRead,
     deleteNotification,
+    clearAllNotifications,
     refetch: notificationsQuery.refetch,
     playNotificationSound,
     showLocalNotification,
-    sendTestNotification,
+    getNotificationTitle,
+    getNotificationBody,
+    getNotificationIcon,
+    getNotificationColor,
+    groupNotificationsByDate,
   };
 }

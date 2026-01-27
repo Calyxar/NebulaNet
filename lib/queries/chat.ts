@@ -1,7 +1,11 @@
+// lib/queries/chat.ts - UPDATED VERSION WITH ALL SUBSCRIPTIONS
+import { SupabaseAttachment } from "@/components/chat/ChatInput";
 import { supabase, Tables } from "@/lib/supabase";
 
 export type ChatMessage = Tables["messages"]["Row"] & {
   sender?: Tables["profiles"]["Row"];
+  // ✅ Already added: attachments property
+  attachments?: SupabaseAttachment[];
 };
 
 export type ChatConversation = Tables["conversations"]["Row"] & {
@@ -12,7 +16,143 @@ export type ChatConversation = Tables["conversations"]["Row"] & {
   last_message?: ChatMessage;
 };
 
-// Chat service functions
+// ✅ UPDATED: Complete chatSubscriptions with all required functions
+export const chatSubscriptions = {
+  subscribeToMessages: (
+    conversationId: string,
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const channel = supabase.channel(`messages-${conversationId}`);
+
+    channel.on(
+      "postgres_changes" as any,
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        // Only call callback for messages not from current user
+        if (payload.new.sender_id !== userId) {
+          callback(payload);
+        }
+      },
+    );
+
+    channel.subscribe();
+
+    return () => {
+      console.log("📡 Unsubscribing from messages");
+      supabase.removeChannel(channel);
+    };
+  },
+
+  // ✅ ADDED: subscribeToUserConversations (called in useChat)
+  subscribeToUserConversations: (
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const channel = supabase.channel(`user-conversations-${userId}`);
+
+    channel.on(
+      "postgres_changes" as any,
+      {
+        event: "*",
+        schema: "public",
+        table: "conversations",
+      },
+      callback,
+    );
+
+    channel.subscribe();
+
+    return () => {
+      console.log("📡 Unsubscribing from user conversations");
+      supabase.removeChannel(channel);
+    };
+  },
+
+  // ✅ ADDED: subscribeToConversations (general)
+  subscribeToConversations: (callback: (payload: any) => void) => {
+    const channel = supabase.channel("conversations-global");
+
+    channel.on(
+      "postgres_changes" as any,
+      {
+        event: "*",
+        schema: "public",
+        table: "conversations",
+      },
+      callback,
+    );
+
+    channel.subscribe();
+
+    return () => {
+      console.log("📡 Unsubscribing from conversations");
+      supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToTypingStatus: (
+    conversationId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const channel = supabase.channel(`typing-${conversationId}`);
+
+    channel.on(
+      "postgres_changes" as any,
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "conversations",
+        filter: `id=eq.${conversationId}`,
+      },
+      (payload) => {
+        if (payload.new.is_typing !== payload.old?.is_typing) {
+          callback(payload);
+        }
+      },
+    );
+
+    channel.subscribe();
+
+    return () => {
+      console.log("📡 Unsubscribing from typing status");
+      supabase.removeChannel(channel);
+    };
+  },
+
+  // ✅ ADDED: subscribeToUserParticipants (called in useChat)
+  subscribeToUserParticipants: (
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const channel = supabase.channel(`user-participants-${userId}`);
+
+    channel.on(
+      "postgres_changes" as any,
+      {
+        event: "*",
+        schema: "public",
+        table: "conversation_participants",
+        filter: `user_id=eq.${userId}`,
+      },
+      callback,
+    );
+
+    channel.subscribe();
+
+    return () => {
+      console.log("📡 Unsubscribing from user participants");
+      supabase.removeChannel(channel);
+    };
+  },
+};
+
+// ✅ UPDATED: Fix the sendMessage function to handle attachments properly
 export const chatQueries = {
   // Get all conversations for current user
   getConversations: async (userId: string) => {
@@ -27,7 +167,7 @@ export const chatQueries = {
             profiles:user_id(*)
           ),
           last_message:messages!last_message_id(*)
-        `
+        `,
         )
         .eq("participants.user_id", userId)
         .order("updated_at", { ascending: false });
@@ -52,7 +192,7 @@ export const chatQueries = {
           `
           *,
           sender:profiles!messages_sender_id_fkey(*)
-        `
+        `,
         )
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: false })
@@ -66,25 +206,43 @@ export const chatQueries = {
     }
   },
 
-  // Send a message
+  // ✅ FIXED: sendMessage function to properly handle attachments
   sendMessage: async (
     conversationId: string,
     senderId: string,
     content: string,
+    attachments?: SupabaseAttachment[],
     mediaUrl?: string,
-    mediaType?: "image" | "video" | "audio" | "file"
+    mediaType?: "image" | "video" | "audio" | "file",
   ) => {
     try {
       const messageData: any = {
         conversation_id: conversationId,
         sender_id: senderId,
-        content,
+        content: content.trim() || null,
         delivered_at: new Date().toISOString(),
+        read_at: null, // Initially null, will be updated when read
       };
 
-      if (mediaUrl && mediaType) {
+      // Handle attachments
+      if (attachments && attachments.length > 0) {
+        messageData.attachments = attachments;
+        // Use first attachment for legacy media_url/type support
+        const firstAttachment = attachments[0];
+        messageData.media_url = firstAttachment.url;
+        messageData.media_type = firstAttachment.type;
+      } else if (mediaUrl && mediaType) {
+        // Legacy support for single media
         messageData.media_url = mediaUrl;
         messageData.media_type = mediaType;
+        messageData.attachments = [
+          {
+            id: `media-${Date.now()}`,
+            url: mediaUrl,
+            type: mediaType,
+            name: mediaUrl.split("/").pop(),
+          },
+        ];
       }
 
       const { data, error } = await supabase
@@ -94,13 +252,13 @@ export const chatQueries = {
           `
           *,
           sender:profiles!messages_sender_id_fkey(*)
-        `
+        `,
         )
         .single();
 
       if (error) throw error;
 
-      // Update conversation timestamp
+      // Update conversation timestamp and last message
       await supabase
         .from("conversations")
         .update({
@@ -108,6 +266,29 @@ export const chatQueries = {
           last_message_id: data.id,
         })
         .eq("id", conversationId);
+
+      // Increment unread count for other participants
+      const { data: participants } = await supabase
+        .from("conversation_participants")
+        .select("user_id")
+        .eq("conversation_id", conversationId)
+        .neq("user_id", senderId);
+
+      if (participants && participants.length > 0) {
+        for (const participant of participants) {
+          await supabase
+            .from("conversation_participants")
+            .update({
+              unread_count: supabase.rpc("increment", {
+                table_name: "conversation_participants",
+                column_name: "unread_count",
+                id: participant.user_id,
+              }),
+            })
+            .eq("conversation_id", conversationId)
+            .eq("user_id", participant.user_id);
+        }
+      }
 
       return { data: data as ChatMessage, error: null };
     } catch (error) {
@@ -120,7 +301,7 @@ export const chatQueries = {
   createConversation: async (
     participantIds: string[],
     name?: string,
-    isGroup = false
+    isGroup = false,
   ) => {
     try {
       if (participantIds.length === 0) {
@@ -152,6 +333,7 @@ export const chatQueries = {
         conversation_id: conversation.id,
         user_id: userId,
         unread_count: 0,
+        joined_at: new Date().toISOString(),
       }));
 
       const { error: partError } = await supabase
@@ -161,11 +343,27 @@ export const chatQueries = {
       if (partError) {
         // Cleanup on error
         await supabase.from("conversations").delete().eq("id", conversation.id);
-
         throw partError;
       }
 
-      return { data: conversation as ChatConversation, error: null };
+      // Get full conversation data with participants
+      const { data: fullConversation, error: fetchError } = await supabase
+        .from("conversations")
+        .select(
+          `
+          *,
+          participants:conversation_participants(
+            user_id,
+            profiles:user_id(*)
+          )
+        `,
+        )
+        .eq("id", conversation.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      return { data: fullConversation as ChatConversation, error: null };
     } catch (error) {
       console.error("Error creating conversation:", error);
       return { data: null, error: error as Error };
@@ -175,21 +373,24 @@ export const chatQueries = {
   // Mark messages as read
   markAsRead: async (conversationId: string, userId: string) => {
     try {
-      const { error } = await supabase
+      // Mark messages as read
+      const { error: messagesError } = await supabase
         .from("messages")
         .update({ read_at: new Date().toISOString() })
         .eq("conversation_id", conversationId)
         .neq("sender_id", userId)
         .is("read_at", null);
 
-      if (error) throw error;
+      if (messagesError) throw messagesError;
 
       // Reset unread count for user
-      await supabase
+      const { error: unreadError } = await supabase
         .from("conversation_participants")
         .update({ unread_count: 0 })
         .eq("conversation_id", conversationId)
         .eq("user_id", userId);
+
+      if (unreadError) throw unreadError;
 
       return { error: null };
     } catch (error) {
@@ -211,7 +412,7 @@ export const chatQueries = {
             profiles:user_id(*)
           ),
           last_message:messages!last_message_id(*)
-        `
+        `,
         )
         .eq("id", conversationId)
         .single();
@@ -227,6 +428,23 @@ export const chatQueries = {
   // Delete conversation
   deleteConversation: async (conversationId: string) => {
     try {
+      // Delete messages first
+      const { error: messagesError } = await supabase
+        .from("messages")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (messagesError) throw messagesError;
+
+      // Delete participants
+      const { error: participantsError } = await supabase
+        .from("conversation_participants")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (participantsError) throw participantsError;
+
+      // Finally delete conversation
       const { error } = await supabase
         .from("conversations")
         .delete()
@@ -239,346 +457,30 @@ export const chatQueries = {
       return { error: error as Error };
     }
   },
-};
 
-// Real-time subscriptions
-export const chatSubscriptions = {
-  // Subscribe to conversation messages
-  subscribeToMessages: (
-    conversationId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`messages:${conversationId}`);
+  // Update typing status
+  updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ is_typing: isTyping })
+        .eq("id", conversationId);
 
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        callback
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  },
-
-  // Subscribe to conversation updates
-  subscribeToConversation: (
-    conversationId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`conversation:${conversationId}`);
-
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "conversations",
-          filter: `id=eq.${conversationId}`,
-        },
-        callback
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  },
-
-  // Subscribe to user's conversations
-  subscribeToUserConversations: (
-    userId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`user-conversations:${userId}`);
-
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "*",
-          schema: "public",
-          table: "conversations",
-        },
-        async (payload: any) => {
-          try {
-            // Fetch the conversation with participants to check if user is included
-            const { data: conversation, error } = await supabase
-              .from("conversations")
-              .select(
-                `
-              *,
-              participants:conversation_participants(user_id)
-            `
-              )
-              .eq("id", payload.new.id)
-              .single();
-
-            if (error) {
-              console.error(
-                "Error fetching conversation in subscription:",
-                error
-              );
-              return;
-            }
-
-            if (
-              conversation?.participants?.some((p: any) => p.user_id === userId)
-            ) {
-              callback(payload);
-            }
-          } catch (error) {
-            console.error("Error in conversation subscription:", error);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  },
-
-  // Subscribe to user's conversation participants
-  subscribeToUserParticipants: (
-    userId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`user-participants:${userId}`);
-
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "conversation_participants",
-          filter: `user_id=eq.${userId}`,
-        },
-        callback
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  },
-
-  // Subscribe to typing status
-  subscribeToTypingStatus: (
-    conversationId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`typing:${conversationId}`);
-
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "conversations",
-          filter: `id=eq.${conversationId}`,
-        },
-        (payload) => {
-          // Only callback if typing status changed
-          if (payload.old.is_typing !== payload.new.is_typing) {
-            callback(payload);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  },
-
-  // Subscribe to online status
-  subscribeToOnlineStatus: (
-    userId: string,
-    callback: (payload: any) => void
-  ) => {
-    const channel = supabase.channel(`online-status:${userId}`);
-
-    channel
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "profiles",
-          filter: `id=eq.${userId}`,
-        },
-        (payload) => {
-          // Only callback if online status changed
-          if (payload.old.is_online !== payload.new.is_online) {
-            callback(payload);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      if (error) throw error;
+      return { error: null };
+    } catch (error) {
+      console.error("Error updating typing status:", error);
+      return { error: error as Error };
+    }
   },
 };
 
-// Helper functions
-export const formatChatTimestamp = (dateString: string): string => {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hr ago`;
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString();
-};
-
-export const formatMessageTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-export const getConversationName = (
-  conversation: ChatConversation,
-  userId?: string
-): string => {
-  if (conversation.name) return conversation.name;
-
-  // For direct messages, use the other participant's name
-  if (
-    !conversation.is_group &&
-    conversation.participants?.length === 2 &&
-    userId
-  ) {
-    const otherParticipant = conversation.participants.find(
-      (p) => p.user_id !== userId
-    );
-    return (
-      otherParticipant?.profiles?.full_name ||
-      otherParticipant?.profiles?.username ||
-      "Unknown User"
-    );
-  }
-
-  // For group chats without a name, show participant count
-  if (conversation.is_group) {
-    return `${conversation.participants?.length || 0} members`;
-  }
-
-  return "Chat";
-};
-
-export const getConversationAvatar = (
-  conversation: ChatConversation,
-  userId?: string
-): string | null => {
-  if (conversation.avatar_url) return conversation.avatar_url;
-
-  // For direct messages, get the other participant's avatar
-  if (
-    !conversation.is_group &&
-    conversation.participants?.length === 2 &&
-    userId
-  ) {
-    const otherParticipant = conversation.participants.find(
-      (p) => p.user_id !== userId
-    );
-    return otherParticipant?.profiles?.avatar_url || null;
-  }
-
-  return null;
-};
-
-// Message status helpers
-export const getMessageStatus = (
-  message: ChatMessage
-): "sent" | "delivered" | "read" => {
-  if (message.read_at) return "read";
-  if (message.delivered_at) return "delivered";
-  return "sent";
-};
-
-// Search conversations
-export const searchConversations = async (userId: string, query: string) => {
-  try {
-    const { data, error } = await supabase
-      .from("conversations")
-      .select(
-        `
-        *,
-        participants:conversation_participants(
-          user_id,
-          profiles:user_id(*)
-        )
-      `
-      )
-      .eq("participants.user_id", userId)
-      .or(`name.ilike.%${query}%`)
-      .order("updated_at", { ascending: false });
-
-    if (error) throw error;
-    return { data: data as ChatConversation[], error: null };
-  } catch (error) {
-    console.error("Error searching conversations:", error);
-    return { data: null, error: error as Error };
-  }
-};
-
-// Get conversation by participant IDs (for creating or finding existing DMs)
-export const getConversationByParticipants = async (
-  participantIds: string[]
-) => {
-  try {
-    // This is a more complex query that finds conversations where exactly these participants exist
-    // For simplicity, we'll check each participant
-    const { data, error } = await supabase
-      .from("conversations")
-      .select(
-        `
-        *,
-        participants:conversation_participants(user_id)
-      `
-      )
-      .eq("is_group", false);
-
-    if (error) throw error;
-
-    // Find conversation where participants match exactly
-    const matchingConversation = data?.find((conv) => {
-      const convParticipantIds =
-        conv.participants?.map((p: any) => p.user_id) || [];
-      if (convParticipantIds.length !== participantIds.length) return false;
-
-      return convParticipantIds.every((id: string) =>
-        participantIds.includes(id)
-      );
-    });
-
-    return {
-      data: matchingConversation as ChatConversation | undefined,
-      error: null,
-    };
-  } catch (error) {
-    console.error("Error finding conversation by participants:", error);
-    return { data: undefined, error: error as Error };
-  }
-};
+// ✅ Export individual functions for backward compatibility
+export const getConversations = chatQueries.getConversations;
+export const getMessages = chatQueries.getMessages;
+export const sendMessage = chatQueries.sendMessage;
+export const createConversation = chatQueries.createConversation;
+export const markAsRead = chatQueries.markAsRead;
+export const getConversation = chatQueries.getConversation;
+export const deleteConversation = chatQueries.deleteConversation;
+export const updateTypingStatus = chatQueries.updateTypingStatus;

@@ -1,5 +1,6 @@
 // components/navigation/BottomTabs.tsx
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Tabs } from "expo-router";
 import React from "react";
 import { StyleSheet, View } from "react-native";
@@ -9,20 +10,23 @@ export default function BottomTabs() {
     <Tabs
       screenOptions={{
         tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: "#007AFF",
-        tabBarInactiveTintColor: "#999",
+        tabBarActiveTintColor: "#FFFFFF",
+        tabBarInactiveTintColor: "#666666",
         tabBarLabelStyle: styles.tabBarLabel,
         headerShown: false,
         tabBarHideOnKeyboard: true,
       }}
     >
-      {/* Use the correct route paths */}
       <Tabs.Screen
         name="home"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+          tabBarIcon: ({ focused, size }) => (
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={size}
+              color={focused ? "#FFFFFF" : "#666666"}
+            />
           ),
         }}
       />
@@ -31,8 +35,12 @@ export default function BottomTabs() {
         name="explore"
         options={{
           title: "Explore",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="compass" size={size} color={color} />
+          tabBarIcon: ({ focused, size }) => (
+            <Ionicons
+              name={focused ? "search" : "search-outline"}
+              size={size}
+              color={focused ? "#FFFFFF" : "#666666"}
+            />
           ),
         }}
       />
@@ -40,29 +48,37 @@ export default function BottomTabs() {
       <Tabs.Screen
         name="create"
         options={{
-          title: "Create",
-          tabBarIcon: ({ color, size }) => (
-            <View style={styles.createButton}>
-              <Ionicons name="add" size={28} color="#fff" />
+          title: "",
+          tabBarIcon: () => (
+            <View style={styles.centerButtonContainer}>
+              <LinearGradient
+                colors={["#667EEA", "#764BA2"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.centerButton}
+              >
+                <View style={styles.nebulaIcon}>
+                  <View style={styles.nebulaCore} />
+                  <View style={styles.nebulaRing1} />
+                  <View style={styles.nebulaRing2} />
+                </View>
+              </LinearGradient>
             </View>
           ),
           tabBarLabel: () => null,
         }}
-        listeners={({ navigation }) => ({
-          tabPress: (e) => {
-            e.preventDefault();
-            // Use typed navigation
-            navigation.navigate("post/create" as any); // Type assertion
-          },
-        })}
       />
 
       <Tabs.Screen
-        name="notifications"
+        name="chat"
         options={{
-          title: "Notifications",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="notifications" size={size} color={color} />
+          title: "Chat",
+          tabBarIcon: ({ focused, size }) => (
+            <Ionicons
+              name={focused ? "chatbubbles" : "chatbubbles-outline"}
+              size={size}
+              color={focused ? "#FFFFFF" : "#666666"}
+            />
           ),
         }}
       />
@@ -71,8 +87,12 @@ export default function BottomTabs() {
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+          tabBarIcon: ({ focused, size }) => (
+            <Ionicons
+              name={focused ? "person" : "person-outline"}
+              size={size}
+              color={focused ? "#FFFFFF" : "#666666"}
+            />
           ),
         }}
       />
@@ -82,35 +102,64 @@ export default function BottomTabs() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: "#fff",
-    borderTopColor: "#e5e5e5",
+    backgroundColor: "#000000",
+    borderTopColor: "#1A1A1A",
     borderTopWidth: 1,
-    height: 60,
-    paddingBottom: 8,
-    paddingTop: 8,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    height: 70,
+    paddingBottom: 10,
+    paddingTop: 10,
   },
   tabBarLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
-    marginTop: 2,
+    marginTop: 4,
   },
-  createButton: {
-    backgroundColor: "#007AFF",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  centerButtonContainer: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: -20,
-    shadowColor: "#007AFF",
+    marginBottom: 20,
+    shadowColor: "#667EEA",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  nebulaIcon: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  nebulaCore: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#FFFFFF",
+    position: "absolute",
+  },
+  nebulaRing1: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.5)",
+    position: "absolute",
+  },
+  nebulaRing2: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    position: "absolute",
   },
 });

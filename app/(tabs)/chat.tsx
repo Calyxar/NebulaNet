@@ -1,3 +1,4 @@
+// app/(tabs)/chat.tsx
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput from "@/components/chat/ChatInput";
 import ChatList from "@/components/chat/ChatList";
@@ -10,6 +11,8 @@ import React from "react";
 import {
   ActivityIndicator,
   FlatList,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -41,15 +44,13 @@ export default function ChatScreen() {
   // Helper function to get avatar URL
   const getAvatarUrl = (
     item: ChatConversation,
-    userId?: string
+    userId?: string,
   ): string | null => {
-    // Return avatar_url if it exists
     if (item.avatar_url) return item.avatar_url;
 
-    // For direct messages, get the other participant's avatar
     if (!item.is_group && item.participants?.length === 2 && userId) {
       const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId
+        (p) => p.user_id !== userId,
       );
       return otherParticipant?.profiles?.avatar_url || null;
     }
@@ -60,14 +61,13 @@ export default function ChatScreen() {
   // Helper function to get conversation name
   const getConversationName = (
     item: ChatConversation,
-    userId?: string
+    userId?: string,
   ): string => {
     if (item.name) return item.name;
 
-    // For direct messages, use the other participant's name
     if (!item.is_group && item.participants?.length === 2 && userId) {
       const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId
+        (p) => p.user_id !== userId,
       );
       return (
         otherParticipant?.profiles?.full_name ||
@@ -76,7 +76,6 @@ export default function ChatScreen() {
       );
     }
 
-    // For group chats without a name, show participant count
     if (item.is_group) {
       return `${item.participants?.length || 0} members`;
     }
@@ -118,6 +117,7 @@ export default function ChatScreen() {
                 : "sent",
             mediaUrl: msg.media_url || undefined,
             mediaType: msg.media_type || undefined,
+            attachments: msg.attachments || undefined,
           }))}
           isLoading={loading.messages}
         />
@@ -149,85 +149,127 @@ export default function ChatScreen() {
 
   // Show conversations list
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Chat</Text>
-        <TouchableOpacity style={styles.newChatButton}>
-          <Ionicons name="add" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Chat</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.iconButton}>
+              <Ionicons name="search-outline" size={24} color="#000" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addButton}>
+              <Ionicons name="add" size={20} color="#000" />
+              <Text style={styles.addButtonText}>New Chat</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      {loading.conversations ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>Loading conversations...</Text>
+        {/* Stories / Active Users Row */}
+        <View style={styles.storiesContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.storiesContent}
+          >
+            {/* Empty state - no stories shown as requested */}
+          </ScrollView>
         </View>
-      ) : conversations.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="chatbubble-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyStateTitle}>No conversations yet</Text>
-          <Text style={styles.emptyStateText}>
-            Start a conversation with someone!
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={conversations}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ConversationItem
-              id={item.id}
-              name={getConversationName(item, user?.id)}
-              lastMessage={item.last_message?.content || "No messages yet"}
-              timestamp={formatTimestamp(item.updated_at)}
-              unreadCount={item.unread_count}
-              isOnline={item.is_online}
-              isTyping={item.is_typing}
-              isPinned={item.is_pinned}
-              avatar={getAvatarUrl(item, user?.id)}
-              onPress={() => selectConversation(item.id)}
-            />
-          )}
-          contentContainerStyle={styles.listContent}
-          refreshing={loading.conversations}
-          onRefresh={loadConversations}
-        />
-      )}
-    </SafeAreaView>
+
+        {/* Conversations List */}
+        {loading.conversations ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#7C3AED" />
+          </View>
+        ) : conversations.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="chatbubble-outline" size={64} color="#E0E0E0" />
+            <Text style={styles.emptyStateTitle}>No conversations yet</Text>
+            <Text style={styles.emptyStateText}>
+              Start a conversation with someone!
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={conversations}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ConversationItem
+                id={item.id}
+                name={getConversationName(item, user?.id)}
+                lastMessage={item.last_message?.content || "No messages yet"}
+                timestamp={formatTimestamp(item.updated_at)}
+                unreadCount={item.unread_count}
+                isOnline={item.is_online}
+                isTyping={item.is_typing}
+                isPinned={item.is_pinned}
+                avatar={getAvatarUrl(item, user?.id)}
+                onPress={() => selectConversation(item.id)}
+              />
+            )}
+            contentContainerStyle={styles.listContent}
+            refreshing={loading.conversations}
+            onRefresh={loadConversations}
+          />
+        )}
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
+    paddingVertical: 16,
   },
   title: {
-    fontSize: 20,
-    fontWeight: "bold",
+    fontSize: 32,
+    fontWeight: "700",
     color: "#000",
   },
-  newChatButton: {
-    padding: 4,
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  iconButton: {
+    padding: 8,
+  },
+  addButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 4,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#000",
+  },
+  storiesContainer: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  storiesContent: {
+    paddingHorizontal: 16,
+    gap: 12,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
   },
   emptyState: {
     flex: 1,
@@ -240,14 +282,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 16,
     marginBottom: 8,
-    color: "#333",
+    color: "#000",
   },
   emptyStateText: {
-    fontSize: 16,
-    color: "#666",
+    fontSize: 15,
+    color: "#999",
     textAlign: "center",
   },
   listContent: {
-    paddingTop: 8,
+    paddingTop: 0,
   },
 });

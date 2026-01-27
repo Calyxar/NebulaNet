@@ -1,3 +1,5 @@
+// hooks/useChat.ts - FIXED VERSION
+import { SupabaseAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
 import {
   ChatConversation,
@@ -13,8 +15,9 @@ export const useChat = () => {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(
-    null
+    null,
   );
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState({
     conversations: false,
     messages: false,
@@ -64,18 +67,19 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, messages: false }));
       }
     },
-    [user?.id]
+    [user?.id],
   );
 
-  // Send a message
+  // Send a message with attachments
   const sendMessage = useCallback(
     async (
       content: string,
       conversationId: string,
+      attachments?: SupabaseAttachment[],
       mediaUrl?: string,
-      mediaType?: "image" | "video" | "audio" | "file"
+      mediaType?: "image" | "video" | "audio" | "file",
     ) => {
-      if (!user?.id || !content.trim()) return null;
+      if (!user?.id || (!content.trim() && !attachments?.length)) return null;
 
       setLoading((prev) => ({ ...prev, sending: true }));
 
@@ -84,8 +88,9 @@ export const useChat = () => {
           conversationId,
           user.id,
           content,
+          attachments,
           mediaUrl,
-          mediaType
+          mediaType,
         );
 
         if (result.error) throw result.error;
@@ -98,9 +103,13 @@ export const useChat = () => {
           setConversations((prev) =>
             prev.map((conv) =>
               conv.id === conversationId
-                ? { ...conv, updated_at: new Date().toISOString() }
-                : conv
-            )
+                ? {
+                    ...conv,
+                    updated_at: new Date().toISOString(),
+                    last_message: result.data,
+                  }
+                : conv,
+            ),
           );
         }
 
@@ -113,7 +122,21 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, sending: false }));
       }
     },
-    [user?.id]
+    [user?.id],
+  );
+
+  // Update typing status
+  const updateTypingStatus = useCallback(
+    async (conversationId: string, isTyping: boolean) => {
+      if (!conversationId || !user?.id) return;
+
+      try {
+        await chatQueries.updateTypingStatus(conversationId, isTyping);
+      } catch (error) {
+        console.error("Error updating typing status:", error);
+      }
+    },
+    [user?.id],
   );
 
   // Create a new conversation
@@ -125,7 +148,7 @@ export const useChat = () => {
         const result = await chatQueries.createConversation(
           participantIds,
           name,
-          isGroup
+          isGroup,
         );
 
         if (result.error) throw result.error;
@@ -142,7 +165,7 @@ export const useChat = () => {
         return null;
       }
     },
-    [loadConversations]
+    [loadConversations],
   );
 
   // Set active conversation
@@ -153,9 +176,10 @@ export const useChat = () => {
         loadMessages(conversationId);
       } else {
         setMessages([]);
+        setTypingUsers(new Set());
       }
     },
-    [loadMessages]
+    [loadMessages],
   );
 
   // Get conversation by ID
@@ -163,7 +187,7 @@ export const useChat = () => {
     (id: string) => {
       return conversations.find((c) => c.id === id);
     },
-    [conversations]
+    [conversations],
   );
 
   // Real-time subscriptions
@@ -176,7 +200,7 @@ export const useChat = () => {
       async (payload: any) => {
         // Update conversations list when there are changes
         await loadConversations();
-      }
+      },
     );
 
     return () => {
@@ -187,32 +211,94 @@ export const useChat = () => {
   useEffect(() => {
     if (!activeConversation || !user?.id) return;
 
-    // Subscribe to new messages in active conversation
-    const unsubscribe = chatSubscriptions.subscribeToMessages(
+    // ✅ FIXED: subscribeToMessages now receives 3 parameters
+    const unsubscribeMessages = chatSubscriptions.subscribeToMessages(
       activeConversation,
-      (payload: any) => {
+      user.id,
+      async (payload: any) => {
         const newMessage = payload.new;
 
         // Don't add if it's our own message (already added when sending)
-        if (newMessage.sender_id === user.id) return;
+        if (newMessage.sender_id === user?.id) return;
 
-        setMessages((prev) => [newMessage, ...prev]);
+        // Add the new message to state
+        setMessages((prev) => {
+          // Check if message already exists to avoid duplicates
+          const exists = prev.some((msg) => msg.id === newMessage.id);
+          if (exists) return prev;
+
+          return [newMessage, ...prev];
+        });
 
         // Update conversation timestamp
         setConversations((prev) =>
           prev.map((conv) =>
             conv.id === activeConversation
-              ? { ...conv, updated_at: newMessage.created_at }
-              : conv
-          )
+              ? {
+                  ...conv,
+                  updated_at: newMessage.created_at,
+                  last_message: newMessage,
+                }
+              : conv,
+          ),
         );
-      }
+
+        // Mark as read automatically
+        if (user?.id) {
+          await chatQueries.markAsRead(activeConversation, user.id);
+        }
+      },
+    );
+
+    // Subscribe to typing status
+    const unsubscribeTyping = chatSubscriptions.subscribeToTypingStatus(
+      activeConversation,
+      (payload: any) => {
+        if (payload.new.is_typing) {
+          // Determine who is typing (not the current user)
+          const conversation = getConversation(activeConversation);
+          if (conversation) {
+            const typingParticipant = conversation.participants?.find(
+              (p) => p.user_id !== user.id,
+            );
+            if (typingParticipant) {
+              setTypingUsers((prev) =>
+                new Set(prev).add(typingParticipant.user_id),
+              );
+            }
+          }
+        } else {
+          setTypingUsers((prev) => {
+            const newSet = new Set(prev);
+            // Remove all users since typing stopped
+            newSet.clear();
+            return newSet;
+          });
+        }
+      },
+    );
+
+    return () => {
+      unsubscribeMessages();
+      unsubscribeTyping();
+    };
+  }, [activeConversation, user?.id, getConversation]);
+
+  // Subscribe to user's conversation participants
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const unsubscribe = chatSubscriptions.subscribeToUserParticipants(
+      user.id,
+      () => {
+        loadConversations();
+      },
     );
 
     return () => {
       unsubscribe();
     };
-  }, [activeConversation, user?.id]);
+  }, [user?.id, loadConversations]);
 
   // Initial load
   useEffect(() => {
@@ -226,12 +312,14 @@ export const useChat = () => {
     conversations,
     messages,
     activeConversation,
+    typingUsers,
     loading,
 
     // Actions
     loadConversations,
     loadMessages,
     sendMessage,
+    updateTypingStatus,
     createConversation,
     selectConversation,
 

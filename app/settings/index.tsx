@@ -1,270 +1,250 @@
 // app/settings/index.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { router } from "expo-router";
 import React from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type SettingsItem = {
+interface SettingsOption {
+  id: string;
   title: string;
-  description: string;
-  icon: string;
-  route: any; // Use 'any' to bypass strict route type checking
-  color?: string;
-};
+  icon: keyof typeof Ionicons.glyphMap;
+  route: string;
+}
 
-type SettingsSection = {
-  title: string;
-  items: SettingsItem[];
-};
+const personalizationOptions: SettingsOption[] = [
+  {
+    id: "account-center",
+    title: "Account Center",
+    icon: "person-outline",
+    route: "./account-center",
+  },
+  {
+    id: "feed-preferences",
+    title: "Feed Preferences",
+    icon: "grid-outline",
+    route: "./feed-preferences",
+  },
+  {
+    id: "saved-content",
+    title: "Saved & Hidden Content",
+    icon: "bookmark-outline",
+    route: "./saved-content",
+  },
+  {
+    id: "language",
+    title: "Language & Region",
+    icon: "globe-outline",
+    route: "./language",
+  },
+];
+
+const securityOptions: SettingsOption[] = [
+  {
+    id: "privacy",
+    title: "Privacy & Visibility",
+    icon: "eye-off-outline",
+    route: "./privacy",
+  },
+  {
+    id: "blocked",
+    title: "Blocked & Muted Accounts",
+    icon: "ban-outline",
+    route: "./blocked",
+  },
+  {
+    id: "notifications",
+    title: "Community Notifications",
+    icon: "notifications-outline",
+    route: "./notifications",
+  },
+  {
+    id: "security",
+    title: "Security & Login",
+    icon: "lock-closed-outline",
+    route: "./security",
+  },
+  {
+    id: "linked-accounts",
+    title: "Linked Accounts",
+    icon: "link-outline",
+    route: "./linked-accounts",
+  },
+];
 
 export default function SettingsScreen() {
-  const router = useRouter();
+  const handleNavigate = (route: string) => {
+    router.push(route as any);
+  };
 
-  const settingsSections: SettingsSection[] = [
-    {
-      title: "Account",
-      items: [
-        {
-          title: "Account Center",
-          description: "Manage your connected accounts",
-          icon: "apps-outline",
-          route: "/settings/account-center",
-        },
-        {
-          title: "Edit Profile",
-          description: "Update your profile information",
-          icon: "person-outline",
-          route: "/profile/edit",
-        },
-        {
-          title: "Change Password",
-          description: "Update your password",
-          icon: "key-outline",
-          route: "/settings/change-password",
-        },
-        {
-          title: "Linked Accounts",
-          description: "Manage connected social accounts",
-          icon: "link-outline",
-          route: "/settings/linked-accounts",
-        },
-      ],
-    },
-    {
-      title: "Privacy & Security",
-      items: [
-        {
-          title: "Privacy",
-          description: "Control your privacy settings",
-          icon: "lock-closed-outline",
-          route: "/settings/privacy",
-        },
-        {
-          title: "Security",
-          description: "Security and login settings",
-          icon: "shield-checkmark-outline",
-          route: "/settings/security",
-        },
-        {
-          title: "Blocked Accounts",
-          description: "Manage blocked users",
-          icon: "ban-outline",
-          route: "/settings/blocked",
-        },
-        {
-          title: "Saved Content",
-          description: "View your saved posts",
-          icon: "bookmark-outline",
-          route: "/settings/saved-content",
-        },
-      ],
-    },
-    {
-      title: "Preferences",
-      items: [
-        {
-          title: "Notifications",
-          description: "Configure notification settings",
-          icon: "notifications-outline",
-          route: "/settings/notifications",
-        },
-        {
-          title: "Feed Preferences",
-          description: "Customize your feed",
-          icon: "newspaper-outline",
-          route: "/settings/feed-preferences",
-        },
-        {
-          title: "Language",
-          description: "App language settings",
-          icon: "language-outline",
-          route: "/settings/language",
-        },
-      ],
-    },
-    {
-      title: "Account Actions",
-      items: [
-        {
-          title: "Deactivate Account",
-          description: "Temporarily disable your account",
-          icon: "pause-circle-outline",
-          route: "/settings/deactivate",
-          color: "#FF9500",
-        },
-        {
-          title: "Delete Account",
-          description: "Permanently delete your account",
-          icon: "trash-outline",
-          route: "/settings/delete-account",
-          color: "#FF3B30",
-        },
-      ],
-    },
-  ];
+  const renderSettingsOption = (option: SettingsOption) => (
+    <TouchableOpacity
+      key={option.id}
+      style={styles.settingsOption}
+      onPress={() => handleNavigate(option.route)}
+    >
+      <View style={styles.optionLeft}>
+        <View style={styles.iconContainer}>
+          <Ionicons name={option.icon} size={20} color="#666" />
+        </View>
+        <Text style={styles.optionTitle}>{option.title}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color="#999" />
+    </TouchableOpacity>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-      </View>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Settings</Text>
+          <TouchableOpacity style={styles.menuButton}>
+            <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      >
-        {settingsSections.map((section, sectionIndex) => (
-          <View key={sectionIndex} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <View style={styles.sectionContent}>
-              {section.items.map((item, itemIndex) => (
-                <TouchableOpacity
-                  key={itemIndex}
-                  style={styles.item}
-                  onPress={() => router.push(item.route)}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.itemIconContainer,
-                      item.color && { backgroundColor: `${item.color}20` }, // 20 = 12% opacity in hex
-                    ]}
-                  >
-                    <Ionicons
-                      name={item.icon as any}
-                      size={22}
-                      color={item.color || "#007AFF"}
-                    />
-                  </View>
-
-                  <View style={styles.itemTextContainer}>
-                    <Text
-                      style={[
-                        styles.itemTitle,
-                        item.color && { color: item.color },
-                      ]}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text style={styles.itemDescription}>
-                      {item.description}
-                    </Text>
-                  </View>
-
-                  <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
-                </TouchableOpacity>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Personalization & Preferences Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Personalization & Preferences
+            </Text>
+            <View style={styles.settingsCard}>
+              {personalizationOptions.map((option, index) => (
+                <View key={option.id}>
+                  {renderSettingsOption(option)}
+                  {index < personalizationOptions.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
+                </View>
               ))}
             </View>
           </View>
-        ))}
 
-        <View style={styles.footer}>
-          <Text style={styles.versionText}>NebulaNet v1.0.0</Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          {/* Account & Security Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account & Security</Text>
+            <View style={styles.settingsCard}>
+              {securityOptions.map((option, index) => (
+                <View key={option.id}>
+                  {renderSettingsOption(option)}
+                  {index < securityOptions.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F2F2F7",
+    backgroundColor: "#E8EAF6",
   },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5EA",
+    backgroundColor: "#E8EAF6",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#000000",
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#000",
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
   section: {
-    marginTop: 16,
+    marginTop: 24,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "600",
-    color: "#8E8E93",
-    textTransform: "uppercase",
-    marginLeft: 16,
-    marginBottom: 8,
+    color: "#000",
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
-  sectionContent: {
+  settingsCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginHorizontal: 16,
+    borderRadius: 16,
     overflow: "hidden",
   },
-  item: {
+  settingsOption: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    justifyContent: "space-between",
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#E5E5EA",
   },
-  itemIconContainer: {
+  optionLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 12,
+  },
+  iconContainer: {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    backgroundColor: "rgba(0, 122, 255, 0.1)",
+    borderRadius: 16,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
   },
-  itemTextContainer: {
-    flex: 1,
+  optionTitle: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#000",
   },
-  itemTitle: {
-    fontSize: 16,
-    color: "#000000",
-    marginBottom: 2,
-  },
-  itemDescription: {
-    fontSize: 14,
-    color: "#8E8E93",
-  },
-  footer: {
-    alignItems: "center",
-    paddingVertical: 24,
-  },
-  versionText: {
-    fontSize: 14,
-    color: "#8E8E93",
+  divider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginLeft: 60,
   },
 });

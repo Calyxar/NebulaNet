@@ -1,505 +1,326 @@
 // app/create/post.tsx
-import Button from "@/components/ui/Button";
-import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CreatePostScreen() {
-  const { user, profile } = useAuth();
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [images, setImages] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [audience, setAudience] = useState<"public" | "friends" | "private">(
-    "public"
-  );
-  const [allowComments, setAllowComments] = useState(true);
+  const [bodyText, setBodyText] = useState("");
+  // ✅ Fixed: Removed unused setSelectedCommunity
+  const [selectedCommunity] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
 
-  const pickImages = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const handleSaveDraft = () => {
+    Alert.alert("Draft Saved", "Your post has been saved as a draft.");
+  };
 
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "We need camera roll permissions to upload photos."
-      );
+  const handlePost = () => {
+    if (!title.trim()) {
+      Alert.alert("Title Required", "Please enter a title for your post.");
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: 4,
-      aspect: [4, 3],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      const newImages = result.assets.map((asset) => asset.uri);
-      setImages([...images, ...newImages].slice(0, 4)); // Max 4 images
-    }
-  };
-
-  const removeImage = (index: number) => {
-    const newImages = [...images];
-    newImages.splice(index, 1);
-    setImages(newImages);
-  };
-
-  const uploadImages = async (): Promise<string[]> => {
-    if (images.length === 0) return [];
-
-    const uploadedUrls: string[] = [];
-
-    for (const imageUri of images) {
-      try {
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        const fileExt = imageUri.split(".").pop();
-        const fileName = `${user?.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const filePath = `posts/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("post-images")
-          .upload(filePath, blob);
-
-        if (uploadError) throw uploadError;
-
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("post-images").getPublicUrl(filePath);
-
-        uploadedUrls.push(publicUrl);
-      } catch (error) {
-        console.error("Error uploading image:", error);
-        throw new Error("Failed to upload some images");
-      }
-    }
-
-    return uploadedUrls;
-  };
-
-  const handleCreatePost = async () => {
-    if (!title.trim() || !content.trim()) {
-      Alert.alert("Error", "Please fill in both title and content");
-      return;
-    }
-
-    if (!user) {
-      Alert.alert("Error", "You must be logged in to create a post");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      let mediaUrls: string[] = [];
-      if (images.length > 0) {
-        mediaUrls = await uploadImages();
-      }
-
-      const { error } = await supabase.from("posts").insert({
-        user_id: user.id,
-        title: title.trim(),
-        content: content.trim(),
-        media_urls: mediaUrls,
-        audience: audience,
-        allow_comments: allowComments,
-        likes_count: 0,
-        comments_count: 0,
-        shares_count: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-
-      if (error) throw error;
-
-      Alert.alert("Success", "Post created successfully!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.message || "Failed to create post. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
+    Alert.alert("Success", "Your post has been created!", [
+      { text: "OK", onPress: () => router.back() },
+    ]);
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView style={styles.scrollView}>
-        {/* User Header */}
-        <View style={styles.userHeader}>
-          {profile?.avatar_url ? (
-            <Image
-              source={{ uri: profile.avatar_url }}
-              style={styles.userAvatar}
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Create Post</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Main Input Card */}
+          <View style={styles.inputCard}>
+            <TextInput
+              style={styles.titleInput}
+              placeholder="Title"
+              placeholderTextColor="#999"
+              value={title}
+              onChangeText={setTitle}
+              maxLength={100}
             />
-          ) : (
-            <View style={styles.userAvatarPlaceholder}>
-              <Text style={styles.userAvatarText}>
-                {profile?.username?.charAt(0).toUpperCase() || "U"}
-              </Text>
+            <TextInput
+              style={styles.bodyInput}
+              placeholder="Body Text (Optional)"
+              placeholderTextColor="#B0B0B0"
+              value={bodyText}
+              onChangeText={setBodyText}
+              multiline
+              textAlignVertical="top"
+            />
+
+            {/* Media Actions */}
+            <View style={styles.mediaActions}>
+              <TouchableOpacity style={styles.mediaButton}>
+                <Ionicons name="image-outline" size={20} color="#666" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.mediaButton}>
+                <Ionicons name="gift-outline" size={20} color="#666" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.mediaButton}>
+                <Ionicons name="musical-notes-outline" size={20} color="#666" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.mediaButton}>
+                <Ionicons name="shield-outline" size={20} color="#666" />
+              </TouchableOpacity>
+
+              <View style={styles.spacer} />
+
+              <TouchableOpacity style={styles.communityButton}>
+                <Text style={styles.communityButtonText}>
+                  {selectedCommunity || "Community"}
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
-          <View style={styles.userInfo}>
-            <Text style={styles.userName}>
-              {profile?.full_name || profile?.username}
-            </Text>
-            <TouchableOpacity
-              style={styles.audienceButton}
-              onPress={() => {
-                const audiences: (typeof audience)[] = [
-                  "public",
-                  "friends",
-                  "private",
-                ];
-                const currentIndex = audiences.indexOf(audience);
-                const nextIndex = (currentIndex + 1) % audiences.length;
-                setAudience(audiences[nextIndex]);
-              }}
-            >
-              <Ionicons
-                name={
-                  audience === "public"
-                    ? "earth-outline"
-                    : audience === "friends"
-                      ? "people-outline"
-                      : "lock-closed-outline"
-                }
-                size={14}
-                color="#666"
-              />
-              <Text style={styles.audienceText}>
-                {audience === "public"
-                  ? "Public"
-                  : audience === "friends"
-                    ? "Friends Only"
-                    : "Private"}
-              </Text>
-              <Ionicons name="chevron-down" size={12} color="#666" />
-            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Title Input */}
-        <View style={styles.inputGroup}>
-          <TextInput
-            style={styles.titleInput}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Title"
-            placeholderTextColor="#999"
-            maxLength={100}
-          />
-          <Text style={styles.charCount}>{title.length}/100</Text>
-        </View>
-
-        {/* Content Input */}
-        <View style={styles.inputGroup}>
-          <TextInput
-            style={styles.contentInput}
-            value={content}
-            onChangeText={setContent}
-            placeholder="What's on your mind?"
-            placeholderTextColor="#999"
-            multiline
-            textAlignVertical="top"
-            maxLength={1000}
-          />
-          <Text style={styles.charCount}>{content.length}/1000</Text>
-        </View>
-
-        {/* Image Preview */}
-        {images.length > 0 && (
-          <View style={styles.imagesContainer}>
-            {images.map((uri, index) => (
-              <View key={index} style={styles.imageWrapper}>
-                <Image source={{ uri }} style={styles.previewImage} />
-                <TouchableOpacity
-                  style={styles.removeImageButton}
-                  onPress={() => removeImage(index)}
-                >
-                  <Ionicons name="close-circle" size={24} color="#ff3b30" />
-                </TouchableOpacity>
+          {/* Add Location */}
+          <TouchableOpacity style={styles.optionCard}>
+            <View style={styles.optionLeft}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons name="location-outline" size={20} color="#666" />
               </View>
-            ))}
-          </View>
-        )}
-
-        {/* Add Media Options */}
-        <View style={styles.mediaOptions}>
-          <TouchableOpacity style={styles.mediaOption} onPress={pickImages}>
-            <Ionicons name="image-outline" size={24} color="#007AFF" />
-            <Text style={styles.mediaOptionText}>Photo/Video</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.mediaOption}
-            onPress={() =>
-              Alert.alert("Coming Soon", "Location feature coming soon")
-            }
-          >
-            <Ionicons name="location-outline" size={24} color="#007AFF" />
-            <Text style={styles.mediaOptionText}>Location</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.mediaOption}
-            onPress={() =>
-              Alert.alert("Coming Soon", "Tagging feature coming soon")
-            }
-          >
-            <Ionicons name="person-outline" size={24} color="#007AFF" />
-            <Text style={styles.mediaOptionText}>Tag People</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Post Settings */}
-        <View style={styles.settingsSection}>
-          <Text style={styles.settingsTitle}>Post Settings</Text>
-
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={() => setAllowComments(!allowComments)}
-          >
-            <Ionicons
-              name={allowComments ? "chatbubble-outline" : "chatbubble"}
-              size={20}
-              color="#666"
-            />
-            <Text style={styles.settingText}>
-              {allowComments ? "Allow comments" : "Disable comments"}
-            </Text>
-            <View style={styles.settingToggle}>
-              <View
-                style={[
-                  styles.toggleCircle,
-                  allowComments && styles.toggleCircleActive,
-                ]}
-              />
+              <Text style={styles.optionText}>Add Location</Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
-        </View>
 
-        {/* Action Buttons */}
-        <View style={styles.actionButtons}>
-          <Button
-            title="Post"
-            onPress={handleCreatePost}
-            loading={isLoading}
-            disabled={!title.trim() || !content.trim()}
-            style={styles.postButton}
-          />
+          {/* Share Post to Public */}
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => setIsPublic(!isPublic)}
+          >
+            <View style={styles.optionLeft}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons name="lock-closed-outline" size={20} color="#666" />
+              </View>
+              <Text style={styles.optionText}>Share Post to Public</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {/* Boost Post */}
+          <TouchableOpacity style={styles.optionCard}>
+            <View style={styles.optionLeft}>
+              <View style={styles.optionIconContainer}>
+                <Ionicons name="megaphone-outline" size={20} color="#666" />
+              </View>
+              <Text style={styles.optionText}>Boost Post</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Footer Actions */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.draftButton}
+            onPress={handleSaveDraft}
+          >
+            <Text style={styles.draftButtonText}>Save as Draft</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.saveDraftButton}
-            onPress={() =>
-              Alert.alert("Draft Saved", "Your post has been saved as draft.")
-            }
+            style={[
+              styles.postButton,
+              !title.trim() && styles.postButtonDisabled,
+            ]}
+            onPress={handlePost}
+            disabled={!title.trim()}
           >
-            <Text style={styles.saveDraftText}>Save as Draft</Text>
+            <Text style={styles.postButtonText}>Post</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#E8EAF6",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#E8EAF6",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#000",
+  },
+  headerSpacer: {
+    width: 40,
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     padding: 16,
   },
-  userHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
-  },
-  userAvatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#007AFF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  userAvatarText: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "white",
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  audienceButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 6,
-    alignSelf: "flex-start",
-  },
-  audienceText: {
-    fontSize: 12,
-    color: "#666",
-  },
-  inputGroup: {
-    marginBottom: 24,
+  inputCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
   },
   titleInput: {
-    fontSize: 24,
+    fontSize: 16,
     fontWeight: "600",
     color: "#000",
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
+    marginBottom: 12,
+    paddingVertical: 8,
   },
-  contentInput: {
-    fontSize: 16,
-    color: "#333",
-    minHeight: 150,
-    lineHeight: 24,
+  bodyInput: {
+    fontSize: 14,
+    color: "#666",
+    minHeight: 100,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
-  charCount: {
-    fontSize: 12,
-    color: "#999",
-    alignSelf: "flex-end",
-    marginTop: 4,
-  },
-  imagesContainer: {
+  mediaActions: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 24,
-  },
-  imageWrapper: {
-    position: "relative",
-    width: "48%",
-    aspectRatio: 1,
-  },
-  previewImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 8,
-  },
-  removeImageButton: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    backgroundColor: "white",
-    borderRadius: 12,
-  },
-  mediaOptions: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 32,
-    paddingVertical: 16,
+    alignItems: "center",
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#e1e1e1",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
-  },
-  mediaOption: {
-    alignItems: "center",
-    gap: 4,
-  },
-  mediaOptionText: {
-    fontSize: 12,
-    color: "#007AFF",
-  },
-  settingsSection: {
-    marginBottom: 32,
-  },
-  settingsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 16,
-  },
-  settingItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderTopColor: "#F0F0F0",
     gap: 12,
   },
-  settingText: {
-    fontSize: 16,
-    color: "#333",
+  mediaButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  spacer: {
     flex: 1,
   },
-  settingToggle: {
-    width: 40,
-    height: 24,
-    backgroundColor: "#e0e0e0",
+  communityButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
-    justifyContent: "center",
-    paddingHorizontal: 2,
+    backgroundColor: "#F5F5F5",
   },
-  toggleCircle: {
-    width: 20,
-    height: 20,
-    backgroundColor: "white",
-    borderRadius: 10,
-  },
-  toggleCircleActive: {
-    backgroundColor: "#007AFF",
-    alignSelf: "flex-end",
-  },
-  actionButtons: {
-    gap: 12,
-    marginBottom: 32,
-  },
-  postButton: {
-    backgroundColor: "#007AFF",
-  },
-  saveDraftButton: {
-    alignItems: "center",
-    padding: 16,
-  },
-  saveDraftText: {
-    fontSize: 16,
+  communityButtonText: {
+    fontSize: 13,
     color: "#666",
     fontWeight: "500",
+  },
+  optionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  optionLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  optionIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F5F5F5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionText: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#000",
+  },
+  footer: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: "#E8EAF6",
+    gap: 12,
+  },
+  draftButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 28,
+    backgroundColor: "#D1D5F0",
+    alignItems: "center",
+  },
+  draftButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#666",
+  },
+  postButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 28,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    shadowColor: "#7C3AED",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  postButtonDisabled: {
+    backgroundColor: "#C5CAE9",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  postButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
 });

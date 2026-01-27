@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+// providers/ThemeProvider.tsx
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { useColorScheme } from "react-native";
 import { Colors, storage, Theme } from "../lib/theme";
 
@@ -27,27 +34,30 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   const [theme, setThemeState] = useState<Theme>("light");
   const [isReady, setIsReady] = useState(false);
 
-  useEffect(() => {
-    loadTheme();
-  }, []);
-
-  const loadTheme = async () => {
-    const savedTheme = await storage.getTheme();
-    if (savedTheme) {
-      setThemeState(savedTheme);
-    }
-    setIsReady(true);
-  };
-
-  const setTheme = async (newTheme: Theme) => {
+  // ✅ Wrap setTheme in useCallback to prevent unnecessary re-renders
+  const setTheme = useCallback(async (newTheme: Theme) => {
     setThemeState(newTheme);
     await storage.setTheme(newTheme);
-  };
+  }, []);
 
-  const toggleTheme = () => {
+  // ✅ Wrap toggleTheme in useCallback
+  const toggleTheme = useCallback(() => {
     const newTheme = theme === "light" ? "dark" : "light";
     setTheme(newTheme);
-  };
+  }, [theme, setTheme]);
+
+  // ✅ Load theme on mount
+  useEffect(() => {
+    const loadTheme = async () => {
+      const savedTheme = await storage.getTheme();
+      if (savedTheme) {
+        setThemeState(savedTheme);
+      }
+      setIsReady(true);
+    };
+
+    loadTheme();
+  }, []);
 
   const isDark =
     theme === "dark" || (theme === "system" && systemColorScheme === "dark");

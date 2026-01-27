@@ -1,262 +1,223 @@
-import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+// app/(tabs)/explore.tsx
+import { Ionicons } from "@expo/vector-icons";
+import React, { useState } from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-const trendingTopics = [
-  { id: '1', title: 'Gerabah Making', category: 'Art & Craft', posts: '2.4k' },
-  { id: '2', title: 'Plant Progress', category: 'Gardening', posts: '1.8k' },
-  { id: '3', title: 'Skincare Upgrade', category: 'Wellness', posts: '3.2k' },
-  { id: '4', title: 'Night Photography', category: 'Photography', posts: '1.5k' },
-];
-
-const communities = [
-  { id: '1', name: 'NebulaNet Photography', members: '10.2k' },
-  { id: '2', name: 'HeartLink Collective', members: '8.7k' },
-  { id: '3', name: 'Farm Harmony', members: '5.4k' },
-  { id: '4', name: 'PartyPlanet Crew', members: '12.3k' },
-];
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ExploreScreen() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('trending');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("trending");
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.time}>9:41</Text>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.container}>
+        {/* Header with Search */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <View style={styles.searchContainer}>
+            <Ionicons
+              name="search"
+              size={20}
+              color="#9FA8DA"
+              style={styles.searchIcon}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search..."
+              placeholderTextColor="#9FA8DA"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
         </View>
-      </View>
 
-      {/* Categories */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoriesContainer}
-      >
-        {['Trending', 'Account', 'Post', 'Community'].map((category) => (
-          <TouchableOpacity
-            key={category}
-            style={[
-              styles.categoryButton,
-              activeCategory === category.toLowerCase() && styles.activeCategoryButton,
-            ]}
-            onPress={() => setActiveCategory(category.toLowerCase())}
-          >
-            <Text
+        {/* Categories */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesContainer}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {["Trending", "Account", "Post", "Community"].map((category) => (
+            <TouchableOpacity
+              key={category}
               style={[
-                styles.categoryText,
-                activeCategory === category.toLowerCase() && styles.activeCategoryText,
+                styles.categoryButton,
+                activeCategory === category.toLowerCase() &&
+                  styles.activeCategoryButton,
               ]}
+              onPress={() => setActiveCategory(category.toLowerCase())}
             >
-              {category}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <ScrollView style={styles.content}>
-        {activeCategory === 'trending' && (
-          <>
-            <Text style={styles.sectionTitle}>Trending Topics</Text>
-            {trendingTopics.map((topic) => (
-              <TouchableOpacity key={topic.id} style={styles.topicCard}>
-                <View style={styles.topicInfo}>
-                  <Text style={styles.topicTitle}>{topic.title}</Text>
-                  <Text style={styles.topicCategory}>{topic.category}</Text>
-                </View>
-                <View style={styles.topicStats}>
-                  <Text style={styles.topicPosts}>{topic.posts} posts</Text>
-                  <Ionicons name="chevron-forward" size={20} color="#999" />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
-
-        <Text style={styles.sectionTitle}>Recommended Communities</Text>
-        {communities.map((community) => (
-          <TouchableOpacity key={community.id} style={styles.communityCard}>
-            <View style={styles.communityInfo}>
-              <View style={styles.communityAvatar}>
-                <Text style={styles.communityAvatarText}>
-                  {community.name.charAt(0)}
-                </Text>
-              </View>
-              <View style={styles.communityDetails}>
-                <Text style={styles.communityName}>{community.name}</Text>
-                <Text style={styles.communityMembers}>
-                  {community.members} members
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity style={styles.joinButton}>
-              <Text style={styles.joinButtonText}>Join</Text>
+              <Text
+                style={[
+                  styles.categoryText,
+                  activeCategory === category.toLowerCase() &&
+                    styles.activeCategoryText,
+                ]}
+              >
+                {category}
+              </Text>
             </TouchableOpacity>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+          ))}
+        </ScrollView>
+
+        {/* Content */}
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {activeCategory === "trending" && (
+            <View style={styles.emptyState}>
+              <Ionicons name="trending-up-outline" size={64} color="#C5CAE9" />
+              <Text style={styles.emptyStateTitle}>
+                No Trending Content Yet
+              </Text>
+              <Text style={styles.emptyStateText}>
+                Trending topics will appear here when users start engaging with
+                hashtags and popular content.
+              </Text>
+            </View>
+          )}
+
+          {activeCategory === "account" && (
+            <View style={styles.emptyState}>
+              <Ionicons name="people-outline" size={64} color="#C5CAE9" />
+              <Text style={styles.emptyStateTitle}>No Accounts Found</Text>
+              <Text style={styles.emptyStateText}>
+                Search for accounts or wait for recommendations to appear.
+              </Text>
+            </View>
+          )}
+
+          {activeCategory === "post" && (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="document-text-outline"
+                size={64}
+                color="#C5CAE9"
+              />
+              <Text style={styles.emptyStateTitle}>No Posts Found</Text>
+              <Text style={styles.emptyStateText}>
+                Posts matching your search will appear here.
+              </Text>
+            </View>
+          )}
+
+          {activeCategory === "community" && (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="people-circle-outline"
+                size={64}
+                color="#C5CAE9"
+              />
+              <Text style={styles.emptyStateTitle}>No Communities Yet</Text>
+              <Text style={styles.emptyStateText}>
+                Communities will appear here as they are created and recommended
+                to you.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#E8EAF6",
   },
   header: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
   },
-  time: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: 12,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    height: 40,
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    height: 40,
-    fontSize: 16,
+    fontSize: 15,
+    color: "#000",
   },
   categoriesContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    maxHeight: 50,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e1e1',
+    borderBottomColor: "#D1D5F0",
   },
-  categoryButton: {
+  categoriesContent: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginRight: 12,
+    gap: 8,
+  },
+  categoryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#FFFFFF",
   },
   activeCategoryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#7C3AED",
   },
   categoryText: {
     fontSize: 14,
-    color: '#666',
+    fontWeight: "500",
+    color: "#666",
   },
   activeCategoryText: {
-    color: '#fff',
-    fontWeight: '600',
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
   content: {
     flex: 1,
-    padding: 16,
   },
-  sectionTitle: {
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+    paddingVertical: 80,
+  },
+  emptyStateTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    marginTop: 8,
+    fontWeight: "600",
+    color: "#000",
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: "center",
   },
-  topicCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  topicInfo: {
-    flex: 1,
-  },
-  topicTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  topicCategory: {
-    fontSize: 14,
-    color: '#666',
-  },
-  topicStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  topicPosts: {
-    fontSize: 14,
-    color: '#666',
-    marginRight: 8,
-  },
-  communityCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  communityInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  communityAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  communityAvatarText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  communityDetails: {
-    flex: 1,
-  },
-  communityName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  communityMembers: {
-    fontSize: 14,
-    color: '#666',
-  },
-  joinButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: '#007AFF',
-    borderRadius: 20,
-  },
-  joinButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+  emptyStateText: {
+    fontSize: 15,
+    color: "#9FA8DA",
+    textAlign: "center",
+    lineHeight: 22,
   },
 });
