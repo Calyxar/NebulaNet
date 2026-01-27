@@ -28,7 +28,7 @@ export default function WebVerifyEmailHandler() {
     };
 
     handleWebRedirect();
-  }, []);
+  }, [router]);
 
   return (
     <View style={styles.container}>

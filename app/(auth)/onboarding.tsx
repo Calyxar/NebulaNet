@@ -66,6 +66,24 @@ export default function OnboardingScreen() {
       return;
     }
 
+    // ADD THIS CHECK FIRST
+    if (!user?.id) {
+      Alert.alert(
+        "Authentication Required",
+        "Please sign in or sign up to continue.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              router.dismissAll();
+              router.replace("/(auth)/login");
+            },
+          },
+        ],
+      );
+      return;
+    }
+
     setIsLoading(true);
     try {
       const success = await markOnboardingCompleted(selectedInterests);
@@ -75,7 +93,7 @@ export default function OnboardingScreen() {
       }
 
       // Save interests to database
-      if (user?.id && selectedInterests.length > 0) {
+      if (selectedInterests.length > 0) {
         try {
           await supabase.from("user_interests").insert(
             selectedInterests.map((interestId) => ({

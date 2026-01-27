@@ -21,9 +21,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Get platform-specific redirect URL for email verification
 export const getAuthRedirectUrl = () => {
   if (Platform.OS === "web") {
-    return "https://nebulanet.space/verify-email-handler";
+    return "https://nebulanet.space/auth/verify-email";
   } else {
     return "nebulanet://verify-email-handler";
+  }
+};
+
+// Get platform-specific redirect URL for password reset
+export const getPasswordResetRedirectUrl = () => {
+  if (Platform.OS === "web") {
+    return "https://nebulanet.space/auth/reset-password";
+  } else {
+    return "nebulanet://auth/reset-password";
   }
 };
 
@@ -793,7 +802,6 @@ export async function createLikeNotification(postId: string, userId: string) {
 
     if (postError) throw postError;
 
-    // ✅ Type cast to handle potential null
     const postData = post as { user_id: string } | null;
 
     if (!postData || postData.user_id === userId) return;
@@ -836,7 +844,6 @@ export async function createCommentNotification(
 
     if (commentError) throw commentError;
 
-    // ✅ FIXED: Cast through unknown first for complex nested type
     const commentData = comment as unknown as {
       id: string;
       post_id: string;
@@ -881,7 +888,7 @@ export async function createFollowNotification(
 }
 
 /**
- * ✅ FIXED — `createStoryCommentNotification()`
+ * Create story comment notification
  */
 export async function createStoryCommentNotification(
   storyId: string,
@@ -896,7 +903,6 @@ export async function createStoryCommentNotification(
       .eq("id", storyId)
       .single();
 
-    // ✅ FIXED: Proper type casting
     const storyData = story as { user_id: string } | null;
 
     if (storyError || !storyData || storyData.user_id === userId) return;
@@ -1147,12 +1153,13 @@ export async function getCurrentSession() {
 export async function resetPassword(email: string) {
   console.log("📧 Resetting password for:", email);
 
-  const redirectTo = getAuthRedirectUrl();
+  const redirectTo = getPasswordResetRedirectUrl();
+  console.log("🔗 Password reset redirect URL:", redirectTo);
 
   const { error } = await supabase.auth.resetPasswordForEmail(
     email.trim().toLowerCase(),
     {
-      redirectTo: `${redirectTo}?type=recovery`,
+      redirectTo: redirectTo,
     },
   );
 
@@ -1162,6 +1169,7 @@ export async function resetPassword(email: string) {
   }
 
   console.log("✅ Password reset email sent");
+  return true;
 }
 
 export async function updatePassword(newPassword: string) {
@@ -1724,7 +1732,6 @@ export async function getFollowingStories() {
       return [];
     }
 
-    // ✅ FIXED: Proper type handling
     const followingData = following as { following_id: string }[] | null;
     const followingIds = followingData?.map((f) => f.following_id) || [];
 
@@ -1764,9 +1771,6 @@ export async function getFollowingStories() {
   }
 }
 
-/**
- * ✅ FIXED — `createStoryComment()`
- */
 export async function createStoryComment(storyId: string, content: string) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
@@ -1782,7 +1786,6 @@ export async function createStoryComment(storyId: string, content: string) {
       .gt("expires_at", new Date().toISOString())
       .single();
 
-    // ✅ FIXED: Proper type casting
     const storyData = story as { user_id: string } | null;
 
     if (storyError || !storyData) {
@@ -2371,7 +2374,6 @@ export async function joinCommunity(communityId: string) {
 
 // ==================== ACCOUNT MANAGEMENT ====================
 
-// Helper function to get user data backup - FIXED VERSION
 async function getUserDataBackup(userId: string) {
   console.log("💾 Creating user data backup");
 
@@ -2401,7 +2403,6 @@ async function getUserDataBackup(userId: string) {
       .eq("following_id", userId),
   ]);
 
-  // ✅ FIXED: Use proper type casting to resolve TypeScript errors
   const followersTyped = followers as
     | { following_id: string; created_at: string }[]
     | null;
@@ -2425,7 +2426,6 @@ export async function deactivateAccount() {
 
   console.log("⏸️  Deactivating account");
 
-  // Create a backup of user data before deactivation
   const { error: backupError } = await supabase
     .from("deactivated_accounts")
     .insert({
@@ -2438,7 +2438,6 @@ export async function deactivateAccount() {
     console.error("Failed to create backup:", backupError);
   }
 
-  // Soft delete: Mark user as deactivated
   const { error: deactivateError } = await supabase
     .from("profiles")
     .update({
@@ -2458,7 +2457,6 @@ export async function deactivateAccount() {
     throw deactivateError;
   }
 
-  // Sign out the user
   await signOut();
 
   console.log("✅ Account deactivated");
@@ -2472,7 +2470,6 @@ export async function deleteAccount() {
   console.log("🗑️  Deleting account");
 
   try {
-    // Create a backup before hard delete
     const { error: backupError } = await supabase
       .from("deleted_accounts_backup")
       .insert({
@@ -2485,7 +2482,6 @@ export async function deleteAccount() {
       console.error("Backup creation failed:", backupError);
     }
 
-    // Mark as deleted in profiles table
     await supabase
       .from("profiles")
       .update({
@@ -2498,7 +2494,6 @@ export async function deleteAccount() {
       })
       .eq("id", user.id);
 
-    // Delete user's auth session
     await supabase.auth.signOut();
 
     console.log("✅ Account deleted");
@@ -2583,9 +2578,8 @@ export async function getSavedPosts(limit = 20, offset = 0) {
       throw error;
     }
 
-    // Transform the data to make it easier to use
     const savedPosts = data
-      .filter((item: any) => item.posts) // Filter out any null posts
+      .filter((item: any) => item.posts)
       .map((item: any) => ({
         ...item.posts,
         saved_at: item.created_at,
@@ -2727,7 +2721,6 @@ export async function getTrendingPosts(limit = 10) {
 export async function getRelatedPosts(postId: string, limit = 5) {
   console.log("🔗 Getting related posts for:", postId);
 
-  // First get the current post to find similar content
   const currentPost = await getPostById(postId);
   if (!currentPost) return [];
 
@@ -2889,7 +2882,6 @@ export async function trackPostView(postId: string) {
   console.log("📊 Tracking post view:", postId);
 
   try {
-    // Check if already viewed recently (within last 24 hours)
     const twentyFourHoursAgo = new Date(
       Date.now() - 24 * 60 * 60 * 1000,
     ).toISOString();
@@ -2903,14 +2895,12 @@ export async function trackPostView(postId: string) {
       .single();
 
     if (!existingView) {
-      // Record the view
       await supabase.from("post_views").insert({
         post_id: postId,
         user_id: user.id,
         viewed_at: new Date().toISOString(),
       });
 
-      // Increment view count on post
       await supabase.rpc("increment", {
         table_name: "posts",
         column_name: "view_count",
@@ -2921,13 +2911,9 @@ export async function trackPostView(postId: string) {
     }
   } catch (error) {
     console.error("❌ Track post view error:", error);
-    // Don't throw - analytics shouldn't break the app
   }
 }
 
-/**
- * ✅ FIXED — `getUserAnalytics()`
- */
 export async function getUserAnalytics() {
   const user = await getCurrentUser();
   if (!user) throw new Error("Not authenticated");
@@ -2964,7 +2950,6 @@ export async function getUserAnalytics() {
         .eq("follower_id", user.id),
     ]);
 
-    // ✅ FIXED: Null-safe handling with ?? operator
     const analytics = {
       totalPosts: totalPosts ?? 0,
       totalLikes: totalLikes ?? 0,
@@ -2987,12 +2972,8 @@ export async function getUserAnalytics() {
 
 // ==================== EXPORT ALL ====================
 
-// Export all functions as an object
 export default {
-  // Client
   supabase,
-
-  // Auth
   signInWithEmail,
   signUpWithEmail,
   signOut,
@@ -3003,14 +2984,10 @@ export default {
   updateUserEmail,
   resendVerificationEmail,
   verifyEmailToken,
-
-  // Profile
   updateProfile,
   getProfile,
   getProfileByUsername,
   getCurrentUserProfile,
-
-  // Posts
   createPost,
   getFeedPosts,
   getPostById,
@@ -3023,20 +3000,12 @@ export default {
   getRelatedPosts,
   reportPost,
   trackPostView,
-
-  // Saves
   checkIfSaved,
   savePost,
   getSavedPosts,
   getSavesCount,
-
-  // Comments
   createComment,
-
-  // Follow
   followUser,
-
-  // Stories
   createStory,
   getFollowingStories,
   getActiveStories,
@@ -3051,8 +3020,6 @@ export default {
   getStoryStats,
   hasUnviewedStories,
   hasActiveStory,
-
-  // Notifications
   createNotification,
   getNotifications,
   markNotificationAsRead,
@@ -3061,49 +3028,32 @@ export default {
   deleteAllNotifications,
   getUnreadNotificationsCount,
   getNotificationStats,
-
-  // Notification Triggers
   createLikeNotification,
   createCommentNotification,
   createFollowNotification,
   createStoryCommentNotification,
   createMessageNotification,
   createMentionNotification,
-
-  // Communities
   joinCommunity,
-
-  // Account Management
   deactivateAccount,
   deleteAccount,
-
-  // Links
   generatePostLink,
   generateUserLink,
   generateCommunityLink,
   generateDeepLink,
   incrementShareCount,
-
-  // Chat
   sendMessage,
-
-  // Blocks
   blockUser,
   unblockUser,
   isUserBlocked,
   getBlockedUsers,
-
-  // Analytics
   getUserAnalytics,
-
-  // Utility
   testConnection,
   initializeSupabase,
   from,
   withErrorHandling,
   getAuthRedirectUrl,
-
-  // Subscriptions
+  getPasswordResetRedirectUrl,
   subscribeToNotifications,
   subscribeToPosts,
 };
