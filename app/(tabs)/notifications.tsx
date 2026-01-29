@@ -6,16 +6,16 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    ScrollView,
-    Share,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -163,9 +163,11 @@ export default function NotificationsScreen() {
 
   const handleCopyInviteLink = async () => {
     try {
-      const inviteLink = "https://nebulanet.space/invite/your-code";
+      // Updated to use proper nebulanet.space domain
+      const inviteLink = "https://nebulanet.space/invite";
       await Share.share({
-        message: `Join me on NebulaNet! ${inviteLink}`,
+        message: `Join me on NebulaNet! Download the app and connect with amazing people: ${inviteLink}`,
+        url: inviteLink, // For iOS
       });
     } catch (error) {
       console.error("Error sharing invite:", error);

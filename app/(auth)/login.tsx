@@ -1,4 +1,4 @@
-// app/(auth)/login.tsx
+// app/(auth)/login.tsx - UPDATED WITH FORGOT PASSWORD
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
@@ -215,8 +215,11 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Forgot Password */}
-            <TouchableOpacity style={styles.forgotPassword}>
+            {/* Forgot Password - UPDATED WITH NAVIGATION */}
+            <TouchableOpacity
+              style={styles.forgotPassword}
+              onPress={() => router.push("/(auth)/forgot-password")}
+            >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
 

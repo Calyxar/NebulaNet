@@ -90,7 +90,7 @@
         {
           "icon": "./assets/images/notification-icon.png",
           "color": "#E6F4FE",
-          "sounds": ["./assets/sounds/mixkit_sci_fi_click_900.wav"]
+          "sounds": ["./assets/sounds/notification.wav"]
         }
       ],
       "expo-font"
