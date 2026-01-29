@@ -25,6 +25,8 @@ module.exports = {
       supportsTablet: true,
       bundleIdentifier: "com.nebulanet.app",
       buildNumber: "1",
+      // ADD THIS - Associated Domains for Universal Links
+      associatedDomains: ["applinks:nebulanet.space"],
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSPhotoLibraryUsageDescription:
@@ -41,6 +43,36 @@ module.exports = {
     android: {
       package: "com.nebulanet.app",
       versionCode: 1,
+      // ADD THIS - Intent Filters for App Links
+      intentFilters: [
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
+              scheme: "https",
+              host: "nebulanet.space",
+              pathPrefix: "/post",
+            },
+            {
+              scheme: "https",
+              host: "nebulanet.space",
+              pathPrefix: "/user",
+            },
+            {
+              scheme: "https",
+              host: "nebulanet.space",
+              pathPrefix: "/community",
+            },
+            {
+              scheme: "https",
+              host: "nebulanet.space",
+              pathPrefix: "/invite",
+            },
+          ],
+          category: ["BROWSABLE", "DEFAULT"],
+        },
+      ],
       adaptiveIcon: {
         foregroundImage: "./assets/images/android-icon-foreground.png",
         backgroundImage: "./assets/images/android-icon-background.png",
@@ -105,7 +137,6 @@ module.exports = {
       eas: {
         projectId: "e048836d-bf2b-4423-95d8-e6355b78b981",
       },
-      // Environment variables from .env file
       supabaseUrl:
         process.env.EXPO_PUBLIC_SUPABASE_URL || "https://nebulanet.space",
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "",

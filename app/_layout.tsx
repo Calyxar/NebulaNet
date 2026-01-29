@@ -3,7 +3,8 @@ import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import * as Linking from "expo-linking";
+import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { Platform, StatusBar } from "react-native";
@@ -14,6 +15,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const router = useRouter();
+
   // Create QueryClient instance
   const [queryClient] = useState(
     () =>
@@ -35,6 +38,59 @@ export default function RootLayout() {
     "Inter-SemiBold": require("../assets/fonts/Inter-SemiBold.ttf"),
     "Inter-Bold": require("../assets/fonts/Inter-Bold.ttf"),
   });
+
+  // Deep linking handler
+  useEffect(() => {
+    const handleDeepLink = ({ url }: { url: string }) => {
+      console.log("🔗 Deep link received:", url);
+
+      try {
+        const { path } = Linking.parse(url);
+
+        if (!path) return;
+
+        // Remove leading slash if present
+        const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+
+        // Route to appropriate screen based on path
+        if (cleanPath.startsWith("post/")) {
+          const postId = cleanPath.replace("post/", "");
+          console.log("📱 Navigating to post:", postId);
+          router.push(`/post/${postId}`);
+        } else if (cleanPath.startsWith("user/")) {
+          const username = cleanPath.replace("user/", "");
+          console.log("👤 Navigating to user:", username);
+          router.push(`/user/${username}`);
+        } else if (cleanPath.startsWith("community/")) {
+          const slug = cleanPath.replace("community/", "");
+          console.log("🏘️ Navigating to community:", slug);
+          router.push(`/community/${slug}`);
+        } else if (cleanPath === "invite" || cleanPath === "invite/") {
+          console.log("✉️ Navigating to signup");
+          router.push("/(auth)/signup");
+        } else {
+          console.log("⚠️ Unknown path:", cleanPath);
+        }
+      } catch (error) {
+        console.error("❌ Error handling deep link:", error);
+      }
+    };
+
+    // Handle initial URL when app opens from a link
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        console.log("🚀 App opened with URL:", url);
+        handleDeepLink({ url });
+      }
+    });
+
+    // Listen for links while app is running
+    const subscription = Linking.addEventListener("url", handleDeepLink);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [router]);
 
   // Hide splash screen when fonts are loaded
   useEffect(() => {
