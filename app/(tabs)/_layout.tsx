@@ -1,21 +1,92 @@
-// app/(tabs)/_layout.tsx - COMPLETE UPDATED VERSION
+// app/(tabs)/_layout.tsx - RESPONSIVE FOR ALL DEVICES
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
-  Platform,
+  Dimensions,
+  Image,
   StyleSheet,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Custom tab bar with center create button
+// Get screen dimensions
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+// Determine device type
+const isSmallPhone = SCREEN_WIDTH < 375; // iPhone SE, small Androids
+const isTablet = SCREEN_WIDTH >= 768; // iPads, Android tablets
+const isLargeTablet = SCREEN_WIDTH >= 1024; // iPad Pro, large tablets
+
+// Responsive sizing based on device
+const getResponsiveSizes = () => {
+  if (isLargeTablet) {
+    return {
+      tabBarHeight: 85,
+      centerButtonSize: 80,
+      centerButtonElevation: -35,
+      iconSize: 28,
+      borderWidth: 6,
+      cornerRadius: 28,
+      horizontalPadding: 40,
+    };
+  } else if (isTablet) {
+    return {
+      tabBarHeight: 75,
+      centerButtonSize: 72,
+      centerButtonElevation: -32,
+      iconSize: 26,
+      borderWidth: 6,
+      cornerRadius: 24,
+      horizontalPadding: 30,
+    };
+  } else if (isSmallPhone) {
+    return {
+      tabBarHeight: 60,
+      centerButtonSize: 58,
+      centerButtonElevation: -25,
+      iconSize: 22,
+      borderWidth: 4,
+      cornerRadius: 18,
+      horizontalPadding: 12,
+    };
+  } else {
+    // Standard phones (iPhone 12-15, Samsung A54, etc.)
+    return {
+      tabBarHeight: 65,
+      centerButtonSize: 64,
+      centerButtonElevation: -28,
+      iconSize: 24,
+      borderWidth: 5,
+      cornerRadius: 20,
+      horizontalPadding: 16,
+    };
+  }
+};
+
+const sizes = getResponsiveSizes();
+
+// Custom tab bar that adapts to all screen sizes
 function CustomTabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.tabBarContainer}>
-      <View style={styles.tabBar}>
+      <View
+        style={[
+          styles.tabBar,
+          {
+            paddingBottom: Math.max(insets.bottom, isTablet ? 12 : 8),
+            height: sizes.tabBarHeight,
+            paddingHorizontal: sizes.horizontalPadding,
+            borderTopLeftRadius: sizes.cornerRadius,
+            borderTopRightRadius: sizes.cornerRadius,
+          },
+        ]}
+      >
         {state.routes.map((route: any, index: number) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
@@ -25,7 +96,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
             return null;
           }
 
-          // Skip notifications tab (accessed via header button)
+          // Skip notifications tab
           if (route.name === "notifications") {
             return null;
           }
@@ -63,32 +134,45 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
               testID={options.tabBarTestID}
               onPress={onPress}
               style={styles.tabButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <View style={isFocused ? styles.activeTab : styles.inactiveTab}>
-                <Ionicons
-                  name={iconName}
-                  size={26}
-                  color={isFocused ? "#7C3AED" : "#9CA3AF"}
-                />
-              </View>
+              <Ionicons
+                name={iconName}
+                size={sizes.iconSize}
+                color={isFocused ? "#7C3AED" : "#9CA3AF"}
+              />
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {/* Center Create Button */}
+      {/* Center Create Button - Responsive */}
       <TouchableOpacity
-        style={styles.centerButton}
+        style={[
+          styles.centerButton,
+          {
+            top: sizes.centerButtonElevation,
+            width: sizes.centerButtonSize,
+            height: sizes.centerButtonSize,
+            borderRadius: sizes.centerButtonSize / 2,
+            borderWidth: sizes.borderWidth,
+          },
+        ]}
         onPress={() => navigation.navigate("create")}
         activeOpacity={0.8}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <View style={styles.centerButtonInner}>
-          <View style={styles.centerButtonLogo}>
-            <View style={styles.logoSwirl}>
-              <View style={styles.logoSwirlInner} />
-            </View>
-          </View>
-        </View>
+        <Image
+          source={require("@/assets/images/512_512_c.png")}
+          style={[
+            styles.centerButtonImage,
+            {
+              width: sizes.centerButtonSize - 10,
+              height: sizes.centerButtonSize - 10,
+            },
+          ]}
+          resizeMode="contain"
+        />
       </TouchableOpacity>
     </View>
   );
@@ -97,7 +181,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 export default function TabsLayout() {
   const { user, isLoading } = useAuth();
 
-  // Show loading state
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -106,7 +189,6 @@ export default function TabsLayout() {
     );
   }
 
-  // Redirect to login if not authenticated
   if (!user) {
     return <Redirect href="/(auth)/login" />;
   }
@@ -118,42 +200,12 @@ export default function TabsLayout() {
         headerShown: false,
       }}
     >
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: "Home",
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: "Explore",
-        }}
-      />
-      <Tabs.Screen
-        name="create"
-        options={{
-          title: "Create",
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-        }}
-      />
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          href: null, // Hide from tab bar, accessed via header button
-        }}
-      />
+      <Tabs.Screen name="home" options={{ title: "Home" }} />
+      <Tabs.Screen name="explore" options={{ title: "Explore" }} />
+      <Tabs.Screen name="create" options={{ title: "Create" }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
+      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -171,42 +223,26 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    backgroundColor: "#1A1A1A",
-    height: Platform.OS === "ios" ? 88 : 70,
-    paddingBottom: Platform.OS === "ios" ? 28 : 12,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: "#000000",
+    paddingTop: 8,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: -4,
+      height: -3,
     },
     shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowRadius: 10,
+    elevation: 8,
   },
   tabButton: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  activeTab: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inactiveTab: {
-    alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 8,
   },
   centerButton: {
     position: "absolute",
-    top: -32,
     alignSelf: "center",
-    width: 72,
-    height: 72,
-    borderRadius: 36,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
@@ -216,41 +252,12 @@ const styles = StyleSheet.create({
       height: 6,
     },
     shadowOpacity: 0.5,
-    shadowRadius: 16,
+    shadowRadius: 14,
     elevation: 12,
-    borderWidth: 6,
-    borderColor: "#1A1A1A",
+    borderColor: "#000000",
+    overflow: "hidden",
   },
-  centerButtonInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  centerButtonLogo: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoSwirl: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoSwirlInner: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#7C3AED",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
+  centerButtonImage: {
+    // Width and height set dynamically based on device
   },
 });

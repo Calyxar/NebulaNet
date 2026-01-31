@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx - UPDATED DESIGN
+// app/(tabs)/home.tsx - FIXED DESIGN (NO MOCK DATA)
 import PostCard from "@/components/post/PostCard";
 import { shareWithOptions } from "@/lib/share";
 import {
@@ -8,6 +8,7 @@ import {
   getCurrentUserProfile,
   getFeedPosts,
   getSavesCount,
+  getUnreadNotificationsCount,
   likePost,
   savePost,
 } from "@/lib/supabase";
@@ -85,6 +86,7 @@ export default function HomeScreen() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentText, setCommentText] = useState("");
   const [isCommenting, setIsCommenting] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const loadPosts = useCallback(async () => {
     try {
@@ -141,13 +143,23 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const loadNotificationsCount = useCallback(async () => {
+    try {
+      const count = await getUnreadNotificationsCount();
+      setUnreadNotifications(count);
+    } catch (error) {
+      console.error("Error loading notifications count:", error);
+      setUnreadNotifications(0);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
-      await Promise.all([loadPosts(), loadStories()]);
+      await Promise.all([loadPosts(), loadStories(), loadNotificationsCount()]);
     } catch (error) {
       console.error("Error loading data:", error);
     }
-  }, [loadPosts, loadStories]);
+  }, [loadPosts, loadStories, loadNotificationsCount]);
 
   useEffect(() => {
     loadData();
@@ -315,9 +327,13 @@ export default function HomeScreen() {
             >
               <View style={styles.notificationIconContainer}>
                 <Ionicons name="notifications" size={22} color="#7C3AED" />
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>6</Text>
-                </View>
+                {unreadNotifications > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadNotifications}
+                    </Text>
+                  </View>
+                )}
               </View>
             </TouchableOpacity>
           </View>

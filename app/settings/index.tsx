@@ -1,5 +1,6 @@
 // app/settings/index.tsx
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
 import {
@@ -24,25 +25,25 @@ const personalizationOptions: SettingsOption[] = [
     id: "account-center",
     title: "Account Center",
     icon: "person-outline",
-    route: "./account-center",
+    route: "account-center",
   },
   {
     id: "feed-preferences",
     title: "Feed Preferences",
     icon: "grid-outline",
-    route: "./feed-preferences",
+    route: "feed-preferences",
   },
   {
     id: "saved-content",
     title: "Saved & Hidden Content",
     icon: "bookmark-outline",
-    route: "./saved-content",
+    route: "saved-content",
   },
   {
     id: "language",
     title: "Language & Region",
     icon: "globe-outline",
-    route: "./language",
+    route: "language",
   },
 ];
 
@@ -51,31 +52,31 @@ const securityOptions: SettingsOption[] = [
     id: "privacy",
     title: "Privacy & Visibility",
     icon: "eye-off-outline",
-    route: "./privacy",
+    route: "privacy",
   },
   {
     id: "blocked",
     title: "Blocked & Muted Accounts",
     icon: "ban-outline",
-    route: "./blocked",
+    route: "blocked",
   },
   {
     id: "notifications",
     title: "Community Notifications",
     icon: "notifications-outline",
-    route: "./notifications",
+    route: "notifications",
   },
   {
     id: "security",
     title: "Security & Login",
     icon: "lock-closed-outline",
-    route: "./security",
+    route: "security",
   },
   {
     id: "linked-accounts",
     title: "Linked Accounts",
     icon: "link-outline",
-    route: "./linked-accounts",
+    route: "linked-accounts",
   },
 ];
 
@@ -89,133 +90,165 @@ export default function SettingsScreen() {
       key={option.id}
       style={styles.settingsOption}
       onPress={() => handleNavigate(option.route)}
+      activeOpacity={0.75}
     >
       <View style={styles.optionLeft}>
-        <View style={styles.iconContainer}>
-          <Ionicons name={option.icon} size={20} color="#666" />
+        <View style={styles.iconCircle}>
+          <Ionicons name={option.icon} size={18} color="#7C3AED" />
         </View>
         <Text style={styles.optionTitle}>{option.title}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#999" />
+      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
     </TouchableOpacity>
   );
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
-      <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* Gradient background like the design */}
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={styles.gradient}
+      >
+        <SafeAreaView style={styles.container}>
+          {/* Header: floating circular buttons + centered title */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerCircleButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </TouchableOpacity>
+
+            <Text style={styles.headerTitle}>Settings</Text>
+
+            <TouchableOpacity
+              style={styles.headerCircleButton}
+              onPress={() => {}}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Settings</Text>
-          <TouchableOpacity style={styles.menuButton}>
-            <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
+            {/* Personalization & Preferences */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                Personalization & Preferences
+              </Text>
 
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Personalization & Preferences Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              Personalization & Preferences
-            </Text>
-            <View style={styles.settingsCard}>
-              {personalizationOptions.map((option, index) => (
-                <View key={option.id}>
-                  {renderSettingsOption(option)}
-                  {index < personalizationOptions.length - 1 && (
-                    <View style={styles.divider} />
-                  )}
-                </View>
-              ))}
+              <View style={styles.card}>
+                {personalizationOptions.map((option, idx) => (
+                  <View key={option.id}>
+                    {renderSettingsOption(option)}
+                    {idx < personalizationOptions.length - 1 && (
+                      <View style={styles.divider} />
+                    )}
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
 
-          {/* Account & Security Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account & Security</Text>
-            <View style={styles.settingsCard}>
-              {securityOptions.map((option, index) => (
-                <View key={option.id}>
-                  {renderSettingsOption(option)}
-                  {index < securityOptions.length - 1 && (
-                    <View style={styles.divider} />
-                  )}
-                </View>
-              ))}
+            {/* Account & Security */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Account & Security</Text>
+
+              <View style={styles.card}>
+                {securityOptions.map((option, idx) => (
+                  <View key={option.id}>
+                    {renderSettingsOption(option)}
+                    {idx < securityOptions.length - 1 && (
+                      <View style={styles.divider} />
+                    )}
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  gradient: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: "#E8EAF6",
+    backgroundColor: "transparent",
   },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#E8EAF6",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
   },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  headerCircleButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+
+    // subtle shadow like the mock
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  scrollView: {
-    flex: 1,
-  },
+
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 18,
+    paddingBottom: 28,
   },
+
   section: {
-    marginTop: 24,
+    marginTop: 16,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 12,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 10,
     paddingHorizontal: 4,
   },
-  settingsCard: {
+
+  // big soft card
+  card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 22,
     overflow: "hidden",
+
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
   },
+
   settingsOption: {
     flexDirection: "row",
     alignItems: "center",
@@ -229,22 +262,29 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
   },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#F5F5F5",
+
+  // outlined icon circle (key detail from design)
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#D6D9FF",
     alignItems: "center",
     justifyContent: "center",
   },
+
   optionTitle: {
     fontSize: 15,
-    fontWeight: "500",
-    color: "#000",
+    fontWeight: "600",
+    color: "#111827",
   },
+
+  // inset divider like the mock (starts after icon)
   divider: {
     height: 1,
-    backgroundColor: "#F0F0F0",
-    marginLeft: 60,
+    backgroundColor: "#EEF2FF",
+    marginLeft: 64,
   },
 });

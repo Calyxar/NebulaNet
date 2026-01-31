@@ -1,12 +1,10 @@
 // app/(tabs)/chat.tsx
-import ChatHeader from "@/components/chat/ChatHeader";
-import ChatInput from "@/components/chat/ChatInput";
-import ChatList from "@/components/chat/ChatList";
 import ConversationItem from "@/components/chat/ConversationItem";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
@@ -22,116 +20,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ChatScreen() {
   const { user } = useAuth();
-  const {
-    conversations,
-    messages,
-    activeConversation,
-    loading,
-    selectConversation,
-    sendMessage,
-    loadConversations,
-  } = useChat();
+  const { conversations, loading, loadConversations } = useChat();
 
-  const handleSendMessage = async (content: string) => {
-    if (!activeConversation) return;
-    await sendMessage(content, activeConversation);
-  };
-
-  const handleBack = () => {
-    selectConversation(null);
-  };
-
-  // Helper function to get avatar URL
-  const getAvatarUrl = (
-    item: ChatConversation,
-    userId?: string,
-  ): string | null => {
-    if (item.avatar_url) return item.avatar_url;
-
-    if (!item.is_group && item.participants?.length === 2 && userId) {
-      const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId,
-      );
-      return otherParticipant?.profiles?.avatar_url || null;
-    }
-
-    return null;
-  };
-
-  // Helper function to get conversation name
-  const getConversationName = (
-    item: ChatConversation,
-    userId?: string,
-  ): string => {
-    if (item.name) return item.name;
-
-    if (!item.is_group && item.participants?.length === 2 && userId) {
-      const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId,
-      );
-      return (
-        otherParticipant?.profiles?.full_name ||
-        otherParticipant?.profiles?.username ||
-        "Unknown User"
-      );
-    }
-
-    if (item.is_group) {
-      return `${item.participants?.length || 0} members`;
-    }
-
-    return "Chat";
-  };
-
-  // Show chat interface if active conversation
-  if (activeConversation) {
-    const conversation = conversations.find((c) => c.id === activeConversation);
-
-    return (
-      <SafeAreaView style={styles.container}>
-        <ChatHeader
-          title={getConversationName(conversation!, user?.id)}
-          subtitle={
-            conversation?.is_group
-              ? `${conversation.participants?.length || 0} members`
-              : conversation?.participants?.find((p) => p.user_id !== user?.id)
-                  ?.profiles?.username || ""
-          }
-          isOnline={conversation?.is_online || false}
-          onBackPress={handleBack}
-        />
-
-        <ChatList
-          messages={messages.map((msg) => ({
-            id: msg.id,
-            content: msg.content,
-            sender: msg.sender_id === user?.id ? "me" : "other",
-            timestamp: new Date(msg.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            status: msg.read_at
-              ? "read"
-              : msg.delivered_at
-                ? "delivered"
-                : "sent",
-            mediaUrl: msg.media_url || undefined,
-            mediaType: msg.media_type || undefined,
-            attachments: msg.attachments || undefined,
-          }))}
-          isLoading={loading.messages}
-        />
-
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          placeholder="Type a message..."
-          disabled={loading.sending}
-        />
-      </SafeAreaView>
-    );
-  }
-
-  // Format timestamp helper
+  // Helper: format timestamp
   const formatTimestamp = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -147,7 +38,48 @@ export default function ChatScreen() {
     return date.toLocaleDateString();
   };
 
-  // Show conversations list
+  // Helper: get avatar URL
+  const getAvatarUrl = (item: ChatConversation, userId?: string) => {
+    if (item.avatar_url) return item.avatar_url;
+
+    if (!item.is_group && item.participants?.length === 2 && userId) {
+      const otherParticipant = item.participants.find(
+        (p) => p.user_id !== userId,
+      );
+      return otherParticipant?.profiles?.avatar_url || null;
+    }
+
+    return null;
+  };
+
+  // Helper: get conversation name
+  const getConversationName = (item: ChatConversation, userId?: string) => {
+    if (item.name) return item.name;
+
+    if (!item.is_group && item.participants?.length === 2 && userId) {
+      const otherParticipant = item.participants.find(
+        (p) => p.user_id !== userId,
+      );
+      return (
+        otherParticipant?.profiles?.full_name ||
+        otherParticipant?.profiles?.username ||
+        "Unknown User"
+      );
+    }
+
+    if (item.is_group) return `${item.participants?.length || 0} members`;
+
+    return "Chat";
+  };
+
+  // Navigate to the dedicated chat screen
+  const openConversation = (conversationId: string) => {
+    router.push({
+      pathname: "/chat/[id]",
+      params: { id: conversationId },
+    });
+  };
+
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -156,25 +88,24 @@ export default function ChatScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Chat</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton}>
+            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
               <Ionicons name="search-outline" size={24} color="#000" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.addButton}>
+
+            <TouchableOpacity style={styles.addButton} activeOpacity={0.8}>
               <Ionicons name="add" size={20} color="#000" />
               <Text style={styles.addButtonText}>New Chat</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Stories / Active Users Row */}
+        {/* Stories / Active Users Row (kept empty as requested) */}
         <View style={styles.storiesContainer}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.storiesContent}
-          >
-            {/* Empty state - no stories shown as requested */}
-          </ScrollView>
+          />
         </View>
 
         {/* Conversations List */}
@@ -205,7 +136,7 @@ export default function ChatScreen() {
                 isTyping={item.is_typing}
                 isPinned={item.is_pinned}
                 avatar={getAvatarUrl(item, user?.id)}
-                onPress={() => selectConversation(item.id)}
+                onPress={() => openConversation(item.id)}
               />
             )}
             contentContainerStyle={styles.listContent}

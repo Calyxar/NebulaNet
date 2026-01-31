@@ -1,6 +1,10 @@
-// app/(tabs)/explore.tsx
+// app/(tabs)/explore.tsx - MATCHES DESIGN (NO MOCK DATA)
+// ✅ Gradient background + rounded search + segmented tabs + real-data-ready sections
+
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import React, { useMemo, useState } from "react";
 import {
   ScrollView,
   StatusBar,
@@ -12,212 +16,334 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+type ExploreCategory = "trending" | "account" | "post" | "community";
+
 export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("trending");
+  const [activeCategory, setActiveCategory] =
+    useState<ExploreCategory>("trending");
+
+  /**
+   * ✅ Replace these with your REAL query results later.
+   * Example:
+   * const { accounts, posts, communities, loading } = useExplore(searchQuery, activeCategory);
+   *
+   * For now, keep them empty — NO MOCKS.
+   */
+  const accounts = useMemo(() => [], []);
+  const posts = useMemo(() => [], []);
+  const communities = useMemo(() => [], []);
+  const loading = false;
+
+  const categories: { key: ExploreCategory; label: string }[] = [
+    { key: "trending", label: "Trending" },
+    { key: "account", label: "Account" },
+    { key: "post", label: "Post" },
+    { key: "community", label: "Community" },
+  ];
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
-      <SafeAreaView style={styles.container}>
-        {/* Header with Search */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <View style={styles.searchContainer}>
-            <Ionicons
-              name="search"
-              size={20}
-              color="#9FA8DA"
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search..."
-              placeholderTextColor="#9FA8DA"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
-        {/* Categories */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesContainer}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {["Trending", "Account", "Post", "Community"].map((category) => (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.42, 1]}
+        style={styles.gradient}
+      >
+        <SafeAreaView style={styles.container}>
+          {/* Top Search Row (matches screenshot) */}
+          <View style={styles.topRow}>
             <TouchableOpacity
-              key={category}
-              style={[
-                styles.categoryButton,
-                activeCategory === category.toLowerCase() &&
-                  styles.activeCategoryButton,
-              ]}
-              onPress={() => setActiveCategory(category.toLowerCase())}
+              style={styles.circleButton}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.categoryText,
-                  activeCategory === category.toLowerCase() &&
-                    styles.activeCategoryText,
-                ]}
-              >
-                {category}
-              </Text>
+              <Ionicons name="arrow-back" size={22} color="#111827" />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
 
-        {/* Content */}
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {activeCategory === "trending" && (
-            <View style={styles.emptyState}>
-              <Ionicons name="trending-up-outline" size={64} color="#C5CAE9" />
-              <Text style={styles.emptyStateTitle}>
-                No Trending Content Yet
-              </Text>
-              <Text style={styles.emptyStateText}>
-                Trending topics will appear here when users start engaging with
-                hashtags and popular content.
-              </Text>
-            </View>
-          )}
-
-          {activeCategory === "account" && (
-            <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={64} color="#C5CAE9" />
-              <Text style={styles.emptyStateTitle}>No Accounts Found</Text>
-              <Text style={styles.emptyStateText}>
-                Search for accounts or wait for recommendations to appear.
-              </Text>
-            </View>
-          )}
-
-          {activeCategory === "post" && (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="document-text-outline"
-                size={64}
-                color="#C5CAE9"
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={18} color="#9CA3AF" />
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search..."
+                placeholderTextColor="#9CA3AF"
+                style={styles.searchInput}
+                returnKeyType="search"
               />
-              <Text style={styles.emptyStateTitle}>No Posts Found</Text>
-              <Text style={styles.emptyStateText}>
-                Posts matching your search will appear here.
-              </Text>
             </View>
-          )}
+          </View>
 
-          {activeCategory === "community" && (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="people-circle-outline"
-                size={64}
-                color="#C5CAE9"
+          {/* Segmented Tabs (one pill container, like screenshot) */}
+          <View style={styles.segmentWrap}>
+            {categories.map((c) => {
+              const isActive = activeCategory === c.key;
+              return (
+                <TouchableOpacity
+                  key={c.key}
+                  onPress={() => setActiveCategory(c.key)}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.segmentItem,
+                    isActive && styles.segmentItemActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      isActive && styles.segmentTextActive,
+                    ]}
+                  >
+                    {c.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Content */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.content}
+          >
+            {/* REAL DATA SECTIONS (only render if you have real results) */}
+            {activeCategory === "account" && (
+              <>
+                {accounts.length > 0 ? (
+                  <View style={styles.card}>
+                    {/* render real accounts here */}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="people-outline"
+                    title={loading ? "Searching..." : "No accounts yet"}
+                    subtitle={
+                      loading
+                        ? "Please wait a moment."
+                        : "Once more testers join, matching accounts will appear here."
+                    }
+                  />
+                )}
+              </>
+            )}
+
+            {activeCategory === "post" && (
+              <>
+                {posts.length > 0 ? (
+                  <View style={styles.card}>
+                    {/* render real posts here */}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="document-text-outline"
+                    title={loading ? "Searching..." : "No posts yet"}
+                    subtitle={
+                      loading
+                        ? "Please wait a moment."
+                        : "Posts will show here as your community starts sharing."
+                    }
+                  />
+                )}
+              </>
+            )}
+
+            {activeCategory === "community" && (
+              <>
+                {communities.length > 0 ? (
+                  <View style={styles.card}>
+                    {/* render real communities here */}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="people-circle-outline"
+                    title={loading ? "Searching..." : "No communities yet"}
+                    subtitle={
+                      loading
+                        ? "Please wait a moment."
+                        : "Communities will appear here when they’re created."
+                    }
+                  />
+                )}
+              </>
+            )}
+
+            {activeCategory === "trending" && (
+              <EmptyState
+                icon="trending-up-outline"
+                title={loading ? "Loading..." : "Trending will appear soon"}
+                subtitle={
+                  loading
+                    ? "Please wait a moment."
+                    : "As people post and use hashtags, we’ll show what’s trending here."
+                }
               />
-              <Text style={styles.emptyStateTitle}>No Communities Yet</Text>
-              <Text style={styles.emptyStateText}>
-                Communities will appear here as they are created and recommended
-                to you.
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+            )}
+
+            {/* Spacing at bottom so tab bar doesn’t overlap content */}
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
     </>
   );
 }
 
+function EmptyState({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.emptyWrap}>
+      <View style={styles.emptyIconCircle}>
+        <Ionicons name={icon} size={26} color="#7C3AED" />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  header: {
+  gradient: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
+
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  circleButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  searchContainer: {
+  searchBar: {
     flex: 1,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    height: 40,
-  },
-  searchIcon: {
-    marginRight: 8,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
-    color: "#000",
+    color: "#111827",
+    paddingVertical: 0,
   },
-  categoriesContainer: {
-    maxHeight: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: "#D1D5F0",
-  },
-  categoriesContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
-  },
-  categoryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
+
+  // Segmented tabs like the screenshot (one rounded container)
+  segmentWrap: {
+    marginHorizontal: 18,
     backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 6,
+    flexDirection: "row",
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
-  activeCategoryButton: {
+  segmentItem: {
+    flex: 1,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentItemActive: {
     backgroundColor: "#7C3AED",
   },
-  categoryText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#666",
+  segmentText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#9CA3AF",
   },
-  activeCategoryText: {
+  segmentTextActive: {
     color: "#FFFFFF",
-    fontWeight: "600",
   },
+
   content: {
-    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 24,
   },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
+
+  // General card style for when you start rendering real results
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+
+  // Empty state matches the design language (soft, centered, clean)
+  emptyWrap: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 26,
+    paddingHorizontal: 18,
     alignItems: "center",
-    paddingHorizontal: 32,
-    paddingVertical: 80,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
-  emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#000",
-    marginTop: 16,
-    marginBottom: 8,
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 6,
     textAlign: "center",
   },
-  emptyStateText: {
-    fontSize: 15,
-    color: "#9FA8DA",
+  emptySubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    lineHeight: 18,
     textAlign: "center",
-    lineHeight: 22,
   },
 });

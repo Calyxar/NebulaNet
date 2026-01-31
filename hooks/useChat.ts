@@ -1,4 +1,4 @@
-// hooks/useChat.ts - FIXED VERSION
+// hooks/useChat.ts
 import { SupabaseAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -7,32 +7,38 @@ import {
   chatQueries,
   chatSubscriptions,
 } from "@/lib/queries/chat";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 export const useChat = () => {
   const { user } = useAuth();
+
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(
     null,
   );
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+
   const [loading, setLoading] = useState({
     conversations: false,
     messages: false,
     sending: false,
   });
 
+  // ✅ keep latest activeConversation for safe subscription callbacks
+  const activeConversationRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+
   // Load conversations
   const loadConversations = useCallback(async () => {
     if (!user?.id) return;
 
     setLoading((prev) => ({ ...prev, conversations: true }));
-
     try {
       const result = await chatQueries.getConversations(user.id);
-
       if (result.error) throw result.error;
       setConversations(result.data || []);
     } catch (error) {
@@ -49,14 +55,11 @@ export const useChat = () => {
       if (!conversationId) return;
 
       setLoading((prev) => ({ ...prev, messages: true }));
-
       try {
         const result = await chatQueries.getMessages(conversationId);
-
         if (result.error) throw result.error;
         setMessages(result.data || []);
 
-        // Mark messages as read
         if (user?.id) {
           await chatQueries.markAsRead(conversationId, user.id);
         }
@@ -95,11 +98,13 @@ export const useChat = () => {
 
         if (result.error) throw result.error;
 
-        // Add message to local state
         if (result.data) {
-          setMessages((prev) => [result.data!, ...prev]);
+          // prevent duplicates if subscription also fires
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === result.data!.id);
+            return exists ? prev : [result.data!, ...prev];
+          });
 
-          // Update conversation in list
           setConversations((prev) =>
             prev.map((conv) =>
               conv.id === conversationId
@@ -129,7 +134,6 @@ export const useChat = () => {
   const updateTypingStatus = useCallback(
     async (conversationId: string, isTyping: boolean) => {
       if (!conversationId || !user?.id) return;
-
       try {
         await chatQueries.updateTypingStatus(conversationId, isTyping);
       } catch (error) {
@@ -150,14 +154,9 @@ export const useChat = () => {
           name,
           isGroup,
         );
-
         if (result.error) throw result.error;
 
-        if (result.data) {
-          // Reload conversations
-          await loadConversations();
-        }
-
+        if (result.data) await loadConversations();
         return result.data;
       } catch (error) {
         console.error("Error creating conversation:", error);
@@ -168,121 +167,44 @@ export const useChat = () => {
     [loadConversations],
   );
 
+  // Get conversation by ID
+  const getConversation = useCallback(
+    (id: string) => conversations.find((c) => c.id === id),
+    [conversations],
+  );
+
   // Set active conversation
   const selectConversation = useCallback(
     (conversationId: string | null) => {
       setActiveConversation(conversationId);
+
       if (conversationId) {
+        // ✅ If conversation list isn't loaded, load it (supports direct /chat/[id])
+        if (!conversations.length) {
+          loadConversations();
+        }
         loadMessages(conversationId);
       } else {
         setMessages([]);
         setTypingUsers(new Set());
       }
     },
-    [loadMessages],
+    [conversations.length, loadConversations, loadMessages],
   );
 
-  // Get conversation by ID
-  const getConversation = useCallback(
-    (id: string) => {
-      return conversations.find((c) => c.id === id);
-    },
-    [conversations],
-  );
-
-  // Real-time subscriptions
+  // Subscribe to conversation updates
   useEffect(() => {
     if (!user?.id) return;
 
-    // Subscribe to conversation updates
     const unsubscribe = chatSubscriptions.subscribeToUserConversations(
       user.id,
-      async (payload: any) => {
-        // Update conversations list when there are changes
+      async () => {
         await loadConversations();
       },
     );
 
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [user?.id, loadConversations]);
-
-  useEffect(() => {
-    if (!activeConversation || !user?.id) return;
-
-    // ✅ FIXED: subscribeToMessages now receives 3 parameters
-    const unsubscribeMessages = chatSubscriptions.subscribeToMessages(
-      activeConversation,
-      user.id,
-      async (payload: any) => {
-        const newMessage = payload.new;
-
-        // Don't add if it's our own message (already added when sending)
-        if (newMessage.sender_id === user?.id) return;
-
-        // Add the new message to state
-        setMessages((prev) => {
-          // Check if message already exists to avoid duplicates
-          const exists = prev.some((msg) => msg.id === newMessage.id);
-          if (exists) return prev;
-
-          return [newMessage, ...prev];
-        });
-
-        // Update conversation timestamp
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === activeConversation
-              ? {
-                  ...conv,
-                  updated_at: newMessage.created_at,
-                  last_message: newMessage,
-                }
-              : conv,
-          ),
-        );
-
-        // Mark as read automatically
-        if (user?.id) {
-          await chatQueries.markAsRead(activeConversation, user.id);
-        }
-      },
-    );
-
-    // Subscribe to typing status
-    const unsubscribeTyping = chatSubscriptions.subscribeToTypingStatus(
-      activeConversation,
-      (payload: any) => {
-        if (payload.new.is_typing) {
-          // Determine who is typing (not the current user)
-          const conversation = getConversation(activeConversation);
-          if (conversation) {
-            const typingParticipant = conversation.participants?.find(
-              (p) => p.user_id !== user.id,
-            );
-            if (typingParticipant) {
-              setTypingUsers((prev) =>
-                new Set(prev).add(typingParticipant.user_id),
-              );
-            }
-          }
-        } else {
-          setTypingUsers((prev) => {
-            const newSet = new Set(prev);
-            // Remove all users since typing stopped
-            newSet.clear();
-            return newSet;
-          });
-        }
-      },
-    );
-
-    return () => {
-      unsubscribeMessages();
-      unsubscribeTyping();
-    };
-  }, [activeConversation, user?.id, getConversation]);
 
   // Subscribe to user's conversation participants
   useEffect(() => {
@@ -295,27 +217,87 @@ export const useChat = () => {
       },
     );
 
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [user?.id, loadConversations]);
+
+  // Subscribe to messages + typing for active conversation
+  useEffect(() => {
+    if (!activeConversation || !user?.id) return;
+
+    const unsubscribeMessages = chatSubscriptions.subscribeToMessages(
+      activeConversation,
+      user.id,
+      async (payload: any) => {
+        const newMessage = payload.new;
+
+        // safety: ignore messages for stale conversation
+        if (activeConversationRef.current !== activeConversation) return;
+
+        // ignore own message
+        if (newMessage.sender_id === user.id) return;
+
+        setMessages((prev) => {
+          const exists = prev.some((msg) => msg.id === newMessage.id);
+          return exists ? prev : [newMessage, ...prev];
+        });
+
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === activeConversation
+              ? {
+                  ...conv,
+                  updated_at: newMessage.created_at,
+                  last_message: newMessage,
+                }
+              : conv,
+          ),
+        );
+
+        await chatQueries.markAsRead(activeConversation, user.id);
+      },
+    );
+
+    const unsubscribeTyping = chatSubscriptions.subscribeToTypingStatus(
+      activeConversation,
+      (payload: any) => {
+        if (payload.new.is_typing) {
+          const conversation = getConversation(activeConversation);
+          const typingParticipant = conversation?.participants?.find(
+            (p) => p.user_id !== user.id,
+          );
+          if (typingParticipant) {
+            setTypingUsers((prev) =>
+              new Set(prev).add(typingParticipant.user_id),
+            );
+          }
+        } else {
+          setTypingUsers((prev) => {
+            const next = new Set(prev);
+            next.clear();
+            return next;
+          });
+        }
+      },
+    );
+
+    return () => {
+      unsubscribeMessages();
+      unsubscribeTyping();
+    };
+  }, [activeConversation, user?.id, getConversation]);
 
   // Initial load
   useEffect(() => {
-    if (user?.id) {
-      loadConversations();
-    }
+    if (user?.id) loadConversations();
   }, [user?.id, loadConversations]);
 
   return {
-    // State
     conversations,
     messages,
     activeConversation,
     typingUsers,
     loading,
 
-    // Actions
     loadConversations,
     loadMessages,
     sendMessage,
@@ -323,7 +305,6 @@ export const useChat = () => {
     createConversation,
     selectConversation,
 
-    // Helpers
     getConversation,
   };
 };

@@ -1,10 +1,11 @@
-// app/(tabs)/profile.tsx
+// app/(tabs)/profile.tsx - DESIGN MATCH (NO MOCKS)
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -20,9 +21,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 interface UserPost {
   id: string;
-  title: string;
+  title: string | null;
   content: string;
-  media_urls: string[];
+  media_urls: string[] | null;
   like_count: number;
   comment_count: number;
   share_count: number;
@@ -35,17 +36,22 @@ interface UserStats {
   following: number;
 }
 
-const profileTabs = ["Activity", "Post", "Tagged", "Media"];
+type ProfileTab = "Activity" | "Post" | "Tagged" | "Media";
 
 export default function ProfileTabScreen() {
   const { user, profile } = useAuth();
-  const [activeTab, setActiveTab] = useState("Activity");
+  const [activeTab, setActiveTab] = useState<ProfileTab>("Activity");
 
-  // Fetch user posts
-  const { data: userPosts, isLoading: isLoadingPosts } = useQuery({
+  const profileTabs: ProfileTab[] = useMemo(
+    () => ["Activity", "Post", "Tagged", "Media"],
+    [],
+  );
+
+  // Fetch user posts (REAL)
+  const { data: userPosts = [], isLoading: isLoadingPosts } = useQuery({
     queryKey: ["user-posts", user?.id],
     queryFn: async () => {
-      if (!user) return [];
+      if (!user?.id) return [];
 
       const { data, error } = await supabase
         .from("posts")
@@ -65,16 +71,16 @@ export default function ProfileTabScreen() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data as UserPost[];
+      return (data as UserPost[]) || [];
     },
-    enabled: !!user,
+    enabled: !!user?.id,
   });
 
-  // Fetch user stats
-  const { data: userStats } = useQuery({
+  // Fetch user stats (REAL)
+  const { data: userStats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["user-stats", user?.id],
     queryFn: async (): Promise<UserStats> => {
-      if (!user) return { posts: 0, followers: 0, following: 0 };
+      if (!user?.id) return { posts: 0, followers: 0, following: 0 };
 
       const { count: postsCount } = await supabase
         .from("posts")
@@ -97,14 +103,13 @@ export default function ProfileTabScreen() {
         following: followingCount || 0,
       };
     },
-    enabled: !!user,
+    enabled: !!user?.id,
   });
 
   const formatNumber = (num: number) => {
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}K`;
-    }
-    return num.toString();
+    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return `${num}`;
   };
 
   const handleEditProfile = () => {
@@ -117,445 +122,594 @@ export default function ProfileTabScreen() {
 
   const handleShareProfile = async () => {
     try {
+      const username = profile?.username || "user";
       await Share.share({
-        message: `Check out my NebulaNet profile: @${profile?.username}`,
+        message: `Check out my NebulaNet profile: @${username}`,
       });
     } catch (error) {
       console.error("Error sharing profile:", error);
     }
   };
 
-  const renderPostItem = (post: UserPost) => (
-    <View key={post.id} style={styles.postItem}>
-      <View style={styles.postHeader}>
-        <View style={styles.postHeaderLeft}>
-          {profile?.avatar_url ? (
-            <Image
-              source={{ uri: profile.avatar_url }}
-              style={styles.postAvatar}
-            />
-          ) : (
-            <View style={styles.postAvatarPlaceholder}>
-              <Text style={styles.postAvatarText}>
-                {profile?.username?.charAt(0).toUpperCase() || "U"}
+  const getInitial = () =>
+    (profile?.username?.charAt(0) || profile?.full_name?.charAt(0) || "U")
+      .toUpperCase()
+      .slice(0, 1);
+
+  const formatPostTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+      if (diffH < 1) return "Just now";
+      if (diffH < 24) return `${diffH} hr ago`;
+      const diffD = Math.floor(diffH / 24);
+      return `${diffD} days ago`;
+    } catch {
+      return "Recently";
+    }
+  };
+
+  const renderPostCard = (post: UserPost) => {
+    const img = post.media_urls?.[0];
+
+    return (
+      <View key={post.id} style={styles.postCard}>
+        {/* Post Header */}
+        <View style={styles.postHeader}>
+          <View style={styles.postHeaderLeft}>
+            {profile?.avatar_url ? (
+              <Image
+                source={{ uri: profile.avatar_url }}
+                style={styles.postAvatar}
+              />
+            ) : (
+              <View style={styles.postAvatarPlaceholder}>
+                <Text style={styles.postAvatarText}>{getInitial()}</Text>
+              </View>
+            )}
+
+            <View>
+              <Text style={styles.postUserName}>
+                {profile?.full_name || profile?.username || "User"}
+              </Text>
+              <Text style={styles.postTime}>
+                {formatPostTime(post.created_at)}
               </Text>
             </View>
-          )}
-          <View>
-            <Text style={styles.postUser}>
-              {profile?.full_name || profile?.username}
-            </Text>
-            <Text style={styles.postTime}>
-              {new Date(post.created_at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              })}
-            </Text>
+          </View>
+
+          <TouchableOpacity activeOpacity={0.8}>
+            <Ionicons name="ellipsis-vertical" size={18} color="#6B7280" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Post Content */}
+        {post.content ? (
+          <Text style={styles.postBodyText} numberOfLines={4}>
+            {post.content}
+          </Text>
+        ) : null}
+
+        {/* Media */}
+        {img ? (
+          <Image
+            source={{ uri: img }}
+            style={styles.postMedia}
+            resizeMode="cover"
+          />
+        ) : null}
+
+        {/* Footer actions row (matches design vibe) */}
+        <View style={styles.postFooterRow}>
+          <View style={styles.postFooterItem}>
+            <Ionicons name="heart-outline" size={18} color="#111827" />
+            <Text style={styles.postFooterText}>{post.like_count}</Text>
+          </View>
+          <View style={styles.postFooterItem}>
+            <Ionicons name="chatbubble-outline" size={18} color="#111827" />
+            <Text style={styles.postFooterText}>{post.comment_count}</Text>
+          </View>
+          <View style={styles.postFooterItem}>
+            <Ionicons name="arrow-redo-outline" size={18} color="#111827" />
+            <Text style={styles.postFooterText}>{post.share_count}</Text>
           </View>
         </View>
-        <TouchableOpacity>
-          <Ionicons name="ellipsis-vertical" size={20} color="#666" />
-        </TouchableOpacity>
       </View>
+    );
+  };
 
-      {post.title && (
-        <Text style={styles.postTitle} numberOfLines={2}>
-          {post.title}
-        </Text>
-      )}
-      <Text style={styles.postContent} numberOfLines={3}>
-        {post.content}
-      </Text>
-
-      {post.media_urls?.[0] && (
-        <Image
-          source={{ uri: post.media_urls[0] }}
-          style={styles.postImage}
-          resizeMode="cover"
-        />
-      )}
-
-      <View style={styles.postActions}>
-        <View style={styles.postAction}>
-          <Ionicons name="heart-outline" size={20} color="#666" />
-          <Text style={styles.postActionText}>{post.like_count}</Text>
-        </View>
-        <View style={styles.postAction}>
-          <Ionicons name="chatbubble-outline" size={20} color="#666" />
-          <Text style={styles.postActionText}>{post.comment_count}</Text>
-        </View>
-        <View style={styles.postAction}>
-          <Ionicons name="share-outline" size={20} color="#666" />
-          <Text style={styles.postActionText}>{post.share_count}</Text>
-        </View>
-      </View>
-    </View>
-  );
-
+  // Loading gate (no mocks)
   if (!user || !profile) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#7C3AED" />
-        </View>
-      </SafeAreaView>
+      <>
+        <StatusBar
+          barStyle="dark-content"
+          translucent
+          backgroundColor="transparent"
+        />
+        <LinearGradient
+          colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+          locations={[0, 0.42, 1]}
+          style={styles.gradient}
+        >
+          <SafeAreaView style={styles.safe}>
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator size="large" color="#7C3AED" />
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+      </>
     );
   }
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
-      <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>@{profile.username}</Text>
-          <TouchableOpacity style={styles.menuButton} onPress={handleSettings}>
-            <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.42, 1]}
+        style={styles.gradient}
+      >
+        <SafeAreaView style={styles.safe}>
+          {/* Floating header like screenshot */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerCircle}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </TouchableOpacity>
 
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Profile Card */}
-          <View style={styles.profileCard}>
-            {/* Profile Image and Stats */}
-            <View style={styles.profileTopRow}>
-              <View style={styles.profileImageContainer}>
+            {/* NOTE: screenshot shows username (no @) */}
+            <Text style={styles.headerTitle}>{profile.username}</Text>
+
+            <TouchableOpacity
+              style={styles.headerCircle}
+              onPress={handleSettings}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scroll}
+          >
+            {/* Profile big card */}
+            <View style={styles.profileCard}>
+              <View style={styles.profileTop}>
+                {/* Avatar */}
                 {profile.avatar_url ? (
                   <Image
                     source={{ uri: profile.avatar_url }}
-                    style={styles.profileImage}
+                    style={styles.avatar}
                   />
                 ) : (
-                  <View style={styles.profileImagePlaceholder}>
-                    <Text style={styles.profileImageText}>
-                      {profile.username?.charAt(0).toUpperCase() || "U"}
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarPlaceholderText}>
+                      {getInitial()}
                     </Text>
                   </View>
                 )}
+
+                {/* Stats */}
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {formatNumber(userStats?.posts || 0)}
+                    </Text>
+                    <Text style={styles.statLabel}>Post</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {formatNumber(userStats?.followers || 0)}
+                    </Text>
+                    <Text style={styles.statLabel}>Followers</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {formatNumber(userStats?.following || 0)}
+                    </Text>
+                    <Text style={styles.statLabel}>Following</Text>
+                  </View>
+                </View>
               </View>
 
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {formatNumber(userStats?.posts || 0)}
-                  </Text>
-                  <Text style={styles.statLabel}>Post</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {formatNumber(userStats?.followers || 0)}
-                  </Text>
-                  <Text style={styles.statLabel}>Followers</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {formatNumber(userStats?.following || 0)}
-                  </Text>
-                  <Text style={styles.statLabel}>Following</Text>
-                </View>
-              </View>
-            </View>
+              {/* Name + Bio */}
+              <Text style={styles.displayName}>
+                {profile.full_name || profile.username}
+              </Text>
 
-            {/* User Info */}
-            <Text style={styles.displayName}>
-              {profile.full_name || profile.username}
-            </Text>
-            {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
+              {profile.bio ? (
+                <Text style={styles.bio} numberOfLines={3}>
+                  {profile.bio}
+                </Text>
+              ) : (
+                <Text style={styles.bioPlaceholder}>
+                  Add a bio to tell people about you.
+                </Text>
+              )}
 
-            {/* Action Buttons */}
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={handleEditProfile}
-              >
-                <Text style={styles.editButtonText}>Edit Profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.shareButton}
-                onPress={handleShareProfile}
-              >
-                <Text style={styles.shareButtonText}>Share profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.addFriendButton}>
-                <Ionicons name="person-add-outline" size={18} color="#000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Tabs */}
-          <View style={styles.tabsContainer}>
-            {profileTabs.map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tab, activeTab === tab && styles.activeTab]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === tab && styles.activeTabText,
-                  ]}
+              {/* Action buttons row like screenshot */}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={handleEditProfile}
+                  activeOpacity={0.85}
                 >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <Text style={styles.primaryButtonText}>Edit Profile</Text>
+                </TouchableOpacity>
 
-          {/* Content */}
-          <View style={styles.contentSection}>
-            {activeTab === "Activity" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="pulse-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Activity Yet</Text>
-                <Text style={styles.emptyDescription}>
-                  Your recent activity will appear here
-                </Text>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={handleShareProfile}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.secondaryButtonText}>Share profile</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="person-outline" size={18} color="#111827" />
+                </TouchableOpacity>
               </View>
-            )}
+            </View>
 
-            {activeTab === "Post" && (
-              <>
-                {isLoadingPosts ? (
-                  <ActivityIndicator size="small" color="#7C3AED" />
-                ) : userPosts && userPosts.length > 0 ? (
-                  userPosts.map(renderPostItem)
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Ionicons
-                      name="document-text-outline"
-                      size={64}
-                      color="#C5CAE9"
-                    />
-                    <Text style={styles.emptyTitle}>No Posts Yet</Text>
-                    <Text style={styles.emptyDescription}>
-                      Share your first post with the NebulaNet community
+            {/* Tabs pill row */}
+            <View style={styles.tabsWrap}>
+              {profileTabs.map((tab) => {
+                const active = activeTab === tab;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    style={[styles.tab, active && styles.tabActive]}
+                    onPress={() => setActiveTab(tab)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[styles.tabText, active && styles.tabTextActive]}
+                    >
+                      {tab}
                     </Text>
-                  </View>
-                )}
-              </>
-            )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-            {activeTab === "Tagged" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="pricetag-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Tags Yet</Text>
-                <Text style={styles.emptyDescription}>
-                  Posts where you&apos;re tagged will appear here
-                </Text>
-              </View>
-            )}
+            {/* Tab Content */}
+            <View style={styles.contentArea}>
+              {activeTab === "Activity" && (
+                <EmptyPanel
+                  icon="pulse-outline"
+                  title="No Activity Yet"
+                  subtitle="Your recent activity will appear here."
+                />
+              )}
 
-            {activeTab === "Media" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="images-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Media</Text>
-                <Text style={styles.emptyDescription}>
-                  Photos and videos from your posts will appear here
-                </Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+              {activeTab === "Post" && (
+                <>
+                  {isLoadingPosts || isLoadingStats ? (
+                    <View style={styles.loadingInline}>
+                      <ActivityIndicator size="small" color="#7C3AED" />
+                    </View>
+                  ) : userPosts.length > 0 ? (
+                    userPosts.map(renderPostCard)
+                  ) : (
+                    <EmptyPanel
+                      icon="document-text-outline"
+                      title="No Posts Yet"
+                      subtitle="Share your first post with the NebulaNet community."
+                    />
+                  )}
+                </>
+              )}
+
+              {activeTab === "Tagged" && (
+                <EmptyPanel
+                  icon="pricetag-outline"
+                  title="No Tags Yet"
+                  subtitle="Posts where you’re tagged will appear here."
+                />
+              )}
+
+              {activeTab === "Media" && (
+                <EmptyPanel
+                  icon="images-outline"
+                  title="No Media"
+                  subtitle="Photos and videos from your posts will appear here."
+                />
+              )}
+            </View>
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
     </>
   );
 }
 
+function EmptyPanel({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.emptyCard}>
+      <View style={styles.emptyIconCircle}>
+        <Ionicons name={icon} size={24} color="#7C3AED" />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  gradient: { flex: 1 },
+  safe: { flex: 1, backgroundColor: "transparent" },
+
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingInline: { paddingVertical: 16, alignItems: "center" },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#E8EAF6",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  headerCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
+    fontWeight: "800",
+    color: "#111827",
   },
-  menuButton: {
+
+  scroll: {
+    paddingHorizontal: 18,
+    paddingBottom: 24,
+  },
+
+  // Profile card
+  profileCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
+    marginBottom: 14,
+  },
+  profileTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 12,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#F3F4F6",
+  },
+  avatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarPlaceholderText: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#7C3AED",
+  },
+
+  statsRow: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingRight: 4,
+  },
+  statItem: { alignItems: "center", flex: 1 },
+  statValue: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    marginTop: 2,
+    fontWeight: "700",
+  },
+
+  displayName: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  bio: {
+    fontSize: 12.5,
+    color: "#6B7280",
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  bioPlaceholder: {
+    fontSize: 12.5,
+    color: "#9CA3AF",
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  primaryButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  secondaryButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
-  profileCard: {
+
+  // Tabs pill
+  tabsWrap: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-  },
-  profileTopRow: {
+    borderRadius: 22,
+    padding: 6,
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  profileImageContainer: {
-    marginRight: 20,
-  },
-  profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
-  profileImagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#7C3AED",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileImageText: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-  },
-  statsRow: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  statItem: {
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#000",
-  },
-  statLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 4,
-  },
-  displayName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  bio: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  editButton: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  editButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
-  shareButton: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  shareButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
-  addFriendButton: {
-    backgroundColor: "#F5F5F5",
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabsContainer: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 25,
-    padding: 4,
-    marginHorizontal: 16,
-    marginBottom: 16,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+    marginBottom: 14,
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
-    borderRadius: 22,
+    justifyContent: "center",
   },
-  activeTab: {
+  tabActive: {
     backgroundColor: "#7C3AED",
   },
   tabText: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#9CA3AF",
   },
-  activeTabText: {
+  tabTextActive: {
     color: "#FFFFFF",
-    fontWeight: "600",
   },
-  contentSection: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
+
+  contentArea: {
+    gap: 12,
   },
-  postItem: {
+
+  // Empty panel
+  emptyCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 22,
+    paddingVertical: 24,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+
+  // Post cards (feed style)
+  postCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
   postHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   postHeaderLeft: {
     flexDirection: "row",
@@ -563,83 +717,64 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   postAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F3F4F6",
   },
   postAvatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#7C3AED",
-    justifyContent: "center",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EEF2FF",
     alignItems: "center",
+    justifyContent: "center",
   },
   postAvatarText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#7C3AED",
   },
-  postUser: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#000",
+  postUserName: {
+    fontSize: 13.5,
+    fontWeight: "900",
+    color: "#111827",
   },
   postTime: {
-    fontSize: 12,
-    color: "#999",
+    fontSize: 11.5,
+    color: "#9CA3AF",
     marginTop: 2,
+    fontWeight: "700",
   },
-  postTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 8,
-    color: "#000",
+  postBodyText: {
+    fontSize: 13.5,
+    color: "#111827",
+    lineHeight: 19,
+    marginBottom: 10,
   },
-  postContent: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  postImage: {
+  postMedia: {
     width: "100%",
-    height: 200,
-    borderRadius: 12,
+    height: 180,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
     marginBottom: 12,
   },
-  postActions: {
+  postFooterRow: {
     flexDirection: "row",
-    gap: 24,
-    paddingTop: 12,
+    alignItems: "center",
+    gap: 18,
+    paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
+    borderTopColor: "#F3F4F6",
   },
-  postAction: {
+  postFooterItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  postActionText: {
-    fontSize: 14,
-    color: "#666",
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyDescription: {
-    fontSize: 14,
-    color: "#9FA8DA",
-    textAlign: "center",
-    lineHeight: 20,
+  postFooterText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#111827",
   },
 });

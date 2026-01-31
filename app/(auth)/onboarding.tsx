@@ -11,6 +11,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -45,6 +46,9 @@ export default function OnboardingScreen() {
   const maxSelections = 20;
   const selectedCount = selectedInterests.length;
   const progress = (selectedCount / maxSelections) * 100;
+
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
+  const isShort = SCREEN_HEIGHT < 700;
 
   const toggleInterest = (interestId: string) => {
     setSelectedInterests((prev) => {
@@ -134,7 +138,12 @@ export default function OnboardingScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
       <SafeAreaView style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: isShort ? 12 : 20, paddingBottom: isShort ? 10 : 16 },
+          ]}
+        >
           <Text style={styles.title}>Select Your Interest</Text>
           <Text style={styles.subtitle}>
             Select more interests to refine your experience.
@@ -142,7 +151,12 @@ export default function OnboardingScreen() {
         </View>
 
         {/* Progress Counter */}
-        <View style={styles.progressContainer}>
+        <View
+          style={[
+            styles.progressContainer,
+            { marginBottom: isShort ? 14 : 24 },
+          ]}
+        >
           <Text style={styles.progressText}>
             {selectedCount}/{maxSelections}
           </Text>
@@ -157,7 +171,7 @@ export default function OnboardingScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.interestsGrid}>
+          <View style={[styles.interestsGrid, { gap: isShort ? 10 : 12 }]}>
             {interests.map((interest) => {
               const isSelected = selectedInterests.includes(interest.id);
               return (
@@ -165,6 +179,11 @@ export default function OnboardingScreen() {
                   key={interest.id}
                   style={[
                     styles.interestButton,
+                    {
+                      paddingHorizontal: isShort ? 14 : 16,
+                      paddingVertical: isShort ? 10 : 12,
+                      borderRadius: isShort ? 22 : 24,
+                    },
                     isSelected && styles.interestButtonSelected,
                   ]}
                   onPress={() => toggleInterest(interest.id)}
