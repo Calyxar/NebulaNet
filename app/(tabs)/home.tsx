@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx
+// app/(tabs)/home.tsx - UPDATED DESIGN
 import PostCard from "@/components/post/PostCard";
 import { shareWithOptions } from "@/lib/share";
 import {
@@ -9,7 +9,7 @@ import {
   getFeedPosts,
   getSavesCount,
   likePost,
-  savePost
+  savePost,
 } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -69,7 +69,6 @@ interface Story {
 }
 
 export default function HomeScreen() {
-  // ✅ Fixed: Removed unused 'user' from useAuth() destructuring
   const [activeTab, setActiveTab] = useState<
     "for-you" | "following" | "my-community"
   >("for-you");
@@ -296,22 +295,29 @@ export default function HomeScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F5F7FA" />
       <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoContainer}>
             <View style={styles.logoIcon}>
-              <Text style={styles.logoIconText}>N</Text>
+              <View style={styles.logoSwirl}>
+                <View style={styles.logoSwirlInner} />
+              </View>
             </View>
             <Text style={styles.logoText}>NebulaNet</Text>
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <Ionicons name="notifications-outline" size={24} color="#000" />
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>6</Text>
+            <TouchableOpacity
+              style={styles.notificationButton}
+              onPress={() => router.push("/(tabs)/notifications")}
+            >
+              <View style={styles.notificationIconContainer}>
+                <Ionicons name="notifications" size={22} color="#7C3AED" />
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>6</Text>
+                </View>
               </View>
             </TouchableOpacity>
           </View>
@@ -320,7 +326,11 @@ export default function HomeScreen() {
         <ScrollView
           style={styles.content}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#7C3AED"
+            />
           }
           showsVerticalScrollIndicator={false}
         >
@@ -346,7 +356,7 @@ export default function HomeScreen() {
                   >
                     {story.isAdd ? (
                       <View style={styles.addStoryInner}>
-                        <Ionicons name="add" size={24} color="#7C3AED" />
+                        <Ionicons name="add" size={28} color="#7C3AED" />
                       </View>
                     ) : (
                       <View style={styles.storyImage}>
@@ -555,39 +565,50 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F5F7FA",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#F5F7FA",
   },
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
   logoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 8,
+    marginRight: 10,
   },
-  logoIconText: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
+  logoSwirl: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoSwirlInner: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#7C3AED",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
   },
   logoText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#000",
+    color: "#1A1A1A",
+    letterSpacing: -0.5,
   },
   headerRight: {
     flexDirection: "row",
@@ -596,142 +617,155 @@ const styles = StyleSheet.create({
   notificationButton: {
     position: "relative",
   },
+  notificationIconContainer: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#E8E0FF",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
   notificationBadge: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: 6,
+    right: 6,
     backgroundColor: "#7C3AED",
     borderRadius: 10,
-    width: 20,
+    minWidth: 20,
     height: 20,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: "#F5F7FA",
   },
   notificationBadgeText: {
     color: "#FFFFFF",
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   content: {
     flex: 1,
   },
   storiesContainer: {
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    backgroundColor: "#F5F7FA",
   },
   storiesContent: {
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingHorizontal: 20,
+    gap: 16,
   },
   storyItem: {
     alignItems: "center",
-    width: 68,
+    width: 76,
   },
   storyCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 6,
+    marginBottom: 8,
     position: "relative",
   },
   addStoryCircle: {
     borderWidth: 2,
-    borderColor: "#E0E0E0",
+    borderColor: "#D1D5DB",
     borderStyle: "dashed",
+    backgroundColor: "#FFFFFF",
   },
   addStoryInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#F5F5F5",
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#F9FAFB",
     justifyContent: "center",
     alignItems: "center",
   },
   storyImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: "#7C3AED",
     justifyContent: "center",
     alignItems: "center",
   },
   storyAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
   },
   storyInitial: {
     color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 20,
+    fontWeight: "700",
   },
   storyRing: {
     position: "absolute",
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderRadius: 38,
-    borderWidth: 2,
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
+    borderRadius: 41,
+    borderWidth: 3,
     borderColor: "#7C3AED",
   },
   storyUsername: {
     fontSize: 12,
-    color: "#666",
+    color: "#6B7280",
     fontWeight: "500",
     textAlign: "center",
     width: "100%",
   },
   tabContainer: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    backgroundColor: "#F8F8F8",
-    borderRadius: 25,
+    paddingHorizontal: 20,
+    backgroundColor: "#E8E0FF",
+    borderRadius: 28,
     padding: 4,
-    marginHorizontal: 16,
-    marginTop: 16,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 16,
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: "center",
-    borderRadius: 22,
+    borderRadius: 24,
   },
   activeTab: {
     backgroundColor: "#7C3AED",
   },
   tabText: {
     fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
+    color: "#9CA3AF",
+    fontWeight: "600",
   },
   activeTabText: {
     color: "#FFFFFF",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   postsContainer: {
-    paddingTop: 16,
+    paddingBottom: 16,
   },
   emptyContainer: {
-    paddingVertical: 60,
+    paddingVertical: 80,
     alignItems: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: 40,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#000",
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginTop: 20,
+    marginBottom: 10,
   },
   emptySubtitle: {
-    fontSize: 15,
-    color: "#9FA8DA",
+    fontSize: 16,
+    color: "#9CA3AF",
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -744,10 +778,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
     maxHeight: "80%",
   },
   modalHeader: {
@@ -759,38 +793,39 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#000",
+    color: "#1A1A1A",
   },
   closeButton: {
     padding: 4,
   },
   postPreview: {
-    backgroundColor: "#F8F8F8",
-    padding: 12,
+    backgroundColor: "#F9FAFB",
+    padding: 16,
     borderRadius: 12,
     marginBottom: 16,
   },
   postAuthor: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
+    color: "#1A1A1A",
+    marginBottom: 6,
   },
   postContent: {
     fontSize: 14,
-    color: "#666",
+    color: "#6B7280",
     lineHeight: 20,
   },
   commentInput: {
     borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderColor: "#E5E7EB",
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     fontSize: 16,
-    color: "#000",
-    minHeight: 100,
+    color: "#1A1A1A",
+    minHeight: 120,
     textAlignVertical: "top",
     marginBottom: 16,
+    backgroundColor: "#F9FAFB",
   },
   commentActions: {
     flexDirection: "row",
@@ -798,21 +833,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   charCount: {
-    fontSize: 12,
-    color: "#999",
+    fontSize: 13,
+    color: "#9CA3AF",
   },
   submitButton: {
     backgroundColor: "#7C3AED",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
   },
   submitButtonDisabled: {
-    backgroundColor: "#C5CAE9",
+    backgroundColor: "#C4B5FD",
   },
   submitButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 15,
   },
 });
