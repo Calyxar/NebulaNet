@@ -1,6 +1,8 @@
+// app/create/story.tsx - NebulaNet DESIGN MATCH (clean + modern + responsive)
 import { createStory, uploadStoryMedia } from "@/lib/queries/stories";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -9,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -81,121 +84,167 @@ export default function CreateStoryScreen() {
   /* -------------------- UI -------------------- */
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="close" size={24} color="#000" />
-        </TouchableOpacity>
+    <>
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
-        <Text style={styles.headerTitle}>New Story</Text>
-
-        <View style={{ width: 40 }} />
-      </View>
-
-      <KeyboardAvoidingView
-        style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={styles.gradient}
       >
-        {/* Media preview / picker */}
-        <TouchableOpacity
-          style={styles.mediaPicker}
-          onPress={pickMedia}
-          activeOpacity={0.85}
-        >
-          {mediaUri ? (
-            <>
-              <Image source={{ uri: mediaUri }} style={styles.mediaPreview} />
-              <View style={styles.mediaBadge}>
-                <Ionicons
-                  name={mediaType === "video" ? "videocam" : "image"}
-                  size={16}
-                  color="#fff"
-                />
-              </View>
-            </>
-          ) : (
-            <View style={styles.placeholder}>
-              <Ionicons name="add" size={42} color="#7C3AED" />
-              <Text style={styles.placeholderText}>
-                Tap to select image or video
+        <SafeAreaView style={styles.safe}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.circleBtn}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="close" size={22} color="#111827" />
+            </TouchableOpacity>
+
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>New Story</Text>
+              <Text style={styles.headerSub}>
+                Share a moment with your community
               </Text>
             </View>
-          )}
-        </TouchableOpacity>
 
-        {/* Caption */}
-        <TextInput
-          value={caption}
-          onChangeText={setCaption}
-          placeholder="Add a caption…"
-          placeholderTextColor="#9CA3AF"
-          style={styles.captionInput}
-          maxLength={200}
-          multiline
-        />
+            <View style={{ width: 44 }} />
+          </View>
 
-        {/* Post button */}
-        <TouchableOpacity
-          onPress={handlePostStory}
-          disabled={uploading}
-          style={[styles.postButton, uploading && styles.postButtonDisabled]}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.postButtonText}>Share Story</Text>
-          )}
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          <KeyboardAvoidingView
+            style={styles.body}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+          >
+            {/* Media preview / picker */}
+            <TouchableOpacity
+              style={styles.mediaPicker}
+              onPress={pickMedia}
+              activeOpacity={0.85}
+            >
+              {mediaUri ? (
+                <>
+                  <Image
+                    source={{ uri: mediaUri }}
+                    style={styles.mediaPreview}
+                  />
+                  <View style={styles.mediaBadge}>
+                    <Ionicons
+                      name={mediaType === "video" ? "videocam" : "image"}
+                      size={16}
+                      color="#fff"
+                    />
+                  </View>
+                </>
+              ) : (
+                <View style={styles.placeholder}>
+                  <Ionicons name="add" size={42} color="#7C3AED" />
+                  <Text style={styles.placeholderText}>
+                    Tap to select image or video
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Caption */}
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Caption (Optional)</Text>
+              <TextInput
+                value={caption}
+                onChangeText={setCaption}
+                placeholder="Add a caption…"
+                placeholderTextColor="#9CA3AF"
+                style={styles.captionInput}
+                maxLength={200}
+                multiline
+              />
+              <Text style={styles.counter}>{caption.length}/200</Text>
+            </View>
+
+            {/* Post button */}
+            <TouchableOpacity
+              onPress={handlePostStory}
+              disabled={uploading}
+              style={[
+                styles.postButton,
+                uploading && styles.postButtonDisabled,
+              ]}
+            >
+              {uploading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.postButtonText}>Share Story</Text>
+              )}
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </LinearGradient>
+    </>
   );
 }
 
 /* -------------------- STYLES -------------------- */
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
+  gradient: { flex: 1 },
+  safe: { flex: 1 },
 
   header: {
-    height: 56,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 12,
   },
-
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#000",
-  },
-
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  circleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  headerCenter: { flex: 1, alignItems: "center" },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: "#111827" },
+  headerSub: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "center",
   },
 
   body: {
     flex: 1,
-    padding: 16,
+    padding: 18,
   },
 
   mediaPicker: {
     width: "100%",
-    height: 360,
+    height: 380,
     borderRadius: 24,
     backgroundColor: "#F3ECFF",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(17,24,39,0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: Platform.OS === "android" ? 0.08 : 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
 
   mediaPreview: {
@@ -205,41 +254,81 @@ const styles = StyleSheet.create({
 
   mediaBadge: {
     position: "absolute",
-    top: 12,
-    right: 12,
+    top: 14,
+    right: 14,
     backgroundColor: "#7C3AED",
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
 
   placeholder: {
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
 
   placeholderText: {
-    fontSize: 14,
+    fontSize: 14.5,
     color: "#6B7280",
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(17,24,39,0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: Platform.OS === "android" ? 0.08 : 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+    marginBottom: 16,
+  },
+  cardLabel: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 10,
   },
 
   captionInput: {
-    minHeight: 80,
-    borderRadius: 16,
-    backgroundColor: "#F9FAFB",
-    padding: 14,
-    fontSize: 15,
+    minHeight: 90,
+    fontSize: 14.5,
     color: "#111827",
-    marginBottom: 20,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "rgba(17,24,39,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(17,24,39,0.06)",
+    textAlignVertical: "top",
+  },
+
+  counter: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontWeight: "700",
+    alignSelf: "flex-end",
   },
 
   postButton: {
-    height: 52,
-    borderRadius: 26,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 4,
   },
 
   postButtonDisabled: {
@@ -249,6 +338,6 @@ const styles = StyleSheet.create({
   postButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
   },
 });
