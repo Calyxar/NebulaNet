@@ -9,46 +9,19 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Path } from "react-native-svg";
 
 const { width: W } = Dimensions.get("window");
 
-// Curved bar with center notch
-function getBarPath(width: number) {
-  // tweak these to match your mock perfectly
-  const notchW = 92; // width of the notch opening
-  const notchDepth = 34; // how deep the notch goes downward
-  const radius = 26; // corner radius
-  const leftNotch = (width - notchW) / 2;
-  const rightNotch = leftNotch + notchW;
-
-  // SVG path for a rounded rectangle with a curved notch in the top middle
-  return `
-    M ${radius} 0
-    H ${leftNotch - 14}
-    C ${leftNotch - 6} 0, ${leftNotch - 4} ${notchDepth}, ${leftNotch + 18} ${notchDepth}
-    C ${leftNotch + 34} ${notchDepth}, ${leftNotch + 36} 0, ${leftNotch + 52} 0
-    H ${rightNotch - 52}
-    C ${rightNotch - 36} 0, ${rightNotch - 34} ${notchDepth}, ${rightNotch - 18} ${notchDepth}
-    C ${rightNotch + 4} ${notchDepth}, ${rightNotch + 6} 0, ${rightNotch + 14} 0
-    H ${width - radius}
-    Q ${width} 0, ${width} ${radius}
-    V 120
-    H 0
-    V ${radius}
-    Q 0 0, ${radius} 0
-    Z
-  `;
-}
-
-export function CurvedTabBar({ state, descriptors, navigation }: any) {
+export function CurvedTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
 
   const active = "#7C3AED";
   const inactive = "#8E8E93";
-  const barBg = "#0B0B0F"; // slightly off-black like your mock
+  const barBg = "#0B0B0F";
 
-  const barHeight = 78 + Math.max(insets.bottom, 10);
+  const barHeight = 70 + Math.max(insets.bottom, 10);
+  const notchWidth = 96;
+  const notchDepth = 26;
 
   const routeMeta: Record<
     string,
@@ -60,21 +33,43 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
     profile: { label: "Profile", icon: "person" },
   };
 
+  const visibleRoutes = state.routes.filter(
+    (r: any) => r.name !== "create" && r.name !== "notifications",
+  );
+
   return (
     <View style={[styles.wrap, { height: barHeight }]}>
-      {/* SVG Bar Background (curved + notch) */}
-      <View style={StyleSheet.absoluteFill}>
-        <Svg
-          width={W}
-          height={barHeight}
-          viewBox={`0 0 ${W} 120`}
-          style={{ position: "absolute", bottom: 0 }}
-        >
-          <Path d={getBarPath(W)} fill={barBg} />
-        </Svg>
+      {/* Bar background */}
+      <View style={[styles.bar, { backgroundColor: barBg }]} />
+
+      {/* Notch "cutout" illusion */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.notch,
+          {
+            width: notchWidth,
+            height: notchDepth * 2,
+            top: -notchDepth,
+            backgroundColor: "transparent",
+          },
+        ]}
+      >
+        {/* This inner view matches the screen background to fake a cutout.
+            If your main screens are not white, set this to your app background. */}
+        <View
+          style={[
+            styles.notchInner,
+            {
+              backgroundColor: "#FFFFFF",
+              borderBottomLeftRadius: 32,
+              borderBottomRightRadius: 32,
+            },
+          ]}
+        />
       </View>
 
-      {/* Center Button */}
+      {/* Center button */}
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() => navigation.navigate("create")}
@@ -87,22 +82,19 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
           },
         ]}
       >
+        {/* Swap to your image if you want */}
         <Ionicons name="aperture" size={28} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Tabs Row */}
+      {/* Tabs */}
       <View
         style={[styles.row, { paddingBottom: Math.max(insets.bottom, 10) }]}
       >
-        {state.routes.map((route: any, index: number) => {
-          const name = route.name;
-
-          // keep create + notifications hidden in the row
-          if (name === "create" || name === "notifications") return null;
-
+        {visibleRoutes.map((route: any) => {
+          const index = state.routes.findIndex((r: any) => r.key === route.key);
           const isFocused = state.index === index;
 
-          const meta = routeMeta[name];
+          const meta = routeMeta[route.name];
           if (!meta) return null;
 
           const onPress = () => {
@@ -111,17 +103,17 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
               target: route.key,
               canPreventDefault: true,
             });
-            if (!isFocused && !event.defaultPrevented)
-              navigation.navigate(name);
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name);
+            }
           };
 
-          // Insert a spacer BEFORE the 3rd visible tab to make room for center button
-          // (Home, Explore, [spacer], Chat, Profile)
-          const isChat = name === "chat";
+          // Add spacer before Chat so the center button has room
+          const addSpacer = route.name === "chat";
 
           return (
             <React.Fragment key={route.key}>
-              {isChat && <View style={styles.spacer} />}
+              {addSpacer && <View style={{ width: notchWidth }} />}
               <TouchableOpacity
                 onPress={onPress}
                 activeOpacity={0.75}
@@ -131,7 +123,6 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
                   name={meta.icon}
                   size={24}
                   color={isFocused ? active : inactive}
-                  style={{ marginBottom: 2 }}
                 />
                 <Text
                   style={[
@@ -147,7 +138,7 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
         })}
       </View>
 
-      {/* Soft top highlight (gives that “glass edge” feel) */}
+      {/* soft top highlight */}
       <View pointerEvents="none" style={styles.topGlow} />
     </View>
   );
@@ -156,6 +147,15 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
 const styles = StyleSheet.create({
   wrap: {
     position: "relative",
+  },
+  bar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 86,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
   },
   row: {
     flexDirection: "row",
@@ -172,10 +172,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: "600",
-    marginTop: 2,
-  },
-  spacer: {
-    width: 92,
+    marginTop: 4,
   },
   centerBtn: {
     position: "absolute",
@@ -187,12 +184,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 6,
-
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.45,
     shadowRadius: 18,
     elevation: Platform.OS === "android" ? 16 : 0,
     zIndex: 10,
+  },
+  notch: {
+    position: "absolute",
+    alignSelf: "center",
+    zIndex: 1,
+  },
+  notchInner: {
+    flex: 1,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
   },
   topGlow: {
     position: "absolute",
@@ -202,8 +208,6 @@ const styles = StyleSheet.create({
     height: 120,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    // subtle highlight edge
-    backgroundColor: "transparent",
     shadowColor: "#FFFFFF",
     shadowOffset: { width: 0, height: -1 },
     shadowOpacity: 0.08,
