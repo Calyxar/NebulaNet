@@ -1,50 +1,67 @@
-// app/create/poll.tsx
+// app/create/poll.tsx - DESIGN MATCH (NebulaNet)
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
-import { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-    Alert,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CreatePollScreen() {
-  const { user } = useAuth(); // Removed unused profile
+  const { user } = useAuth();
+
   const [question, setQuestion] = useState("");
-  const [options, setOptions] = useState(["", ""]); // Start with 2 empty options
+  const [options, setOptions] = useState(["", ""]);
   const [isLoading, setIsLoading] = useState(false);
+
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(false);
 
+  const validOptions = useMemo(
+    () => options.map((o) => o.trim()).filter(Boolean),
+    [options],
+  );
+
   const addOption = () => {
-    if (options.length < 6) {
-      setOptions([...options, ""]);
-    }
+    if (options.length < 6) setOptions((prev) => [...prev, ""]);
   };
 
   const removeOption = (index: number) => {
-    if (options.length > 2) {
-      const newOptions = [...options];
-      newOptions.splice(index, 1);
-      setOptions(newOptions);
-    }
+    if (options.length <= 2) return;
+    setOptions((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateOption = (index: number, value: string) => {
-    const newOptions = [...options];
-    newOptions[index] = value;
-    setOptions(newOptions);
+    setOptions((prev) => prev.map((o, i) => (i === index ? value : o)));
+  };
+
+  const formatDateTime = (date: Date) => {
+    try {
+      return date.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Selected";
+    }
   };
 
   const handleCreatePoll = async () => {
@@ -52,13 +69,10 @@ export default function CreatePollScreen() {
       Alert.alert("Error", "Please enter a poll question");
       return;
     }
-
-    const validOptions = options.filter((opt) => opt.trim() !== "");
     if (validOptions.length < 2) {
       Alert.alert("Error", "Please add at least 2 options");
       return;
     }
-
     if (!user) {
       Alert.alert("Error", "You must be logged in to create a poll");
       return;
@@ -66,6 +80,8 @@ export default function CreatePollScreen() {
 
     setIsLoading(true);
     try {
+      const nowIso = new Date().toISOString();
+
       const { data: pollData, error: pollError } = await supabase
         .from("polls")
         .insert({
@@ -75,30 +91,27 @@ export default function CreatePollScreen() {
           allow_multiple: allowMultiple,
           is_anonymous: isAnonymous,
           votes_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          created_at: nowIso,
+          updated_at: nowIso,
         })
         .select()
         .single();
 
       if (pollError) throw pollError;
 
-      // Insert poll options
       const pollOptions = validOptions.map((option, index) => ({
         poll_id: pollData.id,
-        option_text: option.trim(),
+        option_text: option,
         option_order: index,
         votes_count: 0,
-        created_at: new Date().toISOString(),
+        created_at: nowIso,
       }));
 
       const { error: optionsError } = await supabase
         .from("poll_options")
         .insert(pollOptions);
-
       if (optionsError) throw optionsError;
 
-      // Create a post for the poll
       const { error: postError } = await supabase.from("posts").insert({
         user_id: user.id,
         title: `Poll: ${question.trim()}`,
@@ -108,8 +121,8 @@ export default function CreatePollScreen() {
         likes_count: 0,
         comments_count: 0,
         shares_count: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: nowIso,
+        updated_at: nowIso,
       });
 
       if (postError) throw postError;
@@ -118,444 +131,553 @@ export default function CreatePollScreen() {
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.message || "Failed to create poll. Please try again."
-      );
+      Alert.alert("Error", error?.message || "Failed to create poll.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formatDateTime = (date: Date) => {
-    return date.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  const canCreate = question.trim().length > 0 && validOptions.length >= 2;
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Poll Question */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Poll Question</Text>
-        <TextInput
-          style={styles.questionInput}
-          value={question}
-          onChangeText={setQuestion}
-          placeholder="What would you like to ask?"
-          placeholderTextColor="#999"
-          maxLength={200}
-        />
-        <Text style={styles.charCount}>{question.length}/200</Text>
-      </View>
-
-      {/* Poll Options */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Options</Text>
-          <Text style={styles.optionsCount}>
-            {options.filter((opt) => opt.trim() !== "").length}/6
-          </Text>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.safe}>
+        {/* Header (matches your Create screen style) */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={22} color="#111827" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Create Poll</Text>
+          <View style={{ width: 44 }} />
         </View>
 
-        {options.map((option, index) => (
-          <View key={index} style={styles.optionRow}>
-            <View style={styles.optionBullet}>
-              <Text style={styles.optionBulletText}>
-                {String.fromCharCode(65 + index)}
-              </Text>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Question Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Poll Question</Text>
+            <View style={styles.inputWrap}>
+              <TextInput
+                value={question}
+                onChangeText={setQuestion}
+                placeholder="What would you like to ask?"
+                placeholderTextColor="#9CA3AF"
+                maxLength={200}
+                style={styles.questionInput}
+              />
             </View>
-            <TextInput
-              style={styles.optionInput}
-              value={option}
-              onChangeText={(value) => updateOption(index, value)}
-              placeholder={`Option ${index + 1}`}
-              placeholderTextColor="#999"
-              maxLength={100}
-            />
-            {options.length > 2 && (
+            <Text style={styles.counter}>{question.length}/200</Text>
+          </View>
+
+          {/* Options Card */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardTitle}>Options</Text>
+              <Text style={styles.miniMeta}>{validOptions.length}/6</Text>
+            </View>
+
+            {options.map((option, index) => {
+              const letter = String.fromCharCode(65 + index);
+              return (
+                <View key={`opt-${index}`} style={styles.optionRow}>
+                  <View style={styles.optionBadge}>
+                    <Text style={styles.optionBadgeText}>{letter}</Text>
+                  </View>
+
+                  <TextInput
+                    value={option}
+                    onChangeText={(v) => updateOption(index, v)}
+                    placeholder={`Option ${index + 1}`}
+                    placeholderTextColor="#9CA3AF"
+                    maxLength={100}
+                    style={styles.optionInput}
+                  />
+
+                  {options.length > 2 && (
+                    <TouchableOpacity
+                      onPress={() => removeOption(index)}
+                      style={styles.removeBtn}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="close" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+
+            {options.length < 6 && (
               <TouchableOpacity
-                style={styles.removeOptionButton}
-                onPress={() => removeOption(index)}
+                style={styles.addBtn}
+                onPress={addOption}
+                activeOpacity={0.85}
               >
-                <Ionicons name="close-circle" size={20} color="#ff3b30" />
+                <Ionicons name="add" size={18} color="#7C3AED" />
+                <Text style={styles.addBtnText}>Add Option</Text>
               </TouchableOpacity>
             )}
           </View>
-        ))}
 
-        {options.length < 6 && (
-          <TouchableOpacity style={styles.addOptionButton} onPress={addOption}>
-            <Ionicons name="add-circle-outline" size={20} color="#007AFF" />
-            <Text style={styles.addOptionText}>Add Option</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {/* Settings Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Poll Settings</Text>
 
-      {/* Poll Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Poll Settings</Text>
-
-        {/* Expiration */}
-        <TouchableOpacity
-          style={styles.settingItem}
-          onPress={() => setShowDatePicker(true)}
-        >
-          <Ionicons name="time-outline" size={20} color="#666" />
-          <View style={styles.settingContent}>
-            <Text style={styles.settingLabel}>Ends</Text>
-            <Text style={styles.settingValue}>
-              {expiresAt ? formatDateTime(expiresAt) : "Never"}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#999" />
-        </TouchableOpacity>
-
-        {showDatePicker && (
-          <DateTimePicker
-            value={expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)} // Default 1 week
-            mode="datetime"
-            display={Platform.OS === "ios" ? "spinner" : "default"}
-            onChange={(event, selectedDate) => {
-              setShowDatePicker(false);
-              setExpiresAt(selectedDate || null);
-            }}
-            minimumDate={new Date()}
-          />
-        )}
-
-        {/* Multiple Votes */}
-        <TouchableOpacity
-          style={styles.settingItem}
-          onPress={() => setAllowMultiple(!allowMultiple)}
-        >
-          <Ionicons
-            name={allowMultiple ? "checkbox-outline" : "square-outline"}
-            size={20}
-            color="#666"
-          />
-          <View style={styles.settingContent}>
-            <Text style={styles.settingLabel}>Allow multiple votes</Text>
-            <Text style={styles.settingDescription}>
-              Users can vote for more than one option
-            </Text>
-          </View>
-          <View style={styles.settingToggle}>
-            <View
-              style={[
-                styles.toggleCircle,
-                allowMultiple && styles.toggleCircleActive,
-              ]}
-            />
-          </View>
-        </TouchableOpacity>
-
-        {/* Anonymous Voting */}
-        <TouchableOpacity
-          style={styles.settingItem}
-          onPress={() => setIsAnonymous(!isAnonymous)}
-        >
-          <Ionicons
-            name={isAnonymous ? "eye-off-outline" : "eye-outline"}
-            size={20}
-            color="#666"
-          />
-          <View style={styles.settingContent}>
-            <Text style={styles.settingLabel}>Anonymous voting</Text>
-            <Text style={styles.settingDescription}>Hide voter identities</Text>
-          </View>
-          <View style={styles.settingToggle}>
-            <View
-              style={[
-                styles.toggleCircle,
-                isAnonymous && styles.toggleCircleActive,
-              ]}
-            />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Preview */}
-      <View style={styles.previewSection}>
-        <Text style={styles.sectionTitle}>Preview</Text>
-        <View style={styles.previewCard}>
-          <Text style={styles.previewQuestion} numberOfLines={2}>
-            {question || "What's your poll question?"}
-          </Text>
-
-          <View style={styles.previewOptions}>
-            {options.map((option, index) => (
-              <View
-                key={`preview-${index}`} // Fixed: Removed duplicate key attribute
-                style={styles.previewOption}
-              >
-                <View style={styles.previewOptionBullet}>
-                  <Text style={styles.previewOptionBulletText}>
-                    {String.fromCharCode(65 + index)}
-                  </Text>
-                </View>
-                <Text style={styles.previewOptionText} numberOfLines={1}>
-                  {option || `Option ${index + 1}`}
-                </Text>
-                <View style={styles.previewOptionVotes}>
-                  <Text style={styles.previewOptionVotesText}>0%</Text>
-                </View>
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => setShowDatePicker(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="time-outline" size={18} color="#7C3AED" />
               </View>
-            ))}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Ends</Text>
+                <Text style={styles.settingValue}>
+                  {expiresAt ? formatDateTime(expiresAt) : "Never"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => setAllowMultiple((v) => !v)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="checkbox-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Allow multiple votes</Text>
+                <Text style={styles.settingDesc}>
+                  Users can vote for more than one option
+                </Text>
+              </View>
+              <Toggle value={allowMultiple} />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => setIsAnonymous((v) => !v)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="eye-off-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Anonymous voting</Text>
+                <Text style={styles.settingDesc}>Hide voter identities</Text>
+              </View>
+              <Toggle value={isAnonymous} />
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.previewStats}>
-            <Text style={styles.previewStatsText}>0 votes • 0% voted</Text>
-            <Text style={styles.previewTimeText}>
-              {expiresAt ? `Ends ${formatDateTime(expiresAt)}` : "No end date"}
-            </Text>
+          {/* Preview Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Preview</Text>
+            <View style={styles.previewCard}>
+              <Text style={styles.previewQuestion} numberOfLines={2}>
+                {question.trim() || "What’s your poll question?"}
+              </Text>
+
+              <View style={{ gap: 10 }}>
+                {options.map((opt, index) => {
+                  const letter = String.fromCharCode(65 + index);
+                  return (
+                    <View key={`pv-${index}`} style={styles.previewOption}>
+                      <View style={styles.previewBadge}>
+                        <Text style={styles.previewBadgeText}>{letter}</Text>
+                      </View>
+                      <Text style={styles.previewOptionText} numberOfLines={1}>
+                        {opt.trim() || `Option ${index + 1}`}
+                      </Text>
+                      <View style={styles.previewPctPill}>
+                        <Text style={styles.previewPctText}>0%</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.previewMetaRow}>
+                <Text style={styles.previewMetaText}>0 votes</Text>
+                <Text style={styles.previewMetaText}>
+                  {expiresAt
+                    ? `Ends ${formatDateTime(expiresAt)}`
+                    : "No end date"}
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
-      </View>
 
-      {/* Action Buttons */}
-      <View style={styles.actionButtons}>
-        <Button
-          title="Create Poll"
-          onPress={handleCreatePoll}
-          loading={isLoading}
-          disabled={
-            !question.trim() ||
-            options.filter((opt) => opt.trim() !== "").length < 2
-          }
-          style={styles.createButton}
-        />
+          {/* Actions */}
+          <View style={styles.actions}>
+            <Button
+              title="Create Poll"
+              onPress={handleCreatePoll}
+              loading={isLoading}
+              disabled={!canCreate}
+              style={styles.primaryBtn}
+            />
 
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => router.back()}
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ height: 24 }} />
+        </ScrollView>
+
+        {/* Date Picker Sheet */}
+        <Modal
+          visible={showDatePicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDatePicker(false)}
         >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowDatePicker(false)}
+          >
+            <TouchableOpacity
+              style={styles.sheet}
+              activeOpacity={1}
+              onPress={() => {}}
+            >
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Set end time</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDatePicker(false)}
+                  style={styles.sheetClose}
+                >
+                  <Ionicons name="close" size={18} color="#111827" />
+                </TouchableOpacity>
+              </View>
+
+              <DateTimePicker
+                value={
+                  expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                }
+                mode="datetime"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                onChange={(event, selectedDate) => {
+                  // Android fires twice; close on selection
+                  if (Platform.OS === "android") setShowDatePicker(false);
+                  setExpiresAt(selectedDate || null);
+                }}
+                minimumDate={new Date()}
+              />
+
+              {Platform.OS === "ios" && (
+                <TouchableOpacity
+                  style={styles.sheetDone}
+                  onPress={() => setShowDatePicker(false)}
+                >
+                  <Text style={styles.sheetDoneText}>Done</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      </SafeAreaView>
+    </>
   );
 }
 
+/* -------------------- Small Toggle -------------------- */
+
+function Toggle({ value }: { value: boolean }) {
+  return (
+    <View style={[toggleStyles.wrap, value && toggleStyles.wrapOn]}>
+      <View style={[toggleStyles.knob, value && toggleStyles.knobOn]} />
+    </View>
+  );
+}
+
+const toggleStyles = StyleSheet.create({
+  wrap: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#E5E7EB",
+    padding: 3,
+    justifyContent: "center",
+  },
+  wrapOn: {
+    backgroundColor: "#7C3AED",
+  },
+  knob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    alignSelf: "flex-start",
+  },
+  knobOn: {
+    alignSelf: "flex-end",
+  },
+});
+
+/* -------------------- Styles -------------------- */
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 16,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionHeader: {
+  safe: { flex: 1, backgroundColor: "#E8EAF6" },
+
+  header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
-  sectionTitle: {
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  headerTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
+    fontWeight: "800",
+    color: "#111827",
   },
-  optionsCount: {
-    fontSize: 14,
-    color: "#666",
+
+  container: { flex: 1 },
+  content: { padding: 16, gap: 14 },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 10,
+  },
+  miniMeta: { fontSize: 13, fontWeight: "700", color: "#9CA3AF" },
+
+  inputWrap: {
+    backgroundColor: "#F3ECFF",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   questionInput: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#000",
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
   },
-  charCount: {
+  counter: {
+    marginTop: 10,
     fontSize: 12,
-    color: "#999",
+    color: "#9CA3AF",
+    fontWeight: "700",
     alignSelf: "flex-end",
-    marginTop: 4,
   },
+
   optionRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
-    gap: 12,
+    gap: 10,
+    marginBottom: 10,
   },
-  optionBullet: {
+  optionBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionBadgeText: { color: "#fff", fontWeight: "900" },
+  optionInput: {
+    flex: 1,
+    backgroundColor: "#F8F8F8",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "#EEE",
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "600",
+  },
+  removeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#007AFF",
-    justifyContent: "center",
+    backgroundColor: "#EF4444",
     alignItems: "center",
+    justifyContent: "center",
   },
-  optionBulletText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "white",
-  },
-  optionInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#333",
-    padding: 12,
-    backgroundColor: "#f8f8f8",
-    borderRadius: 8,
+
+  addBtn: {
+    marginTop: 6,
+    height: 44,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  removeOptionButton: {
-    padding: 4,
-  },
-  addOptionButton: {
+    borderColor: "#E9D5FF",
+    backgroundColor: "#F3ECFF",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    padding: 16,
-    backgroundColor: "#f0f8ff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#007AFF",
-    borderStyle: "dashed",
     gap: 8,
   },
-  addOptionText: {
-    fontSize: 16,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
-  settingItem: {
+  addBtnText: { color: "#7C3AED", fontWeight: "900" },
+
+  settingRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
     gap: 12,
+    paddingVertical: 12,
   },
-  settingContent: {
-    flex: 1,
-  },
-  settingLabel: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#000",
-    marginBottom: 2,
-  },
-  settingDescription: {
-    fontSize: 14,
-    color: "#666",
-  },
-  settingValue: {
-    fontSize: 16,
-    color: "#666",
-  },
-  settingToggle: {
+  settingIcon: {
     width: 40,
-    height: 24,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 2,
   },
-  toggleCircle: {
-    width: 20,
-    height: 20,
-    backgroundColor: "white",
-    borderRadius: 10,
+  settingLabel: { fontSize: 15, fontWeight: "800", color: "#111827" },
+  settingValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+    marginTop: 2,
   },
-  toggleCircleActive: {
-    backgroundColor: "#007AFF",
-    alignSelf: "flex-end",
-  },
-  previewSection: {
-    marginBottom: 32,
-  },
+  settingDesc: { fontSize: 13, color: "#6B7280", marginTop: 2 },
+
+  divider: { height: 1, backgroundColor: "#F1F1F1" },
+
   previewCard: {
-    backgroundColor: "#f9f9f9",
-    borderRadius: 12,
-    padding: 20,
+    backgroundColor: "#F8F8F8",
+    borderRadius: 18,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#e1e1e1",
+    borderColor: "#EEE",
   },
   previewQuestion: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 20,
-  },
-  previewOptions: {
-    gap: 12,
-    marginBottom: 20,
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 12,
   },
   previewOption: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    backgroundColor: "white",
-    borderRadius: 8,
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: "#e1e1e1",
-    gap: 12,
+    borderColor: "#EEE",
   },
-  previewOptionBullet: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#f0f0f0",
-    justifyContent: "center",
+  previewBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#E8E0FF",
     alignItems: "center",
+    justifyContent: "center",
   },
-  previewOptionBulletText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#666",
-  },
+  previewBadgeText: { color: "#7C3AED", fontWeight: "900", fontSize: 12 },
   previewOptionText: {
     flex: 1,
     fontSize: 14,
-    color: "#333",
+    fontWeight: "700",
+    color: "#111827",
   },
-  previewOptionVotes: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 4,
+  previewPctPill: {
+    backgroundColor: "#F3ECFF",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  previewOptionVotesText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#666",
-  },
-  previewStats: {
+  previewPctText: { color: "#7C3AED", fontWeight: "900", fontSize: 12 },
+  previewMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    marginTop: 12,
   },
-  previewStatsText: {
-    fontSize: 13,
-    color: "#666",
+  previewMetaText: { fontSize: 12, fontWeight: "700", color: "#9CA3AF" },
+
+  actions: { gap: 12 },
+  primaryBtn: { backgroundColor: "#7C3AED", borderRadius: 28 },
+  cancelBtn: { alignItems: "center", paddingVertical: 10 },
+  cancelText: { color: "#6B7280", fontWeight: "800" },
+
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
   },
-  previewTimeText: {
-    fontSize: 13,
-    color: "#999",
-  },
-  actionButtons: {
-    gap: 12,
-    marginBottom: 32,
-  },
-  createButton: {
-    backgroundColor: "#007AFF",
-  },
-  cancelButton: {
-    alignItems: "center",
+  sheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     padding: 16,
   },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
+  sheetTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  sheetClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetDone: {
+    marginTop: 12,
+    height: 46,
+    borderRadius: 18,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetDoneText: { color: "#fff", fontWeight: "900" },
 });

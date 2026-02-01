@@ -1,5 +1,6 @@
 // app/(tabs)/home.tsx - EXACT DESIGN MATCH
 import PostCard from "@/components/post/PostCard";
+import { fetchActiveStories } from "@/lib/queries/stories";
 import { shareWithOptions } from "@/lib/share";
 import {
   checkIfLiked,
@@ -116,25 +117,32 @@ export default function HomeScreen() {
   const loadStories = useCallback(async () => {
     try {
       const currentUser = await getCurrentUserProfile();
-      if (!currentUser) {
-        setStories([]);
-        return;
-      }
+      const active = await fetchActiveStories();
 
-      const realStories: Story[] = [
+      const list: Story[] = [
         {
           id: "add-story",
           username: "Add Story",
           hasStory: false,
           isAdd: true,
-          user_id: currentUser.id,
-          avatar_url: currentUser.avatar_url,
-          full_name: currentUser.full_name,
+          user_id: currentUser?.id,
+          avatar_url: currentUser?.avatar_url,
+          full_name: currentUser?.full_name,
         },
+        ...active.map((s) => ({
+          id: s.id,
+          username: s.profiles?.username || "Story",
+          hasStory: true,
+          isAdd: false,
+          user_id: s.user_id,
+          avatar_url: s.profiles?.avatar_url ?? null,
+          full_name: s.profiles?.full_name ?? null,
+        })),
       ];
-      setStories(realStories);
-    } catch (error) {
-      console.error("Error loading stories:", error);
+
+      setStories(list);
+    } catch (e) {
+      console.error("Error loading stories:", e);
       setStories([]);
     }
   }, []);
@@ -286,9 +294,8 @@ export default function HomeScreen() {
   };
 
   const handleViewStory = (story: Story) => {
-    if (story.isAdd) {
-      router.push("/create/story");
-    }
+    if (story.isAdd) return router.push("/create/story");
+    router.push(`/story/${story.id}`);
   };
 
   if (loading && !refreshing) {

@@ -1,4 +1,4 @@
-// app/create/media.tsx
+// app/create/media.tsx - DESIGN MATCH + RELIABLE UPLOAD (NebulaNet)
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -6,30 +6,39 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+type MediaType = "image" | "video";
 
 interface MediaItem {
   uri: string;
-  type: "image" | "video";
+  type: MediaType;
   thumbnail?: string;
 }
 
 export default function CreateMediaScreen() {
-  const { user } = useAuth(); // Removed unused profile
+  const { user } = useAuth();
   const [caption, setCaption] = useState("");
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTab, setSelectedTab] = useState<"photos" | "videos">("photos");
+
+  const countLabel = useMemo(
+    () => `${mediaItems.length}/10 selected`,
+    [mediaItems.length],
+  );
 
   const pickMedia = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -37,7 +46,7 @@ export default function CreateMediaScreen() {
     if (status !== "granted") {
       Alert.alert(
         "Permission required",
-        "We need camera roll permissions to upload media."
+        "We need photo library permissions to upload media.",
       );
       return;
     }
@@ -49,74 +58,100 @@ export default function CreateMediaScreen() {
           : ImagePicker.MediaTypeOptions.Videos,
       allowsMultipleSelection: true,
       selectionLimit: 10,
-      quality: 0.8,
-      videoMaxDuration: 60, // 60 seconds max
+      quality: 0.9,
+      videoMaxDuration: 60,
     });
 
-    if (!result.canceled && result.assets.length > 0) {
-      const newMediaItems = await Promise.all(
-        result.assets.map(async (asset) => {
-          const mediaItem: MediaItem = {
-            uri: asset.uri,
-            type: asset.type === "image" ? "image" : "video",
-          };
+    if (result.canceled) return;
+    if (!result.assets?.length) return;
 
-          // Generate thumbnail for videos
-          if (asset.type === "video") {
-            try {
-              const { uri } = await VideoThumbnails.getThumbnailAsync(
-                asset.uri,
-                {
-                  time: 0,
-                }
-              );
-              mediaItem.thumbnail = uri;
-            } catch (error) {
-              console.error("Error generating thumbnail:", error);
-            }
-          }
+    const newItems: MediaItem[] = [];
 
-          return mediaItem;
-        })
-      );
+    for (const asset of result.assets) {
+      const type: MediaType = asset.type === "video" ? "video" : "image";
 
-      setMediaItems([...mediaItems, ...newMediaItems].slice(0, 10)); // Max 10 items
+      const item: MediaItem = { uri: asset.uri, type };
+
+      // Thumbnail for videos
+      if (type === "video") {
+        try {
+          const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+            time: 150,
+          });
+          item.thumbnail = thumb.uri;
+        } catch (e) {
+          console.warn("Video thumbnail failed:", e);
+        }
+      }
+
+      newItems.push(item);
     }
+
+    setMediaItems((prev) => [...prev, ...newItems].slice(0, 10));
   };
 
   const removeMedia = (index: number) => {
-    const newMedia = [...mediaItems];
-    newMedia.splice(index, 1);
-    setMediaItems(newMedia);
+    setMediaItems((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // ✅ Robust file info parsing
+  const getFileInfo = (uri: string, type: MediaType) => {
+    const cleanUri = uri.split("?")[0];
+    const extRaw = cleanUri.split(".").pop()?.toLowerCase();
+
+    // some Android URIs won't have an extension; default safely
+    const ext =
+      extRaw && extRaw.length <= 5 ? extRaw : type === "video" ? "mp4" : "jpg";
+
+    const mime =
+      type === "video"
+        ? ext === "mov"
+          ? "video/quicktime"
+          : "video/mp4"
+        : ext === "png"
+          ? "image/png"
+          : ext === "webp"
+            ? "image/webp"
+            : "image/jpeg";
+
+    return { ext, mime };
+  };
+
+  // ✅ RELIABLE upload for Android/iOS dev builds: use ArrayBuffer (not Blob)
   const uploadMedia = async (): Promise<string[]> => {
+    if (!user) throw new Error("Not logged in");
     if (mediaItems.length === 0) return [];
 
     const uploadedUrls: string[] = [];
 
-    for (const mediaItem of mediaItems) {
+    for (const item of mediaItems) {
+      const { ext, mime } = getFileInfo(item.uri, item.type);
+
+      const fileName = `${user.id}/${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.${ext}`;
+      const path = `media/${fileName}`;
+
       try {
-        const response = await fetch(mediaItem.uri);
-        const blob = await response.blob();
-        const fileExt = mediaItem.uri.split(".").pop();
-        const fileName = `${user?.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const filePath = `media/${fileName}`;
+        const res = await fetch(item.uri);
+        const arrayBuffer = await res.arrayBuffer();
 
         const { error: uploadError } = await supabase.storage
           .from("post-media")
-          .upload(filePath, blob);
+          .upload(path, arrayBuffer, {
+            contentType: mime,
+            upsert: false,
+          });
 
         if (uploadError) throw uploadError;
 
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("post-media").getPublicUrl(filePath);
-
-        uploadedUrls.push(publicUrl);
-      } catch (error) {
-        console.error("Error uploading media:", error);
-        throw new Error("Failed to upload some media files");
+        const { data } = supabase.storage.from("post-media").getPublicUrl(path);
+        uploadedUrls.push(data.publicUrl);
+      } catch (err) {
+        console.error("Upload failed:", err);
+        throw new Error(
+          "Failed to upload media. Check storage policies/bucket.",
+        );
       }
     }
 
@@ -124,13 +159,12 @@ export default function CreateMediaScreen() {
   };
 
   const handleShareMedia = async () => {
-    if (mediaItems.length === 0) {
-      Alert.alert("Error", "Please select at least one photo or video");
-      return;
-    }
-
     if (!user) {
       Alert.alert("Error", "You must be logged in to share media");
+      return;
+    }
+    if (mediaItems.length === 0) {
+      Alert.alert("Error", "Please select at least one photo or video");
       return;
     }
 
@@ -138,21 +172,27 @@ export default function CreateMediaScreen() {
     try {
       const mediaUrls = await uploadMedia();
 
+      const postType = mediaItems.some((m) => m.type === "video")
+        ? "video"
+        : "image";
+
+      const title =
+        caption.trim() ||
+        `${mediaItems.length} ${mediaItems.length === 1 ? "item" : "items"} shared`;
+
+      const nowIso = new Date().toISOString();
+
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
-        title:
-          caption.trim() ||
-          `${mediaItems.length} ${mediaItems.length === 1 ? "media" : "media"} shared`,
+        title,
         content: caption.trim(),
         media_urls: mediaUrls,
-        post_type: mediaItems.some((item) => item.type === "video")
-          ? "video"
-          : "image",
+        post_type: postType,
         likes_count: 0,
         comments_count: 0,
         shares_count: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: nowIso,
+        updated_at: nowIso,
       });
 
       if (error) throw error;
@@ -161,339 +201,443 @@ export default function CreateMediaScreen() {
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.message || "Failed to share media. Please try again."
-      );
+      Alert.alert("Error", error?.message || "Failed to share media.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Media Type Tabs */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === "photos" && styles.activeTab]}
-          onPress={() => setSelectedTab("photos")}
-        >
-          <Ionicons
-            name="image-outline"
-            size={20}
-            color={selectedTab === "photos" ? "#007AFF" : "#666"}
-          />
-          <Text
-            style={[
-              styles.tabText,
-              selectedTab === "photos" && styles.activeTabText,
-            ]}
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <SafeAreaView style={styles.safe}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
           >
-            Photos
-          </Text>
-        </TouchableOpacity>
+            <Ionicons name="arrow-back" size={22} color="#111827" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Upload Media</Text>
+          <View style={{ width: 44 }} />
+        </View>
 
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === "videos" && styles.activeTab]}
-          onPress={() => setSelectedTab("videos")}
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
         >
-          <Ionicons
-            name="videocam-outline"
-            size={20}
-            color={selectedTab === "videos" ? "#007AFF" : "#666"}
-          />
-          <Text
-            style={[
-              styles.tabText,
-              selectedTab === "videos" && styles.activeTabText,
-            ]}
-          >
-            Videos
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Add Media Button */}
-      <TouchableOpacity style={styles.addMediaButton} onPress={pickMedia}>
-        <Ionicons
-          name={selectedTab === "photos" ? "image-outline" : "videocam-outline"}
-          size={48}
-          color="#ccc"
-        />
-        <Text style={styles.addMediaText}>
-          Add {selectedTab === "photos" ? "Photos" : "Videos"}
-        </Text>
-        <Text style={styles.addMediaSubtext}>
-          {mediaItems.length}/10 items selected
-        </Text>
-      </TouchableOpacity>
-
-      {/* Media Preview Grid */}
-      {mediaItems.length > 0 && (
-        <View style={styles.mediaGrid}>
-          {mediaItems.map((item, index) => (
-            <View key={index} style={styles.mediaItemWrapper}>
-              {item.type === "image" ? (
-                <Image source={{ uri: item.uri }} style={styles.mediaItem} />
-              ) : (
-                <View style={styles.videoItem}>
-                  <Image
-                    source={{ uri: item.thumbnail || item.uri }}
-                    style={styles.mediaItem}
-                  />
-                  <View style={styles.videoOverlay}>
-                    <Ionicons name="play-circle" size={32} color="white" />
-                  </View>
-                </View>
-              )}
-              <TouchableOpacity
-                style={styles.removeMediaButton}
-                onPress={() => removeMedia(index)}
+          {/* Tabs */}
+          <View style={styles.tabsWrap}>
+            <TouchableOpacity
+              style={[styles.tab, selectedTab === "photos" && styles.tabActive]}
+              onPress={() => setSelectedTab("photos")}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="image-outline"
+                size={18}
+                color={selectedTab === "photos" ? "#FFFFFF" : "#6B7280"}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === "photos" && styles.tabTextActive,
+                ]}
               >
-                <Ionicons name="close-circle" size={24} color="#ff3b30" />
-              </TouchableOpacity>
+                Photos
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, selectedTab === "videos" && styles.tabActive]}
+              onPress={() => setSelectedTab("videos")}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="videocam-outline"
+                size={18}
+                color={selectedTab === "videos" ? "#FFFFFF" : "#6B7280"}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === "videos" && styles.tabTextActive,
+                ]}
+              >
+                Videos
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Add Media Card */}
+          <TouchableOpacity
+            style={styles.addCard}
+            onPress={pickMedia}
+            activeOpacity={0.85}
+          >
+            <View style={styles.addIconCircle}>
+              <Ionicons
+                name={selectedTab === "photos" ? "images" : "videocam"}
+                size={26}
+                color="#7C3AED"
+              />
             </View>
-          ))}
-        </View>
-      )}
-
-      {/* Caption Input */}
-      <View style={styles.captionSection}>
-        <Text style={styles.sectionTitle}>Add a Caption</Text>
-        <TextInput
-          style={styles.captionInput}
-          value={caption}
-          onChangeText={setCaption}
-          placeholder={`Describe your ${selectedTab}...`}
-          placeholderTextColor="#999"
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-          maxLength={500}
-        />
-        <Text style={styles.charCount}>{caption.length}/500</Text>
-      </View>
-
-      {/* Media Details */}
-      <View style={styles.detailsSection}>
-        <Text style={styles.sectionTitle}>Media Details</Text>
-
-        <View style={styles.detailItem}>
-          <Ionicons name="images-outline" size={20} color="#666" />
-          <View style={styles.detailContent}>
-            <Text style={styles.detailLabel}>Media Count</Text>
-            <Text style={styles.detailValue}>
-              {mediaItems.length} {mediaItems.length === 1 ? "item" : "items"}
+            <Text style={styles.addTitle}>
+              Add {selectedTab === "photos" ? "Photos" : "Videos"}
             </Text>
+            <Text style={styles.addSub}>{countLabel}</Text>
+          </TouchableOpacity>
+
+          {/* Grid Preview */}
+          {mediaItems.length > 0 && (
+            <View style={styles.gridCard}>
+              <Text style={styles.cardTitle}>Preview</Text>
+
+              <View style={styles.grid}>
+                {mediaItems.map((item, index) => (
+                  <View
+                    key={`${item.uri}-${index}`}
+                    style={styles.gridItemWrap}
+                  >
+                    <Image
+                      source={{
+                        uri:
+                          item.type === "video"
+                            ? item.thumbnail || item.uri
+                            : item.uri,
+                      }}
+                      style={styles.gridItem}
+                    />
+
+                    {item.type === "video" && (
+                      <View style={styles.videoBadge}>
+                        <Ionicons name="play" size={12} color="#fff" />
+                        <Text style={styles.videoBadgeText}>Video</Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.removeBtn}
+                      onPress={() => removeMedia(index)}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="close" size={16} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Caption */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Caption</Text>
+            <View style={styles.captionWrap}>
+              <TextInput
+                value={caption}
+                onChangeText={setCaption}
+                placeholder={`Describe your ${selectedTab}...`}
+                placeholderTextColor="#9CA3AF"
+                multiline
+                numberOfLines={4}
+                maxLength={500}
+                style={styles.captionInput}
+              />
+            </View>
+            <Text style={styles.counter}>{caption.length}/500</Text>
           </View>
-        </View>
 
-        <View style={styles.detailItem}>
-          <Ionicons name="information-circle-outline" size={20} color="#666" />
-          <View style={styles.detailContent}>
-            <Text style={styles.detailLabel}>Content Type</Text>
-            <Text style={styles.detailValue}>
-              {mediaItems.length === 0
-                ? "None selected"
-                : selectedTab === "photos"
-                  ? "Photos"
-                  : "Videos"}
-            </Text>
+          {/* Details */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Media Details</Text>
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons name="images-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.detailLabel}>Media Count</Text>
+                <Text style={styles.detailValue}>
+                  {mediaItems.length}{" "}
+                  {mediaItems.length === 1 ? "item" : "items"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.detailLabel}>Content Type</Text>
+                <Text style={styles.detailValue}>
+                  {mediaItems.length === 0
+                    ? "None selected"
+                    : selectedTab === "photos"
+                      ? "Photos"
+                      : "Videos"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.detailLabel}>Privacy</Text>
+                <Text style={styles.detailValue}>Public</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </View>
           </View>
-        </View>
 
-        <View style={styles.detailItem}>
-          <Ionicons name="options-outline" size={20} color="#666" />
-          <View style={styles.detailContent}>
-            <Text style={styles.detailLabel}>Privacy</Text>
-            <Text style={styles.detailValue}>Public</Text>
+          {/* Actions */}
+          <View style={styles.actions}>
+            <Button
+              title={`Share ${selectedTab === "photos" ? "Photos" : "Videos"}`}
+              onPress={handleShareMedia}
+              loading={isLoading}
+              disabled={mediaItems.length === 0}
+              style={styles.primaryBtn}
+            />
+
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#999" />
-        </View>
-      </View>
 
-      {/* Action Buttons */}
-      <View style={styles.actionButtons}>
-        <Button
-          title={`Share ${selectedTab === "photos" ? "Photos" : "Videos"}`}
-          onPress={handleShareMedia}
-          loading={isLoading}
-          disabled={mediaItems.length === 0}
-          style={styles.shareButton}
-        />
-
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 16,
-  },
-  tabsContainer: {
+  safe: { flex: 1, backgroundColor: "#E8EAF6" },
+
+  header: {
     flexDirection: "row",
-    marginBottom: 24,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 12,
-    padding: 4,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  container: { flex: 1 },
+  content: { padding: 16, gap: 14 },
+
+  tabsWrap: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 6,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
   tab: {
     flex: 1,
+    height: 40,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 8,
     gap: 8,
+    backgroundColor: "#F3F4F6",
   },
-  activeTab: {
-    backgroundColor: "white",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+  tabActive: {
+    backgroundColor: "#7C3AED",
   },
   tabText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#6B7280",
   },
-  activeTabText: {
-    color: "#007AFF",
-    fontWeight: "600",
+  tabTextActive: {
+    color: "#FFFFFF",
   },
-  addMediaButton: {
+
+  addCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f9f9f9",
-    borderWidth: 2,
-    borderColor: "#e1e1e1",
-    borderStyle: "dashed",
-    borderRadius: 16,
-    padding: 48,
-    marginBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
-  addMediaText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#666",
-    marginTop: 16,
-    marginBottom: 8,
+  addIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
   },
-  addMediaSubtext: {
-    fontSize: 14,
-    color: "#999",
+  addTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  addSub: { marginTop: 6, fontSize: 12, fontWeight: "800", color: "#9CA3AF" },
+
+  gridCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
-  mediaGrid: {
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 12,
+  },
+
+  grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 24,
+    justifyContent: "space-between",
+    rowGap: 10,
   },
-  mediaItemWrapper: {
-    position: "relative",
+  gridItemWrap: {
     width: "32%",
     aspectRatio: 1,
-  },
-  mediaItem: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 8,
-  },
-  videoItem: {
+    borderRadius: 14,
+    overflow: "hidden",
     position: "relative",
+    backgroundColor: "#F3F4F6",
   },
-  videoOverlay: {
+  gridItem: { width: "100%", height: "100%" },
+
+  videoBadge: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  removeMediaButton: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    backgroundColor: "white",
-    borderRadius: 12,
-  },
-  captionSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 16,
-  },
-  captionInput: {
-    backgroundColor: "#f8f8f8",
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    minHeight: 120,
-    textAlignVertical: "top",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  charCount: {
-    fontSize: 12,
-    color: "#999",
-    alignSelf: "flex-end",
-    marginTop: 4,
-  },
-  detailsSection: {
-    marginBottom: 32,
-  },
-  detailItem: {
+    left: 8,
+    bottom: 8,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    gap: 12,
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
   },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#000",
-  },
-  actionButtons: {
-    gap: 12,
-    marginBottom: 32,
-  },
-  shareButton: {
-    backgroundColor: "#007AFF",
-  },
-  cancelButton: {
+  videoBadgeText: { color: "#fff", fontWeight: "900", fontSize: 10 },
+
+  removeBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(239,68,68,0.95)",
     alignItems: "center",
-    padding: 16,
+    justifyContent: "center",
   },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
+
+  captionWrap: {
+    backgroundColor: "#F3ECFF",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
+  captionInput: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+    minHeight: 110,
+    textAlignVertical: "top",
+  },
+  counter: {
+    marginTop: 10,
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontWeight: "800",
+    alignSelf: "flex-end",
+  },
+
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  detailIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailLabel: { fontSize: 13, fontWeight: "800", color: "#111827" },
+  detailValue: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+  divider: { height: 1, backgroundColor: "#F1F1F1" },
+
+  actions: { gap: 12 },
+  primaryBtn: { backgroundColor: "#7C3AED", borderRadius: 28 },
+  cancelBtn: { alignItems: "center", paddingVertical: 10 },
+  cancelText: { color: "#6B7280", fontWeight: "900" },
 });
