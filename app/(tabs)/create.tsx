@@ -1,4 +1,4 @@
-// app/(tabs)/create.tsx
+// app/(tabs)/create.tsx - FIXED
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React from "react";
@@ -69,16 +69,21 @@ export default function CreateScreen() {
     router.push(route as any);
   };
 
+  const handleClose = () => {
+    router.back();
+  };
+
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
+        {/* Header - Single, Clean */}
         <View style={styles.header}>
+          <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Create</Text>
-          <Text style={styles.headerSubtitle}>
-            What would you like to share?
-          </Text>
+          <View style={styles.headerSpacer} />
         </View>
 
         <ScrollView
@@ -176,21 +181,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
   },
-  headerTitle: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 4,
+  closeButton: {
+    padding: 4,
+    width: 40,
   },
-  headerSubtitle: {
-    fontSize: 16,
-    color: "#666",
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#000",
+  },
+  headerSpacer: {
+    width: 40,
   },
   content: {
     flex: 1,

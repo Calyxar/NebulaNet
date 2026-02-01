@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx - FIXED DESIGN (NO MOCK DATA)
+// app/(tabs)/home.tsx - EXACT DESIGN MATCH
 import PostCard from "@/components/post/PostCard";
 import { shareWithOptions } from "@/lib/share";
 import {
@@ -63,10 +63,6 @@ interface Story {
   user_id?: string;
   avatar_url?: string | null;
   full_name?: string | null;
-  story_content?: string;
-  story_image?: string;
-  story_type?: "text" | "image" | "video";
-  created_at?: string;
 }
 
 export default function HomeScreen() {
@@ -307,40 +303,39 @@ export default function HomeScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#F5F7FA" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoContainer}>
-            <View style={styles.logoIcon}>
-              <View style={styles.logoSwirl}>
-                <View style={styles.logoSwirlInner} />
-              </View>
-            </View>
+            <Image
+              source={require("@/assets/images/icon.png")}
+              style={styles.logoIcon}
+              resizeMode="contain"
+            />
             <Text style={styles.logoText}>NebulaNet</Text>
           </View>
 
-          <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={styles.notificationButton}
-              onPress={() => router.push("/(tabs)/notifications")}
-            >
-              <View style={styles.notificationIconContainer}>
-                <Ionicons name="notifications" size={22} color="#7C3AED" />
-                {unreadNotifications > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationBadgeText}>
-                      {unreadNotifications}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={() => router.push("/(tabs)/notifications")}
+          >
+            <View style={styles.notificationIconContainer}>
+              <Ionicons name="notifications" size={24} color="#7C3AED" />
+              {unreadNotifications > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotifications}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
         </View>
 
         <ScrollView
           style={styles.content}
+          contentContainerStyle={styles.scrollContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -364,15 +359,10 @@ export default function HomeScreen() {
                   style={styles.storyItem}
                   onPress={() => handleViewStory(story)}
                 >
-                  <View
-                    style={[
-                      styles.storyCircle,
-                      story.isAdd && styles.addStoryCircle,
-                    ]}
-                  >
+                  <View style={styles.storyCircle}>
                     {story.isAdd ? (
                       <View style={styles.addStoryInner}>
-                        <Ionicons name="add" size={28} color="#7C3AED" />
+                        <Ionicons name="add" size={32} color="#7C3AED" />
                       </View>
                     ) : (
                       <View style={styles.storyImage}>
@@ -388,9 +378,6 @@ export default function HomeScreen() {
                         )}
                       </View>
                     )}
-                    {story.hasStory && !story.isAdd && (
-                      <View style={styles.storyRing} />
-                    )}
                   </View>
                   <Text style={styles.storyUsername} numberOfLines={1}>
                     {story.username}
@@ -400,7 +387,7 @@ export default function HomeScreen() {
             </ScrollView>
           )}
 
-          {/* Feed Tabs */}
+          {/* Feed Tabs - EXACT DESIGN */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
               style={[styles.tab, activeTab === "for-you" && styles.activeTab]}
@@ -455,7 +442,13 @@ export default function HomeScreen() {
           <View style={styles.postsContainer}>
             {posts.length === 0 ? (
               <View style={styles.emptyContainer}>
-                <Ionicons name="newspaper-outline" size={64} color="#C5CAE9" />
+                <View style={styles.emptyIconContainer}>
+                  <Ionicons
+                    name="newspaper-outline"
+                    size={72}
+                    color="#C5D4F0"
+                  />
+                </View>
                 <Text style={styles.emptyTitle}>Welcome to NebulaNet!</Text>
                 <Text style={styles.emptySubtitle}>
                   Follow users and communities to see posts in your feed
@@ -581,62 +574,39 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F7FA",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: "#F5F7FA",
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 0,
   },
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
   logoIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  logoSwirl: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoSwirlInner: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#7C3AED",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
+    width: 40,
+    height: 40,
+    marginRight: 8,
   },
   logoText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
-    color: "#1A1A1A",
-    letterSpacing: -0.5,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
+    color: "#000000",
+    letterSpacing: 0,
   },
   notificationButton: {
-    position: "relative",
+    padding: 4,
   },
   notificationIconContainer: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "#E8E0FF",
     alignItems: "center",
     justifyContent: "center",
@@ -644,17 +614,17 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: "absolute",
-    top: 6,
-    right: 6,
+    top: 8,
+    right: 8,
     backgroundColor: "#7C3AED",
     borderRadius: 10,
     minWidth: 20,
     height: 20,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     borderWidth: 2,
-    borderColor: "#F5F7FA",
+    borderColor: "#FFFFFF",
   },
   notificationBadgeText: {
     color: "#FFFFFF",
@@ -664,124 +634,121 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   storiesContainer: {
-    paddingVertical: 16,
-    backgroundColor: "#F5F7FA",
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
   storiesContent: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: 16,
+    gap: 12,
   },
   storyItem: {
     alignItems: "center",
-    width: 76,
+    width: 72,
   },
   storyCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: "#E8E8E8",
+    borderStyle: "dashed",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
-    position: "relative",
-  },
-  addStoryCircle: {
-    borderWidth: 2,
-    borderColor: "#D1D5DB",
-    borderStyle: "dashed",
+    marginBottom: 6,
     backgroundColor: "#FFFFFF",
   },
   addStoryInner: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#F9FAFB",
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F8F8F8",
     justifyContent: "center",
     alignItems: "center",
   },
   storyImage: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "#7C3AED",
     justifyContent: "center",
     alignItems: "center",
   },
   storyAvatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
   storyInitial: {
     color: "#FFFFFF",
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "700",
-  },
-  storyRing: {
-    position: "absolute",
-    top: -3,
-    left: -3,
-    right: -3,
-    bottom: -3,
-    borderRadius: 41,
-    borderWidth: 3,
-    borderColor: "#7C3AED",
   },
   storyUsername: {
     fontSize: 12,
-    color: "#6B7280",
+    color: "#666666",
     fontWeight: "500",
     textAlign: "center",
-    width: "100%",
   },
   tabContainer: {
     flexDirection: "row",
-    paddingHorizontal: 20,
     backgroundColor: "#E8E0FF",
-    borderRadius: 28,
+    borderRadius: 25,
     padding: 4,
-    marginHorizontal: 20,
-    marginTop: 8,
+    marginHorizontal: 16,
+    marginTop: 16,
     marginBottom: 16,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     alignItems: "center",
-    borderRadius: 24,
+    borderRadius: 20,
   },
   activeTab: {
     backgroundColor: "#7C3AED",
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#9CA3AF",
     fontWeight: "600",
+    textAlign: "center",
   },
   activeTabText: {
     color: "#FFFFFF",
     fontWeight: "700",
   },
   postsContainer: {
-    paddingBottom: 16,
+    flex: 1,
   },
   emptyContainer: {
-    paddingVertical: 80,
-    alignItems: "center",
+    flex: 1,
+    paddingVertical: 100,
     paddingHorizontal: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyIconContainer: {
+    marginBottom: 20,
   },
   emptyTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
-    color: "#1A1A1A",
-    marginTop: 20,
-    marginBottom: 10,
+    color: "#000000",
+    marginBottom: 8,
+    textAlign: "center",
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#9CA3AF",
     textAlign: "center",
-    lineHeight: 24,
+    lineHeight: 22,
   },
   loadingContainer: {
     flex: 1,
@@ -809,13 +776,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#1A1A1A",
+    color: "#000000",
   },
   closeButton: {
     padding: 4,
   },
   postPreview: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8F8F8",
     padding: 16,
     borderRadius: 12,
     marginBottom: 16,
@@ -823,25 +790,25 @@ const styles = StyleSheet.create({
   postAuthor: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#1A1A1A",
+    color: "#000000",
     marginBottom: 6,
   },
   postContent: {
     fontSize: 14,
-    color: "#6B7280",
+    color: "#666666",
     lineHeight: 20,
   },
   commentInput: {
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#E0E0E0",
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    color: "#1A1A1A",
+    color: "#000000",
     minHeight: 120,
     textAlignVertical: "top",
     marginBottom: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8F8F8",
   },
   commentActions: {
     flexDirection: "row",
@@ -850,7 +817,7 @@ const styles = StyleSheet.create({
   },
   charCount: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: "#999999",
   },
   submitButton: {
     backgroundColor: "#7C3AED",
