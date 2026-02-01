@@ -28,28 +28,35 @@ export default function CreateLayout() {
         name="post"
         options={{
           title: "Create Post",
-          headerBackTitle: "Back",
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="media"
         options={{
           title: "Share Media",
-          headerBackTitle: "Back",
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="event"
         options={{
           title: "Create Event",
-          headerBackTitle: "Back",
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="poll"
         options={{
           title: "Create Poll",
-          headerBackTitle: "Back",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="story"
+        options={{
+          title: "New Story",
+          headerShown: false,
         }}
       />
     </Stack>
