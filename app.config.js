@@ -10,7 +10,7 @@ module.exports = {
     icon: "./assets/images/icon.png",
     scheme: "nebulanet",
     userInterfaceStyle: "automatic",
-    newArchEnabled: true,
+    newArchEnabled: false,
     splash: {
       image: "./assets/images/splash-icon.png",
       resizeMode: "contain",
