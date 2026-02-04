@@ -1,5 +1,7 @@
 // lib/queries/stories.ts
 import { supabase } from "@/lib/supabase";
+import { decode } from "base64-arraybuffer";
+import * as FileSystem from "expo-file-system";
 
 /* -------------------- TYPES -------------------- */
 
@@ -17,15 +19,32 @@ export type StoryRow = {
   caption: string | null;
   created_at: string;
   expires_at: string;
-  profiles: StoryProfile | null; // ✅ ALWAYS single object
+  profiles: StoryProfile | null;
 };
 
 /* -------------------- HELPERS -------------------- */
 
 function normalizeProfile(p: any): StoryProfile | null {
   if (!p) return null;
-  if (Array.isArray(p)) return (p[0] ?? null) as StoryProfile | null;
-  return p as StoryProfile;
+  if (Array.isArray(p)) return p[0] ?? null;
+  return p;
+}
+
+function guessExt(uri: string, mediaType: "image" | "video") {
+  const clean = uri.split("?")[0];
+  const parts = clean.split(".");
+  const ext = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+  return ext || (mediaType === "video" ? "mp4" : "jpg");
+}
+
+function guessContentType(ext: string, mediaType: "image" | "video") {
+  if (mediaType === "video") {
+    if (ext === "mov") return "video/quicktime";
+    return "video/mp4";
+  }
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return "image/jpeg";
 }
 
 /* -------------------- FETCH -------------------- */
@@ -63,42 +82,6 @@ export async function fetchStoryById(
   };
 }
 
-export async function fetchActiveStoriesByUser(
-  userId: string,
-): Promise<StoryRow[]> {
-  const { data, error } = await supabase
-    .from("stories")
-    .select(
-      `
-      id,
-      user_id,
-      media_url,
-      media_type,
-      caption,
-      created_at,
-      expires_at,
-      profiles:profiles (
-        username,
-        full_name,
-        avatar_url
-      )
-    `,
-    )
-    .eq("user_id", userId)
-    .gt("expires_at", new Date().toISOString())
-    .order("created_at", { ascending: true });
-
-  if (error) throw error;
-
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    profiles: normalizeProfile(row.profiles),
-  }));
-}
-
-/**
- * Backwards-compatible global fetch (used by home.tsx)
- */
 export async function fetchActiveStories(): Promise<StoryRow[]> {
   const { data, error } = await supabase
     .from("stories")
@@ -129,7 +112,7 @@ export async function fetchActiveStories(): Promise<StoryRow[]> {
   }));
 }
 
-/* -------------------- SEEN TRACKING -------------------- */
+/* -------------------- SEEN -------------------- */
 
 export async function markStorySeen(storyId: string) {
   const { data } = await supabase.auth.getUser();
@@ -148,12 +131,11 @@ export async function markStorySeen(storyId: string) {
   if (error) throw error;
 }
 
-/* -------------------- UPLOAD -------------------- */
+/* -------------------- UPLOAD (FIXED) -------------------- */
 
 /**
- * MODERN + LEGACY compatible
- * uploadStoryMedia(uri, type)
- * uploadStoryMedia({ uri, mediaType })
+ * Android-safe upload
+ * Works with content:// and file:// URIs
  */
 export async function uploadStoryMedia(
   uri: string,
@@ -174,67 +156,58 @@ export async function uploadStoryMedia(
   const user = data.user;
   if (!user) throw new Error("Not authenticated");
 
-  const { uri, mediaType } = params;
+  const { uri, mediaType } = params as {
+    uri: string;
+    mediaType: "image" | "video";
+  };
 
-  const ext =
-    mediaType === "image"
-      ? uri.split(".").pop() || "jpg"
-      : uri.split(".").pop() || "mp4";
-
+  const ext = guessExt(uri, mediaType);
+  const contentType = guessContentType(ext, mediaType);
   const path = `${user.id}/${Date.now()}.${ext}`;
 
-  const res = await fetch(uri);
-  const blob = await res.blob();
+  // ✅ ANDROID SAFE: no fetch(), no blob()
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: "base64",
+  });
 
-  const { error } = await supabase.storage.from("stories").upload(path, blob, {
-    contentType: mediaType === "image" ? "image/*" : "video/*",
+  const bytes = decode(base64);
+
+  const { error } = await supabase.storage.from("stories").upload(path, bytes, {
+    contentType,
     upsert: false,
   });
 
   if (error) throw error;
 
   const { data: url } = supabase.storage.from("stories").getPublicUrl(path);
-  if (!url.publicUrl) throw new Error("No public URL");
+  if (!url.publicUrl) throw new Error("Failed to get public URL");
 
   return { publicUrl: url.publicUrl, path };
 }
 
 /* -------------------- CREATE -------------------- */
 
-/**
- * MODERN + LEGACY compatible
- */
-export async function createStory(params: {
-  mediaUrl: string;
-  mediaType: "image" | "video";
-  caption?: string | null;
-  expiresInHours?: number;
-}): Promise<StoryRow>;
 export async function createStory(params: {
   media_url: string;
   media_type: "image" | "video";
   caption?: string | null;
   expires_in_hours?: number;
-}): Promise<StoryRow>;
-export async function createStory(params: any): Promise<StoryRow> {
+}): Promise<StoryRow> {
   const { data } = await supabase.auth.getUser();
   const user = data.user;
   if (!user) throw new Error("Not authenticated");
 
-  const mediaUrl = params.mediaUrl ?? params.media_url;
-  const mediaType = params.mediaType ?? params.media_type;
-  const caption = params.caption ?? null;
-  const hours = params.expiresInHours ?? params.expires_in_hours ?? 24;
-
-  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000,
+  ).toISOString();
 
   const { data: inserted, error } = await supabase
     .from("stories")
     .insert({
       user_id: user.id,
-      media_url: mediaUrl,
-      media_type: mediaType,
-      caption,
+      media_url: params.media_url,
+      media_type: params.media_type,
+      caption: params.caption ?? null,
       expires_at: expiresAt,
     })
     .select(
@@ -261,46 +234,4 @@ export async function createStory(params: any): Promise<StoryRow> {
     ...(inserted as any),
     profiles: normalizeProfile((inserted as any).profiles),
   };
-}
-
-/* -------------------- REPLY + NOTIFICATION -------------------- */
-
-export async function sendStoryReply(storyId: string, message: string) {
-  const { data } = await supabase.auth.getUser();
-  const sender = data.user;
-  if (!sender) throw new Error("Not authenticated");
-
-  const text = message.trim();
-  if (!text) throw new Error("Empty reply");
-
-  await supabase.from("story_replies").insert({
-    story_id: storyId,
-    sender_id: sender.id,
-    message: text,
-  });
-
-  const { data: story } = await supabase
-    .from("stories")
-    .select("user_id")
-    .eq("id", storyId)
-    .maybeSingle();
-
-  if (!story || story.user_id === sender.id) return;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username, full_name")
-    .eq("id", sender.id)
-    .maybeSingle();
-
-  const name = profile?.full_name || profile?.username || "Someone";
-
-  await supabase.from("notifications").insert({
-    user_id: story.user_id,
-    type: "story_reply",
-    title: "New story reply",
-    body: `${name}: ${text}`,
-    data: { storyId, senderId: sender.id },
-    is_read: false,
-  });
 }

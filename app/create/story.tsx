@@ -1,10 +1,10 @@
-// app/create/story.tsx - NebulaNet DESIGN MATCH (clean + modern + responsive)
+// app/create/story.tsx - COMPLETED (Private bucket ready + Android content:// safe)
 import { createStory, uploadStoryMedia } from "@/lib/queries/stories";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +28,11 @@ export default function CreateStoryScreen() {
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  const canPost = useMemo(
+    () => !!mediaUri && !!mediaType && !uploading,
+    [mediaUri, mediaType, uploading],
+  );
+
   /* -------------------- PICK MEDIA -------------------- */
 
   const pickMedia = async () => {
@@ -45,7 +50,12 @@ export default function CreateStoryScreen() {
 
     if (result.canceled) return;
 
-    const asset = result.assets[0];
+    const asset = result.assets?.[0];
+    if (!asset?.uri) {
+      Alert.alert("Error", "Could not read selected media.");
+      return;
+    }
+
     setMediaUri(asset.uri);
     setMediaType(asset.type === "video" ? "video" : "image");
   };
@@ -61,21 +71,29 @@ export default function CreateStoryScreen() {
     try {
       setUploading(true);
 
-      // 1️⃣ Upload media
+      // 1) Upload media to Storage (returns a PATH for private buckets)
+      //    This fixes Android content:// issues because uploadStoryMedia reads bytes via expo-file-system.
       const uploaded = await uploadStoryMedia(mediaUri, mediaType);
+      // uploaded.path example: `${user.id}/${Date.now()}.jpg`
 
-      // 2️⃣ Create story row
+      // 2) Create story row (store the PATH in DB)
       await createStory({
-        media_url: uploaded.publicUrl,
+        media_url: uploaded.path, // ✅ store path, not public url
         media_type: mediaType,
         caption: caption.trim() || null,
+        expires_in_hours: 24,
       });
 
       Alert.alert("Story posted", "Your story is now live 🎉");
       router.back();
     } catch (e: any) {
       console.error("Story upload error:", e);
-      Alert.alert("Error", e?.message ?? "Failed to post story");
+
+      // Helpful message for the exact Android failure case
+      const msg =
+        typeof e?.message === "string" ? e.message : "Failed to post story";
+
+      Alert.alert("Error", msg);
     } finally {
       setUploading(false);
     }
@@ -103,6 +121,7 @@ export default function CreateStoryScreen() {
               style={styles.circleBtn}
               onPress={() => router.back()}
               activeOpacity={0.85}
+              disabled={uploading}
             >
               <Ionicons name="close" size={22} color="#111827" />
             </TouchableOpacity>
@@ -126,6 +145,7 @@ export default function CreateStoryScreen() {
               style={styles.mediaPicker}
               onPress={pickMedia}
               activeOpacity={0.85}
+              disabled={uploading}
             >
               {mediaUri ? (
                 <>
@@ -162,6 +182,7 @@ export default function CreateStoryScreen() {
                 style={styles.captionInput}
                 maxLength={200}
                 multiline
+                editable={!uploading}
               />
               <Text style={styles.counter}>{caption.length}/200</Text>
             </View>
@@ -169,11 +190,12 @@ export default function CreateStoryScreen() {
             {/* Post button */}
             <TouchableOpacity
               onPress={handlePostStory}
-              disabled={uploading}
+              disabled={!canPost}
               style={[
                 styles.postButton,
-                uploading && styles.postButtonDisabled,
+                (!canPost || uploading) && styles.postButtonDisabled,
               ]}
+              activeOpacity={0.9}
             >
               {uploading ? (
                 <ActivityIndicator color="#fff" />
