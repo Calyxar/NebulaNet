@@ -1,10 +1,7 @@
-// app/settings/security.tsx
-import { SettingsGroup, SettingsItem } from "@/components/settings";
-import Button from "@/components/ui/Button";
-import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+// app/settings/security.tsx — NebulaNet RESKIN + fixes implicit any + typed routing
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -13,6 +10,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import Button from "@/components/ui/Button";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
+
+type PasswordForm = { current: string; next: string; confirm: string };
 
 export default function SecurityScreen() {
   const {
@@ -23,30 +27,28 @@ export default function SecurityScreen() {
     disableTwoFactor,
     resetPassword,
   } = useAuth();
+
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
+  const [passwordData, setPasswordData] = useState<PasswordForm>({
+    current: "",
+    next: "",
+    confirm: "",
   });
 
   const handlePasswordUpdate = async () => {
-    if (!passwordData.currentPassword) {
+    if (!passwordData.current) {
       Alert.alert("Error", "Please enter your current password");
       return;
     }
-
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
+    if (passwordData.next.length < 6) {
+      Alert.alert("Error", "New password must be at least 6 characters");
+      return;
+    }
+    if (passwordData.next !== passwordData.confirm) {
       Alert.alert("Error", "New passwords do not match");
       return;
     }
-
-    if (passwordData.newPassword.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
-      return;
-    }
-
-    if (passwordData.currentPassword === passwordData.newPassword) {
+    if (passwordData.current === passwordData.next) {
       Alert.alert(
         "Error",
         "New password must be different from current password",
@@ -54,75 +56,32 @@ export default function SecurityScreen() {
       return;
     }
 
-    try {
-      // First verify current password
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || "",
-        password: passwordData.currentPassword,
-      });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: user?.email || "",
+      password: passwordData.current,
+    });
 
-      if (signInError) {
-        Alert.alert("Error", "Current password is incorrect");
-        return;
-      }
-
-      // Then update to new password
-      await updatePassword.mutateAsync({
-        newPassword: passwordData.newPassword,
-      });
-      setPasswordData({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-      setShowPasswordForm(false);
-      Alert.alert("Success", "Password updated successfully");
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to update password");
+    if (error) {
+      Alert.alert("Error", "Current password incorrect");
+      return;
     }
-  };
 
-  const handleEnable2FA = () => {
-    Alert.alert(
-      "Enable Two-Factor Authentication",
-      "Two-factor authentication adds an extra layer of security to your account. You will need to enter a code from your authenticator app when logging in.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Enable",
-          onPress: () => enableTwoFactor.mutate(),
-        },
-      ],
-    );
-  };
-
-  const handleDisable2FA = () => {
-    Alert.alert(
-      "Disable Two-Factor Authentication",
-      "Are you sure you want to disable two-factor authentication? This will make your account less secure.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Disable",
-          style: "destructive",
-          onPress: () => disableTwoFactor.mutate(),
-        },
-      ],
-    );
+    await updatePassword.mutateAsync({ newPassword: passwordData.next });
+    setShowPasswordForm(false);
+    setPasswordData({ current: "", next: "", confirm: "" });
+    Alert.alert("Success", "Password updated");
   };
 
   const handleResetPassword = () => {
     Alert.prompt(
       "Reset Password",
-      "Enter your email address to receive a password reset link",
+      "Enter your email to receive a reset link",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Send",
           onPress: (email: string | undefined) => {
-            if (email) {
-              resetPassword.mutate({ email });
-            }
+            if (email) resetPassword.mutate({ email });
           },
         },
       ],
@@ -131,410 +90,343 @@ export default function SecurityScreen() {
     );
   };
 
-  const handleClearSessions = () => {
-    Alert.alert(
-      "Clear All Sessions",
-      "This will log you out of all devices except this one. Are you sure?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear All",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // Implement session clearing
-              Alert.alert("Success", "All other sessions have been cleared");
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
-            }
-          },
-        },
-      ],
-    );
-  };
-
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Security & Login</Text>
-        <Text style={styles.headerDescription}>
-          Manage your account security and login settings
-        </Text>
-      </View>
-
-      <SettingsGroup title="Login Security">
-        <SettingsItem
-          title="Email Verification"
-          icon={
-            profile?.email_verified ? "checkmark-circle" : "warning-outline"
-          }
-          value={profile?.email_verified ? "Verified" : "Not Verified"}
-          description={
-            profile?.email_verified
-              ? "Your email address is verified"
-              : "Please verify your email address"
-          }
-          onPress={() => {
-            if (!profile?.email_verified) {
-              Alert.alert(
-                "Verify Email",
-                "We sent a verification link to your email. Please check your inbox.",
-                [
-                  {
-                    text: "Resend Email",
-                    onPress: async () => {
-                      try {
-                        await supabase.auth.resend({
-                          type: "signup",
-                          email: user?.email || "",
-                        });
-                        Alert.alert(
-                          "Email Sent",
-                          "Verification email resent successfully",
-                        );
-                      } catch (error: any) {
-                        Alert.alert("Error", error.message);
-                      }
-                    },
-                  },
-                  { text: "OK", style: "cancel" },
-                ],
-              );
-            }
-          }}
-        />
-        <SettingsItem
-          title="Two-Factor Authentication"
-          icon="shield-checkmark-outline"
-          value={profile?.two_factor_enabled ? "Enabled" : "Disabled"}
-          description={
-            profile?.two_factor_enabled
-              ? "Extra security layer enabled"
-              : "Add an extra layer of security"
-          }
-          onPress={
-            profile?.two_factor_enabled ? handleDisable2FA : handleEnable2FA
-          }
-        />
-        <SettingsItem
-          title="Change Password"
-          icon="key-outline"
-          onPress={() => setShowPasswordForm(!showPasswordForm)}
-        />
-      </SettingsGroup>
-
-      {showPasswordForm && (
-        <View style={styles.passwordForm}>
-          <Text style={styles.formTitle}>Change Password</Text>
-
-          <TextInput
-            style={styles.input}
-            placeholder="Current Password"
-            secureTextEntry
-            value={passwordData.currentPassword}
-            onChangeText={(text) =>
-              setPasswordData({ ...passwordData, currentPassword: text })
-            }
-            autoCapitalize="none"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="New Password"
-            secureTextEntry
-            value={passwordData.newPassword}
-            onChangeText={(text) =>
-              setPasswordData({ ...passwordData, newPassword: text })
-            }
-            autoCapitalize="none"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Confirm New Password"
-            secureTextEntry
-            value={passwordData.confirmPassword}
-            onChangeText={(text) =>
-              setPasswordData({ ...passwordData, confirmPassword: text })
-            }
-            autoCapitalize="none"
-          />
-
-          <View style={styles.formButtons}>
-            <Button
-              title="Update Password"
-              onPress={handlePasswordUpdate}
-              loading={updatePassword.isPending}
-              style={styles.updateButton}
-              disabled={
-                !passwordData.currentPassword ||
-                !passwordData.newPassword ||
-                !passwordData.confirmPassword ||
-                passwordData.newPassword.length < 6 ||
-                passwordData.newPassword !== passwordData.confirmPassword
-              }
-            />
-            <Button
-              title="Cancel"
-              variant="outline"
-              onPress={() => {
-                setShowPasswordForm(false);
-                setPasswordData({
-                  currentPassword: "",
-                  newPassword: "",
-                  confirmPassword: "",
-                });
-              }}
-              disabled={updatePassword.isPending}
-            />
+    <LinearGradient
+      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+      locations={[0, 0.45, 1]}
+      style={styles.gradient}
+    >
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoBubble}>
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={20}
+                color="#7C3AED"
+              />
+            </View>
+            <View>
+              <Text style={styles.headerTitle}>Security</Text>
+              <Text style={styles.headerSub}>
+                Manage login and account security
+              </Text>
+            </View>
           </View>
         </View>
-      )}
 
-      <SettingsGroup title="Login Activity">
-        <SettingsItem
-          title="Active Sessions"
-          icon="desktop-outline"
-          value="This device"
-          description="You're currently logged in on this device"
-          onPress={() =>
-            Alert.alert("Active Sessions", "View all active login sessions")
-          }
-        />
-        <SettingsItem
-          title="Last Login"
-          icon="time-outline"
-          value={
-            profile?.last_login
-              ? new Date(profile.last_login).toLocaleString()
-              : "N/A"
-          }
-          description="Most recent successful login"
-        />
-        <SettingsItem
-          title="Login History"
-          icon="list-outline"
-          description="View your account login history"
-          onPress={() =>
-            Alert.alert("Coming Soon", "Login history coming soon")
-          }
-        />
-        <SettingsItem
-          title="Clear All Sessions"
-          icon="log-out-outline"
-          description="Log out of all devices except this one"
-          danger
-          onPress={handleClearSessions}
-        />
-      </SettingsGroup>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionHeaderText}>Login Security</Text>
+          </View>
 
-      <SettingsGroup title="Account Recovery">
-        <SettingsItem
-          title="Reset Password"
-          icon="refresh-outline"
-          description="Get a password reset link via email"
-          onPress={handleResetPassword}
-        />
-        <SettingsItem
-          title="Recovery Email"
-          icon="mail-outline"
-          value={user?.email || "Not set"}
-          description="Email for account recovery"
-          onPress={() =>
-            Alert.alert("Coming Soon", "Recovery email management coming soon")
-          }
-        />
-        <SettingsItem
-          title="Backup Codes"
-          icon="keypad-outline"
-          description="Generate backup codes for 2FA"
-          onPress={() => Alert.alert("Coming Soon", "Backup codes coming soon")}
-        />
-      </SettingsGroup>
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <View style={styles.rowIcon}>
+                <Ionicons
+                  name={
+                    profile?.email_verified
+                      ? "checkmark-circle"
+                      : "warning-outline"
+                  }
+                  size={18}
+                  color={profile?.email_verified ? "#16A34A" : "#F59E0B"}
+                />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Email Verification</Text>
+                <Text style={styles.rowDesc}>
+                  {profile?.email_verified ? "Verified" : "Unverified"}
+                </Text>
+              </View>
+            </View>
 
-      <SettingsGroup title="Privacy & Data">
-        <SettingsItem
-          title="Data Export"
-          icon="download-outline"
-          description="Download a copy of your data"
-          onPress={() => Alert.alert("Coming Soon", "Data export coming soon")}
-        />
-        <SettingsItem
-          title="Clear Search History"
-          icon="trash-outline"
-          description="Delete your search history"
-          danger
-          onPress={() => {
-            Alert.alert(
-              "Clear Search History",
-              "This will permanently delete your search history. This action cannot be undone.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Clear",
-                  style: "destructive",
-                  onPress: () => {
-                    // Implement clear search history
-                    Alert.alert("Success", "Search history cleared");
-                  },
-                },
-              ],
-            );
-          }}
-        />
-        <SettingsItem
-          title="Privacy Settings"
-          icon="eye-outline"
-          description="Manage your privacy preferences"
-          onPress={() => {
-            // Navigate to privacy screen
-            Alert.alert("Info", "Navigate to privacy settings");
-          }}
-        />
-      </SettingsGroup>
+            <View style={styles.row}>
+              <View style={styles.rowIcon}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Two-Factor Authentication</Text>
+                <Text style={styles.rowDesc}>
+                  {profile?.two_factor_enabled ? "Enabled" : "Disabled"}
+                </Text>
+              </View>
+              <Button
+                title={profile?.two_factor_enabled ? "Disable" : "Enable"}
+                variant="outline"
+                onPress={
+                  profile?.two_factor_enabled
+                    ? () => disableTwoFactor.mutate()
+                    : () => enableTwoFactor.mutate()
+                }
+                loading={
+                  disableTwoFactor.isPending || enableTwoFactor.isPending
+                }
+                style={styles.smallButton}
+              />
+            </View>
 
-      <View style={styles.securityTips}>
-        <Ionicons
-          name="shield-checkmark-outline"
-          size={24}
-          color="#007AFF"
-          style={styles.tipsIcon}
-        />
-        <Text style={styles.tipsTitle}>Security Tips</Text>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Use a strong, unique password</Text>
-        </View>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Enable two-factor authentication</Text>
-        </View>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Regularly review login activity</Text>
-        </View>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Keep your email address verified</Text>
-        </View>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Log out from shared devices</Text>
-        </View>
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.tipText}>Be cautious of phishing attempts</Text>
-        </View>
-      </View>
+            <View style={[styles.row, { borderBottomWidth: 0 }]}>
+              <View style={styles.rowIcon}>
+                <Ionicons name="key-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Change Password</Text>
+                <Text style={styles.rowDesc}>Update your account password</Text>
+              </View>
+              <Button
+                title={showPasswordForm ? "Hide" : "Edit"}
+                variant="outline"
+                onPress={() => setShowPasswordForm((v) => !v)}
+                style={styles.smallButton}
+              />
+            </View>
+          </View>
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Need security help?{" "}
-          <Text
-            style={styles.footerLink}
-            onPress={() => {
-              Alert.alert(
-                "Contact Support",
-                "security@nebulanet.space\n\nReport security issues to us.",
-              );
-            }}
-          >
-            Contact Security Team
+          {showPasswordForm && (
+            <View style={styles.formCard}>
+              <Text style={styles.formTitle}>Update Password</Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Current Password"
+                placeholderTextColor="#9CA3AF"
+                secureTextEntry
+                value={passwordData.current}
+                onChangeText={(t) =>
+                  setPasswordData((p) => ({ ...p, current: t }))
+                }
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="New Password"
+                placeholderTextColor="#9CA3AF"
+                secureTextEntry
+                value={passwordData.next}
+                onChangeText={(t) =>
+                  setPasswordData((p) => ({ ...p, next: t }))
+                }
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Confirm New Password"
+                placeholderTextColor="#9CA3AF"
+                secureTextEntry
+                value={passwordData.confirm}
+                onChangeText={(t) =>
+                  setPasswordData((p) => ({ ...p, confirm: t }))
+                }
+                autoCapitalize="none"
+              />
+
+              <View style={styles.formButtons}>
+                <Button
+                  title="Update Password"
+                  onPress={handlePasswordUpdate}
+                  loading={updatePassword.isPending}
+                  disabled={
+                    !passwordData.current ||
+                    passwordData.next.length < 6 ||
+                    passwordData.next !== passwordData.confirm
+                  }
+                />
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  onPress={() => {
+                    setShowPasswordForm(false);
+                    setPasswordData({ current: "", next: "", confirm: "" });
+                  }}
+                  disabled={updatePassword.isPending}
+                />
+              </View>
+            </View>
+          )}
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionHeaderText}>Account Recovery</Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={[styles.row, { borderBottomWidth: 0 }]}>
+              <View style={styles.rowIcon}>
+                <Ionicons name="refresh-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Reset Password</Text>
+                <Text style={styles.rowDesc}>Get a reset link via email</Text>
+              </View>
+              <Button
+                title="Send"
+                variant="outline"
+                onPress={handleResetPassword}
+                loading={resetPassword.isPending}
+                style={styles.smallButton}
+              />
+            </View>
+          </View>
+
+          <View style={styles.infoBox}>
+            <View style={styles.infoIcon}>
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={18}
+                color="#7C3AED"
+              />
+            </View>
+            <Text style={styles.infoText}>
+              Keep your account secure by using a strong password and enabling
+              2FA.
+            </Text>
+          </View>
+
+          <Text style={styles.footerText}>
+            nebulanet.space • Security changes may require re-authentication.
           </Text>
-        </Text>
-      </View>
-    </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
+  gradient: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
+
+  header: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 10 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  logoBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  header: {
-    padding: 20,
-    backgroundColor: "white",
-    marginBottom: 16,
+  headerTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
+
+  sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+    letterSpacing: 0.4,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 8,
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  headerDescription: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  passwordForm: {
-    backgroundColor: "white",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  formTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 16,
-  },
-  input: {
-    backgroundColor: "#f8f8f8",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    fontSize: 16,
-  },
-  formButtons: {
-    gap: 12,
-  },
-  updateButton: {
-    marginTop: 8,
-  },
-  securityTips: {
-    backgroundColor: "#e8f4f8",
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  tipsIcon: {
-    marginBottom: 12,
-  },
-  tipsTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 16,
-  },
-  tipItem: {
+
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
-    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2FF",
+    gap: 10,
   },
-  tipText: {
+  rowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowText: { flex: 1 },
+  rowTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
+  rowDesc: { marginTop: 3, fontSize: 12, color: "#6B7280", lineHeight: 16 },
+
+  formCard: {
+    marginTop: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#EEF2FF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    elevation: 1,
+  },
+  formTitle: {
     fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 12,
   },
-  footer: {
-    padding: 20,
-    paddingBottom: 40,
+
+  input: {
+    backgroundColor: "#F7F7FB",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    fontSize: 16,
+    color: "#111827",
+  },
+
+  formButtons: { gap: 10, marginTop: 6 },
+
+  smallButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+
+  infoBox: {
+    marginTop: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#EEF2FF",
+    flexDirection: "row",
+    gap: 10,
     alignItems: "center",
   },
-  footerText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 20,
+  infoIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  footerLink: {
-    color: "#007AFF",
-    fontWeight: "500",
+  infoText: { fontSize: 13, color: "#6B7280", flex: 1, lineHeight: 18 },
+
+  footerText: {
+    marginTop: 14,
+    fontSize: 12,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 18,
   },
 });

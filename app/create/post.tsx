@@ -1,4 +1,4 @@
-// app/create/post.tsx - MEDIA ENABLED + ANDROID-SAFE UPLOAD (NebulaNet)
+// app/create/post.tsx - NebulaNet (single version) ✅ privacy + record video + schema-consistent
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,9 +19,20 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type MediaType = "image" | "video";
+type Visibility = "public" | "followers" | "private";
 
 interface MediaItem {
-  uri: string;
+  id: string;
+  uri: string; // final uploaded URL
+  type: MediaType;
+  name?: string;
+  size?: number;
+  duration?: number;
+  thumbnail?: string; // optional thumbnail URL
+}
+
+interface LocalMediaItem {
+  uri: string; // local file:// URI
   type: MediaType;
 }
 
@@ -31,12 +42,10 @@ export default function CreatePostScreen() {
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
 
-  // keep your placeholder
-  const [selectedCommunity] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
+  const [selectedCommunity] = useState(""); // wire later
+  const [visibility, setVisibility] = useState<Visibility>("public");
 
-  // ✅ NEW: media state
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
   const [isPosting, setIsPosting] = useState(false);
 
   const canPost = useMemo(
@@ -44,7 +53,7 @@ export default function CreatePostScreen() {
     [title, isPosting],
   );
 
-  const ensurePermission = async () => {
+  const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(
@@ -56,11 +65,23 @@ export default function CreatePostScreen() {
     return true;
   };
 
+  const ensureCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "We need camera permissions to record video.",
+      );
+      return false;
+    }
+    return true;
+  };
+
   const pickImages = async () => {
-    if (!(await ensurePermission())) return;
+    if (!(await ensureLibraryPermission())) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // ✅ includes GIFs from library
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       selectionLimit: 10,
       quality: 0.9,
@@ -68,22 +89,16 @@ export default function CreatePostScreen() {
 
     if (result.canceled || !result.assets?.length) return;
 
-    const picked: MediaItem[] = result.assets.map((a) => ({
+    const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
-      type: "image",
+      type: "image" as const, // ✅ TS fix
     }));
 
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
   };
 
-  const pickGifs = async () => {
-    // GIFs are just image assets in the library.
-    // (Later, you can add Tenor/Giphy search UI.)
-    await pickImages();
-  };
-
   const pickVideos = async () => {
-    if (!(await ensurePermission())) return;
+    if (!(await ensureLibraryPermission())) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
@@ -95,12 +110,31 @@ export default function CreatePostScreen() {
 
     if (result.canceled || !result.assets?.length) return;
 
-    const picked: MediaItem[] = result.assets.map((a) => ({
+    const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
-      type: "video",
+      type: "video" as const, // ✅ TS fix
     }));
 
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
+  };
+
+  const recordVideo = async () => {
+    if (!(await ensureCameraPermission())) return;
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      videoMaxDuration: 60,
+      quality: 1,
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    setMediaItems((prev) =>
+      [
+        ...prev,
+        { uri: result.assets[0].uri, type: "video" as const }, // ✅ TS fix
+      ].slice(0, 10),
+    );
   };
 
   const removeMedia = (index: number) => {
@@ -118,7 +152,9 @@ export default function CreatePostScreen() {
       type === "video"
         ? ext === "mov"
           ? "video/quicktime"
-          : "video/mp4"
+          : ext === "avi"
+            ? "video/x-msvideo"
+            : "video/mp4"
         : ext === "png"
           ? "image/png"
           : ext === "webp"
@@ -130,12 +166,16 @@ export default function CreatePostScreen() {
     return { ext, mime };
   };
 
-  // ✅ ANDROID SAFE upload: ArrayBuffer
-  const uploadPostMedia = async (): Promise<string[]> => {
+  /**
+   * Upload media to Supabase Storage and return MediaItem[]
+   * Bucket: post-media
+   * Path: media/<userId>/<timestamp-random>.<ext>
+   */
+  const uploadPostMedia = async (): Promise<MediaItem[]> => {
     if (!user) throw new Error("Not logged in");
     if (mediaItems.length === 0) return [];
 
-    const urls: string[] = [];
+    const uploaded: MediaItem[] = [];
 
     for (const item of mediaItems) {
       const { ext, mime } = getFileInfo(item.uri, item.type);
@@ -161,15 +201,38 @@ export default function CreatePostScreen() {
       }
 
       const { data } = supabase.storage.from("post-media").getPublicUrl(path);
-      urls.push(data.publicUrl);
+
+      uploaded.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        uri: data.publicUrl,
+        type: item.type,
+        name: fileName,
+        thumbnail: data.publicUrl,
+      });
     }
 
-    return urls;
+    return uploaded;
   };
 
-  const handleSaveDraft = () => {
-    Alert.alert("Draft Saved", "Your post has been saved as a draft.");
+  const toggleVisibility = () => {
+    setVisibility((v) =>
+      v === "public" ? "followers" : v === "followers" ? "private" : "public",
+    );
   };
+
+  const visibilityIcon: keyof typeof Ionicons.glyphMap =
+    visibility === "public"
+      ? "globe-outline"
+      : visibility === "followers"
+        ? "people-outline"
+        : "lock-closed-outline";
+
+  const visibilityLabel =
+    visibility === "public"
+      ? "Public"
+      : visibility === "followers"
+        ? "Followers"
+        : "Private";
 
   const handlePost = async () => {
     if (!title.trim()) {
@@ -183,31 +246,37 @@ export default function CreatePostScreen() {
 
     setIsPosting(true);
     try {
-      const mediaUrls = await uploadPostMedia();
+      const uploadedMedia = await uploadPostMedia();
 
       const postType =
-        mediaUrls.length === 0
+        uploadedMedia.length === 0
           ? "text"
-          : mediaItems.some((m) => m.type === "video")
+          : uploadedMedia.some((m) => m.type === "video")
             ? "video"
             : "image";
 
-      const nowIso = new Date().toISOString();
+      const is_public_legacy = visibility === "private" ? false : true;
 
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
         title: title.trim(),
         content: bodyText.trim(),
-        media_urls: mediaUrls,
+
+        // ✅ matches your queries
+        media: uploadedMedia,
+
+        community_id: selectedCommunity || null,
+
+        // ✅ privacy (new + legacy)
+        visibility,
+        is_public: is_public_legacy,
+
         post_type: postType,
-        // keep your counters consistent with the rest of your app
-        likes_count: 0,
-        comments_count: 0,
-        shares_count: 0,
-        created_at: nowIso,
-        updated_at: nowIso,
-        // community_id: selectedCommunity || null,  // wire this once you add community picker
-        // is_public: isPublic, // only if your schema has this
+
+        // ✅ matches your queries/posts.ts
+        like_count: 0,
+        comment_count: 0,
+        share_count: 0,
       });
 
       if (error) throw error;
@@ -220,6 +289,10 @@ export default function CreatePostScreen() {
     } finally {
       setIsPosting(false);
     }
+  };
+
+  const handleSaveDraft = () => {
+    Alert.alert("Draft Saved", "Your post has been saved as a draft.");
   };
 
   return (
@@ -264,7 +337,7 @@ export default function CreatePostScreen() {
               textAlignVertical="top"
             />
 
-            {/* ✅ Media Preview */}
+            {/* Media Preview */}
             {mediaItems.length > 0 && (
               <View style={styles.previewWrap}>
                 <Text style={styles.previewLabel}>Attachments</Text>
@@ -272,8 +345,6 @@ export default function CreatePostScreen() {
                 <View style={styles.grid}>
                   {mediaItems.map((m, idx) => (
                     <View key={`${m.uri}-${idx}`} style={styles.gridItemWrap}>
-                      {/* Note: Image component will show first frame for some video URIs on Android,
-                          but not always. It's fine for preview; playback happens on PostCard screen. */}
                       <Image source={{ uri: m.uri }} style={styles.gridItem} />
 
                       {m.type === "video" && (
@@ -308,96 +379,51 @@ export default function CreatePostScreen() {
 
               <TouchableOpacity
                 style={styles.mediaButton}
-                onPress={pickGifs}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="gift-outline" size={20} color="#666" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.mediaButton}
                 onPress={pickVideos}
                 activeOpacity={0.85}
               >
                 <Ionicons name="videocam-outline" size={20} color="#666" />
               </TouchableOpacity>
 
+              {/* Record video */}
               <TouchableOpacity
                 style={styles.mediaButton}
-                onPress={() =>
-                  Alert.alert("Coming soon", "Audio posts are coming next.")
-                }
+                onPress={recordVideo}
                 activeOpacity={0.85}
               >
-                <Ionicons name="musical-notes-outline" size={20} color="#666" />
+                <Ionicons name="camera-outline" size={20} color="#666" />
               </TouchableOpacity>
 
+              {/* Visibility cycle */}
               <TouchableOpacity
                 style={styles.mediaButton}
-                onPress={() => setIsPublic(!isPublic)}
+                onPress={toggleVisibility}
                 activeOpacity={0.85}
               >
-                <Ionicons
-                  name={isPublic ? "globe-outline" : "lock-closed-outline"}
-                  size={20}
-                  color="#666"
-                />
+                <Ionicons name={visibilityIcon} size={20} color="#666" />
               </TouchableOpacity>
 
               <View style={styles.spacer} />
 
-              <TouchableOpacity
-                style={styles.communityButton}
-                onPress={() =>
-                  Alert.alert(
-                    "Community",
-                    "Hook this to your community picker screen.",
-                  )
-                }
-                activeOpacity={0.85}
-              >
-                <Text style={styles.communityButtonText}>
-                  {selectedCommunity || "Community"}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.visibilityPill}>
+                <Text style={styles.visibilityText}>{visibilityLabel}</Text>
+              </View>
             </View>
           </View>
 
-          {/* Add Location */}
-          <TouchableOpacity style={styles.optionCard} activeOpacity={0.85}>
-            <View style={styles.optionLeft}>
-              <View style={styles.optionIconContainer}>
-                <Ionicons name="location-outline" size={20} color="#666" />
-              </View>
-              <Text style={styles.optionText}>Add Location</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-
-          {/* Share Post to Public */}
+          {/* Privacy option card */}
           <TouchableOpacity
             style={styles.optionCard}
-            onPress={() => setIsPublic(!isPublic)}
+            onPress={toggleVisibility}
             activeOpacity={0.85}
           >
             <View style={styles.optionLeft}>
               <View style={styles.optionIconContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color="#666" />
+                <Ionicons name={visibilityIcon} size={20} color="#666" />
               </View>
               <Text style={styles.optionText}>
-                Share Post to {isPublic ? "Public" : "Private"}
+                Visibility: {visibilityLabel}
               </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-
-          {/* Boost Post */}
-          <TouchableOpacity style={styles.optionCard} activeOpacity={0.85}>
-            <View style={styles.optionLeft}>
-              <View style={styles.optionIconContainer}>
-                <Ionicons name="megaphone-outline" size={20} color="#666" />
-              </View>
-              <Text style={styles.optionText}>Boost Post</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
@@ -550,13 +576,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   spacer: { flex: 1 },
-  communityButton: {
-    paddingHorizontal: 12,
+
+  visibilityPill: {
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 999,
     backgroundColor: "#F5F5F5",
   },
-  communityButtonText: { fontSize: 13, color: "#666", fontWeight: "500" },
+  visibilityText: { fontSize: 12, color: "#374151", fontWeight: "700" },
 
   optionCard: {
     flexDirection: "row",

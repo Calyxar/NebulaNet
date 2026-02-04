@@ -1,269 +1,225 @@
 // app/settings/account-center.tsx
-import { SettingsGroup, SettingsItem } from '@/components/settings';
-import Button from '@/components/ui/Button';
-import { useAuth } from '@/hooks/useAuth';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import React from "react";
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-export default function AccountCenterScreen() {
-  const { user, profile, updateProfile } = useAuth();
-  const [editMode, setEditMode] = useState(false);
-  const [formData, setFormData] = useState({
-    username: profile?.username || '',
-    full_name: profile?.full_name || '',
-    bio: profile?.bio || '',
-    email: user?.email || '',
-  });
+import { useAuth } from "@/hooks/useAuth";
+import { pushSettings } from "./routes";
 
-  const handleSave = async () => {
-    try {
-      await updateProfile.mutateAsync({
-        username: formData.username,
-        full_name: formData.full_name,
-        bio: formData.bio,
-      });
-      setEditMode(false);
-      Alert.alert('Success', 'Profile updated successfully');
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    }
-  };
+type RowItem = {
+  title: string;
+  description?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress?: () => void;
+};
 
-  // Fixed navigation functions
-  const navigateToChangePassword = () => {
-    router.push('/settings/change-password' as any);
-  };
+function Card({ children }: { children: React.ReactNode }) {
+  return <View style={styles.card}>{children}</View>;
+}
 
-  const navigateToDeactivate = () => {
-    router.push('/settings/deactivate' as any);
-  };
-
-  const navigateToDelete = () => {
-    router.push('/settings/delete-account' as any);
-  };
-
+function SectionHeader({ title }: { title: string }) {
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Account Center</Text>
-        <Text style={styles.headerDescription}>
-          Manage your account information and profile details
-        </Text>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{title}</Text>
+    </View>
+  );
+}
+
+function Row({ item, isLast }: { item: RowItem; isLast?: boolean }) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={item.onPress}
+      style={[styles.row, isLast && { borderBottomWidth: 0 }]}
+    >
+      <View style={styles.rowIcon}>
+        <Ionicons name={item.icon} size={18} color="#7C3AED" />
       </View>
 
-      <SettingsGroup title="Profile Information">
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Username</Text>
-          {editMode ? (
-            <TextInput
-              style={styles.input}
-              value={formData.username}
-              onChangeText={(text) => setFormData({ ...formData, username: text })}
-              placeholder="Enter username"
-              autoCapitalize="none"
-            />
-          ) : (
-            <Text style={styles.value}>{profile?.username}</Text>
-          )}
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Full Name</Text>
-          {editMode ? (
-            <TextInput
-              style={styles.input}
-              value={formData.full_name}
-              onChangeText={(text) => setFormData({ ...formData, full_name: text })}
-              placeholder="Enter your full name"
-            />
-          ) : (
-            <Text style={styles.value}>{profile?.full_name || 'Not set'}</Text>
-          )}
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Bio</Text>
-          {editMode ? (
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={formData.bio}
-              onChangeText={(text) => setFormData({ ...formData, bio: text })}
-              placeholder="Tell us about yourself"
-              multiline
-              numberOfLines={3}
-            />
-          ) : (
-            <Text style={styles.value}>{profile?.bio || 'No bio yet'}</Text>
-          )}
-        </View>
-      </SettingsGroup>
-
-      <SettingsGroup title="Account Information">
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Email Address</Text>
-          <Text style={styles.value}>{user?.email}</Text>
-          <Text style={styles.emailNote}>
-            {user?.email_confirmed_at 
-              ? '✓ Email verified' 
-              : '⚠ Email not verified'}
-          </Text>
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Account Created</Text>
-          <Text style={styles.value}>
-            {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
-          </Text>
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Last Login</Text>
-          <Text style={styles.value}>
-            {profile?.last_login 
-              ? new Date(profile.last_login).toLocaleString() 
-              : 'N/A'}
-          </Text>
-        </View>
-      </SettingsGroup>
-
-      <SettingsGroup title="Account Actions">
-        <SettingsItem
-          title="Change Email"
-          description="Update your email address"
-          icon="mail-outline"
-          onPress={() => Alert.alert('Coming Soon', 'Email change feature coming soon')}
-        />
-        <SettingsItem
-          title="Change Password"
-          description="Update your password"
-          icon="key-outline"
-          onPress={navigateToChangePassword} // Use fixed function
-        />
-        <SettingsItem
-          title="Download Your Data"
-          description="Request a copy of your data"
-          icon="download-outline"
-          onPress={() => Alert.alert('Coming Soon', 'Data export feature coming soon')}
-        />
-        <SettingsItem
-          title="Deactivate Account"
-          description="Temporarily disable your account"
-          icon="pause-circle-outline"
-          danger
-          onPress={navigateToDeactivate} // Use fixed function
-        />
-        <SettingsItem
-          title="Delete Account"
-          description="Permanently delete your account"
-          icon="trash-outline"
-          danger
-          onPress={navigateToDelete} // Use fixed function
-        />
-      </SettingsGroup>
-
-      <View style={styles.buttonContainer}>
-        {editMode ? (
-          <>
-            <Button
-              title="Save Changes"
-              onPress={handleSave}
-              loading={updateProfile.isPending}
-              style={styles.saveButton}
-            />
-            <Button
-              title="Cancel"
-              variant="outline"
-              onPress={() => {
-                setEditMode(false);
-                setFormData({
-                  username: profile?.username || '',
-                  full_name: profile?.full_name || '',
-                  bio: profile?.bio || '',
-                  email: user?.email || '',
-                });
-              }}
-              style={styles.cancelButton}
-            />
-          </>
-        ) : (
-          <Button
-            title="Edit Profile"
-            onPress={() => setEditMode(true)}
-            style={styles.editButton}
-          />
+      <View style={styles.rowText}>
+        <Text style={styles.rowTitle}>{item.title}</Text>
+        {!!item.description && (
+          <Text style={styles.rowDesc}>{item.description}</Text>
         )}
       </View>
-    </ScrollView>
+
+      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+    </TouchableOpacity>
+  );
+}
+
+export default function AccountCenterScreen() {
+  const { user, profile } = useAuth();
+
+  const accountRows: RowItem[] = [
+    {
+      title: "Change Password",
+      description: "Update your account password",
+      icon: "key-outline",
+      onPress: () => pushSettings("changePassword"),
+    },
+    {
+      title: "Linked Accounts",
+      description: "Connect Google, GitHub, and more",
+      icon: "link-outline",
+      onPress: () => pushSettings("linkedAccounts"),
+    },
+  ];
+
+  const identityRows: RowItem[] = [
+    {
+      title: "Email Address",
+      description: user?.email || "Not set",
+      icon: "mail-outline",
+      onPress: () => Alert.alert("Email", "Email management coming soon"),
+    },
+    {
+      title: "Username",
+      description: profile?.username ? `@${profile.username}` : "Not set",
+      icon: "at-outline",
+      onPress: () => Alert.alert("Username", "Username changes coming soon"),
+    },
+  ];
+
+  return (
+    <LinearGradient
+      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+      locations={[0, 0.45, 1]}
+      style={styles.gradient}
+    >
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoBubble}>
+              <Ionicons
+                name="person-circle-outline"
+                size={20}
+                color="#7C3AED"
+              />
+            </View>
+            <View>
+              <Text style={styles.headerTitle}>Account Center</Text>
+              <Text style={styles.headerSub}>
+                Manage identity and account access
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <SectionHeader title="Identity" />
+          <Card>
+            {identityRows.map((item, idx) => (
+              <Row
+                key={item.title}
+                item={item}
+                isLast={idx === identityRows.length - 1}
+              />
+            ))}
+          </Card>
+
+          <SectionHeader title="Account" />
+          <Card>
+            {accountRows.map((item, idx) => (
+              <Row
+                key={item.title}
+                item={item}
+                isLast={idx === accountRows.length - 1}
+              />
+            ))}
+          </Card>
+
+          <Text style={styles.footerText}>
+            nebulanet.space • Account changes are protected and may require
+            re-authentication.
+          </Text>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
+  gradient: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
+
+  header: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 10 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  logoBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  header: {
-    padding: 20,
-    backgroundColor: 'white',
-    marginBottom: 16,
+  headerTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
+
+  sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+    letterSpacing: 0.4,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  headerDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  formGroup: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: "#EEF2FF",
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-    marginBottom: 8,
+  rowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
-  value: {
-    fontSize: 16,
-    color: '#000',
-  },
-  emailNote: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  input: {
-    fontSize: 16,
-    color: '#000',
-    backgroundColor: '#f8f8f8',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  buttonContainer: {
-    padding: 20,
-  },
-  editButton: {
-    marginTop: 20,
-  },
-  saveButton: {
-    marginBottom: 12,
-  },
-  cancelButton: {
-    backgroundColor: 'transparent',
+  rowText: { flex: 1 },
+  rowTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
+  rowDesc: { marginTop: 3, fontSize: 12, color: "#6B7280", lineHeight: 16 },
+
+  footerText: {
+    marginTop: 14,
+    fontSize: 12,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 18,
   },
 });

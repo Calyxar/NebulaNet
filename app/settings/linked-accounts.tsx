@@ -2,7 +2,7 @@
 import { SettingsGroup, SettingsItem } from "@/components/settings";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -11,6 +11,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+const ACCENT = "#7C3AED";
+const BG = "#E8EAF6";
+const TEXT = "#111827";
+const SUB = "#6B7280";
+const BORDER = "#EEF2FF";
 
 interface LinkedAccount {
   id: string;
@@ -36,7 +43,7 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
   github: {
     name: "GitHub",
     icon: "logo-github",
-    color: "#333",
+    color: "#111827",
     description: "Connect GitHub account",
   },
   twitter: {
@@ -61,8 +68,8 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
 
 export default function LinkedAccountsScreen() {
   const { user, signInWithGoogle } = useAuth();
+
   const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([
-    // Mock data - replace with actual data from your backend
     {
       id: "1",
       provider: "google",
@@ -81,14 +88,13 @@ export default function LinkedAccountsScreen() {
           "Coming Soon",
           `${PROVIDER_INFO[provider].name} integration coming soon`,
         );
-        break;
     }
   };
 
   const handleDisconnect = (account: LinkedAccount) => {
     Alert.alert(
       "Disconnect Account",
-      `Are you sure you want to disconnect your ${PROVIDER_INFO[account.provider].name} account?`,
+      `Disconnect your ${PROVIDER_INFO[account.provider].name} account?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -99,7 +105,7 @@ export default function LinkedAccountsScreen() {
               prev.filter((acc) => acc.id !== account.id),
             );
             Alert.alert(
-              "Success",
+              "Disconnected",
               `${PROVIDER_INFO[account.provider].name} account disconnected`,
             );
           },
@@ -108,9 +114,8 @@ export default function LinkedAccountsScreen() {
     );
   };
 
-  const isConnected = (provider: keyof typeof PROVIDER_INFO) => {
-    return linkedAccounts.some((acc) => acc.provider === provider);
-  };
+  const isConnected = (provider: keyof typeof PROVIDER_INFO) =>
+    linkedAccounts.some((acc) => acc.provider === provider);
 
   const renderProviderCard = (provider: keyof typeof PROVIDER_INFO) => {
     const info = PROVIDER_INFO[provider];
@@ -119,44 +124,46 @@ export default function LinkedAccountsScreen() {
 
     return (
       <View key={provider} style={styles.providerCard}>
-        <View style={styles.providerHeader}>
-          <View
-            style={[
-              styles.providerIconContainer,
-              { backgroundColor: info.color },
-            ]}
-          >
-            <Ionicons name={info.icon} size={24} color="white" />
+        <View style={styles.providerLeft}>
+          <View style={[styles.providerIcon, { backgroundColor: info.color }]}>
+            <Ionicons name={info.icon} size={22} color="#FFFFFF" />
           </View>
-          <View style={styles.providerInfo}>
+
+          <View style={{ flex: 1 }}>
             <Text style={styles.providerName}>{info.name}</Text>
-            <Text style={styles.providerDescription}>{info.description}</Text>
-            {connected && account?.email && (
-              <Text style={styles.providerEmail}>{account.email}</Text>
-            )}
-            {connected && account?.connectedAt && (
-              <Text style={styles.providerDate}>
-                Connected {new Date(account.connectedAt).toLocaleDateString()}
-              </Text>
+            <Text style={styles.providerDesc}>{info.description}</Text>
+
+            {connected && (
+              <View style={styles.connectedMeta}>
+                {account?.email ? (
+                  <Text style={styles.providerMeta}>{account.email}</Text>
+                ) : null}
+                <Text style={styles.providerMeta}>
+                  Connected{" "}
+                  {new Date(account?.connectedAt || "").toLocaleDateString()}
+                </Text>
+              </View>
             )}
           </View>
         </View>
 
         {connected ? (
           <TouchableOpacity
-            style={styles.disconnectButton}
+            style={styles.disconnectBtn}
             onPress={() => handleDisconnect(account!)}
+            activeOpacity={0.85}
           >
-            <Ionicons name="link" size={16} color="#ff3b30" />
-            <Text style={styles.disconnectButtonText}>Disconnect</Text>
+            <Ionicons name="unlink-outline" size={16} color="#EF4444" />
+            <Text style={styles.disconnectText}>Disconnect</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.connectButton}
+            style={styles.connectBtn}
             onPress={() => handleConnect(provider)}
+            activeOpacity={0.85}
           >
-            <Ionicons name="add-outline" size={16} color="white" />
-            <Text style={styles.connectButtonText}>Connect</Text>
+            <Ionicons name="add-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.connectText}>Connect</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -164,214 +171,177 @@ export default function LinkedAccountsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Linked Accounts</Text>
-        <Text style={styles.headerDescription}>
-          Connect other accounts to enhance your NebulaNet experience
-        </Text>
-      </View>
-
-      <View style={styles.providersList}>
-        {Object.keys(PROVIDER_INFO).map((provider) =>
-          renderProviderCard(provider as keyof typeof PROVIDER_INFO),
-        )}
-      </View>
-
-      <SettingsGroup title="Account Benefits">
-        <SettingsItem
-          title="Single Sign-On"
-          description="Use connected accounts for easy login"
-          icon="log-in-outline"
-        />
-        <SettingsItem
-          title="Profile Import"
-          description="Import profile info from connected accounts"
-          icon="person-circle-outline"
-        />
-        <SettingsItem
-          title="Content Sharing"
-          description="Share content directly to connected platforms"
-          icon="share-outline"
-        />
-        <SettingsItem
-          title="Enhanced Features"
-          description="Unlock additional features with connected accounts"
-          icon="star-outline"
-        />
-      </SettingsGroup>
-
-      <View style={styles.infoSection}>
-        <Ionicons name="information-circle-outline" size={24} color="#007AFF" />
-        <View style={styles.infoContent}>
-          <Text style={styles.infoTitle}>How Linked Accounts Work</Text>
-          <Text style={styles.infoText}>
-            • Connected accounts can be used for login{"\n"}• We never post to
-            your accounts without permission{"\n"}• You can disconnect accounts
-            at any time{"\n"}• Your data remains secure and private
+    <SafeAreaView style={styles.safe}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        <View style={styles.headerCard}>
+          <Text style={styles.title}>Linked Accounts</Text>
+          <Text style={styles.subtitle}>
+            Connect accounts for easier sign-in and sharing across platforms.
           </Text>
+
+          <View style={styles.domainPill}>
+            <Ionicons name="globe-outline" size={14} color={ACCENT} />
+            <Text style={styles.domainText}>nebulanet.space</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Need help with connected accounts?{" "}
-          <Text
-            style={styles.footerLink}
-            onPress={() => {
-              // In React Native, you would use Linking instead of window.open
-              // Linking.openURL('https://support.nebulanet.space/linked-accounts');
-              Alert.alert("Info", "Help center would open in a real app");
-            }}
-          >
-            Visit our help center
-          </Text>
-        </Text>
-      </View>
-    </ScrollView>
+        <View style={styles.cardsWrap}>
+          {(Object.keys(PROVIDER_INFO) as (keyof typeof PROVIDER_INFO)[]).map(
+            renderProviderCard,
+          )}
+        </View>
+
+        <SettingsGroup title="Benefits">
+          <SettingsItem
+            title="Single Sign-On"
+            description="Use connected accounts to sign in faster"
+            icon="log-in-outline"
+          />
+          <SettingsItem
+            title="Profile Import"
+            description="Import name and avatar from connected accounts"
+            icon="person-circle-outline"
+          />
+          <SettingsItem
+            title="Content Sharing"
+            description="Share posts directly to connected platforms"
+            icon="share-outline"
+          />
+          <SettingsItem
+            title="Enhanced Features"
+            description="Unlock additional integrations over time"
+            icon="sparkles-outline"
+          />
+        </SettingsGroup>
+
+        <View style={styles.infoCard}>
+          <Ionicons
+            name="information-circle-outline"
+            size={20}
+            color={ACCENT}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>How it works</Text>
+            <Text style={styles.infoText}>
+              • We never post without permission{"\n"}• You can disconnect
+              anytime{"\n"}• Your data stays private and secure
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.footer}>Need help? support@nebulanet.space</Text>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  header: {
-    padding: 20,
-    backgroundColor: "white",
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 8,
-  },
-  headerDescription: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  providersList: {
-    marginBottom: 16,
-  },
-  providerCard: {
-    backgroundColor: "white",
-    marginHorizontal: 16,
-    marginBottom: 12,
+  safe: { flex: 1, backgroundColor: BG },
+  container: { flex: 1 },
+  content: { paddingBottom: 24 },
+
+  headerCard: {
+    margin: 16,
+    marginBottom: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
     padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  title: { fontSize: 20, fontWeight: "800", color: TEXT },
+  subtitle: { fontSize: 12, color: SUB, marginTop: 6, lineHeight: 18 },
+
+  domainPill: {
+    marginTop: 12,
+    alignSelf: "flex-start",
+    backgroundColor: "#F7F5FF",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  domainText: { fontSize: 12, fontWeight: "900", color: ACCENT },
+
+  cardsWrap: { paddingHorizontal: 16, gap: 10 },
+
+  providerCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  providerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  providerIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#007AFF", // Default, will be overridden
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  providerInfo: {
-    flex: 1,
-  },
-  providerName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 2,
-  },
-  providerDescription: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  providerEmail: {
-    fontSize: 12,
-    color: "#999",
-    marginBottom: 2,
-  },
-  providerDate: {
-    fontSize: 11,
-    color: "#ccc",
-  },
-  connectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
-  },
-  connectButtonText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  disconnectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#ff3b30",
-    gap: 6,
-  },
-  disconnectButtonText: {
-    color: "#ff3b30",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  infoSection: {
-    flexDirection: "row",
-    backgroundColor: "#e8f4f8",
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
     gap: 12,
   },
-  infoContent: {
+  providerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     flex: 1,
   },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
+  providerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  infoText: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
+  providerName: { fontSize: 14, fontWeight: "900", color: TEXT },
+  providerDesc: { fontSize: 12, color: SUB, marginTop: 3, lineHeight: 16 },
+  connectedMeta: { marginTop: 8 },
+  providerMeta: { fontSize: 11, color: "#9CA3AF", marginTop: 2 },
+
+  connectBtn: {
+    backgroundColor: ACCENT,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
+  connectText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
+
+  disconnectBtn: {
+    backgroundColor: "#FFF1F2",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#FFE4E6",
+  },
+  disconnectText: { color: "#EF4444", fontWeight: "900", fontSize: 12 },
+
+  infoCard: {
+    flexDirection: "row",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    margin: 16,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  infoTitle: { fontSize: 13, fontWeight: "900", color: TEXT, marginBottom: 4 },
+  infoText: { fontSize: 12, color: SUB, lineHeight: 18 },
+
   footer: {
-    padding: 20,
-    marginBottom: 16,
-  },
-  footerText: {
-    fontSize: 14,
-    color: "#666",
     textAlign: "center",
-    lineHeight: 20,
-  },
-  footerLink: {
-    color: "#007AFF",
-    fontWeight: "500",
+    fontSize: 12,
+    color: SUB,
+    paddingHorizontal: 16,
   },
 });
