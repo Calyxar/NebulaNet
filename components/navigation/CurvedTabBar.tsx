@@ -4,8 +4,7 @@ import React from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ✅ SVG background as a COMPONENT (NOT Image)
-import TabBarBg from "@/assets/images/Component1.svg";
+import SubtractBg from "@/assets/images/Subtract.svg";
 
 export const TAB_BAR_BASE_HEIGHT = 86;
 
@@ -13,7 +12,7 @@ export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
 }
 
-function Icon({
+function TabIcon({
   name,
   focused,
 }: {
@@ -38,18 +37,16 @@ function Icon({
 export function CurvedTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const height = getTabBarHeight(insets.bottom);
+  const bottomPad = Math.max(insets.bottom, 10);
 
   return (
     <View style={[styles.wrapper, { height }]} pointerEvents="box-none">
-      <View
-        style={[styles.inner, { paddingBottom: Math.max(insets.bottom, 10) }]}
-      >
+      <View style={[styles.inner, { paddingBottom: bottomPad }]}>
         {/* SVG background */}
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <TabBarBg width="100%" height="100%" preserveAspectRatio="none" />
+          <SubtractBg width="100%" height="100%" preserveAspectRatio="none" />
         </View>
 
-        {/* Buttons row */}
         <View style={styles.row}>
           {state.routes.map((route: any, index: number) => {
             if (route.name === "notifications") return null;
@@ -102,7 +99,7 @@ export function CurvedTabBar({ state, navigation }: any) {
                 style={styles.tab}
                 android_ripple={{ borderless: true }}
               >
-                <Icon name={mapped as any} focused={focused} />
+                <TabIcon name={mapped as any} focused={focused} />
                 <View style={[styles.dot, focused && styles.dotActive]} />
               </Pressable>
             );
@@ -124,7 +121,7 @@ const styles = StyleSheet.create({
   inner: {
     flex: 1,
     borderRadius: 34,
-    overflow: "hidden", // ✅ keeps SVG clipped to the pill shape
+    overflow: "hidden", // clips the SVG to the pill
   },
   row: {
     flex: 1,
