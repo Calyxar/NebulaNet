@@ -1,33 +1,36 @@
+// components/navigation/CurvedTabBar.tsx
 import { Home, MessageCircle, Search, User } from "lucide-react-native";
 import React from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Path } from "react-native-svg";
 
-export const TAB_BAR_BASE_HEIGHT = 88;
+// ✅ SVG background as a COMPONENT (NOT Image)
+import TabBarBg from "@/assets/images/Component 1.svg";
+
+export const TAB_BAR_BASE_HEIGHT = 86;
 
 export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
 }
 
-function TabIcon({
-  route,
+function Icon({
+  name,
   focused,
 }: {
-  route: "home" | "explore" | "chat" | "profile";
+  name: "home" | "explore" | "chat" | "profile";
   focused: boolean;
 }) {
   const color = focused ? "#7C3AED" : "#9CA3AF";
   const size = 24;
 
-  switch (route) {
+  switch (name) {
     case "home":
       return <Home size={size} color={color} />;
     case "explore":
       return <Search size={size} color={color} />;
     case "chat":
       return <MessageCircle size={size} color={color} />;
-    case "profile":
+    default:
       return <User size={size} color={color} />;
   }
 }
@@ -38,85 +41,73 @@ export function CurvedTabBar({ state, navigation }: any) {
 
   return (
     <View style={[styles.wrapper, { height }]} pointerEvents="box-none">
-      {/* SVG BAR WITH NOTCH */}
-      <Svg width="100%" height={88} viewBox="0 0 390 88" style={styles.svg}>
-        <Path
-          d="
-            M0 28
-            Q0 0 28 0
-            H140
-            C155 0 165 12 170 22
-            C178 40 212 40 220 22
-            C225 12 235 0 250 0
-            H362
-            Q390 0 390 28
-            V88
-            H0
-            Z
-          "
-          fill="rgba(255,255,255,0.98)"
-          stroke="rgba(17,24,39,0.06)"
-          strokeWidth={1}
-        />
-      </Svg>
+      <View
+        style={[styles.inner, { paddingBottom: Math.max(insets.bottom, 10) }]}
+      >
+        {/* SVG background */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <TabBarBg width="100%" height="100%" preserveAspectRatio="none" />
+        </View>
 
-      {/* TABS */}
-      <View style={styles.row}>
-        {state.routes.map((route: any, index: number) => {
-          if (route.name === "notifications") return null;
+        {/* Buttons row */}
+        <View style={styles.row}>
+          {state.routes.map((route: any, index: number) => {
+            if (route.name === "notifications") return null;
 
-          const isFocused = state.index === index;
+            const focused = state.index === index;
+            const isCreate = route.name === "create";
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
+            const onPress = () => {
+              const event = navigation.emit({
+                type: "tabPress",
+                target: route.key,
+                canPreventDefault: true,
+              });
 
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
+              if (!focused && !event.defaultPrevented) {
+                navigation.navigate(route.name);
+              }
+            };
 
-          if (route.name === "create") {
-            return (
-              <View key={route.key} style={styles.centerSlot}>
-                <TouchableOpacity
-                  onPress={onPress}
-                  activeOpacity={0.9}
-                  style={styles.createBtn}
+            if (isCreate) {
+              return (
+                <View
+                  key={route.key}
+                  style={styles.centerSlot}
+                  pointerEvents="box-none"
                 >
-                  <Image
-                    source={require("@/assets/images/512_512_c.png")}
-                    style={styles.createImg}
-                  />
-                </TouchableOpacity>
-              </View>
+                  <Pressable onPress={onPress} style={styles.centerButton}>
+                    <Image
+                      source={require("@/assets/images/512_512_c.png")}
+                      style={styles.centerImage}
+                    />
+                  </Pressable>
+                </View>
+              );
+            }
+
+            const mapped =
+              route.name === "home"
+                ? "home"
+                : route.name === "explore"
+                  ? "explore"
+                  : route.name === "chat"
+                    ? "chat"
+                    : "profile";
+
+            return (
+              <Pressable
+                key={route.key}
+                onPress={onPress}
+                style={styles.tab}
+                android_ripple={{ borderless: true }}
+              >
+                <Icon name={mapped as any} focused={focused} />
+                <View style={[styles.dot, focused && styles.dotActive]} />
+              </Pressable>
             );
-          }
-
-          const mapped =
-            route.name === "home"
-              ? "home"
-              : route.name === "explore"
-                ? "explore"
-                : route.name === "chat"
-                  ? "chat"
-                  : "profile";
-
-          return (
-            <TouchableOpacity
-              key={route.key}
-              onPress={onPress}
-              activeOpacity={0.85}
-              style={styles.tab}
-            >
-              <TabIcon route={mapped as any} focused={isFocused} />
-              <View style={[styles.dot, isFocused && styles.dotActive]} />
-            </TouchableOpacity>
-          );
-        })}
+          })}
+        </View>
       </View>
     </View>
   );
@@ -128,31 +119,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    alignItems: "center",
+    paddingHorizontal: 14,
   },
-
-  svg: {
-    position: "absolute",
-    bottom: 0,
+  inner: {
+    flex: 1,
+    borderRadius: 34,
+    overflow: "hidden", // ✅ keeps SVG clipped to the pill shape
   },
-
   row: {
+    flex: 1,
     flexDirection: "row",
-    alignItems: "flex-end",
     justifyContent: "space-between",
-    width: "100%",
-    paddingHorizontal: 22,
-    paddingBottom: 10,
-    height: 88,
+    alignItems: "center",
+    paddingHorizontal: 18,
   },
-
   tab: {
-    width: 56,
+    width: 58,
     height: 56,
     alignItems: "center",
     justifyContent: "center",
   },
-
   dot: {
     marginTop: 6,
     width: 6,
@@ -160,34 +146,25 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "transparent",
   },
-
   dotActive: {
     backgroundColor: "#7C3AED",
   },
-
   centerSlot: {
-    width: 86,
-    alignItems: "center",
-  },
-
-  createBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#7C3AED",
+    width: 82,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
-    shadowColor: "#7C3AED",
-    shadowOpacity: 0.25,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 14,
   },
-
-  createImg: {
-    width: 42,
-    height: 42,
+  centerButton: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [{ translateY: -10 }],
+  },
+  centerImage: {
+    width: 66,
+    height: 66,
     resizeMode: "contain",
   },
 });
