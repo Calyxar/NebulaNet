@@ -289,6 +289,7 @@ export async function getPosts(
 
   if (userId) query = query.eq("user_id", userId);
   if (visibility) query = query.eq("visibility", visibility);
+  [];
 
   switch (sortBy) {
     case "popular":
