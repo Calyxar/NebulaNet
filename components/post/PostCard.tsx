@@ -5,10 +5,10 @@ import {
   generatePostLink,
   shareToChat,
   shareWithOptions,
-} from "@/lib/share"; // Fixed imports
+} from "@/lib/share";
 import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 interface PostCardProps {
@@ -35,11 +35,16 @@ interface PostCardProps {
   isSaved: boolean;
   media?: string[];
   viewCount?: number;
-  onLikePress?: () => Promise<void> | void;
+
+  /* interactions */
+  onLikePress?: () => void | Promise<void>;
   onCommentPress?: () => void;
-  onSharePress?: () => Promise<void> | void;
-  onSavePress?: () => Promise<void> | void;
+  onSharePress?: () => void | Promise<void>;
+  onSavePress?: () => void | Promise<void>;
   onMorePress?: () => void;
+
+  /* analytics */
+  onVisible?: () => void;
 }
 
 export default function PostCard({
@@ -62,20 +67,31 @@ export default function PostCard({
   onSharePress,
   onSavePress,
   onMorePress,
+  onVisible,
 }: PostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  const handleLike = async () => {
-    if (onLikePress) {
-      await onLikePress();
+  // View tracking — fire once per mount
+  const hasTrackedView = useRef(false);
+
+  useEffect(() => {
+    if (!hasTrackedView.current && onVisible) {
+      hasTrackedView.current = true;
+      onVisible();
     }
+  }, [onVisible]);
+
+  /* ------------------------------------------------------------------ */
+  /* Handlers                                                           */
+  /* ------------------------------------------------------------------ */
+
+  const handleLike = async () => {
+    await onLikePress?.();
   };
 
   const handleSave = async () => {
-    if (onSavePress) {
-      await onSavePress();
-    }
+    await onSavePress?.();
   };
 
   const handleShare = async () => {
@@ -89,11 +105,10 @@ export default function PostCard({
         content,
         author,
       });
-      if (onSharePress) {
-        await onSharePress();
-      }
-    } catch (error) {
-      console.log("Share error:", error);
+
+      await onSharePress?.();
+    } catch (e) {
+      console.warn("Share failed:", e);
     } finally {
       setIsSharing(false);
     }
@@ -110,18 +125,17 @@ export default function PostCard({
         content,
         author,
       });
-      if (onSharePress) {
-        await onSharePress();
-      }
-    } catch (error) {
-      console.log("Share to chat error:", error);
+
+      await onSharePress?.();
+    } catch (e) {
+      console.warn("Share to chat failed:", e);
     } finally {
       setIsSharing(false);
     }
   };
 
   const handleMoreOptions = () => {
-    Alert.alert("More Options", "Choose an action", [
+    Alert.alert("More Options", undefined, [
       {
         text: "Share to Chat",
         onPress: handleShareToChat,
@@ -129,34 +143,27 @@ export default function PostCard({
       {
         text: "Copy Link",
         onPress: async () => {
-          // Use the imported functions directly
           const link = generatePostLink(id);
           await copyLink(link, "Post link");
-          if (onSharePress) {
-            await onSharePress();
-          }
+          await onSharePress?.();
         },
       },
       {
         text: "Report Post",
-        onPress: () => Alert.alert("Report", "Report feature coming soon"),
         style: "destructive",
+        onPress: () =>
+          Alert.alert("Report", "Reporting will be available soon."),
       },
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
+      { text: "Cancel", style: "cancel" },
     ]);
   };
 
-  const toggleExpand = () => {
-    setExpanded(!expanded);
-  };
-
   const displayContent =
-    expanded || content.length <= 150
-      ? content
-      : `${content.substring(0, 150)}...`;
+    expanded || content.length <= 150 ? content : `${content.slice(0, 150)}…`;
+
+  /* ------------------------------------------------------------------ */
+  /* Render                                                             */
+  /* ------------------------------------------------------------------ */
 
   return (
     <View style={styles.container}>
@@ -178,7 +185,7 @@ export default function PostCard({
         <View style={styles.headerRight}>
           <Text style={styles.timestamp}>{timestamp}</Text>
           <TouchableOpacity
-            onPress={handleMoreOptions}
+            onPress={onMorePress ?? handleMoreOptions}
             style={styles.moreButton}
           >
             <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
@@ -192,21 +199,16 @@ export default function PostCard({
 
         <Text style={styles.text}>
           {displayContent}
-          {content.length > 150 && !expanded && (
-            <Text style={styles.readMore} onPress={toggleExpand}>
-              {" "}
-              Read more
-            </Text>
-          )}
-          {expanded && (
-            <Text style={styles.readMore} onPress={toggleExpand}>
-              {" "}
-              Show less
+          {content.length > 150 && (
+            <Text
+              style={styles.readMore}
+              onPress={() => setExpanded(!expanded)}
+            >
+              {expanded ? " Show less" : " Read more"}
             </Text>
           )}
         </Text>
 
-        {/* Media Preview */}
         {media && media.length > 0 && (
           <View style={styles.mediaContainer}>
             <View style={styles.mediaPreview}>
@@ -219,87 +221,109 @@ export default function PostCard({
         )}
       </View>
 
-      {/* View Count */}
-      {viewCount !== undefined && (
+      {/* Views */}
+      {typeof viewCount === "number" && (
         <Text style={styles.viewCount}>{viewCount.toLocaleString()} views</Text>
       )}
 
       {/* Stats */}
       <View style={styles.stats}>
-        <View style={styles.statItem}>
-          <Ionicons name="heart" size={16} color="#ff375f" />
-          <Text style={styles.statText}>
-            {likes.toLocaleString()} {likes === 1 ? "like" : "likes"}
-          </Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="chatbubble-outline" size={16} color="#666" />
-          <Text style={styles.statText}>
-            {comments.toLocaleString()}{" "}
-            {comments === 1 ? "comment" : "comments"}
-          </Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="arrow-redo-outline" size={16} color="#666" />
-          <Text style={styles.statText}>
-            {shares.toLocaleString()} {shares === 1 ? "share" : "shares"}
-          </Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="bookmark-outline" size={16} color="#666" />
-          <Text style={styles.statText}>
-            {saves.toLocaleString()} {saves === 1 ? "save" : "saves"}
-          </Text>
-        </View>
+        <Stat icon="heart" value={likes} label="like" color="#ff375f" />
+        <Stat icon="chatbubble-outline" value={comments} label="comment" />
+        <Stat icon="arrow-redo-outline" value={shares} label="share" />
+        <Stat icon="bookmark-outline" value={saves} label="save" />
       </View>
 
       {/* Actions */}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-          <Ionicons
-            name={isLiked ? "heart" : "heart-outline"}
-            size={22}
-            color={isLiked ? "#ff375f" : "#666"}
-          />
-          <Text style={[styles.actionText, isLiked && styles.likedText]}>
-            Like
-          </Text>
-        </TouchableOpacity>
+        <Action
+          icon={isLiked ? "heart" : "heart-outline"}
+          label="Like"
+          color={isLiked ? "#ff375f" : "#666"}
+          onPress={handleLike}
+        />
 
         <Link href={`/post/${id}`} asChild>
-          <TouchableOpacity style={styles.actionButton}>
-            <Ionicons name="chatbubble-outline" size={22} color="#666" />
-            <Text style={styles.actionText}>Comment</Text>
-          </TouchableOpacity>
+          <Action icon="chatbubble-outline" label="Comment" />
         </Link>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleShare}
+        <Action
+          icon={isSharing ? "sync" : "arrow-redo-outline"}
+          label="Share"
           disabled={isSharing}
-        >
-          {isSharing ? (
-            <Ionicons name="sync" size={20} color="#666" />
-          ) : (
-            <Ionicons name="arrow-redo-outline" size={22} color="#666" />
-          )}
-          <Text style={styles.actionText}>Share</Text>
-        </TouchableOpacity>
+          onPress={handleShare}
+        />
 
-        <TouchableOpacity style={styles.actionButton} onPress={handleSave}>
-          <Ionicons
-            name={isSaved ? "bookmark" : "bookmark-outline"}
-            size={22}
-            color={isSaved ? "#000" : "#666"}
-          />
-          <Text style={[styles.actionText, isSaved && styles.savedText]}>
-            Save
-          </Text>
-        </TouchableOpacity>
+        <Action
+          icon={isSaved ? "bookmark" : "bookmark-outline"}
+          label="Save"
+          color={isSaved ? "#000" : "#666"}
+          onPress={handleSave}
+        />
       </View>
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Small helpers                                                              */
+/* -------------------------------------------------------------------------- */
+
+function Stat({
+  icon,
+  value,
+  label,
+  color = "#666",
+}: {
+  icon: any;
+  value: number;
+  label: string;
+  color?: string;
+}) {
+  return (
+    <View style={styles.statItem}>
+      <Ionicons name={icon} size={16} color={color} />
+      <Text style={styles.statText}>
+        {value.toLocaleString()} {value === 1 ? label : `${label}s`}
+      </Text>
+    </View>
+  );
+}
+
+function Action({
+  icon,
+  label,
+  color = "#666",
+  disabled,
+  onPress,
+  children,
+}: {
+  icon: any;
+  label: string;
+  color?: string;
+  disabled?: boolean;
+  onPress?: () => void;
+  children?: React.ReactNode;
+}) {
+  const content = (
+    <TouchableOpacity
+      style={styles.actionButton}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Ionicons name={icon} size={22} color={color} />
+      <Text style={[styles.actionText, color !== "#666" && { color }]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  return children ? children : content;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Styles                                                                     */
+/* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   container: {
@@ -310,123 +334,60 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e5e5",
   },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
     marginBottom: 12,
   },
-  authorInfo: {
-    flexDirection: "row",
-    flex: 1,
-  },
-  authorDetails: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  authorName: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 2,
-    color: "#000",
-  },
-  authorUsername: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 2,
-  },
-  community: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
-  },
-  headerRight: {
-    alignItems: "flex-end",
-  },
-  timestamp: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  moreButton: {
-    padding: 4,
-  },
-  content: {
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 8,
-    color: "#000",
-  },
-  text: {
-    fontSize: 16,
-    lineHeight: 22,
-    color: "#000",
-  },
-  readMore: {
-    color: "#000",
-    fontWeight: "500",
-  },
-  viewCount: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 8,
-  },
-  mediaContainer: {
-    marginTop: 12,
-  },
+
+  authorInfo: { flexDirection: "row", flex: 1 },
+  authorDetails: { marginLeft: 12, flex: 1 },
+  authorName: { fontSize: 16, fontWeight: "600" },
+  authorUsername: { fontSize: 14, color: "#666" },
+  community: { fontSize: 14, color: "#666", fontWeight: "500" },
+
+  headerRight: { alignItems: "flex-end" },
+  timestamp: { fontSize: 12, color: "#666" },
+  moreButton: { padding: 4 },
+
+  content: { marginBottom: 12 },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
+  text: { fontSize: 16, lineHeight: 22 },
+  readMore: { fontWeight: "500" },
+
+  viewCount: { fontSize: 12, color: "#666", marginBottom: 8 },
+
+  mediaContainer: { marginTop: 12 },
   mediaPreview: {
     height: 150,
     backgroundColor: "#f5f5f5",
     borderRadius: 12,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
   },
-  mediaText: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 8,
-  },
+  mediaText: { marginTop: 8, color: "#666" },
+
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#e5e5e5",
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e5e5",
+    borderColor: "#e5e5e5",
     marginBottom: 12,
   },
   statItem: {
     flexDirection: "row",
     alignItems: "center",
     marginRight: 20,
-    marginBottom: 4,
   },
-  statText: {
-    fontSize: 14,
-    color: "#666",
-    marginLeft: 4,
-  },
+  statText: { marginLeft: 4, color: "#666" },
+
   actions: {
     flexDirection: "row",
     justifyContent: "space-around",
   },
-  actionButton: {
-    alignItems: "center",
-    padding: 4,
-  },
-  actionText: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-  },
-  likedText: {
-    color: "#ff375f",
-  },
-  savedText: {
-    color: "#000",
-  },
+  actionButton: { alignItems: "center", padding: 4 },
+  actionText: { fontSize: 12, marginTop: 4, color: "#666" },
 });
