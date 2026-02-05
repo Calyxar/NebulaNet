@@ -1,73 +1,87 @@
 // lib/queries/posts.ts
-import { MediaItem } from "@/components/media/MediaUpload";
+import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { supabase } from "@/lib/supabase";
-import { deleteMediaItems, uploadMediaItems } from "@/lib/uploads";
 
 export type PostVisibility = "public" | "followers" | "private";
 
-// Define the actual response type from Supabase with joins
+/* =========================================================
+   SUPABASE RAW RESPONSE (RELATIONS = ARRAYS)
+   ========================================================= */
+
+type ProfileRow = {
+  id: string;
+  username: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+};
+
+type CommunityRow = {
+  id: string;
+  name: string;
+  slug: string;
+  avatar_url?: string | null;
+};
+
 interface SupabasePostResponse {
   id: string;
   user_id: string;
-  title?: string;
+
+  title?: string | null;
   content: string;
-  media: MediaItem[];
-  community_id?: string;
 
-  // NEW (preferred)
-  visibility?: PostVisibility;
-
-  // OLD (legacy)
-  is_public?: boolean;
+  media_urls: string[];
+  visibility: PostVisibility;
+  community_id?: string | null;
 
   like_count: number;
   comment_count: number;
-  share_count: number;
+
+  // ✅ Keep raw as nullable (what Supabase might return)
+  share_count: number | null;
+
   created_at: string;
   updated_at: string;
-  user: {
-    id: string;
-    username: string;
-    full_name?: string;
-    avatar_url?: string;
-  };
-  community?: {
-    id: string;
-    name: string;
-    slug: string;
-    avatar_url?: string;
-  };
+
+  // Relations come back as arrays in Supabase
+  user: ProfileRow[];
+  community?: CommunityRow[] | null;
 }
 
-export interface Post extends SupabasePostResponse {
+/* =========================================================
+   UI-SAFE POST TYPE
+   ========================================================= */
+
+export interface Post extends Omit<
+  SupabasePostResponse,
+  "user" | "community" | "share_count"
+> {
+  user: ProfileRow | null;
+  community: CommunityRow | null;
+
+  // ✅ UI-safe: always a number
+  share_count: number;
+
   is_liked?: boolean;
   is_saved?: boolean;
   is_owned?: boolean;
 }
+
+/* =========================================================
+   INPUT TYPES
+   ========================================================= */
 
 export interface CreatePostData {
   title?: string;
   content: string;
   media?: MediaItem[];
   community_id?: string;
-
-  // NEW (preferred)
-  visibility?: PostVisibility;
-
-  // OLD (legacy)
-  is_public?: boolean;
+  visibility: PostVisibility;
 }
 
 export interface UpdatePostData {
   title?: string;
   content?: string;
-  media?: MediaItem[];
-
-  // NEW (preferred)
   visibility?: PostVisibility;
-
-  // OLD (legacy)
-  is_public?: boolean;
 }
 
 export interface PostFilters {
@@ -76,13 +90,7 @@ export interface PostFilters {
   communitySlug?: string;
   username?: string;
   userId?: string;
-
-  // NEW (preferred) — if you pass this, it will filter
   visibility?: PostVisibility;
-
-  // OLD (legacy)
-  isPublic?: boolean;
-
   sortBy?: "newest" | "popular" | "trending";
 }
 
@@ -92,39 +100,160 @@ export interface PaginatedPosts {
   hasMore: boolean;
 }
 
-// Helpers
-function normalizeVisibility(p: SupabasePostResponse): PostVisibility {
-  if (p.visibility) return p.visibility;
-  // legacy fallback
-  return p.is_public === false ? "private" : "public";
+/* =========================================================
+   HELPERS
+   ========================================================= */
+
+function normalizeVisibility(p: {
+  visibility?: unknown;
+  is_public?: unknown;
+}): PostVisibility {
+  const v = p?.visibility;
+  if (v === "public" || v === "followers" || v === "private") return v;
+  if (typeof p?.is_public === "boolean")
+    return p.is_public ? "public" : "private";
+  return "public";
 }
 
-function applyVisibilityWrite(data: {
-  visibility?: PostVisibility;
-  is_public?: boolean;
-}): { visibility?: PostVisibility; is_public?: boolean } {
-  // If visibility explicitly provided, prefer it.
-  if (data.visibility) {
-    // legacy compatibility:
-    // public/followers => is_public true
-    // private => is_public false
-    const legacyIsPublic = data.visibility === "private" ? false : true;
-    return { visibility: data.visibility, is_public: legacyIsPublic };
-  }
+function normalizePost(
+  post: SupabasePostResponse,
+  extras?: Partial<Post>,
+): Post {
+  return {
+    ...post,
+    user: post.user?.[0] ?? null,
+    community: post.community?.[0] ?? null,
+    visibility: normalizeVisibility(post),
 
-  // If only is_public provided, map to visibility.
-  if (typeof data.is_public === "boolean") {
-    return {
-      is_public: data.is_public,
-      visibility: data.is_public ? "public" : "private",
-    };
-  }
+    // ✅ normalize share_count to a real number
+    share_count: typeof post.share_count === "number" ? post.share_count : 0,
 
-  // Default
-  return { visibility: "public", is_public: true };
+    ...extras,
+  };
 }
 
-// Get posts with filters
+function isRemoteUrl(u: string): boolean {
+  return /^https?:\/\//i.test(u);
+}
+
+function guessExt(uri: string, fallback: string): string {
+  const clean = uri.split("?")[0]?.split("#")[0] ?? uri;
+  const last = clean.split(".").pop();
+  if (!last || last.length > 8) return fallback;
+  return last.toLowerCase();
+}
+
+function makeObjectPath(userId: string, ext: string): string {
+  const rand = Math.random().toString(36).slice(2);
+  return `media/${userId}/${Date.now()}-${rand}.${ext}`;
+}
+
+/**
+ * For posts.media_urls, decide what types you accept.
+ * Default: image/video/gif only.
+ */
+const POST_MEDIA_TYPES: ReadonlySet<MediaType> = new Set([
+  "image",
+  "video",
+  "gif",
+]);
+
+async function uploadOneToBucket(
+  userId: string,
+  item: MediaItem,
+  bucket: string,
+): Promise<{ publicUrl: string; objectPath: string }> {
+  if (isRemoteUrl(item.uri)) {
+    return { publicUrl: item.uri, objectPath: "" };
+  }
+
+  const res = await fetch(item.uri);
+  if (!res.ok) throw new Error("Failed to read media file");
+  const blob = await res.blob();
+
+  const fallbackExt =
+    item.type === "video"
+      ? "mp4"
+      : item.type === "audio"
+        ? "mp3"
+        : item.type === "document"
+          ? "pdf"
+          : "jpg";
+
+  const ext = guessExt(item.uri, fallbackExt);
+  const objectPath = makeObjectPath(userId, ext);
+
+  const { error: uploadError } = await supabase.storage
+    .from(bucket)
+    .upload(objectPath, blob, {
+      upsert: false,
+      contentType: blob.type || undefined,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+  if (!data?.publicUrl)
+    throw new Error("Failed to get public URL for uploaded media");
+
+  return { publicUrl: data.publicUrl, objectPath };
+}
+
+async function uploadMediaForPost(
+  userId: string,
+  media: MediaItem[] | undefined,
+  bucket = "post-media",
+): Promise<{ urls: string[]; uploadedObjectPaths: string[] }> {
+  if (!media?.length) return { urls: [], uploadedObjectPaths: [] };
+
+  const urls: string[] = [];
+  const uploadedObjectPaths: string[] = [];
+
+  for (const item of media) {
+    if (!POST_MEDIA_TYPES.has(item.type)) continue;
+
+    const { publicUrl, objectPath } = await uploadOneToBucket(
+      userId,
+      item,
+      bucket,
+    );
+    urls.push(publicUrl);
+    if (objectPath) uploadedObjectPaths.push(objectPath);
+  }
+
+  return { urls, uploadedObjectPaths };
+}
+
+async function cleanupUploaded(bucket: string, objectPaths: string[]) {
+  if (!objectPaths.length) return;
+  try {
+    await supabase.storage.from(bucket).remove(objectPaths);
+  } catch (e) {
+    console.warn("cleanupUploaded failed:", e);
+  }
+}
+
+const POST_SELECT = `
+  id,
+  user_id,
+  title,
+  content,
+  media_urls,
+  visibility,
+  community_id,
+  like_count,
+  comment_count,
+  share_count,
+  created_at,
+  updated_at,
+  user:profiles!posts_user_id_fkey(id, username, full_name, avatar_url),
+  community:communities!posts_community_id_fkey(id, name, slug, avatar_url)
+`;
+
+/* =========================================================
+   GET POSTS
+   ========================================================= */
+
 export async function getPosts(
   filters: PostFilters = {},
 ): Promise<PaginatedPosts> {
@@ -135,49 +264,32 @@ export async function getPosts(
     username,
     userId,
     visibility,
-    isPublic,
     sortBy = "newest",
   } = filters;
 
-  let query = supabase.from("posts").select(
-    `
-      *,
-      user:profiles!posts_user_id_fkey(id, username, full_name, avatar_url),
-      community:communities!posts_community_id_fkey(id, name, slug, avatar_url)
-    `,
-    { count: "exact" },
-  );
+  let query = supabase.from("posts").select(POST_SELECT, { count: "exact" });
 
-  // Apply filters
   if (communitySlug) {
-    const { data: community } = await supabase
+    const { data } = await supabase
       .from("communities")
       .select("id")
       .eq("slug", communitySlug)
       .single();
-
-    if (community) query = query.eq("community_id", community.id);
+    if (data?.id) query = query.eq("community_id", data.id);
   }
 
   if (username) {
-    const { data: user } = await supabase
+    const { data } = await supabase
       .from("profiles")
       .select("id")
       .eq("username", username)
       .single();
-
-    if (user) query = query.eq("user_id", user.id);
+    if (data?.id) query = query.eq("user_id", data.id);
   }
 
   if (userId) query = query.eq("user_id", userId);
-
-  // NEW: visibility filter (only if you explicitly request it)
   if (visibility) query = query.eq("visibility", visibility);
 
-  // OLD: isPublic filter (legacy)
-  if (isPublic !== undefined) query = query.eq("is_public", isPublic);
-
-  // Sorting
   switch (sortBy) {
     case "popular":
       query = query.order("like_count", { ascending: false });
@@ -185,307 +297,215 @@ export async function getPosts(
     case "trending": {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      query = query.gte("created_at", weekAgo.toISOString());
-      query = query.order("like_count", { ascending: false });
+      query = query
+        .gte("created_at", weekAgo.toISOString())
+        .order("like_count", { ascending: false });
       break;
     }
-    case "newest":
     default:
       query = query.order("created_at", { ascending: false });
   }
 
-  // Pagination
   query = query.range(offset, offset + limit - 1);
 
-  const { data: posts, error, count } = await query;
-
-  if (error) {
-    console.error("Error fetching posts:", error);
+  const { data, error, count } = await query;
+  if (error || !data) {
+    console.error(error);
     return { posts: [], total: 0, hasMore: false };
   }
 
-  // Likes/saves flags
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (user && posts && posts.length > 0) {
-    const { data: likedPosts } = await supabase
-      .from("likes")
-      .select("post_id")
-      .eq("user_id", user.id)
-      .in(
-        "post_id",
-        posts.map((p: any) => p.id),
-      );
+  let likedIds: string[] = [];
+  let savedIds: string[] = [];
 
-    const { data: savedPosts } = await supabase
-      .from("saves")
-      .select("post_id")
-      .eq("user_id", user.id)
-      .in(
-        "post_id",
-        posts.map((p: any) => p.id),
-      );
+  if (user) {
+    const ids = (data as { id: string }[]).map((p) => p.id);
 
-    const likedPostIds = likedPosts?.map((lp: any) => lp.post_id) || [];
-    const savedPostIds = savedPosts?.map((sp: any) => sp.post_id) || [];
+    const [{ data: likes }, { data: saves }] = await Promise.all([
+      supabase
+        .from("likes")
+        .select("post_id")
+        .eq("user_id", user.id)
+        .in("post_id", ids),
+      supabase
+        .from("saves")
+        .select("post_id")
+        .eq("user_id", user.id)
+        .in("post_id", ids),
+    ]);
 
-    const postsWithFlags: Post[] = posts.map((post: SupabasePostResponse) => ({
-      ...post,
-      visibility: normalizeVisibility(post),
-      is_liked: likedPostIds.includes(post.id),
-      is_saved: savedPostIds.includes(post.id),
-      is_owned: post.user_id === user.id,
-    }));
-
-    return {
-      posts: postsWithFlags,
-      total: count || 0,
-      hasMore: (count || 0) > offset + limit,
-    };
+    likedIds = likes?.map((l) => l.post_id) ?? [];
+    savedIds = saves?.map((s) => s.post_id) ?? [];
   }
 
+  const posts = (data as SupabasePostResponse[]).map((post) =>
+    normalizePost(post, {
+      is_liked: likedIds.includes(post.id),
+      is_saved: savedIds.includes(post.id),
+      is_owned: user ? post.user_id === user.id : false,
+    }),
+  );
+
   return {
-    posts: (posts || []).map((p: SupabasePostResponse) => ({
-      ...p,
-      visibility: normalizeVisibility(p),
-    })) as Post[],
-    total: count || 0,
-    hasMore: (count || 0) > offset + limit,
+    posts,
+    total: count ?? 0,
+    hasMore: (count ?? 0) > offset + limit,
   };
 }
 
-// Get single post by ID
+/* =========================================================
+   GET SINGLE POST
+   ========================================================= */
+
 export async function getPostById(id: string): Promise<Post | null> {
-  const { data: post, error } = await supabase
+  const { data, error } = await supabase
     .from("posts")
-    .select(
-      `
-      *,
-      user:profiles!posts_user_id_fkey(id, username, full_name, avatar_url),
-      community:communities!posts_community_id_fkey(id, name, slug, avatar_url)
-    `,
-    )
+    .select(POST_SELECT)
     .eq("id", id)
     .single();
-
-  if (error) {
-    console.error("Error fetching post:", error);
-    return null;
-  }
+  if (error || !data) return null;
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
+  let is_liked = false;
+  let is_saved = false;
+
   if (user) {
-    const { data: like } = await supabase
-      .from("likes")
-      .select("*")
-      .eq("post_id", id)
-      .eq("user_id", user.id)
-      .single();
+    const [{ data: like }, { data: save }] = await Promise.all([
+      supabase
+        .from("likes")
+        .select("id")
+        .eq("post_id", id)
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("saves")
+        .select("id")
+        .eq("post_id", id)
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
 
-    const { data: save } = await supabase
-      .from("saves")
-      .select("*")
-      .eq("post_id", id)
-      .eq("user_id", user.id)
-      .single();
-
-    return {
-      ...(post as any),
-      visibility: normalizeVisibility(post as any),
-      is_liked: !!like,
-      is_saved: !!save,
-      is_owned: (post as any).user_id === user.id,
-    } as Post;
+    is_liked = !!like;
+    is_saved = !!save;
   }
 
-  return {
-    ...(post as any),
-    visibility: normalizeVisibility(post as any),
-  } as Post;
+  const row = data as SupabasePostResponse;
+
+  return normalizePost(row, {
+    is_liked,
+    is_saved,
+    is_owned: user ? row.user_id === user.id : false,
+  });
 }
 
-// Create a new post
+/* =========================================================
+   CREATE POST (WITH MEDIA UPLOAD)
+   ========================================================= */
+
 export async function createPost(
   postData: CreatePostData,
 ): Promise<Post | null> {
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    let media = postData.media || [];
-    if (media.length > 0) {
-      media = await uploadMediaItems(media, {
-        compressImages: true,
-        generateThumbnails: true,
-      });
-    }
+  if (!user) throw new Error("User not authenticated");
 
-    const privacyWrite = applyVisibilityWrite({
+  const bucket = "post-media";
+
+  const uploaded = await uploadMediaForPost(user.id, postData.media, bucket);
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({
+      user_id: user.id,
+      title: postData.title ?? null,
+      content: postData.content,
+      community_id: postData.community_id ?? null,
       visibility: postData.visibility,
-      is_public: postData.is_public,
-    });
+      media_urls: uploaded.urls,
+      like_count: 0,
+      comment_count: 0,
+      share_count: 0,
+    })
+    .select(POST_SELECT)
+    .single();
 
-    const { data: post, error } = await supabase
-      .from("posts")
-      .insert({
-        user_id: user.id,
-        title: postData.title,
-        content: postData.content,
-        media,
-        community_id: postData.community_id,
-
-        // write both (new + legacy) safely
-        ...privacyWrite,
-
-        like_count: 0,
-        comment_count: 0,
-        share_count: 0,
-      })
-      .select(
-        `
-        *,
-        user:profiles!posts_user_id_fkey(id, username, full_name, avatar_url),
-        community:communities!posts_community_id_fkey(id, name, slug, avatar_url)
-      `,
-      )
-      .single();
-
-    if (error) throw error;
-
-    await supabase.rpc("increment_post_count", { user_id: user.id });
-
-    const typed = post as SupabasePostResponse;
-
-    return {
-      ...typed,
-      visibility: normalizeVisibility(typed),
-      is_liked: false,
-      is_saved: false,
-      is_owned: true,
-    } as Post;
-  } catch (error) {
-    console.error("Error creating post:", error);
+  if (error || !data) {
+    console.error(error);
+    await cleanupUploaded(bucket, uploaded.uploadedObjectPaths);
     return null;
   }
+
+  return normalizePost(data as SupabasePostResponse, {
+    is_owned: true,
+    is_liked: false,
+    is_saved: false,
+  });
 }
 
-// Update a post
+/* =========================================================
+   UPDATE POST
+   ========================================================= */
+
 export async function updatePost(
-  id: string,
+  postId: string,
   updates: UpdatePostData,
 ): Promise<Post | null> {
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    const { data: existingPost } = await supabase
-      .from("posts")
-      .select("user_id, media")
-      .eq("id", id)
-      .single();
+  if (!user) throw new Error("User not authenticated");
 
-    if (!existingPost || existingPost.user_id !== user.id) {
-      throw new Error("Not authorized to update this post");
-    }
-
-    // media updates
-    let media = updates.media;
-    if (media && media.length > 0) {
-      const oldMedia = existingPost.media || [];
-      await deleteMediaItems(oldMedia);
-
-      media = await uploadMediaItems(media, {
-        compressImages: true,
-        generateThumbnails: true,
-      });
-    }
-
-    const privacyWrite = applyVisibilityWrite({
-      visibility: updates.visibility,
-      is_public: updates.is_public,
-    });
-
-    const updateData: any = {
-      title: updates.title,
-      content: updates.content,
-      community_id: undefined, // do not allow change unless you want it
-      ...privacyWrite,
+  const { data, error } = await supabase
+    .from("posts")
+    .update({
+      title: updates.title ?? undefined,
+      content: updates.content ?? undefined,
+      visibility: updates.visibility ?? undefined,
       updated_at: new Date().toISOString(),
-    };
+    })
+    .eq("id", postId)
+    .eq("user_id", user.id)
+    .select(POST_SELECT)
+    .single();
 
-    if (media) updateData.media = media;
-
-    // Remove undefined keys so Supabase doesn't overwrite with null
-    Object.keys(updateData).forEach(
-      (k) => updateData[k] === undefined && delete updateData[k],
-    );
-
-    const { data: post, error } = await supabase
-      .from("posts")
-      .update(updateData)
-      .eq("id", id)
-      .select(
-        `
-        *,
-        user:profiles!posts_user_id_fkey(id, username, full_name, avatar_url),
-        community:communities!posts_community_id_fkey(id, name, slug, avatar_url)
-      `,
-      )
-      .single();
-
-    if (error) throw error;
-
-    const typed = post as SupabasePostResponse;
-
-    return {
-      ...typed,
-      visibility: normalizeVisibility(typed),
-      is_owned: true,
-    } as Post;
-  } catch (error) {
-    console.error("Error updating post:", error);
+  if (error || !data) {
+    console.error(error);
     return null;
   }
+
+  return normalizePost(data as SupabasePostResponse, { is_owned: true });
 }
 
-// Delete a post
-export async function deletePost(id: string): Promise<boolean> {
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
+/* =========================================================
+   DELETE POST
+   ========================================================= */
 
-    const { data: post } = await supabase
-      .from("posts")
-      .select("user_id, media")
-      .eq("id", id)
-      .single();
+export async function deletePost(postId: string): Promise<boolean> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    if (!post) throw new Error("Post not found");
-    if (post.user_id !== user.id) throw new Error("Not authorized");
+  if (!user) throw new Error("User not authenticated");
 
-    if (post.media && post.media.length > 0) {
-      await deleteMediaItems(post.media);
-    }
+  const { error } = await supabase
+    .from("posts")
+    .delete()
+    .eq("id", postId)
+    .eq("user_id", user.id);
 
-    const { error } = await supabase.from("posts").delete().eq("id", id);
-    if (error) throw error;
-
-    await supabase.rpc("decrement_post_count", { user_id: user.id });
-
-    return true;
-  } catch (error) {
-    console.error("Error deleting post:", error);
+  if (error) {
+    console.error(error);
     return false;
   }
+
+  return true;
 }

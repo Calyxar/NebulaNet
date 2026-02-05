@@ -4,10 +4,9 @@ import React from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export const TAB_BAR_BASE_HEIGHT = 72; // the visible curved container height
+export const TAB_BAR_BASE_HEIGHT = 72; // visible curved container height
 
 export function getTabBarHeight(insetsBottom: number) {
-  // Android often has 0 insets, iPhone has home indicator
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
 }
 
@@ -21,16 +20,15 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
         styles.wrapper,
         { height: tabBarHeight, paddingBottom: Math.max(insets.bottom, 10) },
       ]}
+      pointerEvents="box-none"
     >
       <View style={styles.bar}>
         {state.routes.map((route: any, index: number) => {
-          const { options } = descriptors[route.key];
           const isFocused = state.index === index;
 
           // Hide notifications route
           if (route.name === "notifications") return null;
 
-          // Center "create" slot (your design likely has a bigger button)
           const isCreate = route.name === "create";
 
           const onPress = () => {
@@ -58,7 +56,11 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
 
           if (isCreate) {
             return (
-              <View key={route.key} style={styles.centerSlot}>
+              <View
+                key={route.key}
+                style={styles.centerSlot}
+                pointerEvents="box-none"
+              >
                 <TouchableOpacity
                   onPress={onPress}
                   activeOpacity={0.9}
@@ -99,28 +101,33 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 16,
   },
+
+  // pill bar like the mock
   bar: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 28,
+    borderRadius: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
+    paddingHorizontal: 14, // tighter like mock
     borderWidth: 1,
     borderColor: "rgba(17,24,39,0.06)",
+
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: Platform.OS === "android" ? 0.14 : 0.08,
-    shadowRadius: 18,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: Platform.OS === "android" ? 0.16 : 0.1,
+    shadowRadius: 20,
+    elevation: 12,
   },
+
   tab: {
-    width: 56,
-    height: 54,
+    width: 58,
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
   },
+
   dot: {
     marginTop: 6,
     width: 6,
@@ -128,25 +135,30 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "transparent",
   },
-  dotActive: {
-    backgroundColor: "#7C3AED",
-  },
+  dotActive: { backgroundColor: "#7C3AED" },
+
+  // center button should float ABOVE the pill (like mock)
   centerSlot: {
-    width: 76,
+    width: 86,
     alignItems: "center",
     justifyContent: "center",
   },
+
   centerButton: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
+
+    // float effect
+    marginTop: -22,
+
     shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: Platform.OS === "android" ? 0.25 : 0.22,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: Platform.OS === "android" ? 0.28 : 0.24,
+    shadowRadius: 18,
+    elevation: 14,
   },
 });
