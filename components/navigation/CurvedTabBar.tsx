@@ -5,7 +5,7 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ✅ SVG background as a COMPONENT (NOT Image)
-import TabBarBg from "@/assets/images/Component 1.svg";
+import TabBarBg from "@/assets/images/Component1.svg";
 
 export const TAB_BAR_BASE_HEIGHT = 86;
 
