@@ -40,8 +40,8 @@ export function useSavePost() {
 
       if (checkError) throw checkError;
 
+      // toggle server-side
       if (existing?.id) {
-        // unsave
         const { error } = await supabase
           .from("saves")
           .delete()
@@ -50,17 +50,17 @@ export function useSavePost() {
         return { postId, isSaved: false };
       }
 
-      // save (include user_id if required)
-      const { error } = await supabase
-        .from("saves")
-        .insert({ user_id: user.id, post_id: postId });
-
+      const { error } = await supabase.from("saves").insert({
+        user_id: user.id,
+        post_id: postId,
+        created_at: new Date().toISOString(),
+      });
       if (error) throw error;
 
       return { postId, isSaved: true };
     },
 
-    onMutate: async (postId: string) => {
+    onMutate: async (postId) => {
       await qc.cancelQueries({ queryKey: postKeys.lists() });
 
       const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
@@ -73,7 +73,7 @@ export function useSavePost() {
         (old) =>
           updatePostInAllPages(old, postId, (p) => ({
             ...p,
-            is_saved: !Boolean(p.is_saved),
+            is_saved: !p.is_saved,
           })),
       );
 
@@ -81,13 +81,14 @@ export function useSavePost() {
     },
 
     onError: (_err, _postId, ctx) => {
+      // rollback
       ctx?.previous?.forEach(([key, data]) => {
         qc.setQueryData(key, data);
       });
     },
 
     onSuccess: ({ postId, isSaved }) => {
-      // reconcile
+      // reconcile (in case optimistic differs)
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>

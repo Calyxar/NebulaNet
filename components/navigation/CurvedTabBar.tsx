@@ -1,35 +1,71 @@
-// components/navigation/CurvedTabBar.tsx
-import { Ionicons } from "@expo/vector-icons";
+import { Home, MessageCircle, Search, User } from "lucide-react-native";
 import React from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 
-export const TAB_BAR_BASE_HEIGHT = 72; // visible curved container height
+export const TAB_BAR_BASE_HEIGHT = 88;
 
 export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
 }
 
-export function CurvedTabBar({ state, descriptors, navigation }: any) {
+function TabIcon({
+  route,
+  focused,
+}: {
+  route: "home" | "explore" | "chat" | "profile";
+  focused: boolean;
+}) {
+  const color = focused ? "#7C3AED" : "#9CA3AF";
+  const size = 24;
+
+  switch (route) {
+    case "home":
+      return <Home size={size} color={color} />;
+    case "explore":
+      return <Search size={size} color={color} />;
+    case "chat":
+      return <MessageCircle size={size} color={color} />;
+    case "profile":
+      return <User size={size} color={color} />;
+  }
+}
+
+export function CurvedTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = getTabBarHeight(insets.bottom);
+  const height = getTabBarHeight(insets.bottom);
 
   return (
-    <View
-      style={[
-        styles.wrapper,
-        { height: tabBarHeight, paddingBottom: Math.max(insets.bottom, 10) },
-      ]}
-      pointerEvents="box-none"
-    >
-      <View style={styles.bar}>
-        {state.routes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
+    <View style={[styles.wrapper, { height }]} pointerEvents="box-none">
+      {/* SVG BAR WITH NOTCH */}
+      <Svg width="100%" height={88} viewBox="0 0 390 88" style={styles.svg}>
+        <Path
+          d="
+            M0 28
+            Q0 0 28 0
+            H140
+            C155 0 165 12 170 22
+            C178 40 212 40 220 22
+            C225 12 235 0 250 0
+            H362
+            Q390 0 390 28
+            V88
+            H0
+            Z
+          "
+          fill="rgba(255,255,255,0.98)"
+          stroke="rgba(17,24,39,0.06)"
+          strokeWidth={1}
+        />
+      </Svg>
 
-          // Hide notifications route
+      {/* TABS */}
+      <View style={styles.row}>
+        {state.routes.map((route: any, index: number) => {
           if (route.name === "notifications") return null;
 
-          const isCreate = route.name === "create";
+          const isFocused = state.index === index;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -43,34 +79,31 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
             }
           };
 
-          const icon =
-            route.name === "home"
-              ? "home-outline"
-              : route.name === "explore"
-                ? "search-outline"
-                : route.name === "create"
-                  ? "add"
-                  : route.name === "chat"
-                    ? "chatbubble-ellipses-outline"
-                    : "person-outline";
-
-          if (isCreate) {
+          if (route.name === "create") {
             return (
-              <View
-                key={route.key}
-                style={styles.centerSlot}
-                pointerEvents="box-none"
-              >
+              <View key={route.key} style={styles.centerSlot}>
                 <TouchableOpacity
                   onPress={onPress}
                   activeOpacity={0.9}
-                  style={styles.centerButton}
+                  style={styles.createBtn}
                 >
-                  <Ionicons name={icon as any} size={30} color="#FFFFFF" />
+                  <Image
+                    source={require("@/assets/images/512_512_c.png")}
+                    style={styles.createImg}
+                  />
                 </TouchableOpacity>
               </View>
             );
           }
+
+          const mapped =
+            route.name === "home"
+              ? "home"
+              : route.name === "explore"
+                ? "explore"
+                : route.name === "chat"
+                  ? "chat"
+                  : "profile";
 
           return (
             <TouchableOpacity
@@ -79,11 +112,7 @@ export function CurvedTabBar({ state, descriptors, navigation }: any) {
               activeOpacity={0.85}
               style={styles.tab}
             >
-              <Ionicons
-                name={icon as any}
-                size={24}
-                color={isFocused ? "#7C3AED" : "#9CA3AF"}
-              />
+              <TabIcon route={mapped as any} focused={isFocused} />
               <View style={[styles.dot, isFocused && styles.dotActive]} />
             </TouchableOpacity>
           );
@@ -99,30 +128,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 16,
+    alignItems: "center",
   },
 
-  // pill bar like the mock
-  bar: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14, // tighter like mock
-    borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.06)",
+  svg: {
+    position: "absolute",
+    bottom: 0,
+  },
 
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: Platform.OS === "android" ? 0.16 : 0.1,
-    shadowRadius: 20,
-    elevation: 12,
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 22,
+    paddingBottom: 10,
+    height: 88,
   },
 
   tab: {
-    width: 58,
+    width: 56,
     height: 56,
     alignItems: "center",
     justifyContent: "center",
@@ -135,30 +160,34 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "transparent",
   },
-  dotActive: { backgroundColor: "#7C3AED" },
 
-  // center button should float ABOVE the pill (like mock)
+  dotActive: {
+    backgroundColor: "#7C3AED",
+  },
+
   centerSlot: {
     width: 86,
     alignItems: "center",
-    justifyContent: "center",
   },
 
-  centerButton: {
+  createBtn: {
     width: 64,
     height: 64,
     borderRadius: 32,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
-
-    // float effect
-    marginTop: -22,
-
+    marginBottom: 18,
     shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: Platform.OS === "android" ? 0.28 : 0.24,
+    shadowOpacity: 0.25,
     shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 14,
+  },
+
+  createImg: {
+    width: 42,
+    height: 42,
+    resizeMode: "contain",
   },
 });
