@@ -20,8 +20,7 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
-    "declarations.d.ts",
-    "svg.d.ts"
+    "types/svg.d.ts"
   ],
   "exclude": [
     "node_modules",
