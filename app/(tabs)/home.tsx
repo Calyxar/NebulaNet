@@ -1,4 +1,5 @@
 // app/(tabs)/home.tsx
+import { router } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -77,11 +78,13 @@ export default function HomeScreen() {
             <Text style={styles.brandText}>NebulaNet</Text>
           </View>
 
-          <TouchableOpacity style={styles.bellWrap} activeOpacity={0.85}>
+          {/* ✅ No mock badge. Just the bell. */}
+          <TouchableOpacity
+            style={styles.bellWrap}
+            activeOpacity={0.85}
+            onPress={() => router.push("/notifications")}
+          >
             <Bell size={20} color="#111827" />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>6</Text>
-            </View>
           </TouchableOpacity>
         </View>
 
@@ -264,19 +267,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  badge: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    backgroundColor: "#7C3AED",
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-  },
-  badgeText: { color: "#fff", fontSize: 11, fontWeight: "900" },
 
   segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
   segment: {

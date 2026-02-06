@@ -3,16 +3,21 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const config = getDefaultConfig(__dirname);
 
-// IMPORTANT: treat .svg as source, not asset
+// ✅ Make .svg load as source (component), not asset (number)
+config.transformer.babelTransformerPath =
+  require.resolve("react-native-svg-transformer");
+
 config.resolver.assetExts = config.resolver.assetExts.filter(
   (ext) => ext !== "svg",
 );
-config.resolver.sourceExts.push("svg");
 
-// keep your font extensions
-config.resolver.assetExts.push("ttf", "otf", "woff", "woff2");
-
-config.transformer.babelTransformerPath =
-  require.resolve("react-native-svg-transformer");
+config.resolver.sourceExts = [
+  ...config.resolver.sourceExts,
+  "svg",
+  "ttf",
+  "otf",
+  "woff",
+  "woff2",
+];
 
 module.exports = config;
