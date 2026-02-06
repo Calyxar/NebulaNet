@@ -1,8 +1,13 @@
 // components/navigation/CurvedTabBar.tsx
-import { Home, MessageCircle, Search, User } from "lucide-react-native";
+import {
+  Home,
+  MessageCircle,
+  Search,
+  SquarePen, // post icon
+  User,
+} from "lucide-react-native";
 import React from "react";
 import {
-  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,13 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ✅ SVG background as a COMPONENT (requires react-native-svg-transformer working)
-import SubtractBg from "@/assets/images/Subtract.svg";
-
-// If you prefer PNG instead (most stable), do this:
-// const tabBgPng = require("@/assets/images/Subtract.png");
-
-export const TAB_BAR_BASE_HEIGHT = 86;
+export const TAB_BAR_BASE_HEIGHT = 70;
 
 export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
@@ -26,7 +25,9 @@ export function getTabBarHeight(insetsBottom: number) {
 type IconName = "home" | "explore" | "chat" | "profile";
 
 function TabIcon({ name, focused }: { name: IconName; focused: boolean }) {
-  const color = focused ? "#7C3AED" : "#9CA3AF";
+  const active = "#7C3AED";
+  const inactive = "#9CA3AF";
+  const color = focused ? active : inactive;
   const size = 24;
 
   switch (name) {
@@ -48,29 +49,68 @@ export function CurvedTabBar({ state, navigation }: any) {
   const height = getTabBarHeight(insets.bottom);
   const bottomPad = Math.max(insets.bottom, 10);
 
-  // ✅ tighter padding on narrow phones (Android)
-  const horizontalPad = width < 380 ? 10 : 16;
+  // ✅ Light-mode colors matching your design
+  const SCREEN_BG = "#F5F7FF";
+  const BAR_BG = "#FFFFFF";
+  const BORDER = "#E6EAF5";
+
+  // ✅ Responsive sizes (Samsung A54 friendly)
+  const barRadius = 26;
+  const postSize = width < 380 ? 54 : 60;
+
+  // ✅ A54: don’t lift too high, keep it “attached”
+  const lift = Platform.OS === "android" ? 14 : 12;
+
+  const activeRoute = state.routes[state.index]?.name;
+
+  const onPost = () => {
+    navigation.navigate("create"); // center action route
+  };
 
   return (
     <View style={[styles.wrapper, { height }]} pointerEvents="box-none">
-      <View style={[styles.inner, { paddingBottom: bottomPad }]}>
-        {/* Background */}
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <SubtractBg width="100%" height="100%" preserveAspectRatio="none" />
-          {/*
-            If you use PNG instead:
-            <Image source={tabBgPng} style={StyleSheet.absoluteFill} resizeMode="stretch" />
-          */}
-        </View>
+      {/* Floating Post Button */}
+      <View style={styles.postSlot} pointerEvents="box-none">
+        <Pressable
+          onPress={onPost}
+          hitSlop={12}
+          style={[
+            styles.postBtn,
+            {
+              width: postSize,
+              height: postSize,
+              borderRadius: postSize / 2,
+              transform: [{ translateY: -lift }],
+              backgroundColor: "#7C3AED",
+              borderColor: BAR_BG,
+            },
+          ]}
+        >
+          <SquarePen size={24} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
-        {/* Buttons */}
-        <View style={[styles.row, { paddingHorizontal: horizontalPad }]}>
-          {state.routes.map((route: any, index: number) => {
-            // Hide notifications route from tabbar (still exists for navigation)
+      {/* Bottom Bar */}
+      <View
+        style={[
+          styles.bar,
+          {
+            backgroundColor: BAR_BG,
+            borderColor: BORDER,
+            borderRadius: barRadius,
+            paddingBottom: bottomPad,
+          },
+        ]}
+      >
+        <View style={styles.row}>
+          {state.routes.map((route: any) => {
             if (route.name === "notifications") return null;
 
-            const focused = state.index === index;
             const isCreate = route.name === "create";
+            const focused = activeRoute === route.name;
+
+            // Reserve space under the floating post button
+            if (isCreate) return <View key={route.key} style={{ width: 76 }} />;
 
             const onPress = () => {
               const event = navigation.emit({
@@ -78,32 +118,10 @@ export function CurvedTabBar({ state, navigation }: any) {
                 target: route.key,
                 canPreventDefault: true,
               });
-
               if (!focused && !event.defaultPrevented) {
                 navigation.navigate(route.name);
               }
             };
-
-            if (isCreate) {
-              return (
-                <View
-                  key={route.key}
-                  style={styles.centerSlot}
-                  pointerEvents="box-none"
-                >
-                  <Pressable
-                    onPress={onPress}
-                    style={styles.centerButton}
-                    hitSlop={10}
-                  >
-                    <Image
-                      source={require("@/assets/images/512_512_c.png")}
-                      style={styles.centerImage}
-                    />
-                  </Pressable>
-                </View>
-              );
-            }
 
             const mapped: IconName =
               route.name === "home"
@@ -128,6 +146,9 @@ export function CurvedTabBar({ state, navigation }: any) {
             );
           })}
         </View>
+
+        {/* ✅ This “base strip” helps blend into the screen bg on A54 */}
+        <View style={[styles.bottomBlend, { backgroundColor: SCREEN_BG }]} />
       </View>
     </View>
   );
@@ -141,28 +162,32 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 14,
   },
-  inner: {
-    flex: 1,
-    borderRadius: 34,
+
+  bar: {
     overflow: "hidden",
+    borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: Platform.OS === "android" ? 0.18 : 0.09,
-    shadowRadius: 18,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: Platform.OS === "android" ? 0.12 : 0.08,
+    shadowRadius: 14,
+    elevation: 8,
   },
+
   row: {
-    flex: 1,
+    height: TAB_BAR_BASE_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 18,
   },
+
   tab: {
-    width: 56,
-    height: 56,
+    width: 58,
+    height: 54,
     alignItems: "center",
     justifyContent: "center",
   },
+
   dot: {
     marginTop: 6,
     width: 6,
@@ -174,23 +199,29 @@ const styles = StyleSheet.create({
     backgroundColor: "#7C3AED",
   },
 
-  // Center create
-  centerSlot: {
-    width: 82,
+  // Floating Post button
+  postSlot: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    alignItems: "center",
+    zIndex: 50,
+  },
+  postBtn: {
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 4, // white ring like the design
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: Platform.OS === "android" ? 0.18 : 0.12,
+    shadowRadius: 14,
+    elevation: 12,
   },
-  centerButton: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ translateY: -10 }],
-  },
-  centerImage: {
-    width: 66,
-    height: 66,
-    resizeMode: "contain",
+
+  // subtle blend strip (prevents harsh edge over gesture bar)
+  bottomBlend: {
+    height: 10,
+    width: "100%",
   },
 });
