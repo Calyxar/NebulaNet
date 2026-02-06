@@ -1,5 +1,6 @@
 // app/profile/index.tsx
 import { useAuth } from "@/hooks/useAuth";
+import { useMyPrivacySettings } from "@/hooks/useMyPrivacySettings";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -40,6 +41,8 @@ const profileTabs = ["Activity", "Post", "Tagged", "Media"];
 export default function ProfileScreen() {
   const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState("Activity");
+
+  const { data: privacy, isLoading: privacyLoading } = useMyPrivacySettings();
 
   const { data: userPosts, isLoading: isLoadingPosts } = useQuery({
     queryKey: ["user-posts", user?.id],
@@ -99,9 +102,7 @@ export default function ProfileScreen() {
   });
 
   const formatNumber = (num: number) => {
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}K`;
-    }
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toString();
   };
 
@@ -211,7 +212,9 @@ export default function ProfileScreen() {
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
+
           <Text style={styles.headerTitle}>@{profile.username}</Text>
+
           <TouchableOpacity style={styles.menuButton} onPress={handleSettings}>
             <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
           </TouchableOpacity>
@@ -239,24 +242,87 @@ export default function ProfileScreen() {
               </View>
 
               <View style={styles.statsRow}>
+                {/* Posts */}
                 <View style={styles.statItem}>
                   <Text style={styles.statValue}>
                     {formatNumber(userStats?.posts || 0)}
                   </Text>
                   <Text style={styles.statLabel}>Post</Text>
                 </View>
-                <View style={styles.statItem}>
+
+                {/* Followers */}
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  disabled={privacyLoading || !!privacy?.hide_followers}
+                  onPress={() => router.push("./followers")}
+                  style={[
+                    styles.statItem,
+                    (privacyLoading || privacy?.hide_followers) &&
+                      styles.statItemDisabled,
+                  ]}
+                >
                   <Text style={styles.statValue}>
-                    {formatNumber(userStats?.followers || 0)}
+                    {privacyLoading
+                      ? "—"
+                      : privacy?.hide_followers
+                        ? "—"
+                        : formatNumber(userStats?.followers || 0)}
                   </Text>
-                  <Text style={styles.statLabel}>Followers</Text>
-                </View>
-                <View style={styles.statItem}>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={styles.statLabel}>Followers</Text>
+                    {!!privacy?.hide_followers && (
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={14}
+                        color="#7C3AED"
+                      />
+                    )}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Following */}
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  disabled={privacyLoading || !!privacy?.hide_following}
+                  onPress={() => router.push("./following")}
+                  style={[
+                    styles.statItem,
+                    (privacyLoading || privacy?.hide_following) &&
+                      styles.statItemDisabled,
+                  ]}
+                >
                   <Text style={styles.statValue}>
-                    {formatNumber(userStats?.following || 0)}
+                    {privacyLoading
+                      ? "—"
+                      : privacy?.hide_following
+                        ? "—"
+                        : formatNumber(userStats?.following || 0)}
                   </Text>
-                  <Text style={styles.statLabel}>Following</Text>
-                </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={styles.statLabel}>Following</Text>
+                    {!!privacy?.hide_following && (
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={14}
+                        color="#7C3AED"
+                      />
+                    )}
+                  </View>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -365,18 +431,10 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  scrollView: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -393,11 +451,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-  },
+  headerTitle: { fontSize: 16, fontWeight: "600", color: "#000" },
   menuButton: {
     width: 40,
     height: 40,
@@ -406,6 +460,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   profileCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -419,14 +474,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  profileImageContainer: {
-    marginRight: 20,
-  },
-  profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
+  profileImageContainer: { marginRight: 20 },
+  profileImage: { width: 80, height: 80, borderRadius: 40 },
   profileImagePlaceholder: {
     width: 80,
     height: 80,
@@ -435,45 +484,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  profileImageText: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-  },
-  statsRow: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  statItem: {
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#000",
-  },
-  statLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 4,
-  },
+  profileImageText: { fontSize: 32, fontWeight: "bold", color: "#FFFFFF" },
+
+  statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
+  statItem: { alignItems: "center" },
+  statItemDisabled: { opacity: 0.55 },
+  statValue: { fontSize: 20, fontWeight: "700", color: "#000" },
+  statLabel: { fontSize: 13, color: "#666", marginTop: 4 },
+
   displayName: {
     fontSize: 18,
     fontWeight: "600",
     color: "#000",
     marginBottom: 8,
   },
-  bio: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  bio: { fontSize: 14, color: "#666", lineHeight: 20, marginBottom: 16 },
+
+  actionButtons: { flexDirection: "row", gap: 8 },
   editButton: {
     flex: 1,
     backgroundColor: "#F5F5F5",
@@ -481,11 +508,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  editButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
+  editButtonText: { fontSize: 14, fontWeight: "600", color: "#000" },
   shareButton: {
     flex: 1,
     backgroundColor: "#F5F5F5",
@@ -493,11 +516,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  shareButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-  },
+  shareButtonText: { fontSize: 14, fontWeight: "600", color: "#000" },
   addFriendButton: {
     backgroundColor: "#F5F5F5",
     width: 40,
@@ -506,6 +525,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   tabsContainer: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
@@ -514,28 +534,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 22,
-  },
-  activeTab: {
-    backgroundColor: "#7C3AED",
-  },
-  tabText: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
-  },
-  activeTabText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  contentSection: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
+  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 22 },
+  activeTab: { backgroundColor: "#7C3AED" },
+  tabText: { fontSize: 14, color: "#666", fontWeight: "500" },
+  activeTabText: { color: "#FFFFFF", fontWeight: "600" },
+
+  contentSection: { paddingHorizontal: 16, paddingBottom: 20 },
+
   postItem: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -548,16 +553,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  postHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  postAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
+  postHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  postAvatar: { width: 40, height: 40, borderRadius: 20 },
   postAvatarPlaceholder: {
     width: 40,
     height: 40,
@@ -566,21 +563,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  postAvatarText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-  },
-  postUser: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#000",
-  },
-  postTime: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 2,
-  },
+  postAvatarText: { fontSize: 16, fontWeight: "bold", color: "#FFFFFF" },
+  postUser: { fontSize: 15, fontWeight: "600", color: "#000" },
+  postTime: { fontSize: 12, color: "#999", marginTop: 2 },
+
   postTitle: {
     fontSize: 16,
     fontWeight: "600",
@@ -593,12 +579,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     lineHeight: 20,
   },
-  postImage: {
-    width: "100%",
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
+  postImage: { width: "100%", height: 200, borderRadius: 12, marginBottom: 12 },
+
   postActions: {
     flexDirection: "row",
     gap: 24,
@@ -606,15 +588,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
   },
-  postAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  postActionText: {
-    fontSize: 14,
-    color: "#666",
-  },
+  postAction: { flexDirection: "row", alignItems: "center", gap: 6 },
+  postActionText: { fontSize: 14, color: "#666" },
+
   emptyState: {
     alignItems: "center",
     justifyContent: "center",

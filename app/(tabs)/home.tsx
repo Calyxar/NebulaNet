@@ -1,4 +1,5 @@
 // app/(tabs)/home.tsx
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { router } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -10,15 +11,16 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
+import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
 import type { Post } from "@/lib/queries/posts";
 
 import {
@@ -44,9 +46,19 @@ type FeedTab = "for-you" | "following" | "my-community";
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = getTabBarHeight(insets.bottom);
+  const bottomTabBarHeight = useBottomTabBarHeight();
+  const { width } = useWindowDimensions();
+
+  // ✅ Responsive media height across screen sizes (phones/tablets)
+  const mediaHeight = useMemo(
+    () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
+    [width],
+  );
 
   const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
+
+  // ✅ Get unread notifications count (hook returns a number)
+  const unreadCount = useUnreadNotificationsCount();
 
   const {
     data,
@@ -69,22 +81,38 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <View>
-        <View style={styles.topHeader}>
+        <View
+          style={[styles.topHeader, { paddingTop: Math.max(insets.top, 10) }]}
+        >
           <View style={styles.brandRow}>
             <Image
               source={require("@/assets/images/icon.png")}
               style={styles.brandLogo}
             />
-            <Text style={styles.brandText}>NebulaNet</Text>
+            <Text
+              style={styles.brandText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              NebulaNet
+            </Text>
           </View>
 
-          {/* ✅ No mock badge. Just the bell. */}
+          {/* ✅ Bell with notification badge */}
           <TouchableOpacity
             style={styles.bellWrap}
             activeOpacity={0.85}
             onPress={() => router.push("/notifications")}
           >
             <Bell size={20} color="#111827" />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -109,7 +137,7 @@ export default function HomeScreen() {
         </View>
       </View>
     );
-  }, [activeTab]);
+  }, [activeTab, unreadCount, insets.top]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -128,7 +156,9 @@ export default function HomeScreen() {
                 style={styles.avatar}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.author}>{author}</Text>
+                <Text style={styles.author} numberOfLines={1}>
+                  {author}
+                </Text>
                 <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
               </View>
             </View>
@@ -140,7 +170,13 @@ export default function HomeScreen() {
 
           {!!item.content && <Text style={styles.content}>{item.content}</Text>}
 
-          {!!media && <Image source={{ uri: media }} style={styles.media} />}
+          {!!media && (
+            <Image
+              source={{ uri: media }}
+              style={[styles.media, { height: mediaHeight }]}
+              resizeMode="cover"
+            />
+          )}
 
           <View style={styles.actions}>
             <TouchableOpacity
@@ -181,7 +217,7 @@ export default function HomeScreen() {
         </View>
       );
     },
-    [onLike, onSave],
+    [onLike, onSave, mediaHeight],
   );
 
   if (isLoading) {
@@ -214,7 +250,7 @@ export default function HomeScreen() {
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
         contentContainerStyle={{
-          paddingBottom: tabBarHeight + 16,
+          paddingBottom: bottomTabBarHeight + 16, // ✅ matches default Tabs height
         }}
         showsVerticalScrollIndicator={false}
       />
@@ -250,12 +286,12 @@ const styles = StyleSheet.create({
 
   topHeader: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingBottom: 10,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   brandLogo: { width: 34, height: 34 },
   brandText: { fontSize: 22, fontWeight: "900", color: "#111827" },
 
@@ -266,6 +302,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#F2EAFE",
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+    marginLeft: 12,
+  },
+  badge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "#7C3AED",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: "#F2EAFE",
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "900",
   },
 
   segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
@@ -307,7 +364,6 @@ const styles = StyleSheet.create({
   content: { marginTop: 12, fontSize: 14.5, color: "#111827" },
   media: {
     marginTop: 12,
-    height: 220,
     borderRadius: 18,
     backgroundColor: "#EDEBFF",
   },

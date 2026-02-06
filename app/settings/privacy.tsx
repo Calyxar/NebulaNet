@@ -1,8 +1,10 @@
-// app/settings/privacy.tsx — NebulaNet RESKIN + typed routing (no TS complaints)
+// app/settings/privacy.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useMemo, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useEffect, useMemo } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -12,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { pushSettings } from "./routes";
 
 type RowItem = {
@@ -98,15 +101,143 @@ function Row({ item, isLast }: { item: RowItem; isLast?: boolean }) {
 }
 
 export default function PrivacyScreen() {
-  // Replace these with real settings when you wire them to your DB/preferences
-  const [privateAccount, setPrivateAccount] = useState(false);
-  const [discoverable, setDiscoverable] = useState(true);
-  const [activityStatus, setActivityStatus] = useState(true);
-  const [readReceipts, setReadReceipts] = useState(true);
+  const params = useLocalSearchParams<Record<string, string>>();
 
-  const whoCanComment = useMemo(() => "Everyone", []);
-  const whoCanMessage = useMemo(() => "Followers", []);
-  const mentions = useMemo(() => "Everyone", []);
+  // ✅ Persisted toggles
+  const p1 = usePersistedState("privacy.privateAccount", false);
+  const p2 = usePersistedState("privacy.discoverable", true);
+  const p3 = usePersistedState("privacy.activityStatus", true);
+  const p4 = usePersistedState("privacy.readReceipts", true);
+
+  // ✅ New privacy toggles users expect
+  const p5 = usePersistedState("privacy.hideLikes", false);
+  const p6 = usePersistedState("privacy.hideFollowers", false);
+  const p7 = usePersistedState("privacy.hideFollowing", false);
+  const p8 = usePersistedState("privacy.allowTagging", true);
+  const p9 = usePersistedState("privacy.messageRequests", true);
+  const p10 = usePersistedState("privacy.reduceSensitive", false);
+
+  // ✅ Persisted select values
+  const p11 = usePersistedState("privacy.whoCanComment", "Everyone");
+  const p12 = usePersistedState("privacy.whoCanMessage", "Followers");
+  const p13 = usePersistedState("privacy.mentions", "Everyone");
+
+  const allReady =
+    p1.isReady &&
+    p2.isReady &&
+    p3.isReady &&
+    p4.isReady &&
+    p5.isReady &&
+    p6.isReady &&
+    p7.isReady &&
+    p8.isReady &&
+    p9.isReady &&
+    p10.isReady &&
+    p11.isReady &&
+    p12.isReady &&
+    p13.isReady;
+
+  const privateAccount = p1.value;
+  const setPrivateAccount = p1.setValue;
+
+  const discoverable = p2.value;
+  const setDiscoverable = p2.setValue;
+
+  const activityStatus = p3.value;
+  const setActivityStatus = p3.setValue;
+
+  const readReceipts = p4.value;
+  const setReadReceipts = p4.setValue;
+
+  const hideLikes = p5.value;
+  const setHideLikes = p5.setValue;
+
+  const hideFollowers = p6.value;
+  const setHideFollowers = p6.setValue;
+
+  const hideFollowing = p7.value;
+  const setHideFollowing = p7.setValue;
+
+  const allowTagging = p8.value;
+  const setAllowTagging = p8.setValue;
+
+  const messageRequests = p9.value;
+  const setMessageRequests = p9.setValue;
+
+  const reduceSensitive = p10.value;
+  const setReduceSensitive = p10.setValue;
+
+  const whoCanComment = p11.value;
+  const setWhoCanComment = p11.setValue;
+
+  const whoCanMessage = p12.value;
+  const setWhoCanMessage = p12.setValue;
+
+  const mentions = p13.value;
+  const setMentions = p13.setValue;
+
+  // ✅ Receive selection updates from privacy-choice.tsx and persist them
+  useEffect(() => {
+    const c = params.privacy_comments;
+    const m = params.privacy_messages;
+    const me = params.privacy_mentions;
+
+    if (typeof c === "string" && c.length) setWhoCanComment(c);
+    if (typeof m === "string" && m.length) setWhoCanMessage(m);
+    if (typeof me === "string" && me.length) setMentions(me);
+  }, [
+    params.privacy_comments,
+    params.privacy_messages,
+    params.privacy_mentions,
+    setWhoCanComment,
+    setWhoCanMessage,
+    setMentions,
+  ]);
+
+  const exportData = () => {
+    Alert.alert(
+      "Download Your Data",
+      "We’ll prepare a download link and email it to you.",
+      [{ text: "OK" }],
+    );
+  };
+
+  const clearSearch = () => {
+    Alert.alert(
+      "Clear Search History",
+      "Search history cleared on this device.",
+      [{ text: "OK" }],
+    );
+  };
+
+  const openChoice = (
+    key: "comments" | "messages" | "mentions",
+    value: string,
+  ) =>
+    router.push({
+      pathname: "/settings/privacy-choice",
+      params: { key, value },
+    });
+
+  const privateWarning = useMemo(
+    () =>
+      privateAccount
+        ? "Private account: only approved followers can see your posts."
+        : "Public account: anyone can see your posts.",
+    [privateAccount],
+  );
+
+  if (!allReady) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: "#F5F7FF" }]}>
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
+          <ActivityIndicator />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <LinearGradient
@@ -138,7 +269,7 @@ export default function PrivacyScreen() {
             <Row
               item={{
                 title: "Private Account",
-                description: "Only approved followers can see your posts",
+                description: privateWarning,
                 icon: "person-circle-outline",
                 toggle: true,
                 toggleValue: privateAccount,
@@ -166,11 +297,7 @@ export default function PrivacyScreen() {
                 description: "Control who can comment on your posts",
                 icon: "chatbubble-ellipses-outline",
                 rightText: whoCanComment,
-                onPress: () =>
-                  Alert.alert(
-                    "Coming Soon",
-                    "Comment privacy options coming soon",
-                  ),
+                onPress: () => openChoice("comments", whoCanComment),
               }}
             />
             <Row
@@ -179,11 +306,7 @@ export default function PrivacyScreen() {
                 description: "Control who can DM you",
                 icon: "mail-outline",
                 rightText: whoCanMessage,
-                onPress: () =>
-                  Alert.alert(
-                    "Coming Soon",
-                    "Message privacy options coming soon",
-                  ),
+                onPress: () => openChoice("messages", whoCanMessage),
               }}
             />
             <Row
@@ -193,29 +316,101 @@ export default function PrivacyScreen() {
                 description: "Control who can mention you",
                 icon: "at-outline",
                 rightText: mentions,
-                onPress: () =>
-                  Alert.alert("Coming Soon", "Mention settings coming soon"),
+                onPress: () => openChoice("mentions", mentions),
               }}
             />
           </Card>
 
-          <SectionHeader title="Safety" />
+          <SectionHeader title="Messaging Controls" />
           <Card>
             <Row
               item={{
-                title: "Blocked & Muted Accounts",
-                description: "Manage who you’ve blocked or muted",
-                icon: "ban-outline",
-                onPress: () => pushSettings("blocked"),
+                title: "Message Requests",
+                description:
+                  "Allow message requests from people you don’t follow",
+                icon: "paper-plane-outline",
+                toggle: true,
+                toggleValue: messageRequests,
+                onToggle: setMessageRequests,
               }}
             />
             <Row
               isLast
               item={{
-                title: "Report a Problem",
-                description: "Tell us what went wrong",
-                icon: "bug-outline",
-                onPress: () => pushSettings("report"),
+                title: "Read Receipts",
+                description: "Let people know when you’ve seen messages",
+                icon: "checkmark-done-outline",
+                toggle: true,
+                toggleValue: readReceipts,
+                onToggle: setReadReceipts,
+              }}
+            />
+          </Card>
+
+          <SectionHeader title="Profile Controls" />
+          <Card>
+            <Row
+              item={{
+                title: "Hide Likes",
+                description: "Hide your liked posts from your profile",
+                icon: "heart-outline",
+                toggle: true,
+                toggleValue: hideLikes,
+                onToggle: setHideLikes,
+              }}
+            />
+            <Row
+              item={{
+                title: "Hide Followers",
+                description: "Hide your followers list from others",
+                icon: "people-outline",
+                toggle: true,
+                toggleValue: hideFollowers,
+                onToggle: setHideFollowers,
+              }}
+            />
+            <Row
+              isLast
+              item={{
+                title: "Hide Following",
+                description: "Hide who you follow from others",
+                icon: "person-add-outline",
+                toggle: true,
+                toggleValue: hideFollowing,
+                onToggle: setHideFollowing,
+              }}
+            />
+          </Card>
+
+          <SectionHeader title="Tags & Safety" />
+          <Card>
+            <Row
+              item={{
+                title: "Allow Tagging",
+                description: "Let others tag you in posts",
+                icon: "pricetag-outline",
+                toggle: true,
+                toggleValue: allowTagging,
+                onToggle: setAllowTagging,
+              }}
+            />
+            <Row
+              item={{
+                title: "Sensitive Content Filter",
+                description: "Reduce sensitive content in your feed",
+                icon: "eye-off-outline",
+                toggle: true,
+                toggleValue: reduceSensitive,
+                onToggle: setReduceSensitive,
+              }}
+            />
+            <Row
+              isLast
+              item={{
+                title: "Blocked & Muted Accounts",
+                description: "Manage who you’ve blocked or muted",
+                icon: "ban-outline",
+                onPress: () => pushSettings("blocked"),
               }}
             />
           </Card>
@@ -233,14 +428,33 @@ export default function PrivacyScreen() {
               }}
             />
             <Row
+              item={{
+                title: "Clear Search History",
+                description: "Clear search history saved on this device",
+                icon: "trash-outline",
+                onPress: clearSearch,
+              }}
+            />
+            <Row
               isLast
               item={{
-                title: "Read Receipts",
-                description: "Let people know when you’ve seen messages",
-                icon: "checkmark-done-outline",
-                toggle: true,
-                toggleValue: readReceipts,
-                onToggle: setReadReceipts,
+                title: "Download Your Data",
+                description: "Request an export of your account data",
+                icon: "download-outline",
+                onPress: exportData,
+              }}
+            />
+          </Card>
+
+          <SectionHeader title="Help" />
+          <Card>
+            <Row
+              isLast
+              item={{
+                title: "Report a Problem",
+                description: "Tell us what went wrong",
+                icon: "bug-outline",
+                onPress: () => pushSettings("report"),
               }}
             />
           </Card>

@@ -16,6 +16,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="saved-content" />
       <Stack.Screen name="language" />
       <Stack.Screen name="privacy" />
+      <Stack.Screen name="privacy-choice" />
       <Stack.Screen name="blocked" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="security" />
