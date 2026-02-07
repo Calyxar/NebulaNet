@@ -13,11 +13,25 @@ type Props = {
   onRemove?: () => void;
 
   /** Secondary action (Block) */
+  blockLabel?: string;
   onBlock?: () => void;
+
+  /** Hide the block action entirely (ex: on Blocked list screen) */
+  hideBlock?: boolean;
 };
 
 const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
-  ({ username, removeLabel = "Remove", onRemove, onBlock }, ref) => {
+  (
+    {
+      username,
+      removeLabel = "Remove",
+      onRemove,
+      blockLabel = "Block",
+      onBlock,
+      hideBlock = false,
+    },
+    ref,
+  ) => {
     const snapPoints = useMemo(() => ["28%"], []);
 
     const renderBackdrop = useCallback(
@@ -48,7 +62,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
           </Text>
 
           {/* Primary action */}
-          {onRemove && (
+          {!!onRemove && (
             <TouchableOpacity
               style={styles.item}
               activeOpacity={0.85}
@@ -66,7 +80,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
           )}
 
           {/* Secondary action */}
-          {onBlock && (
+          {!hideBlock && !!onBlock && (
             <TouchableOpacity
               style={styles.item}
               activeOpacity={0.85}
@@ -75,7 +89,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
               <View style={styles.iconWrap}>
                 <Ionicons name="ban-outline" size={18} color="#7C3AED" />
               </View>
-              <Text style={styles.itemText}>Block</Text>
+              <Text style={styles.itemText}>{blockLabel}</Text>
             </TouchableOpacity>
           )}
 

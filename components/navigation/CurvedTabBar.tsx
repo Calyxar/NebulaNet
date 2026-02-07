@@ -1,227 +1,214 @@
 // components/navigation/CurvedTabBar.tsx
+// ✅ Fixed spacing for Samsung A54 and Android gesture navigation
+// ✅ Proper bottom padding to avoid phone controls
+
+import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import {
   Home,
   MessageCircle,
+  PlusCircle,
   Search,
-  SquarePen, // post icon
   User,
 } from "lucide-react-native";
 import React from "react";
 import {
-  Platform,
-  Pressable,
   StyleSheet,
-  View,
-  useWindowDimensions,
+  Text,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export const TAB_BAR_BASE_HEIGHT = 70;
+// ✅ FIXED: Increased spacing for Samsung gesture navigation
+export const TAB_BAR_HEIGHT = 68;
+export const EXTRA_BOTTOM_PADDING = 20; // Extra space for gesture controls
+export const TAB_BAR_TOTAL_BOTTOM_PADDING =
+  TAB_BAR_HEIGHT + EXTRA_BOTTOM_PADDING;
 
-export function getTabBarHeight(insetsBottom: number) {
-  return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, 10);
-}
-
-type IconName = "home" | "explore" | "chat" | "profile";
-
-function TabIcon({ name, focused }: { name: IconName; focused: boolean }) {
-  const active = "#7C3AED";
-  const inactive = "#9CA3AF";
-  const color = focused ? active : inactive;
-  const size = 24;
-
-  switch (name) {
-    case "home":
-      return <Home size={size} color={color} />;
-    case "explore":
-      return <Search size={size} color={color} />;
-    case "chat":
-      return <MessageCircle size={size} color={color} />;
-    default:
-      return <User size={size} color={color} />;
-  }
-}
-
-export function CurvedTabBar({ state, navigation }: any) {
+export default function CurvedTabBar({
+  state,
+  descriptors,
+  navigation,
+}: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
 
-  const height = getTabBarHeight(insets.bottom);
-  const bottomPad = Math.max(insets.bottom, 10);
-
-  // ✅ Light-mode colors matching your design
-  const SCREEN_BG = "#F5F7FF";
-  const BAR_BG = "#FFFFFF";
-  const BORDER = "#E6EAF5";
-
-  // ✅ Responsive sizes (Samsung A54 friendly)
-  const barRadius = 26;
-  const postSize = width < 380 ? 54 : 60;
-
-  // ✅ A54: don’t lift too high, keep it “attached”
-  const lift = Platform.OS === "android" ? 14 : 12;
-
-  const activeRoute = state.routes[state.index]?.name;
-
-  const onPost = () => {
-    navigation.navigate("create"); // center action route
-  };
+  // ✅ Calculate proper bottom spacing for different devices
+  // Use the larger of: safe area insets or our extra padding
+  const bottomSpacing = Math.max(insets.bottom, EXTRA_BOTTOM_PADDING);
 
   return (
-    <View style={[styles.wrapper, { height }]} pointerEvents="box-none">
-      {/* Floating Post Button */}
-      <View style={styles.postSlot} pointerEvents="box-none">
-        <Pressable
-          onPress={onPost}
-          hitSlop={12}
-          style={[
-            styles.postBtn,
-            {
-              width: postSize,
-              height: postSize,
-              borderRadius: postSize / 2,
-              transform: [{ translateY: -lift }],
-              backgroundColor: "#7C3AED",
-              borderColor: BAR_BG,
-            },
-          ]}
-        >
-          <SquarePen size={24} color="#FFFFFF" />
-        </Pressable>
-      </View>
+    <View
+      style={[
+        styles.container,
+        {
+          bottom: bottomSpacing, // ✅ CRITICAL: Lift the entire tab bar up
+          height: TAB_BAR_HEIGHT,
+        },
+      ]}
+    >
+      <View style={styles.tabBar}>
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const isFocused = state.index === index;
 
-      {/* Bottom Bar */}
-      <View
-        style={[
-          styles.bar,
-          {
-            backgroundColor: BAR_BG,
-            borderColor: BORDER,
-            borderRadius: barRadius,
-            paddingBottom: bottomPad,
-          },
-        ]}
-      >
-        <View style={styles.row}>
-          {state.routes.map((route: any) => {
-            if (route.name === "notifications") return null;
+          const onPress = () => {
+            const event = navigation.emit({
+              type: "tabPress",
+              target: route.key,
+              canPreventDefault: true,
+            });
 
-            const isCreate = route.name === "create";
-            const focused = activeRoute === route.name;
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name);
+            }
+          };
 
-            // Reserve space under the floating post button
-            if (isCreate) return <View key={route.key} style={{ width: 76 }} />;
+          // Get icon for each tab
+          const getIcon = () => {
+            const iconSize = isFocused ? 26 : 24;
+            const color = isFocused ? "#7C3AED" : "#9CA3AF";
+            const strokeWidth = isFocused ? 2.5 : 2;
 
-            const onPress = () => {
-              const event = navigation.emit({
-                type: "tabPress",
-                target: route.key,
-                canPreventDefault: true,
-              });
-              if (!focused && !event.defaultPrevented) {
-                navigation.navigate(route.name);
-              }
-            };
+            switch (route.name) {
+              case "home":
+                return (
+                  <Home
+                    size={iconSize}
+                    color={color}
+                    strokeWidth={strokeWidth}
+                  />
+                );
+              case "explore":
+                return (
+                  <Search
+                    size={iconSize}
+                    color={color}
+                    strokeWidth={strokeWidth}
+                  />
+                );
+              case "create":
+                return (
+                  <View style={styles.createButton}>
+                    <PlusCircle
+                      size={32}
+                      color="#fff"
+                      fill="#7C3AED"
+                      strokeWidth={2}
+                    />
+                  </View>
+                );
+              case "chat":
+                return (
+                  <MessageCircle
+                    size={iconSize}
+                    color={color}
+                    strokeWidth={strokeWidth}
+                  />
+                );
+              case "profile":
+                return (
+                  <User
+                    size={iconSize}
+                    color={color}
+                    strokeWidth={strokeWidth}
+                  />
+                );
+              default:
+                return null;
+            }
+          };
 
-            const mapped: IconName =
-              route.name === "home"
-                ? "home"
-                : route.name === "explore"
-                  ? "explore"
-                  : route.name === "chat"
-                    ? "chat"
-                    : "profile";
+          // Get label for each tab
+          const getLabel = () => {
+            switch (route.name) {
+              case "home":
+                return "Home";
+              case "explore":
+                return "Explore";
+              case "create":
+                return ""; // No label for center create button
+              case "chat":
+                return "Chat";
+              case "profile":
+                return "Profile";
+              default:
+                return route.name;
+            }
+          };
 
-            return (
-              <Pressable
-                key={route.key}
-                onPress={onPress}
-                style={styles.tab}
-                android_ripple={{ borderless: true }}
-                hitSlop={10}
-              >
-                <TabIcon name={mapped} focused={focused} />
-                <View style={[styles.dot, focused && styles.dotActive]} />
-              </Pressable>
-            );
-          })}
-        </View>
+          const isCreateButton = route.name === "create";
 
-        {/* ✅ This “base strip” helps blend into the screen bg on A54 */}
-        <View style={[styles.bottomBlend, { backgroundColor: SCREEN_BG }]} />
+          return (
+            <TouchableOpacity
+              key={route.key}
+              onPress={onPress}
+              style={[styles.tab, isCreateButton && styles.createTab]}
+              activeOpacity={0.7}
+            >
+              {getIcon()}
+              {!isCreateButton && (
+                <Text style={[styles.label, isFocused && styles.labelActive]}>
+                  {getLabel()}
+                </Text>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
+  container: {
     position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    paddingHorizontal: 14,
-  },
-
-  bar: {
-    overflow: "hidden",
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: Platform.OS === "android" ? 0.12 : 0.08,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-
-  row: {
-    height: TAB_BAR_BASE_HEIGHT,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-  },
-
-  tab: {
-    width: 58,
-    height: 54,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  dot: {
-    marginTop: 6,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
     backgroundColor: "transparent",
   },
-  dotActive: {
-    backgroundColor: "#7C3AED",
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 20,
   },
-
-  // Floating Post button
-  postSlot: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    alignItems: "center",
-    zIndex: 50,
-  },
-  postBtn: {
+  tab: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 4, // white ring like the design
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: Platform.OS === "android" ? 0.18 : 0.12,
-    shadowRadius: 14,
-    elevation: 12,
+    paddingVertical: 8,
   },
-
-  // subtle blend strip (prevents harsh edge over gesture bar)
-  bottomBlend: {
-    height: 10,
-    width: "100%",
+  createTab: {
+    marginTop: -20, // Lift the create button
+  },
+  createButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#9CA3AF",
+    marginTop: 4,
+  },
+  labelActive: {
+    color: "#7C3AED",
   },
 });
