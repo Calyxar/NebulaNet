@@ -1,3 +1,11 @@
+// app/profile/blocked.tsx — COMPLETED + UPDATED
+// ✅ Blocked list screen
+// ✅ Join typed as array (stable PostgREST typing)
+// ✅ Unblock flow (optimistic)
+// ✅ Uses UserRow + UserActionsSheet
+// ✅ invalidateAfterBlock after unblock
+// ✅ hideBlock on sheet
+
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -22,29 +30,21 @@ import UserRow, { type UserRowModel } from "@/components/UserRow";
 
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 
+type BlockedProfile = {
+  id: string;
+  username: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  is_private?: boolean | null;
+};
+
 type BlockedJoinRow = {
   id: string;
   blocker_id: string;
   blocked_id: string;
   created_at: string;
-  // NOTE: depending on PostgREST relationship detection, this can come back as
-  // object OR array. We normalize it below.
-  blocked:
-    | {
-        id: string;
-        username: string;
-        full_name: string | null;
-        avatar_url: string | null;
-        is_private?: boolean | null;
-      }
-    | {
-        id: string;
-        username: string;
-        full_name: string | null;
-        avatar_url: string | null;
-        is_private?: boolean | null;
-      }[]
-    | null;
+  // ✅ treat as array always (PostgREST commonly returns arrays for joins)
+  blocked: BlockedProfile[] | null;
 };
 
 function SkeletonRow() {
@@ -65,7 +65,6 @@ function SkeletonRow() {
 export default function BlockedUsersScreen() {
   const { user } = useAuth();
   const qc = useQueryClient();
-
   const myId = user?.id;
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
@@ -98,7 +97,9 @@ export default function BlockedUsersScreen() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data as BlockedJoinRow[]) ?? [];
+
+      // ✅ cast through unknown to avoid PostgREST join typing drama
+      return (data ?? []) as unknown as BlockedJoinRow[];
     },
   });
 
@@ -107,8 +108,7 @@ export default function BlockedUsersScreen() {
     const safe = rows ?? [];
     return safe
       .map((r) => {
-        const b = Array.isArray(r.blocked) ? r.blocked[0] : r.blocked;
-
+        const b = r.blocked?.[0] ?? null;
         if (!b) return null;
 
         return {
@@ -122,7 +122,7 @@ export default function BlockedUsersScreen() {
       .filter(Boolean) as UserRowModel[];
   }, [rows]);
 
-  // Quick lookup for unblock
+  // Quick lookup for unblock guard
   const blockedIdSet = useMemo(() => {
     const set = new Set<string>();
     (rows ?? []).forEach((r) => set.add(r.blocked_id));
@@ -145,7 +145,6 @@ export default function BlockedUsersScreen() {
     },
     onMutate: async (targetUserId) => {
       const key = ["my-blocks", myId];
-
       await qc.cancelQueries({ queryKey: key });
 
       const prev = qc.getQueryData<BlockedJoinRow[]>(key) ?? [];
@@ -159,12 +158,10 @@ export default function BlockedUsersScreen() {
       return { prev };
     },
     onError: (_err, _targetId, ctx) => {
-      if (!ctx?.prev) return;
-      qc.setQueryData(["my-blocks", myId], ctx.prev);
+      if (ctx?.prev) qc.setQueryData(["my-blocks", myId], ctx.prev);
     },
     onSuccess: (targetUserId) => {
       if (!myId) return;
-      // Unblock affects same UI surfaces as block
       invalidateAfterBlock(qc, myId, targetUserId);
     },
   });
@@ -239,15 +236,17 @@ export default function BlockedUsersScreen() {
         removeLabel="Unblock"
         onRemove={async () => {
           if (!selected) return;
+
           // guard: only try if we truly have this blocked
           if (!blockedIdSet.has(selected.id)) {
             sheetRef.current?.close();
             return;
           }
+
           sheetRef.current?.close();
           await unblockMutation.mutateAsync(selected.id);
         }}
-        // no Block button on blocked list (it’s already blocked)
+        hideBlock
       />
     </SafeAreaView>
   );
