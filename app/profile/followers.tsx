@@ -1,181 +1,191 @@
 // app/profile/followers.tsx
-import { useAuth } from "@/hooks/useAuth";
-import { useMyPrivacySettings } from "@/hooks/useMyPrivacySettings";
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import React from "react";
-import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type FollowerRow = {
-  id: string;
-  username: string;
-  full_name: string | null;
-  avatar_url: string | null;
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
+
+import UserActionsSheet, {
+  type UserActionsSheetRef,
+} from "@/components/UserActionsSheet";
+import UserRow, { type UserRowModel } from "@/components/UserRow";
+
+type FollowRow = {
+  follower_id: string;
+  status: "accepted" | "pending";
+  follower: {
+    id: string;
+    username: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    is_private?: boolean | null;
+  } | null;
 };
 
 export default function FollowersScreen() {
   const { user, profile } = useAuth();
+  const qc = useQueryClient();
+
+  const sheetRef = useRef<UserActionsSheetRef>(null);
+  const [selected, setSelected] = useState<UserRowModel | null>(null);
+
+  const myId = user?.id;
 
   const {
-    data: privacy,
-    isLoading: privacyLoading,
-    refetch: refetchPrivacy,
-  } = useMyPrivacySettings();
-
-  const {
-    data: followers,
+    data: rows,
     isLoading,
     isRefetching,
     refetch,
   } = useQuery({
-    queryKey: ["my-followers", user?.id],
-    enabled: !!user?.id && !!privacy && !privacy.hide_followers,
+    queryKey: ["my-followers-with-status", myId],
+    enabled: !!myId,
     queryFn: async () => {
-      if (!user?.id) return [];
-
       const { data, error } = await supabase
         .from("follows")
         .select(
           `
+          follower_id,
+          status,
           follower:profiles!follows_follower_id_fkey (
-            id,
-            username,
-            full_name,
-            avatar_url
+            id, username, full_name, avatar_url, is_private
           )
         `,
         )
-        .eq("following_id", user.id)
+        .eq("following_id", myId!)
+        // show accepted + pending so you can see requests badge here
+        .in("status", ["accepted", "pending"])
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mapped: FollowRow[] = (data as any) ?? [];
+      return mapped.filter((r) => !!r.follower);
+    },
+  });
+
+  // ✅ Efficient mutual detection (ONE extra query, only for "my followers"):
+  // Check which of these follower_ids are also followed by ME (accepted).
+  const followerIds = useMemo(
+    () => (rows ?? []).map((r) => r.follower_id).filter(Boolean),
+    [rows],
+  );
+
+  const { data: iFollowBackSet } = useQuery({
+    queryKey: ["i-follow-back-set", myId, followerIds.join(",")],
+    enabled: !!myId && followerIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", myId!)
+        .in("following_id", followerIds)
         .eq("status", "accepted");
 
       if (error) throw error;
 
-      const mapped =
-        data?.map((row: any) => row.follower).filter(Boolean) ?? [];
-
-      return mapped as FollowerRow[];
+      const set = new Set<string>();
+      (data as any[] | null)?.forEach((r) => set.add(r.following_id));
+      return set;
     },
   });
+
+  const list: UserRowModel[] = useMemo(() => {
+    return (rows ?? []).map((r) => {
+      const u = r.follower!;
+      return {
+        id: u.id,
+        username: u.username,
+        full_name: u.full_name,
+        avatar_url: u.avatar_url,
+        isPrivate: !!u.is_private,
+        status: r.status,
+        isMutual: r.status === "accepted" ? !!iFollowBackSet?.has(u.id) : false,
+      };
+    });
+  }, [rows, iFollowBackSet]);
+
+  const removeFollower = useMutation({
+    mutationFn: async (targetUserId: string) => {
+      if (!myId) throw new Error("Not signed in");
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", targetUserId)
+        .eq("following_id", myId);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({
+        queryKey: ["my-followers-with-status", myId],
+      });
+    },
+  });
+
+  const blockUser = useMutation({
+    mutationFn: async (targetUserId: string) => {
+      if (!myId) throw new Error("Not signed in");
+
+      // If you haven’t created the blocks table yet, we’ll do it next.
+      const { error } = await supabase.from("user_blocks").insert({
+        blocker_id: myId,
+        blocked_id: targetUserId,
+      });
+      if (error) throw error;
+
+      // Also remove any follow relationship both ways (optional but common)
+      await supabase
+        .from("follows")
+        .delete()
+        .or(
+          `and(follower_id.eq.${myId},following_id.eq.${targetUserId}),and(follower_id.eq.${targetUserId},following_id.eq.${myId})`,
+        );
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({
+        queryKey: ["my-followers-with-status", myId],
+      });
+    },
+  });
+
+  const openMenu = (u: UserRowModel) => {
+    setSelected(u);
+    sheetRef.current?.snapToIndex(0);
+  };
 
   if (!user || !profile) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7C3AED" />
+          <Text style={styles.subtle}>Loading…</Text>
         </View>
       </SafeAreaView>
     );
   }
-
-  if (privacyLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7C3AED" />
-          <Text style={styles.subtleText}>Loading…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (privacy?.hide_followers) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Header title="Followers" />
-
-        <View style={styles.lockWrap}>
-          <View style={styles.lockIcon}>
-            <Ionicons name="lock-closed-outline" size={22} color="#7C3AED" />
-          </View>
-
-          <Text style={styles.lockTitle}>Followers list is hidden</Text>
-          <Text style={styles.lockDesc}>
-            You turned this off in Privacy settings. Turn it on to view your
-            followers list.
-          </Text>
-
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.primaryBtn}
-            onPress={() => router.push("/settings/privacy")}
-          >
-            <Ionicons name="settings-outline" size={18} color="#fff" />
-            <Text style={styles.primaryBtnText}>Open Privacy Settings</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.secondaryBtn}
-            onPress={async () => {
-              await refetchPrivacy();
-            }}
-          >
-            <Ionicons name="refresh-outline" size={18} color="#111827" />
-            <Text style={styles.secondaryBtnText}>Refresh</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const renderItem = ({ item }: { item: FollowerRow }) => {
-    const display = item.full_name || item.username;
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={styles.row}
-        onPress={() => router.push(`/user/${item.username}`)}
-      >
-        {item.avatar_url ? (
-          <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarFallback}>
-            <Text style={styles.avatarFallbackText}>
-              {(item.username?.[0] || "U").toUpperCase()}
-            </Text>
-          </View>
-        )}
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name} numberOfLines={1}>
-            {display}
-          </Text>
-          <Text style={styles.handle} numberOfLines={1}>
-            @{item.username}
-          </Text>
-        </View>
-
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-      </TouchableOpacity>
-    );
-  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <Header title="Followers" />
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerBtn} onTouchEnd={() => router.back()}>
+          <Ionicons name="arrow-back" size={22} color="#111827" />
+        </View>
+        <Text style={styles.headerTitle}>Followers</Text>
+        <View style={styles.headerBtn} />
+      </View>
 
+      {/* List */}
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7C3AED" />
+          <Text style={styles.subtle}>Loading…</Text>
         </View>
       ) : (
         <FlatList
-          data={followers ?? []}
+          data={list}
           keyExtractor={(item) => item.id}
-          renderItem={renderItem}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
           refreshControl={
             <RefreshControl
@@ -184,6 +194,14 @@ export default function FollowersScreen() {
               tintColor="#7C3AED"
             />
           }
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          renderItem={({ item }) => (
+            <UserRow
+              item={item}
+              onPress={() => router.push(`/user/${item.username}`)}
+              onMenu={() => openMenu(item)}
+            />
+          )}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="people-outline" size={56} color="#C5CAE9" />
@@ -193,35 +211,33 @@ export default function FollowersScreen() {
               </Text>
             </View>
           }
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* BottomSheet Actions */}
+      <UserActionsSheet
+        ref={sheetRef}
+        username={selected?.username}
+        onRemove={async () => {
+          if (!selected) return;
+          sheetRef.current?.close();
+          await removeFollower.mutateAsync(selected.id);
+        }}
+        onBlock={async () => {
+          if (!selected) return;
+          sheetRef.current?.close();
+          await blockUser.mutateAsync(selected.id);
+        }}
+      />
     </SafeAreaView>
-  );
-}
-
-function Header({ title }: { title: string }) {
-  return (
-    <View style={styles.header}>
-      <TouchableOpacity
-        style={styles.headerBtn}
-        onPress={() => router.back()}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="arrow-back" size={22} color="#111827" />
-      </TouchableOpacity>
-
-      <Text style={styles.headerTitle}>{title}</Text>
-
-      <View style={styles.headerBtn} />
-    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  subtle: { color: "#6B7280", fontWeight: "800" },
 
   header: {
     paddingHorizontal: 16,
@@ -240,31 +256,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-
-  row: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "#EEF2FF",
-  },
-  avatar: { width: 44, height: 44, borderRadius: 22 },
-  avatarFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarFallbackText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-
-  name: { fontSize: 14, fontWeight: "900", color: "#111827" },
-  handle: { fontSize: 12, fontWeight: "800", color: "#6B7280", marginTop: 2 },
 
   empty: {
     paddingTop: 80,
@@ -286,62 +277,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
-
-  lockWrap: {
-    flex: 1,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  lockIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 2,
-    marginBottom: 14,
-  },
-  lockTitle: { fontSize: 18, fontWeight: "900", color: "#111827" },
-  lockDesc: {
-    marginTop: 8,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-
-  primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "900" },
-
-  secondaryBtn: {
-    marginTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#EEF2FF",
-  },
-  secondaryBtnText: { color: "#111827", fontWeight: "900" },
-
-  subtleText: { marginTop: 10, color: "#6B7280", fontWeight: "800" },
 });
