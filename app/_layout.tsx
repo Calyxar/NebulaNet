@@ -1,4 +1,4 @@
-// app/_layout.tsx — FIXED (providers split + public /privacy + no typed-route TS errors)
+// app/_layout.tsx — FINAL (public /privacy, stable auth gating, no TS errors)
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,21 +16,19 @@ import "react-native-url-polyfill/auto";
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  // Create QueryClient instance
   const [queryClient] = useState(
     () =>
       new QueryClient({
         defaultOptions: {
           queries: {
             retry: 2,
-            staleTime: 1000 * 60 * 5, // 5 minutes
+            staleTime: 1000 * 60 * 5,
             refetchOnWindowFocus: Platform.OS === "web",
           },
         },
       }),
   );
 
-  // Load fonts
   const [fontsLoaded, fontError] = useFonts({
     "Inter-Regular": require("../assets/fonts/Inter-Regular.ttf"),
     "Inter-Medium": require("../assets/fonts/Inter-Medium.ttf"),
@@ -65,26 +63,26 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const router = useRouter();
   const pathname = usePathname();
-
   const { session, isLoading } = useAuth();
 
-  // ✅ Public routes should never require auth (Play Console needs /privacy public)
+  // ✅ Explicit public paths (Play Console needs /privacy public)
   const isPublicPath = useMemo(() => {
-    if (!pathname) return true;
+    const p = (pathname || "/").split("?")[0].split("#")[0];
     return (
-      pathname === "/" ||
-      pathname.startsWith("/privacy") ||
-      pathname.startsWith("/(auth)") ||
-      pathname.startsWith("/verify-email-handler") ||
-      pathname.startsWith("/+not-found")
+      p === "/" ||
+      p === "/privacy" ||
+      p.startsWith("/privacy/") ||
+      p.startsWith("/(auth)") ||
+      p.startsWith("/verify-email-handler") ||
+      p.startsWith("/+not-found")
     );
   }, [pathname]);
 
-  // ✅ Auth gating (web + native)
+  // ✅ Auth gating (stable, no early redirect)
   useEffect(() => {
     if (isLoading) return;
+    if (!pathname) return;
 
-    // Not signed in: allow public paths only
     if (!session) {
       if (!isPublicPath) {
         router.replace("/(auth)/login");
@@ -92,49 +90,44 @@ function RootLayoutNav() {
       return;
     }
 
-    // Signed in: keep auth screens out of the way
-    if (pathname?.startsWith("/(auth)")) {
+    if (pathname.startsWith("/(auth)")) {
       router.replace("/(tabs)/home");
     }
   }, [isLoading, session, isPublicPath, pathname, router]);
 
-  // ✅ Deep linking handler (safe, respects public routes)
+  // ✅ Deep linking (privacy never redirects)
   useEffect(() => {
     const handleDeepLink = ({ url }: { url: string }) => {
       try {
         const { path } = Linking.parse(url);
         if (!path) return;
 
-        const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+        const clean = path.startsWith("/") ? path.slice(1) : path;
 
-        // Public deep links
-        if (cleanPath === "privacy" || cleanPath === "privacy/") {
+        if (clean === "privacy" || clean === "privacy/") {
           router.replace("/privacy" as any);
           return;
         }
-        if (cleanPath === "invite" || cleanPath === "invite/") {
+
+        if (clean === "invite" || clean === "invite/") {
           router.replace("/(auth)/signup");
           return;
         }
 
-        // Protected deep links: if no session, go login
         if (!session) {
           router.replace("/(auth)/login");
           return;
         }
 
-        if (cleanPath.startsWith("post/")) {
-          const postId = cleanPath.replace("post/", "");
-          router.replace(`/post/${postId}`);
-        } else if (cleanPath.startsWith("user/")) {
-          const username = cleanPath.replace("user/", "");
-          router.replace(`/user/${username}`);
-        } else if (cleanPath.startsWith("community/")) {
-          const slug = cleanPath.replace("community/", "");
-          router.replace(`/community/${slug}`);
+        if (clean.startsWith("post/")) {
+          router.replace(`/post/${clean.replace("post/", "")}`);
+        } else if (clean.startsWith("user/")) {
+          router.replace(`/user/${clean.replace("user/", "")}`);
+        } else if (clean.startsWith("community/")) {
+          router.replace(`/community/${clean.replace("community/", "")}`);
         }
-      } catch (error) {
-        console.error("❌ Error handling deep link:", error);
+      } catch (err) {
+        console.error("Deep link error:", err);
       }
     };
 
@@ -157,93 +150,24 @@ function RootLayoutNav() {
         }),
       }}
     >
-      {/* Public routes */}
-      <Stack.Screen
-        name="index"
-        options={{ animation: Platform.OS === "web" ? "fade" : "default" }}
-      />
-      <Stack.Screen
-        name="privacy"
-        options={{
-          title: "Privacy Policy",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="(auth)"
-        options={{ animation: Platform.OS === "web" ? "fade" : "default" }}
-      />
-      <Stack.Screen
-        name="verify-email-handler/index"
-        options={{
-          title: "Email Verification",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
+      {/* Public */}
+      <Stack.Screen name="index" />
+      <Stack.Screen name="privacy" options={{ title: "Privacy Policy" }} />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="verify-email-handler/index" />
 
-      {/* Protected routes */}
-      <Stack.Screen
-        name="(tabs)"
-        options={{ animation: Platform.OS === "web" ? "fade" : "default" }}
-      />
-      <Stack.Screen
-        name="post"
-        options={{
-          title: "Post",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="user"
-        options={{
-          title: "User Profile",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="profile/index"
-        options={{
-          title: "My Profile",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="profile/edit"
-        options={{
-          title: "Edit Profile",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="community"
-        options={{
-          title: "Community",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
-      <Stack.Screen
-        name="create"
-        options={{
-          title: "Create Post",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
+      {/* Protected */}
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="post" />
+      <Stack.Screen name="user" />
+      <Stack.Screen name="profile/index" />
+      <Stack.Screen name="profile/edit" />
+      <Stack.Screen name="settings" />
+      <Stack.Screen name="community" />
+      <Stack.Screen name="create" />
 
-      {/* 404 Not Found - Must be last */}
-      <Stack.Screen
-        name="+not-found"
-        options={{
-          title: "Not Found",
-          animation: Platform.OS === "web" ? "fade" : "default",
-        }}
-      />
+      {/* 404 */}
+      <Stack.Screen name="+not-found" />
     </Stack>
   );
 }
