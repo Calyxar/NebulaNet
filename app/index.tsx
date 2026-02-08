@@ -1,4 +1,4 @@
-// app/index.tsx - Welcome Screen (responsive height)
+// app/index.tsx — Welcome Screen (✅ auto-skip if already logged in)
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -15,16 +15,25 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { useAuth } from "@/providers/AuthProvider";
+
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { session, isLoading } = useAuth();
   const { height: SCREEN_HEIGHT } = useWindowDimensions();
 
-  const isShort = SCREEN_HEIGHT < 700; // iPhone SE / small Android
-  const isVeryShort = SCREEN_HEIGHT < 620; // extra small
+  const isShort = SCREEN_HEIGHT < 700;
+  const isVeryShort = SCREEN_HEIGHT < 620;
 
+  // ✅ If user already has a persisted session, skip welcome and go to tabs
   useEffect(() => {
-    console.log("WelcomeScreen mounted");
-  }, []);
+    if (isLoading) return;
+
+    if (session?.user) {
+      // replace prevents going "back" to welcome
+      router.replace("/(tabs)/home");
+    }
+  }, [isLoading, session?.user?.id]);
 
   const handleGetStarted = () => {
     try {
@@ -43,6 +52,9 @@ export default function WelcomeScreen() {
       Alert.alert("Error", "Could not navigate to login");
     }
   };
+
+  // Optional: avoid rendering welcome briefly while checking session
+  if (isLoading) return null;
 
   return (
     <View style={styles.wrapper}>
@@ -66,9 +78,7 @@ export default function WelcomeScreen() {
             <View
               style={[
                 styles.container,
-                {
-                  paddingBottom: isVeryShort ? 18 : isShort ? 32 : 50,
-                },
+                { paddingBottom: isVeryShort ? 18 : isShort ? 32 : 50 },
               ]}
             >
               <View

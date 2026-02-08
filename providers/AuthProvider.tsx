@@ -1,8 +1,11 @@
 // providers/AuthProvider.tsx
-// ✅ Real Supabase authentication with profile management
+// ✅ Real Supabase authentication with profile management (HYDRATION-SAFE + PROFILE UPSERT)
 
 import { supabase } from "@/lib/supabase";
-import type { Session, User as SupabaseUser } from "@supabase/supabase-js";
+import type {
+  Session,
+  User as SupabaseUser
+} from "@supabase/supabase-js";
 import {
   useMutation,
   useQuery,
@@ -13,6 +16,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -20,7 +24,7 @@ import React, {
 export interface Profile {
   id: string;
   username: string;
-  full_name: string;
+  full_name: string | null;
   avatar_url?: string | null;
   bio?: string | null;
   location?: string | null;
@@ -32,7 +36,6 @@ type UpdateProfileInput = Partial<
   Pick<Profile, "username" | "full_name" | "avatar_url" | "bio" | "location">
 >;
 
-// ✅ Explicit mutation type so context matches the actual mutation
 type UpdateProfileMutation = UseMutationResult<
   Profile,
   Error,
@@ -44,45 +47,172 @@ interface AuthContextType {
   user: SupabaseUser | null;
   profile: Profile | null;
   session: Session | null;
+
+  /**
+   * ✅ True until we finish the *first* getSession() call AND profile query (if user exists)
+   * Use this to avoid redirecting to login too early.
+   */
   isLoading: boolean;
+
   updateProfile: UpdateProfileMutation;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// PostgREST "no rows" code
+const NO_ROWS = "PGRST116";
+
+function isNoRowsError(err: any) {
+  return err?.code === NO_ROWS;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
 
-  // ✅ Fetch user profile from profiles table
-  const { data: profile, isLoading: isLoadingProfile } =
-    useQuery<Profile | null>({
-      queryKey: ["profile", user?.id],
-      queryFn: async () => {
-        if (!user?.id) return null;
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
-        console.log("👤 Fetching profile for user:", user.id);
+  // ✅ Critical: separate “hydration” flag so we don’t flash-login
+  const [hydrated, setHydrated] = useState(false);
 
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single();
+  // ✅ Ensure a profiles row exists (important for OAuth + edge cases)
+  const ensureProfileExists = async (u: SupabaseUser) => {
+    try {
+      // Try to find existing profile row
+      const { data: existing, error: readErr } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", u.id)
+        .maybeSingle();
 
-        if (error) {
-          console.error("Profile fetch error:", error);
-          return null;
+      if (readErr && !isNoRowsError(readErr)) {
+        console.warn("⚠️ Profile existence check error:", readErr);
+        return;
+      }
+
+      if (existing?.id) return;
+
+      const usernameFromMeta =
+        (u.user_metadata?.username as string | undefined) ||
+        (u.user_metadata?.preferred_username as string | undefined) ||
+        (u.email ? u.email.split("@")[0] : "user");
+
+      const fullNameFromMeta =
+        (u.user_metadata?.full_name as string | undefined) ||
+        (u.user_metadata?.name as string | undefined) ||
+        null;
+
+      // Create minimal profile row
+      const now = new Date().toISOString();
+      const { error: upsertErr } = await supabase.from("profiles").upsert(
+        {
+          id: u.id,
+          username: usernameFromMeta,
+          full_name: fullNameFromMeta,
+          created_at: now,
+          updated_at: now,
+        },
+        { onConflict: "id" },
+      );
+
+      if (upsertErr) {
+        console.warn("⚠️ Profile upsert error:", upsertErr);
+      } else {
+        console.log("✅ Profile ensured (upserted if missing)");
+      }
+    } catch (e) {
+      console.warn("⚠️ ensureProfileExists exception:", e);
+    }
+  };
+
+  // ✅ Auth bootstrapping (runs once)
+  useEffect(() => {
+    let cancelled = false;
+
+    console.log("🔐 AuthProvider bootstrapping...");
+
+    (async () => {
+      try {
+        const {
+          data: { session: s },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) console.warn("⚠️ getSession error:", error);
+
+        if (cancelled) return;
+
+        setSession(s ?? null);
+        setUser(s?.user ?? null);
+
+        if (s?.user) {
+          await ensureProfileExists(s.user);
+          // Prime profile cache
+          queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
         }
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
 
-        console.log("👤 Profile loaded:", !!data);
-        return data as Profile;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      async (event: string, s: Session | null) => {
+        console.log("🔔 Auth state changed:", event, "session:", !!s);
+
+        setSession(s ?? null);
+        setUser(s?.user ?? null);
+
+        // Hydrated stays true once it becomes true
+        setHydrated(true);
+
+        if (s?.user) {
+          await ensureProfileExists(s.user);
+          queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
+        } else {
+          queryClient.removeQueries({ queryKey: ["profile"] });
+        }
       },
-      enabled: !!user?.id,
-      staleTime: 1000 * 60 * 5,
-    });
+    );
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [queryClient]);
+
+  // ✅ Fetch user profile from profiles table
+  const {
+    data: profile,
+    isLoading: isLoadingProfile,
+    isFetching: isFetchingProfile,
+  } = useQuery<Profile | null>({
+    queryKey: ["profile", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+
+      console.log("👤 Fetching profile for user:", user.id);
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error && !isNoRowsError(error)) {
+        console.error("❌ Profile fetch error:", error);
+        return null;
+      }
+
+      // If profile truly doesn't exist, we return null (ensureProfileExists should prevent this)
+      return (data as Profile) ?? null;
+    },
+    enabled: !!user?.id && hydrated, // ✅ don’t fetch before session hydration
+    staleTime: 1000 * 60 * 5,
+    retry: 1,
+  });
 
   // ✅ Update profile mutation (typed)
   const updateProfile = useMutation<Profile, Error, UpdateProfileInput>({
@@ -101,10 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select("*")
         .single();
 
-      if (error) {
-        // Supabase errors aren’t always Error instances
-        throw new Error(error.message ?? "Failed to update profile");
-      }
+      if (error) throw new Error(error.message ?? "Failed to update profile");
 
       console.log("✅ Profile updated successfully");
       return data as Profile;
@@ -116,42 +243,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("❌ Profile update error:", error);
     },
   });
-
-  // ✅ Listen to auth state changes
-  useEffect(() => {
-    console.log("🔐 Setting up auth listener...");
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("🔐 Initial session:", !!session);
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("🔔 Auth state changed:", _event, "session:", !!session);
-
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-
-      if (session?.user) {
-        queryClient.invalidateQueries({
-          queryKey: ["profile", session.user.id],
-        });
-      } else {
-        // if signed out, ensure profile cache is cleared
-        queryClient.removeQueries({ queryKey: ["profile"] });
-      }
-    });
-
-    return () => {
-      console.log("🔐 Cleaning up auth listener");
-      subscription.unsubscribe();
-    };
-  }, [queryClient]);
 
   // ✅ Sign out function
   const signOut = async () => {
@@ -166,11 +257,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ✅ This is the key: loading is true until session is hydrated AND (if authed) profile is done.
+  const isLoading = useMemo(() => {
+    if (!hydrated) return true;
+    if (user?.id) return isLoadingProfile || isFetchingProfile;
+    return false;
+  }, [hydrated, user?.id, isLoadingProfile, isFetchingProfile]);
+
   const value: AuthContextType = {
     user,
     profile: profile ?? null,
     session,
-    isLoading: isLoading || isLoadingProfile,
+    isLoading,
     updateProfile,
     signOut,
   };
