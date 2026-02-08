@@ -58,6 +58,7 @@ export default function RootLayout() {
                 {/* Public */}
                 <Stack.Screen name="index" />
                 <Stack.Screen name="privacy" />
+                <Stack.Screen name="delete-account" />
                 <Stack.Screen name="(auth)" />
                 <Stack.Screen name="verify-email-handler/index" />
 

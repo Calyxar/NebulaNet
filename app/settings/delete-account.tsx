@@ -1,10 +1,10 @@
-// app/settings/delete-account.tsx
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
+import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -15,11 +15,29 @@ import {
 } from "react-native";
 
 export default function DeleteAccountScreen() {
-  const { user, deleteAccount } = useAuth();
+  const { user, profile, signOut } = useAuth();
+  const deleteAccount = useDeleteAccount();
+
   const [confirmationText, setConfirmationText] = useState("");
   const [password, setPassword] = useState("");
   const [reason, setReason] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const handle = useMemo(() => {
+    const username =
+      profile?.username?.trim() || user?.email?.split("@")[0]?.trim() || "user";
+    return `@${username}`;
+  }, [profile?.username, user?.email]);
+
+  const confirmPhrase = useMemo(() => `delete ${handle}`, [handle]);
+
+  const isConfirmTextValid =
+    confirmationText.trim().toLowerCase() === confirmPhrase.toLowerCase();
+
+  const hardResetToWelcome = () => {
+    // Replace to root so back stack doesn't return to authenticated screens
+    router.replace("/");
+  };
 
   const handleDelete = () => {
     Alert.alert(
@@ -31,24 +49,61 @@ export default function DeleteAccountScreen() {
           text: "Delete Account",
           style: "destructive",
           onPress: async () => {
+            if (!user?.email) {
+              Alert.alert(
+                "Error",
+                "You must be logged in to delete your account.",
+              );
+              return;
+            }
+
+            if (!isConfirmTextValid) {
+              Alert.alert(
+                "Confirm text doesn't match",
+                `Type: ${confirmPhrase}`,
+              );
+              return;
+            }
+
+            if (!password) {
+              Alert.alert("Password required", "Please enter your password.");
+              return;
+            }
+
             setIsLoading(true);
+
             try {
-              // Verify password first
+              // ✅ OPTIONAL re-auth: keeps Play reviewers happy and protects user
+              // NOTE: This does NOT leak any keys; it's normal user auth.
               const { error: signInError } =
                 await supabase.auth.signInWithPassword({
-                  email: user?.email || "",
-                  password: password,
+                  email: user.email,
+                  password,
                 });
 
               if (signInError) {
-                Alert.alert("Error", "Incorrect password. Please try again.");
+                Alert.alert("Incorrect password", "Please try again.");
                 return;
               }
 
-              // Delete account
-              await deleteAccount.mutateAsync({ reason });
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
+              // ✅ Call Edge Function (safe) via your hook
+              await deleteAccount.mutateAsync({
+                reason: reason.trim() || null,
+              });
+
+              // ✅ Ensure local session is cleared and app returns to public state
+              await signOut();
+              hardResetToWelcome();
+
+              Alert.alert(
+                "Account deleted",
+                "Your account and data have been deleted successfully.",
+              );
+            } catch (err: any) {
+              const msg =
+                err?.message ||
+                (typeof err === "string" ? err : "Something went wrong.");
+              Alert.alert("Delete failed", msg);
             } finally {
               setIsLoading(false);
             }
@@ -58,11 +113,11 @@ export default function DeleteAccountScreen() {
     );
   };
 
-  const isConfirmTextValid =
-    confirmationText === `delete @${user?.email?.split("@")[0]}`;
-
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: 28 }}
+    >
       <View style={styles.header}>
         <Ionicons name="trash-outline" size={48} color="#ff3b30" />
         <Text style={styles.headerTitle}>Delete Account</Text>
@@ -86,7 +141,7 @@ export default function DeleteAccountScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Why are you leaving? (Optional)</Text>
         <Text style={styles.sectionDescription}>
-          Your feedback helps us improve NebulaNet
+          Your feedback helps us improve NebulaNet.
         </Text>
         <TextInput
           style={[styles.input, styles.textArea]}
@@ -102,18 +157,15 @@ export default function DeleteAccountScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Confirm Your Identity</Text>
         <Text style={styles.sectionDescription}>
-          Type{" "}
-          <Text style={styles.confirmText}>
-            delete @{user?.email?.split("@")[0]}
-          </Text>{" "}
-          to confirm
+          Type <Text style={styles.confirmText}>{confirmPhrase}</Text> to
+          confirm
         </Text>
         <TextInput
           style={[
             styles.input,
-            !isConfirmTextValid && confirmationText && styles.inputError,
+            !isConfirmTextValid && confirmationText ? styles.inputError : null,
           ]}
-          placeholder={`Type "delete @${user?.email?.split("@")[0]}"`}
+          placeholder={`Type "${confirmPhrase}"`}
           value={confirmationText}
           onChangeText={setConfirmationText}
           autoCapitalize="none"
@@ -139,27 +191,33 @@ export default function DeleteAccountScreen() {
         <Text style={styles.alternativesTitle}>
           Consider these alternatives:
         </Text>
-        <View style={styles.alternativeItem}>
-          <Ionicons name="pause-circle-outline" size={20} color="#666" />
-          <Text style={styles.alternativeText}>
-            <Text style={styles.alternativeLink}>Deactivate account</Text> -
-            Temporarily hide your profile
-          </Text>
-        </View>
-        <View style={styles.alternativeItem}>
-          <Ionicons name="download-outline" size={20} color="#666" />
-          <Text style={styles.alternativeText}>
-            <Text style={styles.alternativeLink}>Download your data</Text>{" "}
-            before deleting
-          </Text>
-        </View>
-        <View style={styles.alternativeItem}>
-          <Ionicons name="settings-outline" size={20} color="#666" />
-          <Text style={styles.alternativeText}>
-            <Text style={styles.alternativeLink}>Adjust privacy settings</Text>{" "}
-            instead
-          </Text>
-        </View>
+
+        <Text
+          style={styles.alternativeRow}
+          onPress={() => router.push("/settings/deactivate")}
+        >
+          <Ionicons name="pause-circle-outline" size={18} color="#666" />{" "}
+          <Text style={styles.alternativeLink}>Deactivate account</Text> —
+          temporarily hide your profile
+        </Text>
+
+        <Text
+          style={styles.alternativeRow}
+          onPress={() => router.push("/settings/account-center")}
+        >
+          <Ionicons name="download-outline" size={18} color="#666" />{" "}
+          <Text style={styles.alternativeLink}>Download your data</Text> before
+          deleting
+        </Text>
+
+        <Text
+          style={styles.alternativeRow}
+          onPress={() => router.push("/settings/privacy")}
+        >
+          <Ionicons name="settings-outline" size={18} color="#666" />{" "}
+          <Text style={styles.alternativeLink}>Adjust privacy settings</Text>{" "}
+          instead
+        </Text>
       </View>
 
       <View style={styles.buttonContainer}>
@@ -167,7 +225,7 @@ export default function DeleteAccountScreen() {
           title="Delete Account Permanently"
           onPress={handleDelete}
           loading={isLoading || deleteAccount.isPending}
-          disabled={!isConfirmTextValid || !password}
+          disabled={!isConfirmTextValid || !password || deleteAccount.isPending}
           style={styles.deleteButton}
         />
 
@@ -182,10 +240,8 @@ export default function DeleteAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+
   header: {
     padding: 40,
     backgroundColor: "white",
@@ -205,6 +261,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+
   warningBox: {
     flexDirection: "row",
     backgroundColor: "#ffeaea",
@@ -213,40 +270,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 12,
   },
-  warningContent: {
-    flex: 1,
-  },
+  warningContent: { flex: 1 },
   warningTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: "#000",
     marginBottom: 4,
   },
-  warningText: {
-    fontSize: 13,
-    color: "#666",
-    lineHeight: 18,
-  },
-  section: {
-    backgroundColor: "white",
-    marginBottom: 16,
-    padding: 20,
-  },
+  warningText: { fontSize: 13, color: "#666", lineHeight: 18 },
+
+  section: { backgroundColor: "white", marginBottom: 16, padding: 20 },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
     marginBottom: 8,
   },
-  sectionDescription: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 12,
-  },
-  confirmText: {
-    fontWeight: "700",
-    color: "#000",
-  },
+  sectionDescription: { fontSize: 14, color: "#666", marginBottom: 12 },
+
+  confirmText: { fontWeight: "700", color: "#000" },
+
   input: {
     backgroundColor: "#f8f8f8",
     borderRadius: 8,
@@ -255,18 +298,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0e0e0",
   },
-  textArea: {
-    minHeight: 80,
-    paddingTop: 12,
-  },
-  inputError: {
-    borderColor: "#ff3b30",
-  },
-  errorText: {
-    fontSize: 14,
-    color: "#ff3b30",
-    marginTop: 4,
-  },
+  textArea: { minHeight: 80, paddingTop: 12 },
+  inputError: { borderColor: "#ff3b30" },
+  errorText: { fontSize: 14, color: "#ff3b30", marginTop: 4 },
+
   alternativesBox: {
     backgroundColor: "#e8f4f8",
     margin: 16,
@@ -279,27 +314,14 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 12,
   },
-  alternativeItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 12,
-    gap: 8,
-  },
-  alternativeText: {
+  alternativeRow: {
     fontSize: 13,
     color: "#666",
-    lineHeight: 18,
-    flex: 1,
+    lineHeight: 20,
+    marginBottom: 10,
   },
-  alternativeLink: {
-    color: "#007AFF",
-    fontWeight: "500",
-  },
-  buttonContainer: {
-    padding: 20,
-    gap: 12,
-  },
-  deleteButton: {
-    backgroundColor: "#ff3b30",
-  },
+  alternativeLink: { color: "#007AFF", fontWeight: "500" },
+
+  buttonContainer: { padding: 20, gap: 12 },
+  deleteButton: { backgroundColor: "#ff3b30" },
 });
