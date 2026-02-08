@@ -1,6 +1,7 @@
 // lib/uploads.ts
 import { MediaItem, MediaType } from "@/components/media/MediaUpload";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system"; // still used for getInfoAsync
+import * as FileSystemLegacy from "expo-file-system/legacy"; // ✅ SDK 54-safe for base64 fallback
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
@@ -47,6 +48,7 @@ export class UploadService {
       png: "image/png",
       gif: "image/gif",
       webp: "image/webp",
+      heic: "image/heic",
 
       // Videos
       mp4: "video/mp4",
@@ -77,7 +79,6 @@ export class UploadService {
     return `${userId}/${timestamp}-${random}.${ext}`;
   }
 
-  // Compress image (only)
   private async compressImage(
     uri: string,
     options: UploadOptions = {},
@@ -107,7 +108,6 @@ export class UploadService {
     }
   }
 
-  // Generate thumbnail for image
   private async generateImageThumbnail(
     uri: string,
     size: number = 300,
@@ -117,10 +117,7 @@ export class UploadService {
         uri,
         [
           {
-            resize: {
-              width: size,
-              height: size,
-            },
+            resize: { width: size, height: size },
           },
         ],
         {
@@ -137,17 +134,12 @@ export class UploadService {
     }
   }
 
-  // Generate thumbnail for video
   private async generateVideoThumbnail(uri: string): Promise<string> {
     try {
       const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
         uri,
-        {
-          time: 1000,
-          quality: 0.7,
-        },
+        { time: 1000, quality: 0.7 },
       );
-
       return thumbnailUri;
     } catch (error) {
       console.warn("Video thumbnail generation failed:", error);
@@ -155,12 +147,30 @@ export class UploadService {
     }
   }
 
-  // Convert URI to Blob (safe for video)
+  // --- Blob/base64 helpers ---
+
+  private base64ToUint8Array(base64: string) {
+    // atob is available in RN via global polyfills in Expo. If not, we can fallback.
+    const binary = globalThis.atob
+      ? globalThis.atob(base64)
+      : Buffer.from(base64, "base64").toString("binary");
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  // Convert URI to Blob (best for large files)
   private async uriToBlob(uri: string): Promise<Blob> {
-    // fetch(uri) works in Expo for file:// and most content:// URIs.
-    // It's much safer than base64 conversion for large videos.
     const response = await fetch(uri);
     return await response.blob();
+  }
+
+  // Fallback for cases where fetch(content://...) fails on some Android devices
+  private async uriToBytesLegacy(uri: string): Promise<Uint8Array> {
+    const base64 = await FileSystemLegacy.readAsStringAsync(uri, {
+      encoding: "base64" as any,
+    });
+    return this.base64ToUint8Array(base64);
   }
 
   // Upload file to Supabase Storage
@@ -171,13 +181,11 @@ export class UploadService {
     options: UploadOptions = {},
   ): Promise<UploadResult> {
     try {
-      // Get current user
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) throw new Error("User not authenticated");
 
-      // Validate file exists + size
       const fileInfo = await FileSystem.getInfoAsync(uri);
       if (!fileInfo.exists) throw new Error("File does not exist");
 
@@ -187,38 +195,44 @@ export class UploadService {
         );
       }
 
-      // For images: optionally compress before upload
       let uploadUri = uri;
       if (type === "image" && options.compressImages) {
         uploadUri = await this.compressImage(uri, options);
       }
 
-      // Read file as blob
-      const fileBlob = await this.uriToBlob(uploadUri);
       const mimeType = this.getMimeType(originalName);
 
-      // Generate filename + path
       const filename = this.generateFilename(originalName, user.id);
       const filePath = `${type}/${filename}`;
 
-      // Upload main file
+      // ✅ Prefer Blob upload (best for videos / large media)
+      // ✅ Fallback to bytes (legacy base64) if Blob fails (some Android content:// cases)
+      let uploadBody: Blob | Uint8Array;
+      try {
+        uploadBody = await this.uriToBlob(uploadUri);
+      } catch (e) {
+        console.warn(
+          "Blob conversion failed, falling back to base64 bytes:",
+          e,
+        );
+        uploadBody = await this.uriToBytesLegacy(uploadUri);
+      }
+
       const { error: uploadError } = await supabase.storage
         .from(this.bucket)
-        .upload(filePath, fileBlob, {
+        .upload(filePath, uploadBody as any, {
           contentType: mimeType,
           upsert: false,
         });
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from(this.bucket).getPublicUrl(filePath);
 
       let thumbnailUrl: string | undefined;
 
-      // Generate thumbnail if needed
       if (options.generateThumbnails) {
         if (type === "image") {
           const thumbSourceUri = options.compressImages
@@ -229,14 +243,20 @@ export class UploadService {
             thumbSourceUri,
             options.thumbnailSize ?? 300,
           );
-          const thumbnailBlob = await this.uriToBlob(thumbnailUri);
 
-          // ✅ Always store thumbs as .jpg
+          let thumbnailBody: Blob | Uint8Array;
+          try {
+            thumbnailBody = await this.uriToBlob(thumbnailUri);
+          } catch (e) {
+            console.warn("Thumbnail blob failed, base64 fallback:", e);
+            thumbnailBody = await this.uriToBytesLegacy(thumbnailUri);
+          }
+
           const thumbPath = `thumbnails/${filename.replace(/\.[^/.]+$/, "")}.jpg`;
 
           const { error: thumbErr } = await supabase.storage
             .from(this.bucket)
-            .upload(thumbPath, thumbnailBlob, {
+            .upload(thumbPath, thumbnailBody as any, {
               contentType: "image/jpeg",
               upsert: false,
             });
@@ -250,13 +270,20 @@ export class UploadService {
           }
         } else if (type === "video") {
           const thumbnailUri = await this.generateVideoThumbnail(uri);
-          const thumbnailBlob = await this.uriToBlob(thumbnailUri);
+
+          let thumbnailBody: Blob | Uint8Array;
+          try {
+            thumbnailBody = await this.uriToBlob(thumbnailUri);
+          } catch (e) {
+            console.warn("Video thumb blob failed, base64 fallback:", e);
+            thumbnailBody = await this.uriToBytesLegacy(thumbnailUri);
+          }
 
           const thumbPath = `thumbnails/${filename.replace(/\.[^/.]+$/, "")}.jpg`;
 
           const { error: thumbErr } = await supabase.storage
             .from(this.bucket)
-            .upload(thumbPath, thumbnailBlob, {
+            .upload(thumbPath, thumbnailBody as any, {
               contentType: "image/jpeg",
               upsert: false,
             });
@@ -285,7 +312,6 @@ export class UploadService {
     }
   }
 
-  // Upload multiple files
   async uploadMultiple(
     files: { uri: string; name: string; type: MediaType }[],
     options: UploadOptions = {},
@@ -299,7 +325,6 @@ export class UploadService {
     return results;
   }
 
-  // Delete file
   async deleteFile(filePath: string): Promise<boolean> {
     try {
       const { error } = await supabase.storage
@@ -313,7 +338,6 @@ export class UploadService {
     }
   }
 
-  // Upload from image picker result (library or camera)
   async uploadFromImagePicker(
     pickerResult: ImagePicker.ImagePickerResult,
     options: UploadOptions = {},
@@ -354,6 +378,7 @@ export class UploadService {
     if (status !== "granted") return [];
 
     const res = await ImagePicker.launchImageLibraryAsync({
+      // ✅ REQUIRED UPDATE (deprecated MediaTypeOptions)
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       quality: 1,
@@ -372,6 +397,7 @@ export class UploadService {
     if (status !== "granted") return [];
 
     const res = await ImagePicker.launchImageLibraryAsync({
+      // ✅ REQUIRED UPDATE (deprecated MediaTypeOptions)
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsMultipleSelection: true,
       quality: 1,
@@ -391,6 +417,7 @@ export class UploadService {
     if (status !== "granted") return [];
 
     const res = await ImagePicker.launchCameraAsync({
+      // ✅ REQUIRED UPDATE (deprecated MediaTypeOptions)
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       videoMaxDuration: 60,
       quality: 1,
@@ -402,7 +429,6 @@ export class UploadService {
     });
   }
 
-  // Create signed URL for temporary access
   async createSignedUrl(
     filePath: string,
     expiresIn: number = 3600,

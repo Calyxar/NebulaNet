@@ -1,11 +1,12 @@
 // app/profile/edit.tsx
 // ✅ Fixed avatar upload (no fetch(file://) blob), consistent bucket, safe profile update payload
+// ✅ Expo SDK 54: uses expo-file-system/legacy + new ImagePicker mediaTypes API
 
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { decode as base64Decode } from "base-64";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -97,6 +98,7 @@ export default function EditProfileScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
+      // ✅ REQUIRED UPDATE (deprecated MediaTypeOptions)
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
@@ -131,7 +133,7 @@ export default function EditProfileScreen() {
       const ext = guessExtFromUri(uri);
       const contentType = contentTypeFromExt(ext);
 
-      // ✅ Read as base64 -> bytes (reliable on Android/iOS)
+      // ✅ Expo SDK 54: legacy import required for readAsStringAsync
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64" as any,
       });
@@ -155,7 +157,6 @@ export default function EditProfileScreen() {
         throw uploadError;
       }
 
-      // ✅ Prefer public URL (simplest)
       const { data: urlData } = supabase.storage
         .from("avatars")
         .getPublicUrl(filePath);
@@ -207,7 +208,6 @@ export default function EditProfileScreen() {
     }
 
     try {
-      // ✅ Only include location if your profile object actually has it
       const canSendLocation = profile && "location" in (profile as any);
 
       const updates: any = {
@@ -218,7 +218,6 @@ export default function EditProfileScreen() {
         ...(canSendLocation && { location: formData.location }),
       };
 
-      // Convert empty strings -> null to avoid junk data
       for (const k of Object.keys(updates)) {
         if (updates[k] === "") updates[k] = null;
       }
@@ -352,7 +351,6 @@ export default function EditProfileScreen() {
               </View>
             </View>
 
-            {/* Location stays in UI; only sent if column exists */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Location</Text>
               <View style={styles.inputWrapper}>
@@ -390,8 +388,8 @@ export default function EditProfileScreen() {
                   onChangeText={(text) =>
                     setFormData({ ...formData, bio: text })
                   }
-                  placeholder="Tell us about yourself"
                   placeholderTextColor="#C5CAE9"
+                  placeholder="Tell us about yourself"
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
