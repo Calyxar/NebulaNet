@@ -1,10 +1,14 @@
 // app/profile/edit.tsx
+// ✅ Fixed avatar upload (no fetch(file://) blob), consistent bucket, safe profile update payload
+
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
+import { decode as base64Decode } from "base-64";
+import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
@@ -18,8 +22,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+function base64ToUint8Array(base64: string) {
+  const binary = base64Decode(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 function guessExtFromUri(uri: string) {
-  // handles file://.../something.jpg or .../something.jpg?param=1
   const clean = uri.split("?")[0];
   const ext = clean.split(".").pop()?.toLowerCase();
   if (!ext || ext.length > 5) return "jpg";
@@ -44,20 +54,31 @@ function contentTypeFromExt(ext: string) {
 }
 
 export default function EditProfileScreen() {
-  const { profile, updateProfile } = useAuth();
+  const { profile, user, updateProfile: updateProfileMutation } = useAuth();
 
   const [formData, setFormData] = useState({
     full_name: profile?.full_name || "",
     username: profile?.username || "",
     bio: profile?.bio || "",
-    location: profile?.location || "",
+    // ✅ keep in UI, but we will only send it if column exists
+    location: (profile as any)?.location || "",
   });
 
-  // store whatever we can display (public url / signed url / local uri)
   const [avatar, setAvatar] = useState(profile?.avatar_url || "");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
-  // cache bust avatar when it changes so RN Image stops showing the old cached one
+  useEffect(() => {
+    if (profile) {
+      setFormData({
+        full_name: profile.full_name || "",
+        username: profile.username || "",
+        bio: profile.bio || "",
+        location: (profile as any)?.location || "",
+      });
+      setAvatar(profile.avatar_url || "");
+    }
+  }, [profile]);
+
   const displayAvatar = useMemo(() => {
     if (!avatar) return "";
     const join = avatar.includes("?") ? "&" : "?";
@@ -90,108 +111,165 @@ export default function EditProfileScreen() {
       return;
     }
 
-    // show instantly (local preview) while upload happens
+    // local preview instantly
     setAvatar(pickedUri);
+
     await uploadAvatar(pickedUri);
   };
 
   const uploadAvatar = async (uri: string) => {
-    if (!profile?.id) return;
+    if (!user?.id) {
+      Alert.alert("Error", "User not found. Please log in again.");
+      return;
+    }
 
-    setIsLoading(true);
+    setIsUploadingAvatar(true);
+
     try {
-      // convert local file uri -> blob (works in Expo)
-      const res = await fetch(uri);
-      const blob = await res.blob();
+      console.log("Starting avatar upload...");
 
       const ext = guessExtFromUri(uri);
       const contentType = contentTypeFromExt(ext);
 
-      // ✅ IMPORTANT: keep bucket name "avatars" but DON'T include "avatars/" in path
-      // Put avatars under a user folder:
+      // ✅ Read as base64 -> bytes (reliable on Android/iOS)
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64" as any,
+      });
+
+      const bytes = base64ToUint8Array(base64);
+
       const fileName = `${Date.now()}.${ext}`;
-      const filePath = `${profile.id}/${fileName}`; // storage key inside the bucket
+      const filePath = `${user.id}/${fileName}`;
+
+      console.log("Uploading to:", filePath);
 
       const { error: uploadError } = await supabase.storage
         .from("avatars")
-        .upload(filePath, blob, {
+        .upload(filePath, bytes, {
           contentType,
-          upsert: true, // ✅ prevents "already exists" failures
+          upsert: true,
         });
 
-      if (uploadError) throw uploadError;
-
-      // Try public URL (works if bucket is public)
-      const pub = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const publicUrl = pub?.data?.publicUrl;
-
-      let displayUrl = publicUrl;
-
-      // If bucket is private, public URL won't actually load.
-      // So generate a signed url for UI.
-      if (!displayUrl) {
-        const { data: signed, error: signedErr } = await supabase.storage
-          .from("avatars")
-          .createSignedUrl(filePath, 60 * 60); // 1 hour
-
-        if (signedErr) throw signedErr;
-        displayUrl = signed?.signedUrl ?? "";
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        throw uploadError;
       }
 
-      // Save avatar_url to profile:
-      // ✅ Prefer public URL if available; otherwise store storage key (filePath)
-      // This gives you a stable value even if signed urls expire.
-      await updateProfile.mutateAsync({
-        avatar_url: publicUrl || filePath,
-      });
+      // ✅ Prefer public URL (simplest)
+      const { data: urlData } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(filePath);
 
-      // show the displayable version right now
-      setAvatar(displayUrl || publicUrl || filePath);
+      const publicUrl = urlData?.publicUrl;
 
-      Alert.alert("Success", "Avatar updated!");
-    } catch (e: any) {
-      console.log("Avatar upload error:", e);
+      if (!publicUrl) {
+        throw new Error("Could not create public URL for avatar.");
+      }
+
+      setAvatar(publicUrl);
+
       Alert.alert(
-        "Error",
-        e?.message || "Failed to upload image. Check bucket/RLS.",
+        "Success",
+        "Avatar uploaded! Click Continue to save your changes.",
       );
+    } catch (e: any) {
+      console.error("Avatar upload error:", e);
+
+      Alert.alert(
+        "Upload Failed",
+        e?.message || "Failed to upload avatar. Please try again.",
+      );
+
+      setAvatar(profile?.avatar_url || "");
     } finally {
-      setIsLoading(false);
+      setIsUploadingAvatar(false);
     }
   };
 
   const handleSave = async () => {
     if (!formData.username.trim()) {
-      Alert.alert("Error", "Username is required");
+      Alert.alert("Validation Error", "Username is required");
+      return;
+    }
+
+    if (formData.username.length < 3) {
+      Alert.alert("Validation Error", "Username must be at least 3 characters");
+      return;
+    }
+
+    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!usernameRegex.test(formData.username)) {
+      Alert.alert(
+        "Validation Error",
+        "Username can only contain letters, numbers, and underscores",
+      );
       return;
     }
 
     try {
-      await updateProfile.mutateAsync(formData);
-      Alert.alert("Success", "Profile updated successfully");
-      router.back();
+      // ✅ Only include location if your profile object actually has it
+      const canSendLocation = profile && "location" in (profile as any);
+
+      const updates: any = {
+        full_name: formData.full_name,
+        username: formData.username.toLowerCase(),
+        bio: formData.bio,
+        ...(avatar !== profile?.avatar_url && { avatar_url: avatar }),
+        ...(canSendLocation && { location: formData.location }),
+      };
+
+      // Convert empty strings -> null to avoid junk data
+      for (const k of Object.keys(updates)) {
+        if (updates[k] === "") updates[k] = null;
+      }
+
+      await updateProfileMutation.mutateAsync(updates);
+
+      Alert.alert("Success", "Profile updated successfully!");
+      setTimeout(() => router.back(), 300);
     } catch (error: any) {
-      Alert.alert("Error", error.message);
+      let errorMessage = "Failed to update profile";
+
+      if (
+        error?.message?.includes("duplicate") &&
+        error?.message?.includes("username")
+      ) {
+        errorMessage = "This username is already taken";
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      Alert.alert("Update Failed", errorMessage);
     }
   };
+
+  const isLoading = isUploadingAvatar || updateProfileMutation.isPending;
 
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
+            disabled={isLoading}
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
 
           <Text style={styles.headerTitle}>Edit Profile</Text>
 
-          <TouchableOpacity style={styles.menuButton}>
-            <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={handleSave}
+            disabled={isLoading}
+          >
+            <Ionicons
+              name="checkmark"
+              size={24}
+              color={isLoading ? "#9FA8DA" : "#7C3AED"}
+            />
           </TouchableOpacity>
         </View>
 
@@ -200,11 +278,10 @@ export default function EditProfileScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Avatar Upload */}
           <TouchableOpacity
             style={styles.avatarContainer}
             onPress={pickImage}
-            disabled={isLoading || updateProfile.isPending}
+            disabled={isLoading}
           >
             {avatar ? (
               <Image source={{ uri: displayAvatar }} style={styles.avatar} />
@@ -214,16 +291,22 @@ export default function EditProfileScreen() {
               </View>
             )}
 
-            {(isLoading || updateProfile.isPending) && (
+            {isLoading && (
               <View style={styles.avatarOverlay}>
-                <Text style={styles.avatarOverlayText}>Uploading…</Text>
+                <Text style={styles.avatarOverlayText}>
+                  {isUploadingAvatar ? "Uploading…" : "Saving…"}
+                </Text>
+              </View>
+            )}
+
+            {!isLoading && (
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={20} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
 
-          {/* Form Card */}
           <View style={styles.formCard}>
-            {/* Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Name</Text>
               <View style={styles.inputWrapper}>
@@ -241,11 +324,11 @@ export default function EditProfileScreen() {
                   }
                   placeholder="Enter your full name"
                   placeholderTextColor="#C5CAE9"
+                  editable={!isLoading}
                 />
               </View>
             </View>
 
-            {/* Username */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Username</Text>
               <View style={styles.inputWrapper}>
@@ -259,16 +342,17 @@ export default function EditProfileScreen() {
                   style={styles.input}
                   value={formData.username}
                   onChangeText={(text) =>
-                    setFormData({ ...formData, username: text })
+                    setFormData({ ...formData, username: text.toLowerCase() })
                   }
-                  placeholder="@username"
+                  placeholder="username"
                   placeholderTextColor="#C5CAE9"
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
               </View>
             </View>
 
-            {/* Location */}
+            {/* Location stays in UI; only sent if column exists */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Location</Text>
               <View style={styles.inputWrapper}>
@@ -286,11 +370,11 @@ export default function EditProfileScreen() {
                   }
                   placeholder="Let others know where you're based"
                   placeholderTextColor="#C5CAE9"
+                  editable={!isLoading}
                 />
               </View>
             </View>
 
-            {/* Bio */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Bio</Text>
               <View style={[styles.inputWrapper, styles.bioWrapper]}>
@@ -312,6 +396,7 @@ export default function EditProfileScreen() {
                   numberOfLines={3}
                   textAlignVertical="top"
                   maxLength={200}
+                  editable={!isLoading}
                 />
               </View>
               <Text style={styles.charCount}>
@@ -320,14 +405,16 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
-          {/* Continue Button */}
           <TouchableOpacity
-            style={styles.continueButton}
+            style={[
+              styles.continueButton,
+              isLoading && styles.continueButtonDisabled,
+            ]}
             onPress={handleSave}
-            disabled={isLoading || updateProfile.isPending}
+            disabled={isLoading}
           >
             <Text style={styles.continueButtonText}>
-              {isLoading || updateProfile.isPending ? "Saving..." : "Continue"}
+              {isLoading ? "Saving..." : "Continue"}
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -366,7 +453,11 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
 
-  avatarContainer: { alignSelf: "center", marginVertical: 24 },
+  avatarContainer: {
+    alignSelf: "center",
+    marginVertical: 24,
+    position: "relative",
+  },
   avatar: { width: 120, height: 120, borderRadius: 60 },
   avatarPlaceholder: {
     width: 120,
@@ -383,11 +474,24 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarOverlayText: { color: "#fff", fontWeight: "800" },
+  avatarOverlayText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  cameraBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#E8EAF6",
+  },
 
   formCard: {
     backgroundColor: "#FFFFFF",
@@ -424,6 +528,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+  },
+  continueButtonDisabled: {
+    backgroundColor: "#C5CAE9",
+    shadowOpacity: 0.1,
   },
   continueButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
 });

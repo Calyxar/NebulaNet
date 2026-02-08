@@ -295,28 +295,45 @@ export const useAuth = () => {
     },
   });
 
-  // Update profile mutation - FIXED with proper metadata handling
+  // Update profile mutation — ✅ throws real errors + strips unsupported columns
   const updateProfileMutation = useMutation({
     mutationFn: async (updates: any) => {
       console.log("🔄 updateProfileMutation called with:", updates);
-      try {
-        const data = await supabaseUpdateProfile(updates);
-        console.log("✅ updateProfileMutation success");
-        return { data, error: null };
-      } catch (error: any) {
-        console.error("❌ updateProfileMutation error:", error.message);
-        return { data: null, error };
+
+      // Convert "" -> null
+      const cleaned: any = { ...updates };
+      for (const k of Object.keys(cleaned)) {
+        if (cleaned[k] === "") cleaned[k] = null;
       }
+
+      // ✅ Prevent 'location' schema cache error if column doesn't exist
+      if (cleaned.location !== undefined) {
+        const profileHasLocation = profile && "location" in (profile as any);
+        if (!profileHasLocation) {
+          delete cleaned.location;
+        }
+      }
+
+      // IMPORTANT: let errors throw so UI can catch them
+      const data = await supabaseUpdateProfile(cleaned);
+      console.log("✅ updateProfileMutation success");
+      return data;
     },
-    onSuccess: (result) => {
-      if (result.data) {
-        setProfile((prev: any) => ({ ...prev, ...result.data }));
+    onSuccess: (data) => {
+      if (data) {
+        setProfile((prev: any) => ({ ...prev, ...data }));
         queryClient.invalidateQueries({ queryKey: ["profile"] });
       }
     },
-    onError: (error: Error) => {
-      console.error("💥 updateProfileMutation onError:", error.message);
-      Alert.alert("Update Failed", error.message);
+    onError: (error: any) => {
+      console.error(
+        "💥 updateProfileMutation onError:",
+        error?.message || error,
+      );
+      Alert.alert(
+        "Update Failed",
+        error?.message || "Failed to update profile",
+      );
     },
   });
 

@@ -1,4 +1,4 @@
-// app/(tabs)/notifications.tsx - SIMPLIFIED FIXED VERSION
+// app/notifications.tsx - MOVED OUTSIDE TABS
 import { useNotifications } from "@/hooks/useNotifications";
 import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
@@ -63,7 +63,6 @@ export default function NotificationsScreen() {
           case "mention":
           case "post_shared":
             if (notification.post_id) {
-              // Use router.push with proper type casting
               router.push(`/post/${notification.post_id}` as any);
             }
             break;
@@ -80,13 +79,12 @@ export default function NotificationsScreen() {
           case "story_comment":
           case "story_like":
             if (notification.story_id) {
-              // Navigate to story viewer - create this route first
+              // Navigate to story viewer
               // router.push(`/story/${notification.story_id}` as any);
             }
             break;
           case "message":
             if (notification.conversation_id) {
-              // Use router.push with object syntax
               router.push({
                 pathname: "/chat/[id]",
                 params: { id: notification.conversation_id },
@@ -156,18 +154,17 @@ export default function NotificationsScreen() {
       { text: "Cancel", style: "cancel" },
       {
         text: "Mark All",
-        onPress: () => markAsRead.mutate(undefined), // FIX: Pass undefined explicitly
+        onPress: () => markAsRead.mutate(undefined),
       },
     ]);
   };
 
   const handleCopyInviteLink = async () => {
     try {
-      // Updated to use proper nebulanet.space domain
       const inviteLink = "https://nebulanet.space/invite";
       await Share.share({
         message: `Join me on NebulaNet! Download the app and connect with amazing people: ${inviteLink}`,
-        url: inviteLink, // For iOS
+        url: inviteLink,
       });
     } catch (error) {
       console.error("Error sharing invite:", error);
