@@ -2,17 +2,9 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
-  "devCommand": "npm run dev",
-  "installCommand": "npm install",
   "framework": null,
-  "github": { "silent": true },
   "regions": ["iad1"],
-  "public": false,
-  "rewrites": [
-    { "source": "/privacy.html", "destination": "/privacy.html" },
-    { "source": "/privacy", "destination": "/privacy.html" },
-    { "source": "/(.*)", "destination": "/" }
-  ],
+  "github": { "silent": true },
   "headers": [
     {
       "source": "/(.*)",

@@ -26,7 +26,7 @@ try {
   console.log("📦 Building web version...");
 
   // Use execSync with proper environment
-  execSync("npx expo export --platform web", {
+  execSync("npx expo export --platform web --output-dir dist", {
     stdio: "inherit",
     env: env,
     shell: true,
