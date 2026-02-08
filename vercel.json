@@ -12,6 +12,14 @@
   "public": false,
   "rewrites": [
     {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/privacy/(.*)",
+      "destination": "/privacy.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/"
     }
