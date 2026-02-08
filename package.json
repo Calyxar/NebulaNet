@@ -13,7 +13,7 @@
     "lint": "expo lint",
     "build": "node build.js",
     "build:web": "node build.js",
-    "vercel-build": "node build.js && node scripts/copy-static-to-dist.js",
+    "vercel-build": "node build.js && node scripts/copy-static-to-export.js",
     "build:win": "set NODE_OPTIONS=--loader ts-node/esm && expo export --platform web",
     "preview": "expo export --platform web && npx serve dist",
     "type-check": "tsc --noEmit",
