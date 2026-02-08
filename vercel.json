@@ -5,41 +5,26 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": null,
-  "github": {
-    "silent": true
-  },
+  "github": { "silent": true },
   "regions": ["iad1"],
   "public": false,
-  "rewrites": [
-    {
-      "source": "/privacy",
-      "destination": "/privacy.html"
-    },
-    {
-      "source": "/privacy/(.*)",
-      "destination": "/privacy.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/"
-    }
+
+  "routes": [
+    { "handle": "filesystem" },
+
+    { "src": "/privacy$", "dest": "/privacy.html" },
+    { "src": "/privacy/(.*)", "dest": "/privacy.html" },
+
+    { "src": "/(.*)", "dest": "/" }
   ],
+
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "origin-when-cross-origin"
-        }
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "origin-when-cross-origin" }
       ]
     }
   ]
