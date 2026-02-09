@@ -70,6 +70,7 @@ export default function RootLayout() {
                 <Stack.Screen name="create" />
                 <Stack.Screen name="settings" />
                 <Stack.Screen name="profile" />
+                <Stack.Screen name="u/[id]" />
 
                 {/* 404 */}
                 <Stack.Screen name="+not-found" />
