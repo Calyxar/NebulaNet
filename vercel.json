@@ -7,12 +7,21 @@
   "github": { "silent": true },
 
   "routes": [
-    { "src": "/delete-account/?$", "dest": "/delete-account/index.html" },
-    { "src": "/child-safety/?$", "dest": "/child-safety/index.html" },
-    { "src": "/privacy/?$", "dest": "/privacy/index.html" },
+    {
+      "src": "^/delete-account/?$",
+      "dest": "/delete-account/index.html"
+    },
+    {
+      "src": "^/child-safety/?$",
+      "dest": "/child-safety/index.html"
+    },
+    {
+      "src": "^/privacy/?$",
+      "dest": "/privacy/index.html"
+    },
 
     {
-      "src": "/(.*)",
+      "src": "^/(.*)$",
       "dest": "/index.html"
     }
   ],
