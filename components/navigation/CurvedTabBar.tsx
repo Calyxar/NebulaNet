@@ -1,8 +1,4 @@
-// components/navigation/CurvedTabBar.tsx
-// ✅ Fixed spacing for Samsung A54 and Android gesture navigation
-// ✅ Proper bottom padding to avoid phone controls
-
-import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import {
   Home,
   MessageCircle,
@@ -12,18 +8,20 @@ import {
 } from "lucide-react-native";
 import React from "react";
 import {
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ✅ FIXED: Increased spacing for Samsung gesture navigation
-export const TAB_BAR_HEIGHT = 68;
-export const EXTRA_BOTTOM_PADDING = 20; // Extra space for gesture controls
-export const TAB_BAR_TOTAL_BOTTOM_PADDING =
-  TAB_BAR_HEIGHT + EXTRA_BOTTOM_PADDING;
+export const TAB_BAR_BASE_HEIGHT = 68;
+
+export function getTabBarHeight(insetsBottom: number) {
+  const extraAndroidGesture = Platform.OS === "android" ? 8 : 0;
+  return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, extraAndroidGesture);
+}
 
 export default function CurvedTabBar({
   state,
@@ -31,24 +29,14 @@ export default function CurvedTabBar({
   navigation,
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-
-  // ✅ Calculate proper bottom spacing for different devices
-  // Use the larger of: safe area insets or our extra padding
-  const bottomSpacing = Math.max(insets.bottom, EXTRA_BOTTOM_PADDING);
+  const height = getTabBarHeight(insets.bottom);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          bottom: bottomSpacing, // ✅ CRITICAL: Lift the entire tab bar up
-          height: TAB_BAR_HEIGHT,
-        },
-      ]}
-    >
-      <View style={styles.tabBar}>
+    <View style={[styles.container, { height }]}>
+      <View
+        style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
+      >
         {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
           const isFocused = state.index === index;
 
           const onPress = () => {
@@ -63,12 +51,13 @@ export default function CurvedTabBar({
             }
           };
 
-          // Get icon for each tab
-          const getIcon = () => {
-            const iconSize = isFocused ? 26 : 24;
-            const color = isFocused ? "#7C3AED" : "#9CA3AF";
-            const strokeWidth = isFocused ? 2.5 : 2;
+          const iconSize = isFocused ? 26 : 24;
+          const color = isFocused ? "#7C3AED" : "#9CA3AF";
+          const strokeWidth = isFocused ? 2.5 : 2;
 
+          const isCreate = route.name === "create";
+
+          const Icon = () => {
             switch (route.name) {
               case "home":
                 return (
@@ -118,37 +107,28 @@ export default function CurvedTabBar({
             }
           };
 
-          // Get label for each tab
-          const getLabel = () => {
-            switch (route.name) {
-              case "home":
-                return "Home";
-              case "explore":
-                return "Explore";
-              case "create":
-                return ""; // No label for center create button
-              case "chat":
-                return "Chat";
-              case "profile":
-                return "Profile";
-              default:
-                return route.name;
-            }
-          };
-
-          const isCreateButton = route.name === "create";
+          const label =
+            route.name === "home"
+              ? "Home"
+              : route.name === "explore"
+                ? "Explore"
+                : route.name === "chat"
+                  ? "Chat"
+                  : route.name === "profile"
+                    ? "Profile"
+                    : "";
 
           return (
             <TouchableOpacity
               key={route.key}
               onPress={onPress}
-              style={[styles.tab, isCreateButton && styles.createTab]}
+              style={[styles.tab, isCreate && styles.createTab]}
               activeOpacity={0.7}
             >
-              {getIcon()}
-              {!isCreateButton && (
+              <Icon />
+              {!isCreate && (
                 <Text style={[styles.label, isFocused && styles.labelActive]}>
-                  {getLabel()}
+                  {label}
                 </Text>
               )}
             </TouchableOpacity>
@@ -168,6 +148,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   tabBar: {
+    flex: 1,
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 28,
@@ -187,7 +168,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   createTab: {
-    marginTop: -20, // Lift the create button
+    marginTop: -20,
   },
   createButton: {
     width: 56,

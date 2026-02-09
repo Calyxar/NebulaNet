@@ -5,15 +5,22 @@ import CurvedTabBar from "@/components/navigation/CurvedTabBar";
 import { useAuth } from "@/providers/AuthProvider";
 import { Redirect, Tabs } from "expo-router";
 import React from "react";
+import { ActivityIndicator, View } from "react-native";
 
 export default function TabsLayout() {
   const { session, isLoading } = useAuth();
 
-  // Optional: show nothing while auth loads
-  if (isLoading) return null;
+  // ✅ Block only while the FIRST getSession() is hydrating
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
   // ✅ Not logged in? Block tabs and send to login
-  if (!session) {
+  if (!session?.user) {
     return <Redirect href="/(auth)/login" />;
   }
 

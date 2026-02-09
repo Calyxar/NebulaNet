@@ -1,8 +1,16 @@
-// app/(auth)/login.tsx - UPDATED WITH FORGOT PASSWORD
-import { useAuth } from "@/hooks/useAuth";
+// app/(auth)/login.tsx — COMPLETE UPDATED (provider-only auth calls)
+// ✅ Uses AuthProvider for session + mutations (email + Google)
+// ✅ Google SSO via expo-auth-session -> AuthProvider.googleLogin (Supabase signInWithIdToken)
+// ✅ No router.replace after auth; /(auth)/_layout.tsx Redirect handles it
+// ⚠️ Phone login UI remains but is not implemented (Supabase phone auth uses OTP)
+
+import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { makeRedirectUri } from "expo-auth-session";
+import * as Google from "expo-auth-session/providers/google";
+import Constants from "expo-constants";
 import { Link, router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -18,32 +26,69 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function LoginScreen() {
-  const { login, googleLogin } = useAuth();
+  const { session, isLoading: authLoading, login, googleLogin } = useAuth();
+
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const validateEmail = (email: string) => {
+  const validateEmail = (v: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return emailRegex.test(v);
   };
 
-  const validatePhone = (phone: string) => {
+  const validatePhone = (v: string) => {
     const phoneRegex = /^[\+]?[1-9][\d]{0,17}$/;
-    return phoneRegex.test(phone.replace(/\D/g, ""));
+    return phoneRegex.test(v.replace(/\D/g, ""));
   };
+
+  const redirectUri = useMemo(
+    () =>
+      makeRedirectUri({
+        scheme: "nebulanet",
+        path: "auth/callback",
+      }),
+    [],
+  );
+
+  // ✅ Google auth request
+  const [googleRequest, _googleResponse, googlePromptAsync] =
+    Google.useAuthRequest({
+      clientId:
+        Constants.expoConfig?.extra?.googleWebClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      iosClientId:
+        Constants.expoConfig?.extra?.googleIosClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+      androidClientId:
+        Constants.expoConfig?.extra?.googleAndroidClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+      redirectUri,
+      scopes: ["profile", "email"],
+    });
 
   const handleLogin = async () => {
+    // Already authed? Let /(auth)/_layout.tsx redirect.
+    if (session?.user) return;
+
     if (activeTab === "email" && !validateEmail(email)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
 
-    if (activeTab === "phone" && !validatePhone(phone)) {
-      Alert.alert("Invalid Phone", "Please enter a valid phone number");
+    if (activeTab === "phone") {
+      if (!validatePhone(phone)) {
+        Alert.alert("Invalid Phone", "Please enter a valid phone number");
+        return;
+      }
+
+      Alert.alert(
+        "Not supported yet",
+        "Phone login isn't wired up yet. Use email login for now.",
+      );
       return;
     }
 
@@ -52,24 +97,15 @@ export default function LoginScreen() {
       return;
     }
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
-      const result = await login.mutateAsync({
-        email: activeTab === "email" ? email : phone,
+      await login.mutateAsync({
+        email: email.trim().toLowerCase(),
         password,
       });
-
-      if (result.error) {
-        throw result.error;
-      }
-
-      if (result.data) {
-        setTimeout(() => {
-          router.replace("/(tabs)/home");
-        }, 500);
-      }
+      // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
-      const errorMessage = error.message || "Login failed";
+      const errorMessage = error?.message || "Login failed";
       let alertTitle = "Login Failed";
       let alertMessage = errorMessage;
 
@@ -83,25 +119,52 @@ export default function LoginScreen() {
 
       Alert.alert(alertTitle, alertMessage);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    setIsLoading(true);
+    // Already authed? Let /(auth)/_layout.tsx redirect.
+    if (session?.user) return;
+
+    if (!googleRequest) {
+      Alert.alert("Error", "Google auth is not ready yet.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await googleLogin.mutateAsync();
+      const result = await googlePromptAsync();
+      if (result.type !== "success") return;
+
+      const { id_token, access_token } = result.params as any;
+
+      if (!id_token) {
+        Alert.alert("Google Login Failed", "No ID token received from Google.");
+        return;
+      }
+
+      await googleLogin.mutateAsync({
+        idToken: id_token,
+        accessToken: access_token ?? null,
+      });
+
+      // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
-      if (!error.message.includes("cancelled")) {
-        Alert.alert(
-          "Google Login Failed",
-          error.message || "Unable to sign in with Google.",
-        );
+      const msg = error?.message || "Unable to sign in with Google.";
+      if (
+        !msg.toLowerCase().includes("cancelled") &&
+        !msg.toLowerCase().includes("dismissed")
+      ) {
+        Alert.alert("Google Login Failed", msg);
       }
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+
+  const disabled =
+    isSubmitting || authLoading || login.isPending || googleLogin.isPending;
 
   return (
     <>
@@ -128,6 +191,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={[styles.tab, activeTab === "email" && styles.activeTab]}
                 onPress={() => setActiveTab("email")}
+                disabled={disabled}
               >
                 <Text
                   style={[
@@ -138,9 +202,11 @@ export default function LoginScreen() {
                   Email
                 </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[styles.tab, activeTab === "phone" && styles.activeTab]}
                 onPress={() => setActiveTab("phone")}
+                disabled={disabled}
               >
                 <Text
                   style={[
@@ -164,6 +230,7 @@ export default function LoginScreen() {
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  editable={!disabled}
                 />
               </View>
             ) : (
@@ -173,6 +240,7 @@ export default function LoginScreen() {
                   <Text style={styles.countryCode}>+1</Text>
                   <Ionicons name="chevron-down" size={16} color="#666" />
                 </View>
+
                 <TextInput
                   style={styles.phoneInput}
                   placeholder="882 9983 2233"
@@ -180,6 +248,7 @@ export default function LoginScreen() {
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
+                  editable={!disabled}
                 />
               </View>
             )}
@@ -201,10 +270,12 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  editable={!disabled}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
+                  disabled={disabled}
                 >
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -215,10 +286,11 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Forgot Password - UPDATED WITH NAVIGATION */}
+            {/* Forgot Password */}
             <TouchableOpacity
               style={styles.forgotPassword}
               onPress={() => router.push("/(auth)/forgot-password")}
+              disabled={disabled}
             >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
@@ -227,11 +299,11 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={styles.loginButton}
               onPress={handleLogin}
-              disabled={isLoading}
+              disabled={disabled}
               activeOpacity={0.9}
             >
               <Text style={styles.loginButtonText}>
-                {isLoading ? "Signing in..." : "Continue"}
+                {disabled ? "Signing in..." : "Continue"}
               </Text>
             </TouchableOpacity>
 
@@ -247,16 +319,16 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.socialButton}
                 onPress={handleGoogleLogin}
-                disabled={isLoading}
+                disabled={disabled}
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} disabled>
                 <Ionicons name="logo-facebook" size={24} color="#1877F2" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} disabled>
                 <Ionicons name="logo-apple" size={28} color="#000" />
               </TouchableOpacity>
             </View>
@@ -278,32 +350,14 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 40,
-  },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: "#9FA8DA",
-    lineHeight: 22,
-  },
+  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  keyboardView: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40 },
+
+  header: { marginBottom: 32 },
+  title: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 8 },
+  subtitle: { fontSize: 15, color: "#9FA8DA", lineHeight: 22 },
+
   tabContainer: {
     flexDirection: "row",
     backgroundColor: "#D1D5F0",
@@ -311,24 +365,11 @@ const styles = StyleSheet.create({
     padding: 4,
     marginBottom: 24,
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 22,
-    alignItems: "center",
-  },
-  activeTab: {
-    backgroundColor: "#FFFFFF",
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#7986CB",
-  },
-  activeTabText: {
-    color: "#000",
-    fontWeight: "600",
-  },
+  tab: { flex: 1, paddingVertical: 12, borderRadius: 22, alignItems: "center" },
+  activeTab: { backgroundColor: "#FFFFFF" },
+  tabText: { fontSize: 15, fontWeight: "500", color: "#7986CB" },
+  activeTabText: { color: "#000", fontWeight: "600" },
+
   inputContainer: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -336,11 +377,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginBottom: 16,
   },
-  input: {
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
+  input: { fontSize: 16, color: "#000", padding: 0 },
+
   phoneInputContainer: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
@@ -358,25 +396,16 @@ const styles = StyleSheet.create({
     borderRightColor: "#E0E0E0",
     marginRight: 12,
   },
-  flagEmoji: {
-    fontSize: 20,
-    marginRight: 6,
-  },
+  flagEmoji: { fontSize: 20, marginRight: 6 },
   countryCode: {
     fontSize: 16,
     color: "#000",
     fontWeight: "500",
     marginRight: 4,
   },
-  phoneInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
-  passwordContainer: {
-    marginBottom: 8,
-  },
+  phoneInput: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
+
+  passwordContainer: { marginBottom: 8 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -385,27 +414,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  passwordInputField: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
-  eyeButton: {
-    padding: 4,
-  },
-  forgotPassword: {
-    alignSelf: "flex-end",
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    color: "#5C6BC0",
-    fontWeight: "500",
-  },
+  inputIcon: { marginRight: 12 },
+  passwordInputField: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
+  eyeButton: { padding: 4 },
+
+  forgotPassword: { alignSelf: "flex-end", marginBottom: 24 },
+  forgotPasswordText: { fontSize: 14, color: "#5C6BC0", fontWeight: "500" },
+
   loginButton: {
     backgroundColor: "#7C3AED",
     paddingVertical: 18,
@@ -413,35 +428,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
     shadowColor: "#7C3AED",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  loginButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  orContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#C5CAE9",
-  },
+  loginButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
+
+  orContainer: { flexDirection: "row", alignItems: "center", marginBottom: 24 },
+  orLine: { flex: 1, height: 1, backgroundColor: "#C5CAE9" },
   orText: {
     marginHorizontal: 16,
     color: "#9FA8DA",
     fontSize: 14,
     fontWeight: "500",
   },
+
   socialContainer: {
     flexDirection: "row",
     justifyContent: "center",
@@ -456,26 +458,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
+
   signupContainer: {
     flexDirection: "row",
     justifyContent: "center",
     marginTop: 16,
   },
-  signupText: {
-    fontSize: 15,
-    color: "#9FA8DA",
-  },
-  signupLink: {
-    fontSize: 15,
-    color: "#000",
-    fontWeight: "600",
-  },
+  signupText: { fontSize: 15, color: "#9FA8DA" },
+  signupLink: { fontSize: 15, color: "#000", fontWeight: "600" },
 });

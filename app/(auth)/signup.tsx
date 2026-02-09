@@ -1,8 +1,16 @@
-// app/(auth)/signup.tsx - FIXED VERSION
-import { useAuth } from "@/hooks/useAuth";
+// app/(auth)/signup.tsx — COMPLETE UPDATED (provider-only)
+// ✅ Uses AuthProvider.signup mutation (email/password)
+// ✅ Uses expo-auth-session for Google -> AuthProvider.googleLogin (idToken)
+// ✅ No router.replace after auth; /(auth)/_layout.tsx Redirect handles it
+// ⚠️ Phone signup UI remains but is not implemented (OTP-based if you ever add it)
+
+import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { makeRedirectUri } from "expo-auth-session";
+import * as Google from "expo-auth-session/providers/google";
+import Constants from "expo-constants";
 import { Link, router } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -18,7 +26,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function SignUpScreen() {
-  const { signup, googleLogin } = useAuth();
+  const { session, isLoading: authLoading, signup, googleLogin } = useAuth();
+
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -28,54 +37,88 @@ export default function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const validateEmail = (email: string) => {
+  const validateEmail = (v: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return emailRegex.test(v);
   };
 
-  const validatePhone = (phone: string) => {
+  const validatePhone = (v: string) => {
     const phoneRegex = /^[\+]?[1-9][\d]{0,17}$/;
-    return phoneRegex.test(phone.replace(/\D/g, ""));
+    return phoneRegex.test(v.replace(/\D/g, ""));
   };
 
-  const validateUsername = (username: string) => {
-    // Username must be 3-20 characters, alphanumeric and underscores only
+  const validateUsername = (v: string) => {
+    // 3-20 chars, letters/numbers/underscore only
     const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
-    return usernameRegex.test(username);
+    return usernameRegex.test(v);
   };
 
-  const validatePassword = (password: string) => {
-    return password.length >= 8;
-  };
+  const validatePassword = (v: string) => v.length >= 8;
+
+  const redirectUri = useMemo(
+    () =>
+      makeRedirectUri({
+        scheme: "nebulanet",
+        path: "auth/callback",
+      }),
+    [],
+  );
+
+  const [googleRequest, _googleResponse, googlePromptAsync] =
+    Google.useAuthRequest({
+      clientId:
+        Constants.expoConfig?.extra?.googleWebClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      iosClientId:
+        Constants.expoConfig?.extra?.googleIosClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+      androidClientId:
+        Constants.expoConfig?.extra?.googleAndroidClientId ||
+        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+      redirectUri,
+      scopes: ["profile", "email"],
+    });
 
   const handleSignUp = async () => {
-    // Validation
+    if (session?.user) return;
+
     if (activeTab === "email" && !validateEmail(email)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
 
-    if (activeTab === "phone" && !validatePhone(phone)) {
-      Alert.alert("Invalid Phone", "Please enter a valid phone number");
-      return;
-    }
+    if (activeTab === "phone") {
+      if (!validatePhone(phone)) {
+        Alert.alert("Invalid Phone", "Please enter a valid phone number");
+        return;
+      }
 
-    if (!username.trim()) {
-      Alert.alert("Error", "Please enter a username");
-      return;
-    }
-
-    if (!validateUsername(username)) {
       Alert.alert(
-        "Invalid Username",
-        "Username must be 3-20 characters and contain only letters, numbers, and underscores",
+        "Not supported yet",
+        "Phone signup isn't wired up yet. Use email signup for now.",
       );
       return;
     }
 
-    if (!fullName.trim()) {
+    const uname = username.trim().toLowerCase();
+    const name = fullName.trim();
+
+    if (!uname) {
+      Alert.alert("Error", "Please enter a username");
+      return;
+    }
+
+    if (!validateUsername(uname)) {
+      Alert.alert(
+        "Invalid Username",
+        "Username must be 3-20 characters and contain only letters, numbers, and underscores.",
+      );
+      return;
+    }
+
+    if (!name) {
       Alert.alert("Error", "Please enter your full name");
       return;
     }
@@ -86,10 +129,7 @@ export default function SignUpScreen() {
     }
 
     if (!validatePassword(password)) {
-      Alert.alert(
-        "Weak Password",
-        "Password must be at least 8 characters long",
-      );
+      Alert.alert("Weak Password", "Password must be at least 8 characters.");
       return;
     }
 
@@ -98,73 +138,98 @@ export default function SignUpScreen() {
       return;
     }
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
-      const result = await signup.mutateAsync({
-        email: activeTab === "email" ? email : phone,
+      const res = await signup.mutateAsync({
+        email: email.trim().toLowerCase(),
         password,
         userData: {
-          username: username.trim().toLowerCase(),
-          full_name: fullName.trim(),
+          username: uname,
+          full_name: name,
         },
       });
 
-      if (result.error) {
-        throw result.error;
-      }
-
-      // Show success message
-      Alert.alert(
-        "Success!",
-        "Account created successfully. Please check your email to verify your account.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              // Navigate to verify email screen or login
-              router.replace("/(auth)/verify-email");
+      // Most common: email confirmation required
+      if (res.data?.user && !res.data?.session) {
+        Alert.alert(
+          "Check your email",
+          "We sent you a verification link. Please verify your email, then log in.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.replace("/(auth)/verify-email"),
             },
-          },
-        ],
-      );
-    } catch (error: any) {
-      const errorMessage = error.message || "Sign up failed";
-      let alertTitle = "Sign Up Failed";
-      let alertMessage = errorMessage;
-
-      if (errorMessage.includes("already registered")) {
-        alertTitle = "Account Exists";
-        alertMessage =
-          "An account with this email already exists. Please log in instead.";
-      } else if (errorMessage.includes("Invalid email")) {
-        alertTitle = "Invalid Email";
-        alertMessage = "Please enter a valid email address.";
-      } else if (errorMessage.includes("Username already taken")) {
-        alertTitle = "Username Taken";
-        alertMessage = "This username is already taken. Please choose another.";
+          ],
+        );
+        return;
       }
 
-      Alert.alert(alertTitle, alertMessage);
+      // If session exists, /(auth)/_layout.tsx will redirect automatically.
+    } catch (error: any) {
+      const msg = error?.message || "Sign up failed";
+      let title = "Sign Up Failed";
+      let body = msg;
+
+      if (msg.toLowerCase().includes("already registered")) {
+        title = "Account Exists";
+        body = "An account with this email already exists. Please log in.";
+      } else if (msg.toLowerCase().includes("invalid email")) {
+        title = "Invalid Email";
+        body = "Please enter a valid email address.";
+      } else if (msg.toLowerCase().includes("username")) {
+        title = "Username Issue";
+        body = msg;
+      }
+
+      Alert.alert(title, body);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   const handleGoogleSignUp = async () => {
-    setIsLoading(true);
+    if (session?.user) return;
+
+    if (!googleRequest) {
+      Alert.alert("Error", "Google auth is not ready yet.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await googleLogin.mutateAsync();
-    } catch (error: any) {
-      if (!error.message.includes("cancelled")) {
+      const result = await googlePromptAsync();
+      if (result.type !== "success") return;
+
+      const { id_token, access_token } = result.params as any;
+      if (!id_token) {
         Alert.alert(
           "Google Sign Up Failed",
-          error.message || "Unable to sign up with Google.",
+          "No ID token received from Google.",
         );
+        return;
+      }
+
+      await googleLogin.mutateAsync({
+        idToken: id_token,
+        accessToken: access_token ?? null,
+      });
+
+      // ✅ /(auth)/_layout.tsx will redirect once session exists
+    } catch (error: any) {
+      const msg = error?.message || "Unable to sign up with Google.";
+      if (
+        !msg.toLowerCase().includes("cancelled") &&
+        !msg.toLowerCase().includes("dismissed")
+      ) {
+        Alert.alert("Google Sign Up Failed", msg);
       }
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+
+  const disabled =
+    isSubmitting || authLoading || signup.isPending || googleLogin.isPending;
 
   return (
     <>
@@ -191,6 +256,7 @@ export default function SignUpScreen() {
               <TouchableOpacity
                 style={[styles.tab, activeTab === "email" && styles.activeTab]}
                 onPress={() => setActiveTab("email")}
+                disabled={disabled}
               >
                 <Text
                   style={[
@@ -201,9 +267,11 @@ export default function SignUpScreen() {
                   Email
                 </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[styles.tab, activeTab === "phone" && styles.activeTab]}
                 onPress={() => setActiveTab("phone")}
+                disabled={disabled}
               >
                 <Text
                   style={[
@@ -216,7 +284,7 @@ export default function SignUpScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Full Name Input */}
+            {/* Full Name */}
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
@@ -225,10 +293,11 @@ export default function SignUpScreen() {
                 value={fullName}
                 onChangeText={setFullName}
                 autoCapitalize="words"
+                editable={!disabled}
               />
             </View>
 
-            {/* Username Input */}
+            {/* Username */}
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
@@ -238,10 +307,11 @@ export default function SignUpScreen() {
                 onChangeText={setUsername}
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!disabled}
               />
             </View>
 
-            {/* Email/Phone Input */}
+            {/* Email/Phone */}
             {activeTab === "email" ? (
               <View style={styles.inputContainer}>
                 <TextInput
@@ -252,6 +322,7 @@ export default function SignUpScreen() {
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  editable={!disabled}
                 />
               </View>
             ) : (
@@ -268,11 +339,12 @@ export default function SignUpScreen() {
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
+                  editable={!disabled}
                 />
               </View>
             )}
 
-            {/* Password Input */}
+            {/* Password */}
             <View style={styles.passwordContainer}>
               <View style={styles.inputWrapper}>
                 <Ionicons
@@ -289,10 +361,12 @@ export default function SignUpScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  editable={!disabled}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
+                  disabled={disabled}
                 >
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -303,7 +377,7 @@ export default function SignUpScreen() {
               </View>
             </View>
 
-            {/* Confirm Password Input */}
+            {/* Confirm Password */}
             <View style={styles.passwordContainer}>
               <View style={styles.inputWrapper}>
                 <Ionicons
@@ -320,10 +394,12 @@ export default function SignUpScreen() {
                   onChangeText={setConfirmPassword}
                   secureTextEntry={!showConfirmPassword}
                   autoCapitalize="none"
+                  editable={!disabled}
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   style={styles.eyeButton}
+                  disabled={disabled}
                 >
                   <Ionicons
                     name={
@@ -340,11 +416,11 @@ export default function SignUpScreen() {
             <TouchableOpacity
               style={styles.signupButton}
               onPress={handleSignUp}
-              disabled={isLoading}
+              disabled={disabled}
               activeOpacity={0.9}
             >
               <Text style={styles.signupButtonText}>
-                {isLoading ? "Creating account..." : "Sign Up"}
+                {disabled ? "Creating account..." : "Sign Up"}
               </Text>
             </TouchableOpacity>
 
@@ -355,21 +431,21 @@ export default function SignUpScreen() {
               <View style={styles.orLine} />
             </View>
 
-            {/* Social Login Buttons */}
+            {/* Social Buttons */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
                 style={styles.socialButton}
                 onPress={handleGoogleSignUp}
-                disabled={isLoading}
+                disabled={disabled}
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} disabled>
                 <Ionicons name="logo-facebook" size={24} color="#1877F2" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} disabled>
                 <Ionicons name="logo-apple" size={28} color="#000" />
               </TouchableOpacity>
             </View>
@@ -382,7 +458,7 @@ export default function SignUpScreen() {
               </Link>
             </View>
 
-            {/* Terms and Privacy */}
+            {/* Terms */}
             <Text style={styles.termsText}>
               By signing up, you agree to our{" "}
               <Text style={styles.termsLink}>Terms of Service</Text> and{" "}
@@ -396,33 +472,18 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  keyboardView: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 40,
     paddingBottom: 24,
   },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: "#9FA8DA",
-    lineHeight: 22,
-  },
+  header: { marginBottom: 32 },
+  title: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 8 },
+  subtitle: { fontSize: 15, color: "#9FA8DA", lineHeight: 22 },
+
   tabContainer: {
     flexDirection: "row",
     backgroundColor: "#D1D5F0",
@@ -430,24 +491,11 @@ const styles = StyleSheet.create({
     padding: 4,
     marginBottom: 24,
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 22,
-    alignItems: "center",
-  },
-  activeTab: {
-    backgroundColor: "#FFFFFF",
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#7986CB",
-  },
-  activeTabText: {
-    color: "#000",
-    fontWeight: "600",
-  },
+  tab: { flex: 1, paddingVertical: 12, borderRadius: 22, alignItems: "center" },
+  activeTab: { backgroundColor: "#FFFFFF" },
+  tabText: { fontSize: 15, fontWeight: "500", color: "#7986CB" },
+  activeTabText: { color: "#000", fontWeight: "600" },
+
   inputContainer: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -455,11 +503,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginBottom: 16,
   },
-  input: {
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
+  input: { fontSize: 16, color: "#000", padding: 0 },
+
   phoneInputContainer: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
@@ -477,25 +522,16 @@ const styles = StyleSheet.create({
     borderRightColor: "#E0E0E0",
     marginRight: 12,
   },
-  flagEmoji: {
-    fontSize: 20,
-    marginRight: 6,
-  },
+  flagEmoji: { fontSize: 20, marginRight: 6 },
   countryCode: {
     fontSize: 16,
     color: "#000",
     fontWeight: "500",
     marginRight: 4,
   },
-  phoneInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
-  passwordContainer: {
-    marginBottom: 16,
-  },
+  phoneInput: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
+
+  passwordContainer: { marginBottom: 16 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -504,18 +540,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  passwordInputField: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
-  eyeButton: {
-    padding: 4,
-  },
+  inputIcon: { marginRight: 12 },
+  passwordInputField: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
+  eyeButton: { padding: 4 },
+
   signupButton: {
     backgroundColor: "#7C3AED",
     paddingVertical: 18,
@@ -523,35 +551,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
     shadowColor: "#7C3AED",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  signupButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  orContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#C5CAE9",
-  },
+  signupButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
+
+  orContainer: { flexDirection: "row", alignItems: "center", marginBottom: 24 },
+  orLine: { flex: 1, height: 1, backgroundColor: "#C5CAE9" },
   orText: {
     marginHorizontal: 16,
     color: "#9FA8DA",
     fontSize: 14,
     fontWeight: "500",
   },
+
   socialContainer: {
     flexDirection: "row",
     justifyContent: "center",
@@ -566,28 +581,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
+
   loginContainer: {
     flexDirection: "row",
     justifyContent: "center",
     marginBottom: 24,
   },
-  loginText: {
-    fontSize: 15,
-    color: "#9FA8DA",
-  },
-  loginLink: {
-    fontSize: 15,
-    color: "#000",
-    fontWeight: "600",
-  },
+  loginText: { fontSize: 15, color: "#9FA8DA" },
+  loginLink: { fontSize: 15, color: "#000", fontWeight: "600" },
+
   termsText: {
     fontSize: 12,
     color: "#9FA8DA",
@@ -595,8 +602,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: 20,
   },
-  termsLink: {
-    color: "#5C6BC0",
-    fontWeight: "500",
-  },
+  termsLink: { color: "#5C6BC0", fontWeight: "500" },
 });

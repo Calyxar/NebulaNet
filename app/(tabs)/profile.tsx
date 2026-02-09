@@ -1,6 +1,6 @@
-// app/(tabs)/profile.tsx - DESIGN MATCH (NO MOCKS)
-import { useAuth } from "@/hooks/useAuth";
+import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,7 +17,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 interface UserPost {
   id: string;
@@ -39,7 +42,8 @@ interface UserStats {
 type ProfileTab = "Activity" | "Post" | "Tagged" | "Media";
 
 export default function ProfileTabScreen() {
-  const { user, profile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { user, profile, isProfileLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<ProfileTab>("Activity");
 
   const profileTabs: ProfileTab[] = useMemo(
@@ -47,7 +51,11 @@ export default function ProfileTabScreen() {
     [],
   );
 
-  // Fetch user posts (REAL)
+  const bottomPad = useMemo(
+    () => getTabBarHeight(insets.bottom) + 12,
+    [insets.bottom],
+  );
+
   const { data: userPosts = [], isLoading: isLoadingPosts } = useQuery({
     queryKey: ["user-posts", user?.id],
     queryFn: async () => {
@@ -76,7 +84,6 @@ export default function ProfileTabScreen() {
     enabled: !!user?.id,
   });
 
-  // Fetch user stats (REAL)
   const { data: userStats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["user-stats", user?.id],
     queryFn: async (): Promise<UserStats> => {
@@ -156,7 +163,6 @@ export default function ProfileTabScreen() {
 
     return (
       <View key={post.id} style={styles.postCard}>
-        {/* Post Header */}
         <View style={styles.postHeader}>
           <View style={styles.postHeaderLeft}>
             {profile?.avatar_url ? (
@@ -185,14 +191,12 @@ export default function ProfileTabScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Post Content */}
         {post.content ? (
           <Text style={styles.postBodyText} numberOfLines={4}>
             {post.content}
           </Text>
         ) : null}
 
-        {/* Media */}
         {img ? (
           <Image
             source={{ uri: img }}
@@ -201,7 +205,6 @@ export default function ProfileTabScreen() {
           />
         ) : null}
 
-        {/* Footer actions row (matches design vibe) */}
         <View style={styles.postFooterRow}>
           <View style={styles.postFooterItem}>
             <Ionicons name="heart-outline" size={18} color="#111827" />
@@ -220,8 +223,7 @@ export default function ProfileTabScreen() {
     );
   };
 
-  // Loading gate (no mocks)
-  if (!user || !profile) {
+  if (!user || (!profile && isProfileLoading)) {
     return (
       <>
         <StatusBar
@@ -244,6 +246,10 @@ export default function ProfileTabScreen() {
     );
   }
 
+  if (!user || !profile) {
+    return null;
+  }
+
   return (
     <>
       <StatusBar
@@ -257,7 +263,6 @@ export default function ProfileTabScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.safe}>
-          {/* Floating header like screenshot */}
           <View style={styles.header}>
             <TouchableOpacity
               style={styles.headerCircle}
@@ -267,7 +272,6 @@ export default function ProfileTabScreen() {
               <Ionicons name="arrow-back" size={22} color="#111827" />
             </TouchableOpacity>
 
-            {/* NOTE: screenshot shows username (no @) */}
             <Text style={styles.headerTitle}>{profile.username}</Text>
 
             <TouchableOpacity
@@ -281,12 +285,13 @@ export default function ProfileTabScreen() {
 
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scroll}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: bottomPad },
+            ]}
           >
-            {/* Profile big card */}
             <View style={styles.profileCard}>
               <View style={styles.profileTop}>
-                {/* Avatar */}
                 {profile.avatar_url ? (
                   <Image
                     source={{ uri: profile.avatar_url }}
@@ -300,7 +305,6 @@ export default function ProfileTabScreen() {
                   </View>
                 )}
 
-                {/* Stats */}
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
                     <Text style={styles.statValue}>
@@ -323,7 +327,6 @@ export default function ProfileTabScreen() {
                 </View>
               </View>
 
-              {/* Name + Bio */}
               <Text style={styles.displayName}>
                 {profile.full_name || profile.username}
               </Text>
@@ -338,7 +341,6 @@ export default function ProfileTabScreen() {
                 </Text>
               )}
 
-              {/* Action buttons row like screenshot */}
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={styles.primaryButton}
@@ -365,7 +367,6 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
-            {/* Tabs pill row */}
             <View style={styles.tabsWrap}>
               {profileTabs.map((tab) => {
                 const active = activeTab === tab;
@@ -386,7 +387,6 @@ export default function ProfileTabScreen() {
               })}
             </View>
 
-            {/* Tab Content */}
             <View style={styles.contentArea}>
               {activeTab === "Activity" && (
                 <EmptyPanel
@@ -430,8 +430,6 @@ export default function ProfileTabScreen() {
                 />
               )}
             </View>
-
-            <View style={{ height: 24 }} />
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
@@ -498,7 +496,6 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
-  // Profile card
   profileCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
@@ -621,7 +618,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Tabs pill
   tabsWrap: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -658,7 +654,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
 
-  // Empty panel
   emptyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -694,7 +689,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Post cards (feed style)
   postCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,

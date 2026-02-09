@@ -1,11 +1,11 @@
-// app/(tabs)/chat.tsx
 import ConversationItem from "@/components/chat/ConversationItem";
-import { useAuth } from "@/hooks/useAuth";
+import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
+import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -16,13 +16,21 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { conversations, loading, loadConversations } = useChat();
 
-  // Helper: format timestamp
+  const bottomPad = useMemo(
+    () => getTabBarHeight(insets.bottom) + 12,
+    [insets.bottom],
+  );
+
   const formatTimestamp = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -38,7 +46,6 @@ export default function ChatScreen() {
     return date.toLocaleDateString();
   };
 
-  // Helper: get avatar URL
   const getAvatarUrl = (item: ChatConversation, userId?: string) => {
     if (item.avatar_url) return item.avatar_url;
 
@@ -52,7 +59,6 @@ export default function ChatScreen() {
     return null;
   };
 
-  // Helper: get conversation name
   const getConversationName = (item: ChatConversation, userId?: string) => {
     if (item.name) return item.name;
 
@@ -72,7 +78,6 @@ export default function ChatScreen() {
     return "Chat";
   };
 
-  // Navigate to the dedicated chat screen
   const openConversation = (conversationId: string) => {
     router.push({
       pathname: "/chat/[id]",
@@ -84,7 +89,6 @@ export default function ChatScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Chat</Text>
           <View style={styles.headerActions}>
@@ -99,7 +103,6 @@ export default function ChatScreen() {
           </View>
         </View>
 
-        {/* Stories / Active Users Row (kept empty as requested) */}
         <View style={styles.storiesContainer}>
           <ScrollView
             horizontal
@@ -108,7 +111,6 @@ export default function ChatScreen() {
           />
         </View>
 
-        {/* Conversations List */}
         {loading.conversations ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#7C3AED" />
@@ -139,7 +141,10 @@ export default function ChatScreen() {
                 onPress={() => openConversation(item.id)}
               />
             )}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: bottomPad },
+            ]}
             refreshing={loading.conversations}
             onRefresh={loadConversations}
           />
