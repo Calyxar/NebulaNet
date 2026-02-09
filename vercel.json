@@ -6,20 +6,15 @@
   "regions": ["iad1"],
   "github": { "silent": true },
 
-  "rewrites": [
-    { "source": "/u/:path*", "destination": "/" },
-    { "source": "/user/:path*", "destination": "/" },
-    { "source": "/post/:path*", "destination": "/" },
-    { "source": "/community/:path*", "destination": "/" },
-    { "source": "/invite/:path*", "destination": "/" },
-    { "source": "/auth/:path*", "destination": "/" },
+  "routes": [
+    { "src": "/delete-account/?$", "dest": "/delete-account/index.html" },
+    { "src": "/child-safety/?$", "dest": "/child-safety/index.html" },
+    { "src": "/privacy/?$", "dest": "/privacy/index.html" },
 
     {
-      "source": "/delete-account",
-      "destination": "/delete-account/index.html"
-    },
-    { "source": "/child-safety", "destination": "/child-safety/index.html" },
-    { "source": "/privacy", "destination": "/privacy/index.html" }
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ],
 
   "headers": [
