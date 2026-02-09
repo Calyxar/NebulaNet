@@ -1,6 +1,11 @@
-// app/settings/index.tsx
+// app/settings/index.tsx — COMPLETED (✅ X actually exits Settings)
+// ✅ Fix: the X button was calling pushSettings("index") which *re-pushes* /settings,
+// causing the "keeps sending them back to settings" loop.
+// ✅ Now: X calls closeSettings(returnTo) using route params when available.
+
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams } from "expo-router";
 import React from "react";
 import {
   Alert,
@@ -14,7 +19,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
-import { pushSettings, replaceSettings, SettingsRouteKey } from "./routes";
+import {
+  closeSettings,
+  pushSettings,
+  replaceSettings,
+  SettingsRouteKey,
+} from "./routes";
 
 type SettingsRow = {
   title: string;
@@ -81,6 +91,10 @@ function Row({ item, isLast }: { item: SettingsRow; isLast?: boolean }) {
 
 export default function SettingsIndexScreen() {
   const { user, profile } = useAuth();
+
+  // ✅ If you open settings with: router.push({ pathname:"/settings", params:{ returnTo:"/user/xxx" }})
+  // then X will always exit to that screen.
+  const params = useLocalSearchParams<{ returnTo?: string }>();
 
   const primary: SettingsRow[] = [
     {
@@ -189,9 +203,7 @@ export default function SettingsIndexScreen() {
         onPress: async () => {
           try {
             await supabase.auth.signOut();
-            replaceSettings("index"); // optional: return to settings root first
-            // or take them to app root:
-            // router.replace("/" as any);
+            replaceSettings("index");
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to sign out");
           }
@@ -223,10 +235,11 @@ export default function SettingsIndexScreen() {
             </View>
           </View>
 
+          {/* ✅ FIXED: X now exits Settings instead of re-pushing /settings */}
           <TouchableOpacity
             style={styles.headerCircleButton}
             activeOpacity={0.85}
-            onPress={() => pushSettings("index")}
+            onPress={() => closeSettings(params.returnTo)}
           >
             <Ionicons name="close" size={20} color="#111827" />
           </TouchableOpacity>

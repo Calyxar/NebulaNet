@@ -1,6 +1,7 @@
-// app/settings/account-center.tsx
+// app/settings/account-center.tsx — COMPLETED (Back + X header + fixes “can’t exit settings”)
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import React from "react";
 import {
   Alert,
@@ -13,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
-import { pushSettings } from "./routes";
+import { closeSettings, pushSettings } from "./routes";
 
 type RowItem = {
   title: string;
@@ -97,8 +98,17 @@ export default function AccountCenterScreen() {
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container}>
+        {/* ✅ Header with Back + X */}
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.headerCircleButton}
+            activeOpacity={0.85}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={20} color="#111827" />
+          </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
             <View style={styles.logoBubble}>
               <Ionicons
                 name="person-circle-outline"
@@ -106,13 +116,24 @@ export default function AccountCenterScreen() {
                 color="#7C3AED"
               />
             </View>
-            <View>
-              <Text style={styles.headerTitle}>Account Center</Text>
-              <Text style={styles.headerSub}>
+
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                Account Center
+              </Text>
+              <Text style={styles.headerSub} numberOfLines={1}>
                 Manage identity and account access
               </Text>
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.headerCircleButton}
+            activeOpacity={0.85}
+            onPress={closeSettings}
+          >
+            <Ionicons name="close" size={20} color="#111827" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -155,8 +176,36 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  header: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 10 },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  // ✅ Header (Back + Title + X)
+  header: {
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  headerCircleButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+
   logoBubble: {
     width: 44,
     height: 44,
