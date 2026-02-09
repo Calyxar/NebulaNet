@@ -1,7 +1,7 @@
-// app/(tabs)/create.tsx - FIXED
+// app/(tabs)/create.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ScrollView,
   StatusBar,
@@ -12,163 +12,161 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+type CreateOptionId = "post" | "story" | "media" | "poll" | "event";
+
 interface CreateOption {
-  id: string;
+  id: CreateOptionId;
   title: string;
-  description: string;
+  subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
   route: string;
-  color: string;
 }
 
-const createOptions: CreateOption[] = [
-  {
-    id: "post",
-    title: "Create Post",
-    description: "Share your thoughts with text, images, or videos",
-    icon: "document-text-outline",
-    route: "/create/post",
-    color: "#7C3AED",
-  },
-  {
-    id: "story",
-    title: "Add Story",
-    description: "Share a moment that disappears after 24 hours",
-    icon: "flash-outline",
-    route: "/create/story",
-    color: "#EC4899",
-  },
-  {
-    id: "media",
-    title: "Upload Media",
-    description: "Share photos, videos, or audio files",
-    icon: "images-outline",
-    route: "/create/media",
-    color: "#10B981",
-  },
-  {
-    id: "poll",
-    title: "Create Poll",
-    description: "Ask your community a question with multiple choices",
-    icon: "bar-chart-outline",
-    route: "/create/poll",
-    color: "#F59E0B",
-  },
-  {
-    id: "event",
-    title: "Create Event",
-    description: "Organize a meetup or virtual gathering",
-    icon: "calendar-outline",
-    route: "/create/event",
-    color: "#3B82F6",
-  },
-];
-
 export default function CreateScreen() {
-  const handleOptionPress = (route: string) => {
-    router.push(route as any);
-  };
+  const options: CreateOption[] = useMemo(
+    () => [
+      {
+        id: "post",
+        title: "Create Post",
+        subtitle: "Text, images, or videos",
+        icon: "document-text-outline",
+        route: "/create/post",
+      },
+      {
+        id: "story",
+        title: "Add Story",
+        subtitle: "Disappears after 24 hours",
+        icon: "flash-outline",
+        route: "/create/story",
+      },
+      {
+        id: "media",
+        title: "Upload Media",
+        subtitle: "Photos, videos, or audio",
+        icon: "images-outline",
+        route: "/create/media",
+      },
+      {
+        id: "poll",
+        title: "Create Poll",
+        subtitle: "Ask your community",
+        icon: "bar-chart-outline",
+        route: "/create/poll",
+      },
+      {
+        id: "event",
+        title: "Create Event",
+        subtitle: "Meetups or virtual",
+        icon: "calendar-outline",
+        route: "/create/event",
+      },
+    ],
+    [],
+  );
 
-  const handleClose = () => {
-    router.back();
-  };
+  const go = (route: string) => router.push(route as any);
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <SafeAreaView style={styles.container}>
-        {/* Header - Single, Clean */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
+
+      <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+        <View style={styles.top}>
+          <TouchableOpacity
+            style={styles.circleBtn}
+            onPress={() => router.back()}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="arrow-back" size={22} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create</Text>
-          <View style={styles.headerSpacer} />
+
+          <Text style={styles.title}>Create</Text>
+
+          <View style={styles.circleBtnGhost} />
         </View>
 
         <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
         >
-          {/* Create Options */}
-          {createOptions.map((option) => (
-            <TouchableOpacity
-              key={option.id}
-              style={styles.optionCard}
-              onPress={() => handleOptionPress(option.route)}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[
-                  styles.optionIconContainer,
-                  { backgroundColor: `${option.color}15` },
-                ]}
-              >
-                <Ionicons name={option.icon} size={28} color={option.color} />
-              </View>
-
-              <View style={styles.optionContent}>
-                <Text style={styles.optionTitle}>{option.title}</Text>
-                <Text style={styles.optionDescription}>
-                  {option.description}
-                </Text>
-              </View>
-
-              <Ionicons name="chevron-forward" size={24} color="#C5CAE9" />
-            </TouchableOpacity>
-          ))}
-
-          {/* Quick Actions */}
-          <View style={styles.quickActionsContainer}>
-            <Text style={styles.quickActionsTitle}>Quick Actions</Text>
-
-            <View style={styles.quickActionsGrid}>
+          <View style={styles.card}>
+            {options.map((o, idx) => (
               <TouchableOpacity
-                style={styles.quickActionCard}
-                onPress={() => router.push("/create/post")}
+                key={o.id}
+                style={[styles.row, idx !== 0 && styles.rowBorder]}
+                onPress={() => go(o.route)}
+                activeOpacity={0.85}
               >
-                <View style={styles.quickActionIcon}>
-                  <Ionicons name="add" size={24} color="#7C3AED" />
+                <View style={styles.iconCircle}>
+                  <Ionicons name={o.icon} size={22} color="#7C3AED" />
                 </View>
-                <Text style={styles.quickActionText}>Quick Post</Text>
+
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{o.title}</Text>
+                  <Text style={styles.rowSubtitle}>{o.subtitle}</Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.quickWrap}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+            <View style={styles.quickRow}>
+              <TouchableOpacity
+                style={styles.quickCard}
+                onPress={() => go("/create/post")}
+                activeOpacity={0.85}
+              >
+                <View style={styles.quickIcon}>
+                  <Ionicons name="add" size={20} color="#7C3AED" />
+                </View>
+                <Text style={styles.quickText}>Quick Post</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.quickActionCard}
-                onPress={() => router.push("/create/story")}
+                style={styles.quickCard}
+                onPress={() => go("/create/story")}
+                activeOpacity={0.85}
               >
-                <View style={styles.quickActionIcon}>
-                  <Ionicons name="camera" size={24} color="#EC4899" />
+                <View style={styles.quickIcon}>
+                  <Ionicons name="camera" size={20} color="#7C3AED" />
                 </View>
-                <Text style={styles.quickActionText}>Take Photo</Text>
+                <Text style={styles.quickText}>Story</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.quickActionCard}
-                onPress={() => router.push("/create/media")}
+                style={styles.quickCard}
+                onPress={() => go("/create/media")}
+                activeOpacity={0.85}
               >
-                <View style={styles.quickActionIcon}>
-                  <Ionicons name="videocam" size={24} color="#10B981" />
+                <View style={styles.quickIcon}>
+                  <Ionicons name="videocam" size={20} color="#7C3AED" />
                 </View>
-                <Text style={styles.quickActionText}>Record Video</Text>
+                <Text style={styles.quickText}>Media</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Tips */}
-          <View style={styles.tipsContainer}>
-            <View style={styles.tipCard}>
-              <Ionicons name="bulb-outline" size={24} color="#F59E0B" />
-              <View style={styles.tipContent}>
-                <Text style={styles.tipTitle}>Pro Tip</Text>
-                <Text style={styles.tipText}>
-                  Posts with images get 2.3x more engagement than text-only
-                  posts
-                </Text>
-              </View>
+          <View style={styles.tip}>
+            <View style={styles.tipIcon}>
+              <Ionicons name="bulb-outline" size={20} color="#7C3AED" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tipTitle}>Pro Tip</Text>
+              <Text style={styles.tipText}>
+                Posts with images usually get more engagement.
+              </Text>
             </View>
           </View>
+
+          <View style={{ height: 18 }} />
         </ScrollView>
       </SafeAreaView>
     </>
@@ -176,139 +174,160 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  header: {
+  safe: { flex: 1, backgroundColor: "#F5F7FF" },
+
+  top: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
-  closeButton: {
-    padding: 4,
-    width: 40,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-  },
-  headerSpacer: {
-    width: 40,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: 20,
-  },
-  optionCard: {
-    flexDirection: "row",
-    alignItems: "center",
+  circleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  circleBtnGhost: {
+    width: 44,
+    height: 44,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#111827",
+  },
+
+  content: {
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 24,
+  },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 16,
     elevation: 2,
   },
-  optionIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  optionContent: {
-    flex: 1,
-  },
-  optionTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  optionDescription: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  quickActionsContainer: {
-    marginTop: 32,
-    marginBottom: 24,
-  },
-  quickActionsTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 16,
-  },
-  quickActionsGrid: {
+  row: {
     flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     gap: 12,
   },
-  quickActionCard: {
-    flex: 1,
-    backgroundColor: "#F8F8F8",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
+  rowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
-  quickActionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3ECFF",
     alignItems: "center",
+    justifyContent: "center",
+  },
+  rowText: { flex: 1 },
+  rowTitle: {
+    fontSize: 14.5,
+    fontWeight: "900",
+    color: "#111827",
+  },
+  rowSubtitle: {
+    marginTop: 2,
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+
+  quickWrap: {
+    marginTop: 16,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 10,
+    paddingLeft: 2,
+  },
+  quickRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  quickCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  quickIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 8,
   },
-  quickActionText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#000",
-    textAlign: "center",
+  quickText: {
+    fontSize: 12.5,
+    fontWeight: "900",
+    color: "#111827",
   },
-  tipsContainer: {
-    marginTop: 8,
-  },
-  tipCard: {
+
+  tip: {
+    marginTop: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
     flexDirection: "row",
-    backgroundColor: "#FFFBEB",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#FEF3C7",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
-  tipContent: {
-    flex: 1,
-    marginLeft: 12,
+  tipIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   tipTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#92400E",
-    marginBottom: 4,
+    fontSize: 13.5,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 2,
   },
   tipText: {
-    fontSize: 14,
-    color: "#78350F",
-    lineHeight: 20,
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#6B7280",
+    lineHeight: 18,
   },
 });

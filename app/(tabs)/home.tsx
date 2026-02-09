@@ -1,11 +1,5 @@
-// app/(tabs)/home.tsx
-// ✅ Matches NebulaNet design from screenshot
-// ✅ No mocks - real functionality only
-// ✅ Fixed tab bar spacing for Samsung A54 and gesture navigation
-
 import {
-  EXTRA_BOTTOM_PADDING,
-  TAB_BAR_HEIGHT,
+  getTabBarHeight,
 } from "@/components/navigation/CurvedTabBar";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
@@ -50,11 +44,9 @@ const timeAgo = (iso: string) => {
 
 type FeedTab = "for-you" | "following" | "my-community";
 
-// ✅ Stories section with Add Story button (no mocks)
 function StoriesHeader() {
   return (
     <View style={styles.storiesWrap}>
-      {/* Add Story Button */}
       <TouchableOpacity
         style={styles.storyItem}
         onPress={() => router.push("/create/story")}
@@ -65,8 +57,6 @@ function StoriesHeader() {
         </View>
         <Text style={styles.storyLabel}>Add Story</Text>
       </TouchableOpacity>
-
-      {/* Real stories will be loaded here via your stories hook */}
     </View>
   );
 }
@@ -75,15 +65,17 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // ✅ Responsive media height for different screen sizes
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
     [width],
   );
 
-  const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
+  const bottomPad = useMemo(
+    () => getTabBarHeight(insets.bottom) + 12,
+    [insets.bottom],
+  );
 
-  // ✅ Get unread notifications count
+  const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
   const unreadCount = useUnreadNotificationsCount();
 
   const {
@@ -107,7 +99,6 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
-        {/* Top Header */}
         <View style={[styles.topHeader, { paddingTop: insets.top }]}>
           <View style={styles.brandRow}>
             <Image
@@ -117,7 +108,6 @@ export default function HomeScreen() {
             <Text style={styles.brandText}>NebulaNet</Text>
           </View>
 
-          {/* Notification Bell */}
           <TouchableOpacity
             style={styles.bellWrap}
             onPress={() => router.push("/notifications")}
@@ -134,10 +124,8 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Stories Section */}
         <StoriesHeader />
 
-        {/* Tab Segments */}
         <View style={styles.segmentWrap}>
           <View style={styles.segment}>
             <SegBtn
@@ -169,7 +157,6 @@ export default function HomeScreen() {
 
       return (
         <View style={styles.card}>
-          {/* Post Header */}
           <View style={styles.cardTop}>
             <View style={styles.authorRow}>
               {avatar ? (
@@ -206,10 +193,8 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Post Content */}
           {!!item.content && <Text style={styles.content}>{item.content}</Text>}
 
-          {/* Post Media */}
           {!!media && (
             <Image
               source={{ uri: media }}
@@ -218,7 +203,6 @@ export default function HomeScreen() {
             />
           )}
 
-          {/* Action Buttons */}
           <View style={styles.actions}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -294,10 +278,7 @@ export default function HomeScreen() {
         }
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
-        contentContainerStyle={{
-          // ✅ FIXED: Padding for tab bar height (68px) + bottom spacing (20px) + extra buffer (12px)
-          paddingBottom: TAB_BAR_HEIGHT + EXTRA_BOTTOM_PADDING + 12,
-        }}
+        contentContainerStyle={{ paddingBottom: bottomPad }}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -327,17 +308,9 @@ function SegBtn({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#F5F7FF",
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  screen: { flex: 1, backgroundColor: "#F5F7FF" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  // Top Header
   topHeader: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -346,23 +319,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F5F7FF",
   },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  brandLogo: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  brandLogo: { width: 36, height: 36, borderRadius: 18 },
   brandText: {
     fontSize: 22,
     fontWeight: "900",
     color: "#111827",
     letterSpacing: -0.5,
   },
+
   bellWrap: {
     width: 44,
     height: 44,
@@ -387,23 +352,15 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#E0E7FF",
   },
-  badgeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "900",
-  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 
-  // Stories Section
   storiesWrap: {
     flexDirection: "row",
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: "#F5F7FF",
   },
-  storyItem: {
-    alignItems: "center",
-    marginRight: 16,
-  },
+  storyItem: { alignItems: "center", marginRight: 16 },
   addStoryCircle: {
     width: 68,
     height: 68,
@@ -424,7 +381,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Tab Segments
   segmentWrap: {
     paddingHorizontal: 14,
     paddingBottom: 14,
@@ -449,19 +405,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segBtnActive: {
-    backgroundColor: "#7C3AED",
-  },
-  segText: {
-    color: "#9CA3AF",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  segTextActive: {
-    color: "#fff",
-  },
+  segBtnActive: { backgroundColor: "#7C3AED" },
+  segText: { color: "#9CA3AF", fontWeight: "700", fontSize: 13 },
+  segTextActive: { color: "#fff" },
 
-  // Post Card
   card: {
     marginHorizontal: 14,
     marginBottom: 14,
@@ -479,54 +426,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  authorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  author: {
-    fontWeight: "800",
-    color: "#111827",
-    fontSize: 15,
-  },
-  time: {
-    fontSize: 12,
-    color: "#9CA3AF",
-    marginTop: 2,
-  },
-  content: {
-    marginTop: 12,
-    fontSize: 15,
-    color: "#111827",
-    lineHeight: 22,
-  },
-  media: {
-    marginTop: 14,
-    borderRadius: 20,
-    backgroundColor: "#F5F7FF",
-  },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
+  author: { fontWeight: "800", color: "#111827", fontSize: 15 },
+  time: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
+  content: { marginTop: 12, fontSize: 15, color: "#111827", lineHeight: 22 },
+  media: { marginTop: 14, borderRadius: 20, backgroundColor: "#F5F7FF" },
 
-  // Action Buttons
   actions: {
     marginTop: 14,
     flexDirection: "row",
     justifyContent: "space-between",
     paddingTop: 2,
   },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  actionText: {
-    fontWeight: "700",
-    fontSize: 13,
-    color: "#111827",
-  },
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  actionText: { fontWeight: "700", fontSize: 13, color: "#111827" },
 });

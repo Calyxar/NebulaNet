@@ -1,6 +1,4 @@
-// app/(tabs)/explore.tsx - MATCHES DESIGN (NO MOCK DATA)
-// ✅ Gradient background + rounded search + segmented tabs + real-data-ready sections
-
+import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -14,22 +12,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 type ExploreCategory = "trending" | "account" | "post" | "community";
 
 export default function ExploreScreen() {
+  const insets = useSafeAreaInsets();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
-  /**
-   * ✅ Replace these with your REAL query results later.
-   * Example:
-   * const { accounts, posts, communities, loading } = useExplore(searchQuery, activeCategory);
-   *
-   * For now, keep them empty — NO MOCKS.
-   */
   const accounts = useMemo(() => [], []);
   const posts = useMemo(() => [], []);
   const communities = useMemo(() => [], []);
@@ -41,6 +37,11 @@ export default function ExploreScreen() {
     { key: "post", label: "Post" },
     { key: "community", label: "Community" },
   ];
+
+  const bottomPad = useMemo(
+    () => getTabBarHeight(insets.bottom) + 12,
+    [insets.bottom],
+  );
 
   return (
     <>
@@ -56,7 +57,6 @@ export default function ExploreScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container}>
-          {/* Top Search Row (matches screenshot) */}
           <View style={styles.topRow}>
             <TouchableOpacity
               style={styles.circleButton}
@@ -79,7 +79,6 @@ export default function ExploreScreen() {
             </View>
           </View>
 
-          {/* Segmented Tabs (one pill container, like screenshot) */}
           <View style={styles.segmentWrap}>
             {categories.map((c) => {
               const isActive = activeCategory === c.key;
@@ -106,18 +105,17 @@ export default function ExploreScreen() {
             })}
           </View>
 
-          {/* Content */}
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[
+              styles.content,
+              { paddingBottom: bottomPad },
+            ]}
           >
-            {/* REAL DATA SECTIONS (only render if you have real results) */}
             {activeCategory === "account" && (
               <>
                 {accounts.length > 0 ? (
-                  <View style={styles.card}>
-                    {/* render real accounts here */}
-                  </View>
+                  <View style={styles.card} />
                 ) : (
                   <EmptyState
                     icon="people-outline"
@@ -135,9 +133,7 @@ export default function ExploreScreen() {
             {activeCategory === "post" && (
               <>
                 {posts.length > 0 ? (
-                  <View style={styles.card}>
-                    {/* render real posts here */}
-                  </View>
+                  <View style={styles.card} />
                 ) : (
                   <EmptyState
                     icon="document-text-outline"
@@ -155,9 +151,7 @@ export default function ExploreScreen() {
             {activeCategory === "community" && (
               <>
                 {communities.length > 0 ? (
-                  <View style={styles.card}>
-                    {/* render real communities here */}
-                  </View>
+                  <View style={styles.card} />
                 ) : (
                   <EmptyState
                     icon="people-circle-outline"
@@ -183,9 +177,6 @@ export default function ExploreScreen() {
                 }
               />
             )}
-
-            {/* Spacing at bottom so tab bar doesn’t overlap content */}
-            <View style={{ height: 24 }} />
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
@@ -260,7 +251,6 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
 
-  // Segmented tabs like the screenshot (one rounded container)
   segmentWrap: {
     marginHorizontal: 18,
     backgroundColor: "#FFFFFF",
@@ -296,10 +286,8 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 18,
     paddingTop: 14,
-    paddingBottom: 24,
   },
 
-  // General card style for when you start rendering real results
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -311,7 +299,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  // Empty state matches the design language (soft, centered, clean)
   emptyWrap: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,

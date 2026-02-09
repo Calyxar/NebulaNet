@@ -1,4 +1,9 @@
-// lib/supabase.ts - COMPLETE UPDATED VERSION (VERCEL STATIC EXPORT SAFE + FULL NAMED EXPORTS)
+// lib/supabase.ts — COMPLETE UPDATED (VERCEL STATIC EXPORT SAFE + FULL NAMED EXPORTS)
+// ✅ SSR/static export safe (won't hard-crash Vercel builds)
+// ✅ Safe storage adapter (localStorage on web, AsyncStorage on native)
+// ✅ Named exports for auth/profile helpers + delete-account Edge Function invoke
+// ✅ Optional typed Tables map (lightweight, no generated types required)
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
@@ -31,7 +36,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const getAuthRedirectUrl = () => {
+  // Web email verification / signup redirect
   if (Platform.OS === "web") return "https://nebulanet.space/auth/verify-email";
+  // Native deep link handler route
   return "nebulanet://verify-email-handler";
 };
 
@@ -72,6 +79,7 @@ const createSafeStorage = () => {
     };
   }
 
+  // Native (iOS/Android)
   return {
     getItem: async (key: string) => {
       try {
@@ -117,7 +125,8 @@ export const supabase = canCreateClient
         params: { eventsPerSecond: 10 },
       },
     })
-  : ({
+  : // SSR stub client
+    ({
       auth: {
         getUser: async () => ({ data: { user: null }, error: null }),
         getSession: async () => ({ data: { session: null }, error: null }),
@@ -152,8 +161,6 @@ export const supabase = canCreateClient
 /*                                   TYPES                                    */
 /* -------------------------------------------------------------------------- */
 
-const NO_ROWS = "PGRST116";
-
 export type Tables = {
   profiles: {
     Row: {
@@ -175,7 +182,6 @@ export type Tables = {
       deleted_at: string | null;
       created_at: string;
       updated_at: string;
-      // optional if you have it:
       is_private?: boolean | null;
     };
     Insert: Partial<Omit<Tables["profiles"]["Row"], "id">> & { id?: string };
@@ -197,7 +203,6 @@ export type Tables = {
       view_count: number;
       created_at: string;
       updated_at: string;
-      // if you still use this elsewhere:
       media_urls?: string[] | null;
     };
     Insert: Partial<Omit<Tables["posts"]["Row"], "id">> & { id?: string };
@@ -427,19 +432,6 @@ export type Tables = {
 export type TableName = keyof Tables;
 export const from = <T extends TableName>(table: T) => supabase.from(table);
 
-export type RealtimePayload<T extends TableName> = {
-  commit_timestamp: string;
-  eventType: "INSERT" | "UPDATE" | "DELETE";
-  new: Tables[T]["Row"];
-  old: Tables[T]["Row"];
-  schema: string;
-  table: string;
-};
-
-function isNoRowsError(err: any) {
-  return err?.code === NO_ROWS;
-}
-
 /* -------------------------------------------------------------------------- */
 /*                                    AUTH                                    */
 /* -------------------------------------------------------------------------- */
@@ -601,10 +593,10 @@ export async function getProfile(userId?: string) {
     .from("profiles")
     .select("*")
     .eq("id", userId)
-    .single();
+    .maybeSingle(); // ✅ less noisy than .single()
 
   if (error) return null;
-  return data as Tables["profiles"]["Row"];
+  return (data as Tables["profiles"]["Row"]) ?? null;
 }
 
 export async function getProfileByUsername(username: string) {
@@ -612,10 +604,10 @@ export async function getProfileByUsername(username: string) {
     .from("profiles")
     .select("*")
     .eq("username", username)
-    .single();
+    .maybeSingle();
 
   if (error) return null;
-  return data as Tables["profiles"]["Row"];
+  return (data as Tables["profiles"]["Row"]) ?? null;
 }
 
 export async function getCurrentUserProfile() {

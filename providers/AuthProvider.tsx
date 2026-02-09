@@ -1,10 +1,15 @@
 // providers/AuthProvider.tsx
-// ✅ Real Supabase authentication with profile management (HYDRATION-SAFE + PROFILE UPSERT)
 
-import { supabase } from "@/lib/supabase";
+import {
+  deleteMyAccount,
+  getAuthRedirectUrl,
+  getPasswordResetRedirectUrl,
+  supabase,
+} from "@/lib/supabase";
 import type {
+  AuthChangeEvent,
   Session,
-  User as SupabaseUser
+  User as SupabaseUser,
 } from "@supabase/supabase-js";
 import {
   useMutation,
@@ -43,26 +48,66 @@ type UpdateProfileMutation = UseMutationResult<
   unknown
 >;
 
+type LoginResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+type SignupResult = Awaited<ReturnType<typeof supabase.auth.signUp>>;
+type GoogleLoginResult = Awaited<
+  ReturnType<typeof supabase.auth.signInWithIdToken>
+>;
+
+type LoginMutation = UseMutationResult<
+  LoginResult,
+  Error,
+  { email: string; password: string },
+  unknown
+>;
+
+type SignupMutation = UseMutationResult<
+  SignupResult,
+  Error,
+  {
+    email: string;
+    password: string;
+    userData: { username: string; full_name?: string };
+  },
+  unknown
+>;
+
+type GoogleLoginMutation = UseMutationResult<
+  GoogleLoginResult,
+  Error,
+  { idToken: string; accessToken?: string | null },
+  unknown
+>;
+
 interface AuthContextType {
   user: SupabaseUser | null;
   profile: Profile | null;
   session: Session | null;
 
-  /**
-   * ✅ True until we finish the *first* getSession() call AND profile query (if user exists)
-   * Use this to avoid redirecting to login too early.
-   */
   isLoading: boolean;
+  isProfileLoading: boolean;
 
+  login: LoginMutation;
+  signup: SignupMutation;
+  googleLogin: GoogleLoginMutation;
   updateProfile: UpdateProfileMutation;
+
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<Profile | null>;
+
+  resetPassword: (email: string) => Promise<void>;
+  resendVerificationEmail: (email: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
+  updateUserEmail: (newEmail: string) => Promise<void>;
+
+  updateSettings: (settings: Record<string, any>) => Promise<any>;
+  deactivateAccount: (reason?: string) => Promise<void>;
+  deleteAccount: (reason?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// PostgREST "no rows" code
 const NO_ROWS = "PGRST116";
-
 function isNoRowsError(err: any) {
   return err?.code === NO_ROWS;
 }
@@ -72,25 +117,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-
-  // ✅ Critical: separate “hydration” flag so we don’t flash-login
   const [hydrated, setHydrated] = useState(false);
 
-  // ✅ Ensure a profiles row exists (important for OAuth + edge cases)
   const ensureProfileExists = async (u: SupabaseUser) => {
     try {
-      // Try to find existing profile row
       const { data: existing, error: readErr } = await supabase
         .from("profiles")
         .select("id")
         .eq("id", u.id)
         .maybeSingle();
 
-      if (readErr && !isNoRowsError(readErr)) {
-        console.warn("⚠️ Profile existence check error:", readErr);
-        return;
-      }
-
+      if (readErr && !isNoRowsError(readErr)) return;
       if (existing?.id) return;
 
       const usernameFromMeta =
@@ -103,9 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (u.user_metadata?.name as string | undefined) ||
         null;
 
-      // Create minimal profile row
       const now = new Date().toISOString();
-      const { error: upsertErr } = await supabase.from("profiles").upsert(
+
+      await supabase.from("profiles").upsert(
         {
           id: u.id,
           username: usernameFromMeta,
@@ -115,31 +152,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         { onConflict: "id" },
       );
-
-      if (upsertErr) {
-        console.warn("⚠️ Profile upsert error:", upsertErr);
-      } else {
-        console.log("✅ Profile ensured (upserted if missing)");
-      }
-    } catch (e) {
-      console.warn("⚠️ ensureProfileExists exception:", e);
+    } catch {
+      // ignore
     }
   };
 
-  // ✅ Auth bootstrapping (runs once)
   useEffect(() => {
     let cancelled = false;
-
-    console.log("🔐 AuthProvider bootstrapping...");
 
     (async () => {
       try {
         const {
           data: { session: s },
-          error,
         } = await supabase.auth.getSession();
-
-        if (error) console.warn("⚠️ getSession error:", error);
 
         if (cancelled) return;
 
@@ -147,9 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(s?.user ?? null);
 
         if (s?.user) {
-          await ensureProfileExists(s.user);
-          // Prime profile cache
-          queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
+          ensureProfileExists(s.user).finally(() => {
+            queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
+          });
         }
       } finally {
         if (!cancelled) setHydrated(true);
@@ -159,18 +184,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      async (event: string, s: Session | null) => {
-        console.log("🔔 Auth state changed:", event, "session:", !!s);
-
+      (event: AuthChangeEvent, s: Session | null) => {
         setSession(s ?? null);
         setUser(s?.user ?? null);
-
-        // Hydrated stays true once it becomes true
         setHydrated(true);
 
         if (s?.user) {
-          await ensureProfileExists(s.user);
-          queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
+          ensureProfileExists(s.user).finally(() => {
+            queryClient.invalidateQueries({ queryKey: ["profile", s.user.id] });
+          });
         } else {
           queryClient.removeQueries({ queryKey: ["profile"] });
         }
@@ -183,7 +205,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient]);
 
-  // ✅ Fetch user profile from profiles table
   const {
     data: profile,
     isLoading: isLoadingProfile,
@@ -193,93 +214,242 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       if (!user?.id) return null;
 
-      console.log("👤 Fetching profile for user:", user.id);
-
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (error && !isNoRowsError(error)) {
-        console.error("❌ Profile fetch error:", error);
-        return null;
-      }
-
-      // If profile truly doesn't exist, we return null (ensureProfileExists should prevent this)
+      if (error && !isNoRowsError(error)) return null;
       return (data as Profile) ?? null;
     },
-    enabled: !!user?.id && hydrated, // ✅ don’t fetch before session hydration
+    enabled: !!user?.id && hydrated,
     staleTime: 1000 * 60 * 5,
     retry: 1,
   });
 
-  // ✅ Update profile mutation (typed)
+  const refreshProfile = async () => {
+    if (!user?.id) return null;
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (error && !isNoRowsError(error)) return null;
+
+    queryClient.setQueryData(["profile", user.id], (data as Profile) ?? null);
+    return (data as Profile) ?? null;
+  };
+
+  const login = useMutation<
+    LoginResult,
+    Error,
+    { email: string; password: string }
+  >({
+    mutationFn: async ({ email, password }) => {
+      const result = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (result.error) throw new Error(result.error.message);
+      return result;
+    },
+  });
+
+  const signup = useMutation<
+    SignupResult,
+    Error,
+    {
+      email: string;
+      password: string;
+      userData: { username: string; full_name?: string };
+    }
+  >({
+    mutationFn: async ({ email, password, userData }) => {
+      const result = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+        options: {
+          data: {
+            username: userData.username,
+            full_name: userData.full_name ?? null,
+          },
+        },
+      });
+
+      if (result.error) throw new Error(result.error.message);
+
+      if (result.data?.user) {
+        ensureProfileExists(result.data.user as SupabaseUser).finally(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["profile", result.data.user!.id],
+          });
+        });
+      }
+
+      return result;
+    },
+  });
+
+  const googleLogin = useMutation<
+    GoogleLoginResult,
+    Error,
+    { idToken: string; accessToken?: string | null }
+  >({
+    mutationFn: async ({ idToken, accessToken }) => {
+      const result = await supabase.auth.signInWithIdToken({
+        provider: "google",
+        token: idToken,
+        access_token: accessToken ?? undefined,
+      });
+
+      if (result.error) throw new Error(result.error.message);
+
+      if (result.data?.user) {
+        ensureProfileExists(result.data.user as SupabaseUser).finally(() => {
+          queryClient.invalidateQueries({
+            queryKey: ["profile", result.data.user!.id],
+          });
+        });
+      }
+
+      return result;
+    },
+  });
+
   const updateProfile = useMutation<Profile, Error, UpdateProfileInput>({
     mutationFn: async (updates) => {
       if (!user?.id) throw new Error("No user found");
 
-      console.log("📝 Updating profile:", updates);
-
       const { data, error } = await supabase
         .from("profiles")
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ ...updates, updated_at: new Date().toISOString() })
         .eq("id", user.id)
         .select("*")
         .single();
 
       if (error) throw new Error(error.message ?? "Failed to update profile");
-
-      console.log("✅ Profile updated successfully");
       return data as Profile;
     },
     onSuccess: (data) => {
       queryClient.setQueryData(["profile", user?.id], data);
     },
-    onError: (error) => {
-      console.error("❌ Profile update error:", error);
-    },
   });
 
-  // ✅ Sign out function
   const signOut = async () => {
-    try {
-      console.log("👋 Signing out...");
-      await supabase.auth.signOut();
-      queryClient.clear();
-      console.log("✅ Signed out successfully");
-    } catch (error) {
-      console.error("❌ Sign out error:", error);
-      throw error;
-    }
+    await supabase.auth.signOut();
+    queryClient.clear();
+    setSession(null);
+    setUser(null);
   };
 
-  // ✅ This is the key: loading is true until session is hydrated AND (if authed) profile is done.
-  const isLoading = useMemo(() => {
-    if (!hydrated) return true;
-    if (user?.id) return isLoadingProfile || isFetchingProfile;
-    return false;
-  }, [hydrated, user?.id, isLoadingProfile, isFetchingProfile]);
+  const resetPassword = async (email: string) => {
+    const redirectTo = getPasswordResetRedirectUrl();
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo },
+    );
+    if (error) throw new Error(error.message);
+  };
+
+  const resendVerificationEmail = async (email: string) => {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: redirectTo },
+    });
+    if (error) throw new Error(error.message);
+  };
+
+  const updatePassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  };
+
+  const updateUserEmail = async (newEmail: string) => {
+    const base = getAuthRedirectUrl();
+    const { error } = await supabase.auth.updateUser(
+      { email: newEmail.trim().toLowerCase() },
+      { emailRedirectTo: `${base}?type=email_change` },
+    );
+    if (error) throw new Error(error.message);
+  };
+
+  const updateSettings = async (settings: Record<string, any>) => {
+    if (!user?.id) throw new Error("Not authenticated");
+
+    const { data, error } = await supabase
+      .from("user_settings")
+      .upsert({
+        user_id: user.id,
+        ...settings,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  };
+
+  const deactivateAccount = async (reason?: string) => {
+    if (!user?.id) throw new Error("Not authenticated");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        status: "deactivated",
+        deactivation_reason: reason ?? null,
+        deactivated_at: new Date().toISOString(),
+      } as any)
+      .eq("id", user.id);
+
+    if (error) throw new Error(error.message);
+
+    await signOut();
+  };
+
+  const deleteAccount = async (reason?: string) => {
+    await deleteMyAccount(reason);
+    await signOut();
+  };
+
+  const isLoading = useMemo(() => !hydrated, [hydrated]);
 
   const value: AuthContextType = {
     user,
     profile: profile ?? null,
     session,
+
     isLoading,
+    isProfileLoading: !!user?.id && (isLoadingProfile || isFetchingProfile),
+
+    login,
+    signup,
+    googleLogin,
     updateProfile,
+
     signOut,
+    refreshProfile,
+
+    resetPassword,
+    resendVerificationEmail,
+    updatePassword,
+    updateUserEmail,
+
+    updateSettings,
+    deactivateAccount,
+    deleteAccount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
 }
