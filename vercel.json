@@ -8,6 +8,11 @@
 
   "routes": [
     {
+      "src": "^/\\.well-known/assetlinks\\.json$",
+      "dest": "/.well-known/assetlinks.json"
+    },
+
+    {
       "src": "^/delete-account/?$",
       "dest": "/delete-account/index.html"
     },
