@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 import AppHeader from "@/components/navigation/AppHeader";
+=======
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/AuthProvider";
@@ -247,7 +250,13 @@ export default function ProfileTabScreen() {
     );
   }
 
+<<<<<<< HEAD
   if (!user || !profile) return null;
+=======
+  if (!user || !profile) {
+    return null;
+  }
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
   return (
     <>
@@ -262,6 +271,7 @@ export default function ProfileTabScreen() {
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
+<<<<<<< HEAD
         {/* ✅ do NOT include "top" edge here; AppHeader handles top safe-area */}
         <SafeAreaView style={styles.safe} edges={["left", "right"]}>
           <AppHeader
@@ -282,6 +292,28 @@ export default function ProfileTabScreen() {
               </TouchableOpacity>
             }
           />
+=======
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerCircle}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </TouchableOpacity>
+
+            <Text style={styles.headerTitle}>{profile.username}</Text>
+
+            <TouchableOpacity
+              style={styles.headerCircle}
+              onPress={handleSettings}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
+            </TouchableOpacity>
+          </View>
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
           <ScrollView
             showsVerticalScrollIndicator={false}

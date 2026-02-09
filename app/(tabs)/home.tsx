@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 // app/(tabs)/home.tsx — COMPLETED (AppHeader leftWide fix + pixel-perfect header)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+=======
+import {
+  getTabBarHeight,
+} from "@/components/navigation/CurvedTabBar";
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
@@ -99,6 +105,7 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
+<<<<<<< HEAD
         <AppHeader
           backgroundColor="#F5F7FF"
           leftWide={
@@ -130,6 +137,33 @@ export default function HomeScreen() {
           }
         />
 
+=======
+        <View style={[styles.topHeader, { paddingTop: insets.top }]}>
+          <View style={styles.brandRow}>
+            <Image
+              source={require("@/assets/images/icon.png")}
+              style={styles.brandLogo}
+            />
+            <Text style={styles.brandText}>NebulaNet</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.bellWrap}
+            onPress={() => router.push("/notifications")}
+            activeOpacity={0.7}
+          >
+            <Bell size={22} color="#7C3AED" strokeWidth={2.5} />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
         <StoriesHeader />
 
         <View style={styles.segmentWrap}>
@@ -319,6 +353,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F5F7FF" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
+<<<<<<< HEAD
   // ✅ IMPORTANT: allow brand to take space without being squished
   brandRow: {
     flexDirection: "row",
@@ -326,6 +361,17 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
+=======
+  topHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#F5F7FF",
+  },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   brandLogo: { width: 36, height: 36, borderRadius: 18 },
   brandText: {
     fontSize: 22,
