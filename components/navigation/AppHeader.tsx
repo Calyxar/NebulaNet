@@ -1,9 +1,4 @@
-// components/navigation/AppHeader.tsx — COMPLETED + UPDATED
-// ✅ Pixel-perfect, prevents "squish" for NebulaNet brand + wide search bars + multi-actions
-// ✅ Wide areas can truly take space (no 44px clamp)
-// ✅ Title never pushes/squeezes left/right wide content
-// ✅ Consistent 56px row height + 44px side targets
-
+// components/navigation/AppHeader.tsx
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
@@ -22,13 +17,11 @@ type Props = {
 
   // 44x44 slot (icon)
   left?: React.ReactNode;
+  right?: React.ReactNode;
 
-  // Wide slots (brand / search bar / multi-actions)
+  // Wide slots (brand / multi-actions)
   leftWide?: React.ReactNode;
   rightWide?: React.ReactNode;
-
-  // 44x44 slot (icon)
-  right?: React.ReactNode;
 
   backgroundColor?: string;
   containerStyle?: ViewStyle;
@@ -50,6 +43,7 @@ export default function AppHeader({
   titleAlign = "center",
 }: Props) {
   const insets = useSafeAreaInsets();
+  const hasTitle = !!title && title.trim().length > 0;
 
   const LeftNode = leftWide ? (
     <View style={styles.leftWide}>{leftWide}</View>
@@ -61,7 +55,6 @@ export default function AppHeader({
         onPress={onBack}
         style={styles.circleBtn}
         android_ripple={{ borderless: true }}
-        hitSlop={8}
       >
         <Ionicons name="arrow-back" size={22} color="#111827" />
       </Pressable>
@@ -72,15 +65,11 @@ export default function AppHeader({
 
   const RightNode = rightWide ? (
     <View style={styles.rightWide}>{rightWide}</View>
-  ) : right ? (
-    <View style={styles.side}>{right}</View>
   ) : (
-    <View style={styles.sideGhost} />
+    <View style={styles.side}>
+      {right ?? <View style={styles.sideGhost} />}
+    </View>
   );
-
-  // If either side is "wide" we should not reserve center title space.
-  // Otherwise, keep a centered title like a normal header.
-  const hasWide = !!leftWide || !!rightWide;
 
   return (
     <View
@@ -91,37 +80,31 @@ export default function AppHeader({
       ]}
     >
       <View style={styles.row}>
-        {/* Left */}
-        <View style={styles.leftWrap}>{LeftNode}</View>
+        {/* LEFT */}
+        {hasTitle ? (
+          LeftNode
+        ) : (
+          // ✅ When there's no title, let left occupy remaining space.
+          <View style={styles.leftNoTitleWrap}>{LeftNode}</View>
+        )}
 
-        {/* Center title (only when not using wide layouts) */}
-        {!hasWide && (
+        {/* CENTER (only if title exists) */}
+        {hasTitle ? (
           <View
             style={[
               styles.titleWrap,
-              titleAlign === "left" && styles.titleWrapLeft,
+              titleAlign === "left" ? styles.titleWrapLeft : undefined,
             ]}
           >
-            {!!title && (
-              <Text numberOfLines={1} style={styles.title}>
-                {title}
-              </Text>
-            )}
+            <Text numberOfLines={1} style={styles.title}>
+              {title}
+            </Text>
           </View>
-        )}
+        ) : null}
 
-        {/* Right */}
-        <View style={styles.rightWrap}>{RightNode}</View>
+        {/* RIGHT */}
+        {RightNode}
       </View>
-
-      {/* When using wide layouts, show the title BELOW row if provided (optional) */}
-      {hasWide && !!title && (
-        <View style={styles.wideTitleRow}>
-          <Text numberOfLines={1} style={styles.title}>
-            {title}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -136,43 +119,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
 
-  // Wraps ensure left/right don’t get constrained by center title
-  leftWrap: {
-    flexShrink: 1,
-    minWidth: SIDE,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  rightWrap: {
-    flexShrink: 0,
-    minWidth: SIDE,
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
-
-  // 44x44 tap targets
   side: {
     width: SIDE,
     height: SIDE,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   sideGhost: { width: SIDE, height: SIDE },
 
-  // Wide areas: allow them to take real width
+  // ✅ Critical: flex:1 + minWidth:0 prevents text squish/measure bugs on Android
+  leftNoTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 10,
+  },
+
   leftWide: {
     minHeight: SIDE,
     flexDirection: "row",
     alignItems: "center",
-    flexGrow: 1,
-    flexShrink: 1,
+    flex: 1,
+    minWidth: 0,
   },
+
   rightWide: {
     minHeight: SIDE,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     flexShrink: 0,
+    marginLeft: 10,
   },
 
   circleBtn: {
@@ -191,16 +168,12 @@ const styles = StyleSheet.create({
 
   titleWrap: {
     flex: 1,
+    minWidth: 0,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
   },
   titleWrapLeft: { alignItems: "flex-start" },
-
-  wideTitleRow: {
-    paddingHorizontal: 18,
-    paddingBottom: 10,
-  },
 
   title: {
     fontSize: 16,

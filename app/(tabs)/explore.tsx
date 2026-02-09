@@ -1,4 +1,4 @@
-// app/(tabs)/explore.tsx — COMPLETED (wired to useSearch + renders results)
+// app/(tabs)/explore.tsx — COMPLETED (wired to useSearch + no-squish header)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useSearch } from "@/hooks/useSearch";
@@ -62,8 +62,6 @@ export default function ExploreScreen() {
     debounceMs: 350,
   });
 
-  const showSearchResults = activeCategory !== "trending";
-
   const accounts = data.accounts;
   const posts = data.posts;
   const communities = data.communities;
@@ -84,32 +82,43 @@ export default function ExploreScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container} edges={["left", "right"]}>
+          {/* ✅ FIX: put back + full-width search inside leftWide (real flexible space) */}
           <AppHeader
             backgroundColor="transparent"
-            onBack={() => router.back()}
             title=""
-            // IMPORTANT: search bar is wide, so use rightWide (not right)
-            rightWide={
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={18} color="#9CA3AF" />
-                <TextInput
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search..."
-                  placeholderTextColor="#9CA3AF"
-                  style={styles.searchInput}
-                  returnKeyType="search"
-                />
+            leftWide={
+              <View style={styles.headerLeftWide}>
+                <TouchableOpacity
+                  style={styles.backCircle}
+                  onPress={() => router.back()}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="arrow-back" size={22} color="#111827" />
+                </TouchableOpacity>
 
-                {!!searchQuery.trim() && (
-                  <TouchableOpacity
-                    onPress={clearSearch}
-                    activeOpacity={0.85}
-                    style={styles.clearBtn}
-                  >
-                    <Ionicons name="close" size={18} color="#6B7280" />
-                  </TouchableOpacity>
-                )}
+                <View style={styles.searchBar}>
+                  <Ionicons name="search" size={18} color="#9CA3AF" />
+                  <TextInput
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Search..."
+                    placeholderTextColor="#9CA3AF"
+                    style={styles.searchInput}
+                    returnKeyType="search"
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+
+                  {!!searchQuery.trim() && (
+                    <TouchableOpacity
+                      onPress={clearSearch}
+                      activeOpacity={0.85}
+                      style={styles.clearBtn}
+                    >
+                      <Ionicons name="close" size={18} color="#6B7280" />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             }
           />
@@ -195,9 +204,11 @@ export default function ExploreScreen() {
                             </View>
                           )}
 
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.rowTitle}>{name}</Text>
-                            <Text style={styles.rowSubtitle}>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.rowTitle} numberOfLines={1}>
+                              {name}
+                            </Text>
+                            <Text style={styles.rowSubtitle} numberOfLines={1}>
                               @{a.username || "user"}
                             </Text>
                           </View>
@@ -245,7 +256,9 @@ export default function ExploreScreen() {
                           onPress={() => router.push(`/post/${p.id}`)}
                         >
                           <View style={styles.postTop}>
-                            <Text style={styles.postAuthor}>{author}</Text>
+                            <Text style={styles.postAuthor} numberOfLines={1}>
+                              {author}
+                            </Text>
                             <Ionicons
                               name="chevron-forward"
                               size={16}
@@ -295,8 +308,10 @@ export default function ExploreScreen() {
                         <View style={styles.communityBadge}>
                           <Ionicons name="people" size={18} color="#7C3AED" />
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.rowTitle}>{c.name}</Text>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>
+                            {c.name}
+                          </Text>
                           <Text style={styles.rowSubtitle} numberOfLines={1}>
                             {c.description || "Community"}
                           </Text>
@@ -358,7 +373,30 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
+  // ✅ header row (back + search)
+  headerLeftWide: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  backCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
   searchBar: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     height: 44,
@@ -371,10 +409,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2,
-    width: "100%",
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     fontSize: 15,
     color: "#111827",
     paddingVertical: 0,
