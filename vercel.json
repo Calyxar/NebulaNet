@@ -5,6 +5,23 @@
   "framework": null,
   "regions": ["iad1"],
   "github": { "silent": true },
+
+  "rewrites": [
+    { "source": "/u/:path*", "destination": "/" },
+    { "source": "/user/:path*", "destination": "/" },
+    { "source": "/post/:path*", "destination": "/" },
+    { "source": "/community/:path*", "destination": "/" },
+    { "source": "/invite/:path*", "destination": "/" },
+    { "source": "/auth/:path*", "destination": "/" },
+
+    {
+      "source": "/delete-account",
+      "destination": "/delete-account/index.html"
+    },
+    { "source": "/child-safety", "destination": "/child-safety/index.html" },
+    { "source": "/privacy", "destination": "/privacy/index.html" }
+  ],
+
   "headers": [
     {
       "source": "/(.*)",

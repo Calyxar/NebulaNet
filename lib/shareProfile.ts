@@ -1,3 +1,4 @@
+// lib/shareProfile.ts — COMPLETED (canonical /u links + no lowercasing + clean message)
 import { Platform, Share } from "react-native";
 
 type ShareProfileArgs = {
@@ -9,10 +10,17 @@ type ShareProfileArgs = {
 const WEB_BASE = "https://nebulanet.space";
 
 function safeSlug(input: string) {
-  // keep it URL-safe and predictable
-  return encodeURIComponent(input.trim().toLowerCase());
+  // ✅ URL-safe WITHOUT changing case (lowercasing can break usernames)
+  return encodeURIComponent(input.trim());
 }
 
+/**
+ * ✅ Canonical public profile URL
+ * - Primary: https://nebulanet.space/u/<username>
+ * - Fallback: https://nebulanet.space/u/id/<userId>
+ *
+ * This keeps the web surface consistent and avoids 404s from multiple patterns.
+ */
 export function buildProfileShareUrl({
   username,
   userId,
@@ -20,24 +28,28 @@ export function buildProfileShareUrl({
   username?: string | null;
   userId: string;
 }) {
-  if (username && username.trim().length > 0) {
-    return `${WEB_BASE}/user/${safeSlug(username)}`;
-  }
-  // fallback if no username yet
-  return `${WEB_BASE}/u/${encodeURIComponent(userId)}`;
+  const u = username?.trim();
+  if (u) return `${WEB_BASE}/u/${safeSlug(u)}`;
+  return `${WEB_BASE}/u/id/${encodeURIComponent(userId)}`;
 }
 
+/**
+ * Opens the OS share sheet with a clean message + web URL.
+ * Returns the URL for optional analytics or "Copied" fallback UI.
+ */
 export async function shareProfileLink({
   username,
   userId,
   fullName,
 }: ShareProfileArgs) {
   const url = buildProfileShareUrl({ username, userId });
-  const displayName = (fullName || username || "this profile").toString();
+
+  const displayName =
+    fullName?.trim() || (username ? `@${username.trim()}` : "this profile");
 
   const message = `Check out ${displayName} on NebulaNet 👀\n${url}`;
 
-  // iOS likes url field, Android likes message. Provide both.
+  // iOS prefers `url` field; Android prefers message. Provide both.
   await Share.share(
     Platform.select({
       ios: { url, message },
@@ -46,5 +58,5 @@ export async function shareProfileLink({
     })!,
   );
 
-  return url; // handy for analytics or “Copied” fallback
+  return url;
 }
