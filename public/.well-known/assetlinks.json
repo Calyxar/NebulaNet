@@ -4,7 +4,9 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.nebulanet.app",
-      "sha256_cert_fingerprints": ["PASTE_YOUR_SHA256_FROM_PLAY_CONSOLE"]
+      "sha256_cert_fingerprints": [
+        "CD:A5:7D:5C:9A:76:3D:CF:41:10:03:9D:D7:FF:EF:D7:CA:DB:8B:CB:45:1A:26:E5:7C:FA:BA:29:1C:EB:34:7F"
+      ]
     }
   }
 ]
