@@ -52,6 +52,20 @@ function copyStaticPage({ exportDir, publicDir, file, slug }) {
   copyFile(src, path.join(exportDir, slug, "index.html"));
 }
 
+/**
+ * ✅ Copies Android App Links file:
+ *  public/.well-known/assetlinks.json -> dist/.well-known/assetlinks.json
+ */
+function copyAssetLinks({ exportDir, publicDir }) {
+  const src = path.join(publicDir, ".well-known", "assetlinks.json");
+  if (!exists(src)) {
+    console.warn(`⚠️  Missing assetlinks.json: ${src}`);
+    return;
+  }
+
+  copyFile(src, path.join(exportDir, ".well-known", "assetlinks.json"));
+}
+
 function main() {
   const root = process.cwd();
   const exportDir = findExportDir(root);
@@ -91,6 +105,9 @@ function main() {
     file: "privacy.html",
     slug: "privacy",
   });
+
+  // ✅ Android App Links
+  copyAssetLinks({ exportDir, publicDir });
 }
 
 main();
