@@ -1,3 +1,4 @@
+import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/AuthProvider";
@@ -236,7 +237,7 @@ export default function ProfileTabScreen() {
           locations={[0, 0.42, 1]}
           style={styles.gradient}
         >
-          <SafeAreaView style={styles.safe}>
+          <SafeAreaView style={styles.safe} edges={["left", "right"]}>
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="large" color="#7C3AED" />
             </View>
@@ -246,9 +247,7 @@ export default function ProfileTabScreen() {
     );
   }
 
-  if (!user || !profile) {
-    return null;
-  }
+  if (!user || !profile) return null;
 
   return (
     <>
@@ -257,31 +256,32 @@ export default function ProfileTabScreen() {
         translucent
         backgroundColor="transparent"
       />
+
       <LinearGradient
         colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
-        <SafeAreaView style={styles.safe}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.headerCircle}
-              onPress={() => router.back()}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </TouchableOpacity>
-
-            <Text style={styles.headerTitle}>{profile.username}</Text>
-
-            <TouchableOpacity
-              style={styles.headerCircle}
-              onPress={handleSettings}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
-            </TouchableOpacity>
-          </View>
+        {/* ✅ do NOT include "top" edge here; AppHeader handles top safe-area */}
+        <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+          <AppHeader
+            title={profile.username}
+            backgroundColor="transparent"
+            onBack={() => router.back()}
+            right={
+              <TouchableOpacity
+                style={styles.headerCircle}
+                onPress={handleSettings}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="ellipsis-horizontal"
+                  size={22}
+                  color="#111827"
+                />
+              </TouchableOpacity>
+            }
+          />
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -464,14 +464,7 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingInline: { paddingVertical: 16, alignItems: "center" },
 
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 10,
-  },
+  // ✅ reused to match AppHeader button size exactly
   headerCircle: {
     width: 44,
     height: 44,
@@ -484,11 +477,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
   },
 
   scroll: {
@@ -540,11 +528,7 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   statItem: { alignItems: "center", flex: 1 },
-  statValue: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-  },
+  statValue: { fontSize: 16, fontWeight: "900", color: "#111827" },
   statLabel: {
     fontSize: 12,
     color: "#9CA3AF",
@@ -572,11 +556,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   primaryButton: {
     flex: 1,
     height: 40,
@@ -587,11 +567,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryButtonText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-  },
+  primaryButtonText: { fontSize: 13, fontWeight: "800", color: "#111827" },
   secondaryButton: {
     flex: 1,
     height: 40,
@@ -602,11 +578,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  secondaryButtonText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-  },
+  secondaryButtonText: { fontSize: 13, fontWeight: "800", color: "#111827" },
   iconButton: {
     width: 40,
     height: 40,
@@ -638,21 +610,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tabActive: {
-    backgroundColor: "#7C3AED",
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#9CA3AF",
-  },
-  tabTextActive: {
-    color: "#FFFFFF",
-  },
+  tabActive: { backgroundColor: "#7C3AED" },
+  tabText: { fontSize: 13, fontWeight: "800", color: "#9CA3AF" },
+  tabTextActive: { color: "#FFFFFF" },
 
-  contentArea: {
-    gap: 12,
-  },
+  contentArea: { gap: 12 },
 
   emptyCard: {
     backgroundColor: "#FFFFFF",
@@ -705,11 +667,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 10,
   },
-  postHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  postHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   postAvatar: {
     width: 34,
     height: 34,
@@ -724,16 +682,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  postAvatarText: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#7C3AED",
-  },
-  postUserName: {
-    fontSize: 13.5,
-    fontWeight: "900",
-    color: "#111827",
-  },
+  postAvatarText: { fontSize: 14, fontWeight: "900", color: "#7C3AED" },
+  postUserName: { fontSize: 13.5, fontWeight: "900", color: "#111827" },
   postTime: {
     fontSize: 11.5,
     color: "#9CA3AF",
@@ -761,14 +711,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-  postFooterItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  postFooterText: {
-    fontSize: 12.5,
-    fontWeight: "800",
-    color: "#111827",
-  },
+  postFooterItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  postFooterText: { fontSize: 12.5, fontWeight: "800", color: "#111827" },
 });

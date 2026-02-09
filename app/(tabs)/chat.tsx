@@ -1,4 +1,6 @@
+// app/(tabs)/chat.tsx — COMPLETED (AppHeader rightWide + non-squished New Chat pill)
 import ConversationItem from "@/components/chat/ConversationItem";
+import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
@@ -55,7 +57,6 @@ export default function ChatScreen() {
       );
       return otherParticipant?.profiles?.avatar_url || null;
     }
-
     return null;
   };
 
@@ -74,34 +75,39 @@ export default function ChatScreen() {
     }
 
     if (item.is_group) return `${item.participants?.length || 0} members`;
-
     return "Chat";
   };
 
   const openConversation = (conversationId: string) => {
-    router.push({
-      pathname: "/chat/[id]",
-      params: { id: conversationId },
-    });
+    router.push({ pathname: "/chat/[id]", params: { id: conversationId } });
   };
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Chat</Text>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
-              <Ionicons name="search-outline" size={24} color="#000" />
-            </TouchableOpacity>
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
-            <TouchableOpacity style={styles.addButton} activeOpacity={0.8}>
-              <Ionicons name="add" size={20} color="#000" />
-              <Text style={styles.addButtonText}>New Chat</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      <SafeAreaView style={styles.container} edges={["left", "right"]}>
+        <AppHeader
+          title="Chat"
+          backgroundColor="#FFFFFF"
+          // ✅ IMPORTANT: rightWide prevents the 44px "right" slot from squishing the pill
+          rightWide={
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
+                <Ionicons name="search-outline" size={22} color="#111827" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.addButton} activeOpacity={0.85}>
+                <Ionicons name="add" size={18} color="#111827" />
+                <Text style={styles.addButtonText}>New Chat</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
 
         <View style={styles.storiesContainer}>
           <ScrollView
@@ -155,44 +161,39 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#000",
-  },
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
+
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   iconButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
   },
+
+  // ✅ Slightly taller pill so it looks balanced in a 56px header row
   addButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F5F5F5",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 40,
     borderRadius: 20,
-    gap: 4,
+    gap: 6,
   },
   addButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
   },
+
   storiesContainer: {
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -202,11 +203,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 12,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+
   emptyState: {
     flex: 1,
     justifyContent: "center",
@@ -220,12 +219,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: "#000",
   },
-  emptyStateText: {
-    fontSize: 15,
-    color: "#999",
-    textAlign: "center",
-  },
-  listContent: {
-    paddingTop: 0,
-  },
+  emptyStateText: { fontSize: 15, color: "#999", textAlign: "center" },
+
+  listContent: { paddingTop: 0 },
 });

@@ -1,4 +1,5 @@
 // app/(tabs)/create.tsx
+import AppHeader from "@/components/navigation/AppHeader";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
@@ -74,20 +75,13 @@ export default function CreateScreen() {
         backgroundColor="transparent"
       />
 
+      {/* ✅ AppHeader handles TOP safe-area; keep only left/right here */}
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <View style={styles.top}>
-          <TouchableOpacity
-            style={styles.circleBtn}
-            onPress={() => router.back()}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
-
-          <Text style={styles.title}>Create</Text>
-
-          <View style={styles.circleBtnGhost} />
-        </View>
+        <AppHeader
+          title="Create"
+          backgroundColor="#F5F7FF"
+          onBack={() => router.back()}
+        />
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -174,37 +168,9 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F5F7FF" },
-
-  top: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 12,
-  },
-  circleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  circleBtnGhost: {
-    width: 44,
-    height: 44,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
+  safe: {
+    flex: 1,
+    backgroundColor: "#F5F7FF",
   },
 
   content: {
@@ -223,6 +189,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,10 +197,12 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
+
   rowBorder: {
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
+
   iconCircle: {
     width: 44,
     height: 44,
@@ -242,12 +211,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   rowText: { flex: 1 },
+
   rowTitle: {
     fontSize: 14.5,
     fontWeight: "900",
     color: "#111827",
   },
+
   rowSubtitle: {
     marginTop: 2,
     fontSize: 12.5,
@@ -258,6 +230,7 @@ const styles = StyleSheet.create({
   quickWrap: {
     marginTop: 16,
   },
+
   sectionTitle: {
     fontSize: 14,
     fontWeight: "900",
@@ -265,10 +238,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingLeft: 2,
   },
+
   quickRow: {
     flexDirection: "row",
     gap: 10,
   },
+
   quickCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -281,6 +256,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+
   quickIcon: {
     width: 46,
     height: 46,
@@ -290,6 +266,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 8,
   },
+
   quickText: {
     fontSize: 12.5,
     fontWeight: "900",
@@ -310,6 +287,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+
   tipIcon: {
     width: 44,
     height: 44,
@@ -318,12 +296,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   tipTitle: {
     fontSize: 13.5,
     fontWeight: "900",
     color: "#111827",
     marginBottom: 2,
   },
+
   tipText: {
     fontSize: 12.5,
     fontWeight: "700",

@@ -1,6 +1,6 @@
-import {
-  getTabBarHeight,
-} from "@/components/navigation/CurvedTabBar";
+// app/(tabs)/home.tsx — COMPLETED (AppHeader leftWide fix + pixel-perfect header)
+import AppHeader from "@/components/navigation/AppHeader";
+import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
@@ -99,30 +99,36 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
-        <View style={[styles.topHeader, { paddingTop: insets.top }]}>
-          <View style={styles.brandRow}>
-            <Image
-              source={require("@/assets/images/icon.png")}
-              style={styles.brandLogo}
-            />
-            <Text style={styles.brandText}>NebulaNet</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.bellWrap}
-            onPress={() => router.push("/notifications")}
-            activeOpacity={0.7}
-          >
-            <Bell size={22} color="#7C3AED" strokeWidth={2.5} />
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
+        <AppHeader
+          backgroundColor="#F5F7FF"
+          leftWide={
+            <View style={styles.brandRow}>
+              <Image
+                source={require("@/assets/images/icon.png")}
+                style={styles.brandLogo}
+              />
+              <Text style={styles.brandText} numberOfLines={1}>
+                NebulaNet
+              </Text>
+            </View>
+          }
+          right={
+            <TouchableOpacity
+              style={styles.bellWrap}
+              onPress={() => router.push("/notifications")}
+              activeOpacity={0.7}
+            >
+              <Bell size={22} color="#7C3AED" strokeWidth={2.5} />
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          }
+        />
 
         <StoriesHeader />
 
@@ -147,7 +153,7 @@ export default function HomeScreen() {
         </View>
       </>
     );
-  }, [activeTab, unreadCount, insets.top]);
+  }, [activeTab, unreadCount]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -183,11 +189,13 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               )}
+
               <View>
                 <Text style={styles.author}>{author}</Text>
                 <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
               </View>
             </View>
+
             <TouchableOpacity>
               <MoreVertical size={20} color="#9CA3AF" />
             </TouchableOpacity>
@@ -311,21 +319,20 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F5F7FF" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  topHeader: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+  // ✅ IMPORTANT: allow brand to take space without being squished
+  brandRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#F5F7FF",
+    gap: 10,
+    flexShrink: 1,
   },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   brandLogo: { width: 36, height: 36, borderRadius: 18 },
   brandText: {
     fontSize: 22,
     fontWeight: "900",
     color: "#111827",
     letterSpacing: -0.5,
+    flexShrink: 1,
   },
 
   bellWrap: {
@@ -336,7 +343,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-    marginLeft: 12,
   },
   badge: {
     position: "absolute",
