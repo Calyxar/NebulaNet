@@ -1,9 +1,14 @@
+// app/(tabs)/explore.tsx — COMPLETED (wired to useSearch + renders results)
+import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import { useSearch } from "@/hooks/useSearch";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Image,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -26,11 +31,6 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
-  const accounts = useMemo(() => [], []);
-  const posts = useMemo(() => [], []);
-  const communities = useMemo(() => [], []);
-  const loading = false;
-
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
     { key: "account", label: "Account" },
@@ -42,6 +42,33 @@ export default function ExploreScreen() {
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
   );
+
+  // Map UI category -> search hook type
+  const searchType =
+    activeCategory === "account"
+      ? "account"
+      : activeCategory === "post"
+        ? "post"
+        : activeCategory === "community"
+          ? "community"
+          : null;
+
+  const { data, isSearching, isIdle } = useSearch({
+    // When "trending", we just won't show results.
+    type: (searchType ?? "post") as any,
+    query: searchQuery,
+    minChars: 2,
+    limit: 20,
+    debounceMs: 350,
+  });
+
+  const showSearchResults = activeCategory !== "trending";
+
+  const accounts = data.accounts;
+  const posts = data.posts;
+  const communities = data.communities;
+
+  const clearSearch = () => setSearchQuery("");
 
   return (
     <>
@@ -56,28 +83,36 @@ export default function ExploreScreen() {
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
-        <SafeAreaView style={styles.container}>
-          <View style={styles.topRow}>
-            <TouchableOpacity
-              style={styles.circleButton}
-              onPress={() => router.back()}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </TouchableOpacity>
+        <SafeAreaView style={styles.container} edges={["left", "right"]}>
+          <AppHeader
+            backgroundColor="transparent"
+            onBack={() => router.back()}
+            title=""
+            // IMPORTANT: search bar is wide, so use rightWide (not right)
+            rightWide={
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={18} color="#9CA3AF" />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search..."
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                />
 
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={18} color="#9CA3AF" />
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search..."
-                placeholderTextColor="#9CA3AF"
-                style={styles.searchInput}
-                returnKeyType="search"
-              />
-            </View>
-          </View>
+                {!!searchQuery.trim() && (
+                  <TouchableOpacity
+                    onPress={clearSearch}
+                    activeOpacity={0.85}
+                    style={styles.clearBtn}
+                  >
+                    <Ionicons name="close" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            }
+          />
 
           <View style={styles.segmentWrap}>
             {categories.map((c) => {
@@ -112,75 +147,190 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {activeCategory === "account" && (
-              <>
-                {accounts.length > 0 ? (
-                  <View style={styles.card} />
-                ) : (
-                  <EmptyState
-                    icon="people-outline"
-                    title={loading ? "Searching..." : "No accounts yet"}
-                    subtitle={
-                      loading
-                        ? "Please wait a moment."
-                        : "Once more testers join, matching accounts will appear here."
-                    }
-                  />
-                )}
-              </>
-            )}
-
-            {activeCategory === "post" && (
-              <>
-                {posts.length > 0 ? (
-                  <View style={styles.card} />
-                ) : (
-                  <EmptyState
-                    icon="document-text-outline"
-                    title={loading ? "Searching..." : "No posts yet"}
-                    subtitle={
-                      loading
-                        ? "Please wait a moment."
-                        : "Posts will show here as your community starts sharing."
-                    }
-                  />
-                )}
-              </>
-            )}
-
-            {activeCategory === "community" && (
-              <>
-                {communities.length > 0 ? (
-                  <View style={styles.card} />
-                ) : (
-                  <EmptyState
-                    icon="people-circle-outline"
-                    title={loading ? "Searching..." : "No communities yet"}
-                    subtitle={
-                      loading
-                        ? "Please wait a moment."
-                        : "Communities will appear here when they’re created."
-                    }
-                  />
-                )}
-              </>
-            )}
-
+            {/* Trending */}
             {activeCategory === "trending" && (
               <EmptyState
                 icon="trending-up-outline"
-                title={loading ? "Loading..." : "Trending will appear soon"}
-                subtitle={
-                  loading
-                    ? "Please wait a moment."
-                    : "As people post and use hashtags, we’ll show what’s trending here."
-                }
+                title="Trending will appear soon"
+                subtitle="As people post and use hashtags, we’ll show what’s trending here."
               />
+            )}
+
+            {/* Accounts */}
+            {activeCategory === "account" && (
+              <>
+                {isSearching && !isIdle ? (
+                  <LoadingCard />
+                ) : isIdle ? (
+                  <EmptyState
+                    icon="search-outline"
+                    title="Start typing"
+                    subtitle="Type at least 2 characters to search accounts."
+                  />
+                ) : accounts.length > 0 ? (
+                  <View style={styles.card}>
+                    {accounts.map((a, idx) => {
+                      const name = a.full_name || a.username || "User";
+                      return (
+                        <TouchableOpacity
+                          key={a.id}
+                          activeOpacity={0.85}
+                          style={[styles.row, idx !== 0 && styles.rowBorder]}
+                          onPress={() =>
+                            a.username
+                              ? router.push(`/user/${a.username}`)
+                              : undefined
+                          }
+                        >
+                          {a.avatar_url ? (
+                            <Image
+                              source={{ uri: a.avatar_url }}
+                              style={styles.avatar}
+                            />
+                          ) : (
+                            <View style={styles.avatarPlaceholder}>
+                              <Text style={styles.avatarText}>
+                                {(name[0] || "U").toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.rowTitle}>{name}</Text>
+                            <Text style={styles.rowSubtitle}>
+                              @{a.username || "user"}
+                            </Text>
+                          </View>
+
+                          <Ionicons
+                            name="chevron-forward"
+                            size={18}
+                            color="#9CA3AF"
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="people-outline"
+                    title="No matches"
+                    subtitle="Try a different name or username."
+                  />
+                )}
+              </>
+            )}
+
+            {/* Posts */}
+            {activeCategory === "post" && (
+              <>
+                {isSearching && !isIdle ? (
+                  <LoadingCard />
+                ) : isIdle ? (
+                  <EmptyState
+                    icon="search-outline"
+                    title="Start typing"
+                    subtitle="Type at least 2 characters to search posts."
+                  />
+                ) : posts.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {posts.map((p) => {
+                      const author =
+                        p.user?.full_name || p.user?.username || "User";
+                      return (
+                        <TouchableOpacity
+                          key={p.id}
+                          activeOpacity={0.9}
+                          style={styles.postCard}
+                          onPress={() => router.push(`/post/${p.id}`)}
+                        >
+                          <View style={styles.postTop}>
+                            <Text style={styles.postAuthor}>{author}</Text>
+                            <Ionicons
+                              name="chevron-forward"
+                              size={16}
+                              color="#9CA3AF"
+                            />
+                          </View>
+
+                          {!!p.content && (
+                            <Text style={styles.postContent} numberOfLines={3}>
+                              {p.content}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="document-text-outline"
+                    title="No matches"
+                    subtitle="Try a different keyword."
+                  />
+                )}
+              </>
+            )}
+
+            {/* Communities */}
+            {activeCategory === "community" && (
+              <>
+                {isSearching && !isIdle ? (
+                  <LoadingCard />
+                ) : isIdle ? (
+                  <EmptyState
+                    icon="search-outline"
+                    title="Start typing"
+                    subtitle="Type at least 2 characters to search communities."
+                  />
+                ) : communities.length > 0 ? (
+                  <View style={styles.card}>
+                    {communities.map((c, idx) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        activeOpacity={0.85}
+                        style={[styles.row, idx !== 0 && styles.rowBorder]}
+                        onPress={() => router.push(`/community/${c.slug}`)}
+                      >
+                        <View style={styles.communityBadge}>
+                          <Ionicons name="people" size={18} color="#7C3AED" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.rowTitle}>{c.name}</Text>
+                          <Text style={styles.rowSubtitle} numberOfLines={1}>
+                            {c.description || "Community"}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color="#9CA3AF"
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <EmptyState
+                    icon="people-circle-outline"
+                    title="No matches"
+                    subtitle="Try a different keyword."
+                  />
+                )}
+              </>
             )}
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <View style={styles.loadingCard}>
+      <ActivityIndicator size="small" color="#7C3AED" />
+      <Text style={styles.loadingText}>Searching…</Text>
+    </View>
   );
 }
 
@@ -208,47 +358,34 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  topRow: {
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 12,
-  },
-  circleButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  searchBar: {
-    flex: 1,
     height: 44,
     borderRadius: 22,
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
     gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2,
+    width: "100%",
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
     color: "#111827",
     paddingVertical: 0,
+  },
+  clearBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
   },
 
   segmentWrap: {
@@ -271,24 +408,65 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segmentItemActive: {
-    backgroundColor: "#7C3AED",
-  },
-  segmentText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#9CA3AF",
-  },
-  segmentTextActive: {
-    color: "#FFFFFF",
-  },
+  segmentItemActive: { backgroundColor: "#7C3AED" },
+  segmentText: { fontSize: 13, fontWeight: "700", color: "#9CA3AF" },
+  segmentTextActive: { color: "#FFFFFF" },
 
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-  },
+  content: { paddingHorizontal: 18, paddingTop: 14 },
 
+  // Lists
   card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  rowBorder: { borderTopWidth: 1, borderTopColor: "#F3F4F6" },
+  rowTitle: { fontSize: 14.5, fontWeight: "900", color: "#111827" },
+  rowSubtitle: {
+    marginTop: 2,
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F3F4F6",
+  },
+  avatarPlaceholder: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { fontSize: 16, fontWeight: "900", color: "#7C3AED" },
+
+  communityBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  postCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 14,
@@ -298,7 +476,20 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+  postTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  postAuthor: { fontSize: 14, fontWeight: "900", color: "#111827" },
+  postContent: {
+    marginTop: 8,
+    fontSize: 13.5,
+    color: "#111827",
+    lineHeight: 19,
+  },
 
+  // Empty / Loading
   emptyWrap: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -333,4 +524,21 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
   },
+
+  loadingCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  loadingText: { fontSize: 13, fontWeight: "800", color: "#6B7280" },
 });
