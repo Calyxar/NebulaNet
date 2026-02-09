@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 // app/(tabs)/chat.tsx — COMPLETED (AppHeader rightWide + non-squished New Chat pill)
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
+=======
+import ConversationItem from "@/components/chat/ConversationItem";
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
@@ -84,11 +88,22 @@ export default function ChatScreen() {
 
   return (
     <>
+<<<<<<< HEAD
       <StatusBar
         barStyle="dark-content"
         translucent
         backgroundColor="transparent"
       />
+=======
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Chat</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
+              <Ionicons name="search-outline" size={24} color="#000" />
+            </TouchableOpacity>
+>>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
       <SafeAreaView style={styles.container} edges={["left", "right"]}>
         <AppHeader
