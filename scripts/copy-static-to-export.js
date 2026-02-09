@@ -24,11 +24,32 @@ function findExportDir(root) {
   const candidates = ["dist", "web-build", "build", "out"].map((d) =>
     path.join(root, d),
   );
-  const found = candidates.find(
-    (d) => exists(d) && exists(path.join(d, "index.html")),
+
+  return candidates.find(
+    (dir) => exists(dir) && exists(path.join(dir, "index.html")),
   );
-  if (!found) return null;
-  return found;
+}
+
+/**
+ * Copies:
+ *  public/<file>.html        -> dist/<file>.html
+ *  public/<file>.html        -> dist/<slug>/index.html
+ * This guarantees BOTH:
+ *  - /page.html
+ *  - /page   (clean URL)
+ */
+function copyStaticPage({ exportDir, publicDir, file, slug }) {
+  const src = path.join(publicDir, file);
+  if (!exists(src)) {
+    console.warn(`⚠️  Missing static page: ${src}`);
+    return;
+  }
+
+  // Standard .html
+  copyFile(src, path.join(exportDir, file));
+
+  // Clean URL version
+  copyFile(src, path.join(exportDir, slug, "index.html"));
 }
 
 function main() {
@@ -37,26 +58,39 @@ function main() {
 
   if (!exportDir) {
     console.error(
-      "Could not find Expo web export directory (looked for dist/, web-build/, build/, out/ with index.html).",
+      "❌ Could not find Expo web export directory (dist/, web-build/, build/, out/ with index.html).",
     );
     process.exit(1);
   }
 
   console.log(
-    `Detected export output directory: ${path.relative(root, exportDir)}/`,
+    `📁 Detected export output directory: ${path.relative(root, exportDir)}/`,
   );
 
-  const pub = path.join(root, "public");
-  const files = ["privacy.html"];
+  const publicDir = path.join(root, "public");
 
-  for (const f of files) {
-    const src = path.join(pub, f);
-    if (!exists(src)) {
-      console.warn(`Missing: ${src}`);
-      continue;
-    }
-    copyFile(src, path.join(exportDir, f));
-  }
+  // ✅ Google Play required pages
+  copyStaticPage({
+    exportDir,
+    publicDir,
+    file: "child-safety.html",
+    slug: "child-safety",
+  });
+
+  copyStaticPage({
+    exportDir,
+    publicDir,
+    file: "delete-account.html",
+    slug: "delete-account",
+  });
+
+  // ✅ Common/legal pages
+  copyStaticPage({
+    exportDir,
+    publicDir,
+    file: "privacy.html",
+    slug: "privacy",
+  });
 }
 
 main();
