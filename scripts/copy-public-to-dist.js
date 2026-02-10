@@ -37,27 +37,29 @@ if (!fs.existsSync(publicDir)) {
   process.exit(0);
 }
 
+// 1) Copy all HTML files anywhere in /public
 const allFiles = walk(publicDir);
+const htmlFiles = allFiles.filter((p) =>
+  path.relative(publicDir, p).replace(/\\/g, "/").endsWith(".html"),
+);
 
-const allow = (absPath) => {
-  const rel = path.relative(publicDir, absPath).replace(/\\/g, "/");
-  if (rel.endsWith(".html")) return true;
-  if (rel === ".well-known/assetlinks.json") return true;
-  return false;
-};
-
-const selected = allFiles.filter(allow);
-
-for (const src of selected) {
+for (const src of htmlFiles) {
   const rel = path.relative(publicDir, src);
   const dest = path.join(distDir, rel);
   copyFile(src, dest);
-
-  // ✅ ALSO create a non-dot copy for Vercel rewrites
-  const relPosix = rel.replace(/\\/g, "/");
-  if (relPosix === ".well-known/assetlinks.json") {
-    copyFile(src, path.join(distDir, "well-known", "assetlinks.json"));
-  }
 }
 
-console.log(`Done. Copied ${selected.length} file(s).`);
+// 2) Copy assetlinks.json explicitly (and FAIL if missing)
+const assetlinksSrc = path.join(publicDir, ".well-known", "assetlinks.json");
+const assetlinksDest = path.join(distDir, ".well-known", "assetlinks.json");
+
+if (!fs.existsSync(assetlinksSrc)) {
+  console.error(
+    "❌ Missing public/.well-known/assetlinks.json in build environment",
+  );
+  process.exit(1);
+}
+
+copyFile(assetlinksSrc, assetlinksDest);
+
+console.log(`Done. Copied ${htmlFiles.length + 1} file(s).`);
