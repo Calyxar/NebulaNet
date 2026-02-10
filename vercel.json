@@ -3,27 +3,27 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "framework": null,
-  "regions": ["iad1"],
-  "github": { "silent": true },
 
-  "routes": [
+  "rewrites": [
     {
-      "src": "^/\\.well-known/assetlinks\\.json$",
-      "dest": "/assetlinks.json"
+      "source": "/.well-known/assetlinks.json",
+      "destination": "/assetlinks.json"
     },
 
-    { "src": "^/delete-account/?$", "dest": "/delete-account/index.html" },
-    { "src": "^/child-safety/?$", "dest": "/child-safety/index.html" },
-    { "src": "^/privacy/?$", "dest": "/privacy/index.html" },
+    {
+      "source": "/delete-account",
+      "destination": "/delete-account/index.html"
+    },
+    { "source": "/child-safety", "destination": "/child-safety/index.html" },
+    { "source": "/privacy", "destination": "/privacy/index.html" },
 
-    { "src": "^/(.*)$", "dest": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
 
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Content-Type", "value": "application/json" },
         { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "origin-when-cross-origin" }
