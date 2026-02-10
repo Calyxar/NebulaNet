@@ -19,13 +19,11 @@ function copyFile(src, dest) {
 function walk(dir) {
   const out = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
-
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...walk(full));
     else out.push(full);
   }
-
   return out;
 }
 
@@ -39,32 +37,27 @@ if (!fs.existsSync(publicDir)) {
   process.exit(0);
 }
 
-// ✅ 1) Copy all .html files anywhere under /public
 const allFiles = walk(publicDir);
 
-const htmlFiles = allFiles.filter((absPath) => {
+const allow = (absPath) => {
   const rel = path.relative(publicDir, absPath).replace(/\\/g, "/");
-  return rel.endsWith(".html");
-});
+  if (rel.endsWith(".html")) return true;
+  if (rel === ".well-known/assetlinks.json") return true;
+  return false;
+};
 
-for (const src of htmlFiles) {
+const selected = allFiles.filter(allow);
+
+for (const src of selected) {
   const rel = path.relative(publicDir, src);
   const dest = path.join(distDir, rel);
   copyFile(src, dest);
+
+  // ✅ ALSO create a non-dot copy for Vercel rewrites
+  const relPosix = rel.replace(/\\/g, "/");
+  if (relPosix === ".well-known/assetlinks.json") {
+    copyFile(src, path.join(distDir, "well-known", "assetlinks.json"));
+  }
 }
 
-// ✅ 2) ALWAYS explicitly copy Android App Links file (dot-folder safe)
-const assetlinksSrc = path.join(publicDir, ".well-known", "assetlinks.json");
-const assetlinksDest = path.join(distDir, ".well-known", "assetlinks.json");
-
-if (fs.existsSync(assetlinksSrc)) {
-  copyFile(assetlinksSrc, assetlinksDest);
-} else {
-  console.warn(
-    "⚠️  Missing: public/.well-known/assetlinks.json (App Links will 404)",
-  );
-}
-
-console.log(
-  `Done. Copied ${htmlFiles.length + (fs.existsSync(assetlinksSrc) ? 1 : 0)} file(s).`,
-);
+console.log(`Done. Copied ${selected.length} file(s).`);
