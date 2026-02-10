@@ -1,12 +1,6 @@
-<<<<<<< HEAD
 // app/(tabs)/home.tsx — COMPLETED (AppHeader leftWide fix + pixel-perfect header)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
-=======
-import {
-  getTabBarHeight,
-} from "@/components/navigation/CurvedTabBar";
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
@@ -105,7 +99,6 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
-<<<<<<< HEAD
         <AppHeader
           backgroundColor="#F5F7FF"
           leftWide={
@@ -137,33 +130,6 @@ export default function HomeScreen() {
           }
         />
 
-=======
-        <View style={[styles.topHeader, { paddingTop: insets.top }]}>
-          <View style={styles.brandRow}>
-            <Image
-              source={require("@/assets/images/icon.png")}
-              style={styles.brandLogo}
-            />
-            <Text style={styles.brandText}>NebulaNet</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.bellWrap}
-            onPress={() => router.push("/notifications")}
-            activeOpacity={0.7}
-          >
-            <Bell size={22} color="#7C3AED" strokeWidth={2.5} />
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
         <StoriesHeader />
 
         <View style={styles.segmentWrap}>
@@ -230,7 +196,7 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.7}>
               <MoreVertical size={20} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
@@ -353,7 +319,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F5F7FF" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-<<<<<<< HEAD
   // ✅ IMPORTANT: allow brand to take space without being squished
   brandRow: {
     flexDirection: "row",
@@ -361,17 +326,6 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
-=======
-  topHeader: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#F5F7FF",
-  },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   brandLogo: { width: 36, height: 36, borderRadius: 18 },
   brandText: {
     fontSize: 22,
@@ -450,47 +404,63 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+
   segBtn: {
     flex: 1,
-    height: 40,
-    borderRadius: 20,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
   segBtnActive: { backgroundColor: "#7C3AED" },
-  segText: { color: "#9CA3AF", fontWeight: "700", fontSize: 13 },
-  segTextActive: { color: "#fff" },
+  segText: { fontSize: 13, fontWeight: "800", color: "#9CA3AF" },
+  segTextActive: { color: "#FFFFFF" },
 
   card: {
     marginHorizontal: 14,
-    marginBottom: 14,
-    padding: 16,
-    borderRadius: 24,
-    backgroundColor: "#fff",
+    marginBottom: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
   },
   cardTop: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
-  authorRow: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
-  author: { fontWeight: "800", color: "#111827", fontSize: 15 },
-  time: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
-  content: { marginTop: 12, fontSize: 15, color: "#111827", lineHeight: 22 },
-  media: { marginTop: 14, borderRadius: 20, backgroundColor: "#F5F7FF" },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+  },
+  author: { fontSize: 14, fontWeight: "900", color: "#111827" },
+  time: { fontSize: 12, fontWeight: "700", color: "#9CA3AF", marginTop: 2 },
+
+  content: { fontSize: 14, color: "#111827", lineHeight: 20, marginBottom: 10 },
+
+  media: {
+    width: "100%",
+    borderRadius: 18,
+    backgroundColor: "#F3F4F6",
+    marginBottom: 12,
+  },
 
   actions: {
-    marginTop: 14,
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 2,
+    alignItems: "center",
+    gap: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { fontWeight: "700", fontSize: 13, color: "#111827" },
+  actionText: { fontSize: 12.5, fontWeight: "800", color: "#111827" },
 });

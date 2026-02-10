@@ -1,8 +1,5 @@
-// app/(tabs)/create.tsx
-<<<<<<< HEAD
+// app/(tabs)/create.tsx — COMPLETED (AppHeader + clean safe-area)
 import AppHeader from "@/components/navigation/AppHeader";
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
@@ -78,7 +75,6 @@ export default function CreateScreen() {
         backgroundColor="transparent"
       />
 
-<<<<<<< HEAD
       {/* ✅ AppHeader handles TOP safe-area; keep only left/right here */}
       <SafeAreaView style={styles.safe} edges={["left", "right"]}>
         <AppHeader
@@ -86,22 +82,6 @@ export default function CreateScreen() {
           backgroundColor="#F5F7FF"
           onBack={() => router.back()}
         />
-=======
-      <SafeAreaView style={styles.safe} edges={["left", "right"]}>
-        <View style={styles.top}>
-          <TouchableOpacity
-            style={styles.circleBtn}
-            onPress={() => router.back()}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
-
-          <Text style={styles.title}>Create</Text>
-
-          <View style={styles.circleBtnGhost} />
-        </View>
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -188,7 +168,6 @@ export default function CreateScreen() {
 }
 
 const styles = StyleSheet.create({
-<<<<<<< HEAD
   safe: {
     flex: 1,
     backgroundColor: "#F5F7FF",
@@ -205,61 +184,12 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingVertical: 6,
     shadowColor: "#000",
-=======
-  safe: { flex: 1, backgroundColor: "#F5F7FF" },
-
-  top: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 12,
-  },
-  circleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  circleBtnGhost: {
-    width: 44,
-    height: 44,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-  },
-
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 24,
-  },
-
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    paddingVertical: 6,
-    shadowColor: "#000",
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
-<<<<<<< HEAD
 
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -267,18 +197,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   rowBorder: {
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-<<<<<<< HEAD
 
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   iconCircle: {
     width: 44,
     height: 44,
@@ -287,22 +210,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-<<<<<<< HEAD
 
   rowText: { flex: 1 },
 
-=======
-  rowText: { flex: 1 },
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   rowTitle: {
     fontSize: 14.5,
     fontWeight: "900",
     color: "#111827",
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   rowSubtitle: {
     marginTop: 2,
     fontSize: 12.5,
@@ -313,10 +228,6 @@ const styles = StyleSheet.create({
   quickWrap: {
     marginTop: 16,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   sectionTitle: {
     fontSize: 14,
     fontWeight: "900",
@@ -324,18 +235,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingLeft: 2,
   },
-<<<<<<< HEAD
 
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   quickRow: {
     flexDirection: "row",
     gap: 10,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   quickCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -348,10 +252,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   quickIcon: {
     width: 46,
     height: 46,
@@ -361,10 +261,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 8,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   quickText: {
     fontSize: 12.5,
     fontWeight: "900",
@@ -385,10 +281,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-<<<<<<< HEAD
-
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   tipIcon: {
     width: 44,
     height: 44,

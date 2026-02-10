@@ -1,10 +1,6 @@
-<<<<<<< HEAD
 // app/(tabs)/chat.tsx — COMPLETED (AppHeader rightWide + non-squished New Chat pill)
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
-=======
-import ConversationItem from "@/components/chat/ConversationItem";
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
@@ -86,37 +82,44 @@ export default function ChatScreen() {
     router.push({ pathname: "/chat/[id]", params: { id: conversationId } });
   };
 
+  const onPressSearch = () => {
+    // wire later if you have a search screen
+    // router.push("/chat/search");
+  };
+
+  const onPressNewChat = () => {
+    // wire later if you have a new-chat screen
+    // router.push("/chat/new");
+  };
+
   return (
     <>
-<<<<<<< HEAD
       <StatusBar
         barStyle="dark-content"
         translucent
         backgroundColor="transparent"
       />
-=======
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Chat</Text>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
-              <Ionicons name="search-outline" size={24} color="#000" />
-            </TouchableOpacity>
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
       <SafeAreaView style={styles.container} edges={["left", "right"]}>
         <AppHeader
           title="Chat"
           backgroundColor="#FFFFFF"
-          // ✅ IMPORTANT: rightWide prevents the 44px "right" slot from squishing the pill
+          // ✅ rightWide prevents the 44px "right" slot from squishing the pill
           rightWide={
             <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={styles.iconButton}
+                activeOpacity={0.7}
+                onPress={onPressSearch}
+              >
                 <Ionicons name="search-outline" size={22} color="#111827" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.addButton} activeOpacity={0.85}>
+              <TouchableOpacity
+                style={styles.addButton}
+                activeOpacity={0.85}
+                onPress={onPressNewChat}
+              >
                 <Ionicons name="add" size={18} color="#111827" />
                 <Text style={styles.addButtonText}>New Chat</Text>
               </TouchableOpacity>
