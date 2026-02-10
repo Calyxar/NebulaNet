@@ -1,11 +1,7 @@
-<<<<<<< HEAD
 // app/(tabs)/explore.tsx — COMPLETED (wired to useSearch + no-squish header)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useSearch } from "@/hooks/useSearch";
-=======
-import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -35,14 +31,6 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
-<<<<<<< HEAD
-=======
-  const accounts = useMemo(() => [], []);
-  const posts = useMemo(() => [], []);
-  const communities = useMemo(() => [], []);
-  const loading = false;
-
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
     { key: "account", label: "Account" },
@@ -55,7 +43,6 @@ export default function ExploreScreen() {
     [insets.bottom],
   );
 
-<<<<<<< HEAD
   // Map UI category -> search hook type
   const searchType =
     activeCategory === "account"
@@ -81,8 +68,6 @@ export default function ExploreScreen() {
 
   const clearSearch = () => setSearchQuery("");
 
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   return (
     <>
       <StatusBar
@@ -96,9 +81,8 @@ export default function ExploreScreen() {
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
-<<<<<<< HEAD
         <SafeAreaView style={styles.container} edges={["left", "right"]}>
-          {/* ✅ FIX: put back + full-width search inside leftWide (real flexible space) */}
+          {/* ✅ FIX: back + full-width search inside leftWide (real flexible space) */}
           <AppHeader
             backgroundColor="transparent"
             title=""
@@ -111,17 +95,6 @@ export default function ExploreScreen() {
                 >
                   <Ionicons name="arrow-back" size={22} color="#111827" />
                 </TouchableOpacity>
-=======
-        <SafeAreaView style={styles.container}>
-          <View style={styles.topRow}>
-            <TouchableOpacity
-              style={styles.circleButton}
-              onPress={() => router.back()}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </TouchableOpacity>
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
                 <View style={styles.searchBar}>
                   <Ionicons name="search" size={18} color="#9CA3AF" />
@@ -183,7 +156,6 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-<<<<<<< HEAD
             {/* Trending */}
             {activeCategory === "trending" && (
               <EmptyState
@@ -250,12 +222,6 @@ export default function ExploreScreen() {
                       );
                     })}
                   </View>
-=======
-            {activeCategory === "account" && (
-              <>
-                {accounts.length > 0 ? (
-                  <View style={styles.card} />
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
                 ) : (
                   <EmptyState
                     icon="people-outline"
@@ -269,7 +235,6 @@ export default function ExploreScreen() {
             {/* Posts */}
             {activeCategory === "post" && (
               <>
-<<<<<<< HEAD
                 {isSearching && !isIdle ? (
                   <LoadingCard />
                 ) : isIdle ? (
@@ -310,10 +275,6 @@ export default function ExploreScreen() {
                       );
                     })}
                   </View>
-=======
-                {posts.length > 0 ? (
-                  <View style={styles.card} />
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
                 ) : (
                   <EmptyState
                     icon="document-text-outline"
@@ -327,7 +288,6 @@ export default function ExploreScreen() {
             {/* Communities */}
             {activeCategory === "community" && (
               <>
-<<<<<<< HEAD
                 {isSearching && !isIdle ? (
                   <LoadingCard />
                 ) : isIdle ? (
@@ -364,10 +324,6 @@ export default function ExploreScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
-=======
-                {communities.length > 0 ? (
-                  <View style={styles.card} />
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
                 ) : (
                   <EmptyState
                     icon="people-circle-outline"
@@ -377,21 +333,6 @@ export default function ExploreScreen() {
                 )}
               </>
             )}
-<<<<<<< HEAD
-=======
-
-            {activeCategory === "trending" && (
-              <EmptyState
-                icon="trending-up-outline"
-                title={loading ? "Loading..." : "Trending will appear soon"}
-                subtitle={
-                  loading
-                    ? "Please wait a moment."
-                    : "As people post and use hashtags, we’ll show what’s trending here."
-                }
-              />
-            )}
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
@@ -509,17 +450,8 @@ const styles = StyleSheet.create({
   segmentText: { fontSize: 13, fontWeight: "700", color: "#9CA3AF" },
   segmentTextActive: { color: "#FFFFFF" },
 
-<<<<<<< HEAD
   content: { paddingHorizontal: 18, paddingTop: 14 },
 
-  // Lists
-=======
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-  },
-
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -594,10 +526,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-<<<<<<< HEAD
-  // Empty / Loading
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
   emptyWrap: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,

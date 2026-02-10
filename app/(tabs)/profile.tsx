@@ -1,8 +1,7 @@
-<<<<<<< HEAD
+// app/(tabs)/profile.tsx
 import AppHeader from "@/components/navigation/AppHeader";
-=======
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import { shareProfileLink } from "@/lib/shareProfile";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -133,12 +132,18 @@ export default function ProfileTabScreen() {
 
   const handleShareProfile = async () => {
     try {
+      // ✅ shares a REAL URL (web link), works for every user
+      await shareProfileLink({
+        username: profile?.username,
+        userId: user!.id,
+        fullName: profile?.full_name,
+      });
+    } catch (e) {
+      // fallback (should rarely happen)
       const username = profile?.username || "user";
       await Share.share({
         message: `Check out my NebulaNet profile: @${username}`,
       });
-    } catch (error) {
-      console.error("Error sharing profile:", error);
     }
   };
 
@@ -250,13 +255,7 @@ export default function ProfileTabScreen() {
     );
   }
 
-<<<<<<< HEAD
   if (!user || !profile) return null;
-=======
-  if (!user || !profile) {
-    return null;
-  }
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
   return (
     <>
@@ -271,11 +270,10 @@ export default function ProfileTabScreen() {
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
-<<<<<<< HEAD
         {/* ✅ do NOT include "top" edge here; AppHeader handles top safe-area */}
         <SafeAreaView style={styles.safe} edges={["left", "right"]}>
           <AppHeader
-            title={profile.username}
+            title={profile.username || "Profile"}
             backgroundColor="transparent"
             onBack={() => router.back()}
             right={
@@ -292,28 +290,6 @@ export default function ProfileTabScreen() {
               </TouchableOpacity>
             }
           />
-=======
-        <SafeAreaView style={styles.safe}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.headerCircle}
-              onPress={() => router.back()}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </TouchableOpacity>
-
-            <Text style={styles.headerTitle}>{profile.username}</Text>
-
-            <TouchableOpacity
-              style={styles.headerCircle}
-              onPress={handleSettings}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
-            </TouchableOpacity>
-          </View>
->>>>>>> 4acc1f8 (A few adjustments made for log in and sign up logic)
 
           <ScrollView
             showsVerticalScrollIndicator={false}
