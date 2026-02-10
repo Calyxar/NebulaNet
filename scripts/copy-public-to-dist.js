@@ -1,3 +1,4 @@
+// scripts/copy-public-to-dist.js
 const fs = require("fs");
 const path = require("path");
 
@@ -15,17 +16,15 @@ function copyFile(src, dest) {
   console.log(`Copied: ${src} -> ${dest}`);
 }
 
-function copyDirRecursive(srcDir, destDir) {
-  if (!fs.existsSync(srcDir)) return;
-  ensureDir(destDir);
-
-  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
-    const src = path.join(srcDir, entry.name);
-    const dest = path.join(destDir, entry.name);
-
-    if (entry.isDirectory()) copyDirRecursive(src, dest);
-    else copyFile(src, dest);
+function walk(dir) {
+  const out = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(full));
+    else out.push(full);
   }
+  return out;
 }
 
 if (!fs.existsSync(distDir)) {
@@ -38,15 +37,29 @@ if (!fs.existsSync(publicDir)) {
   process.exit(0);
 }
 
-// ✅ copy root .html files
-const htmlFiles = fs.readdirSync(publicDir).filter((f) => f.endsWith(".html"));
-for (const f of htmlFiles) {
-  copyFile(path.join(publicDir, f), path.join(distDir, f));
-}
-console.log(`Done. Copied ${htmlFiles.length} html file(s).`);
+// ✅ Copy only what you want deployed from /public
+// - all .html files anywhere
+// - AND public/.well-known/assetlinks.json (required for Android App Links)
+const allFiles = walk(publicDir);
 
-// ✅ copy /.well-known/* (assetlinks.json)
-copyDirRecursive(
-  path.join(publicDir, ".well-known"),
-  path.join(distDir, ".well-known"),
-);
+const allow = (absPath) => {
+  const rel = path.relative(publicDir, absPath).replace(/\\/g, "/");
+
+  // allow any html pages
+  if (rel.endsWith(".html")) return true;
+
+  // allow the Android App Links file
+  if (rel === ".well-known/assetlinks.json") return true;
+
+  return false;
+};
+
+const selected = allFiles.filter(allow);
+
+for (const src of selected) {
+  const rel = path.relative(publicDir, src);
+  const dest = path.join(distDir, rel);
+  copyFile(src, dest);
+}
+
+console.log(`Done. Copied ${selected.length} file(s).`);
