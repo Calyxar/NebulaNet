@@ -7,11 +7,9 @@
   "github": { "silent": true },
 
   "routes": [
-    { "handle": "filesystem" },
-
     {
       "src": "^/\\.well-known/assetlinks\\.json$",
-      "dest": "/well-known/assetlinks.json"
+      "dest": "/assetlinks.json"
     },
 
     { "src": "^/delete-account/?$", "dest": "/delete-account/index.html" },
@@ -25,6 +23,7 @@
     {
       "source": "/(.*)",
       "headers": [
+        { "key": "Content-Type", "value": "application/json" },
         { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "origin-when-cross-origin" }
