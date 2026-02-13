@@ -16,12 +16,25 @@ import {
 } from "react-native";
 
 export default function DeactivateAccountScreen() {
-  const { deactivateAccount, deleteAccount, user } = useAuth();
+  const { user, deactivateAccount, deleteAccount } = useAuth();
+
   const [reason, setReason] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showDeleteSection, setShowDeleteSection] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
+
+  const verifyPassword = async () => {
+    const email = user?.email || "";
+    if (!email) throw new Error("Missing email");
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) throw new Error("Incorrect password. Please try again.");
+  };
 
   const handleDeactivate = () => {
     Alert.alert(
@@ -35,24 +48,14 @@ export default function DeactivateAccountScreen() {
           onPress: async () => {
             setIsLoading(true);
             try {
-              // Verify password first
-              const { error: signInError } =
-                await supabase.auth.signInWithPassword({
-                  email: user?.email || "",
-                  password: password,
-                });
-
-              if (signInError) {
-                Alert.alert("Error", "Incorrect password. Please try again.");
-                return;
-              }
-
-              // Deactivate account
-              await deactivateAccount.mutateAsync({ reason });
+              await verifyPassword();
+              await deactivateAccount(reason);
+              Alert.alert("Done", "Your account has been deactivated.");
+              router.back();
             } catch (error: any) {
               Alert.alert(
                 "Error",
-                error.message || "Failed to deactivate account",
+                error?.message || "Failed to deactivate account",
               );
             } finally {
               setIsLoading(false);
@@ -73,35 +76,30 @@ export default function DeactivateAccountScreen() {
           text: "I Understand, Delete Anyway",
           style: "destructive",
           onPress: async () => {
-            Alert.alert(
-              "Confirm Password",
-              "For security, please enter your password to confirm account deletion:",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Confirm Deletion",
-                  style: "destructive",
-                  onPress: async () => {
-                    setIsLoading(true);
-                    try {
-                      await deleteAccount.mutateAsync({ reason: deleteReason });
-                    } catch (error: any) {
-                      Alert.alert(
-                        "Error",
-                        error.message || "Failed to delete account",
-                      );
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  },
-                },
-              ],
-            );
+            setIsLoading(true);
+            try {
+              await verifyPassword();
+              await deleteAccount(deleteReason);
+              Alert.alert(
+                "Scheduled",
+                "Your account is scheduled for deletion. You can cancel by logging in within 30 days.",
+              );
+              router.replace("/(auth)/login");
+            } catch (error: any) {
+              Alert.alert(
+                "Error",
+                error?.message || "Failed to delete account",
+              );
+            } finally {
+              setIsLoading(false);
+            }
           },
         },
       ],
     );
   };
+
+  const busy = isLoading;
 
   return (
     <ScrollView style={styles.container}>
@@ -114,7 +112,6 @@ export default function DeactivateAccountScreen() {
         </Text>
       </View>
 
-      {/* Deactivate Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Ionicons name="pause-circle-outline" size={24} color="#ff9500" />
@@ -167,17 +164,17 @@ export default function DeactivateAccountScreen() {
           <Button
             title="Deactivate Account"
             onPress={handleDeactivate}
-            loading={isLoading || deactivateAccount.isPending}
-            disabled={!password || password.length < 6}
+            loading={busy}
+            disabled={!password || password.length < 6 || busy}
             style={styles.deactivateButton}
           />
         </View>
       </View>
 
-      {/* Delete Section Toggle */}
       <TouchableOpacity
         style={styles.toggleSection}
         onPress={() => setShowDeleteSection(!showDeleteSection)}
+        activeOpacity={0.85}
       >
         <Text style={styles.toggleSectionText}>
           {showDeleteSection ? "▼ Hide" : "▶ Show"} Permanent Deletion Options
@@ -189,7 +186,6 @@ export default function DeactivateAccountScreen() {
         />
       </TouchableOpacity>
 
-      {/* Delete Section */}
       {showDeleteSection && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -227,15 +223,14 @@ export default function DeactivateAccountScreen() {
             <Button
               title="Delete Account Permanently"
               onPress={handleDeleteAccount}
-              loading={isLoading || deleteAccount.isPending}
-              disabled={!password || password.length < 6}
+              loading={busy}
+              disabled={!password || password.length < 6 || busy}
               style={styles.deleteButton}
             />
           </View>
         </View>
       )}
 
-      {/* Cancel Button */}
       <View style={styles.cancelSection}>
         <Button
           title="Cancel"
@@ -244,7 +239,6 @@ export default function DeactivateAccountScreen() {
         />
       </View>
 
-      {/* Help Section */}
       <View style={styles.helpSection}>
         <Ionicons name="help-circle-outline" size={20} color="#007AFF" />
         <View style={styles.helpContent}>
@@ -255,12 +249,13 @@ export default function DeactivateAccountScreen() {
           </Text>
           <TouchableOpacity
             style={styles.helpLink}
-            onPress={() => {
+            activeOpacity={0.85}
+            onPress={() =>
               Alert.alert(
                 "Contact Support",
                 "support@nebulanet.space\n\nWe're here to help!",
-              );
-            }}
+              )
+            }
           >
             <Text style={styles.helpLinkText}>Contact Support →</Text>
           </TouchableOpacity>
@@ -271,10 +266,7 @@ export default function DeactivateAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: {
     padding: 40,
     backgroundColor: "white",
@@ -307,11 +299,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 12,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-  },
+  sectionTitle: { fontSize: 18, fontWeight: "600", color: "#000" },
+
   warningBox: {
     flexDirection: "row",
     backgroundColor: "#fff3e0",
@@ -330,9 +319,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ffcccc",
   },
-  warningContent: {
-    flex: 1,
-  },
+  warningContent: { flex: 1 },
   warningTitle: {
     fontSize: 14,
     fontWeight: "600",
@@ -345,27 +332,17 @@ const styles = StyleSheet.create({
     color: "#ff3b30",
     marginBottom: 4,
   },
-  warningText: {
-    fontSize: 13,
-    color: "#666",
-    lineHeight: 18,
-  },
-  dangerText: {
-    fontSize: 13,
-    color: "#666",
-    lineHeight: 18,
-  },
+  warningText: { fontSize: 13, color: "#666", lineHeight: 18 },
+  dangerText: { fontSize: 13, color: "#666", lineHeight: 18 },
+
   inputLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
     marginBottom: 8,
   },
-  inputDescription: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 12,
-  },
+  inputDescription: { fontSize: 14, color: "#666", marginBottom: 12 },
+
   input: {
     backgroundColor: "#f8f8f8",
     borderRadius: 8,
@@ -375,19 +352,12 @@ const styles = StyleSheet.create({
     borderColor: "#e0e0e0",
     marginBottom: 16,
   },
-  textArea: {
-    minHeight: 100,
-    paddingTop: 12,
-  },
-  buttonContainer: {
-    gap: 8,
-  },
-  deactivateButton: {
-    backgroundColor: "#ff9500",
-  },
-  deleteButton: {
-    backgroundColor: "#ff3b30",
-  },
+  textArea: { minHeight: 100, paddingTop: 12 },
+
+  buttonContainer: { gap: 8 },
+  deactivateButton: { backgroundColor: "#ff9500" },
+  deleteButton: { backgroundColor: "#ff3b30" },
+
   toggleSection: {
     flexDirection: "row",
     alignItems: "center",
@@ -398,15 +368,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
   },
-  toggleSectionText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#ff3b30",
-  },
-  cancelSection: {
-    padding: 20,
-    marginTop: 8,
-  },
+  toggleSectionText: { fontSize: 16, fontWeight: "600", color: "#ff3b30" },
+
+  cancelSection: { padding: 20, marginTop: 8 },
+
   helpSection: {
     flexDirection: "row",
     backgroundColor: "#e8f4f8",
@@ -415,27 +380,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 12,
   },
-  helpContent: {
-    flex: 1,
-  },
+  helpContent: { flex: 1 },
   helpTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: "#000",
     marginBottom: 4,
   },
-  helpText: {
-    fontSize: 13,
-    color: "#666",
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  helpLink: {
-    alignSelf: "flex-start",
-  },
-  helpLinkText: {
-    fontSize: 14,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
+  helpText: { fontSize: 13, color: "#666", lineHeight: 18, marginBottom: 8 },
+  helpLink: { alignSelf: "flex-start" },
+  helpLinkText: { fontSize: 14, color: "#007AFF", fontWeight: "500" },
 });

@@ -1,7 +1,8 @@
 // app/settings/language.tsx
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
+import * as Localization from "expo-localization";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   ScrollView,
@@ -61,33 +62,86 @@ const TEXT = "#111827";
 const SUB = "#6B7280";
 const BORDER = "#EEF2FF";
 
+function getDeviceFallback() {
+  const tag = Localization.getLocales?.()?.[0]?.languageTag || "en-US";
+  const [langRaw, regionRaw] = tag.split("-");
+  const lang = (langRaw || "en").toLowerCase();
+  const region = (regionRaw || "US").toUpperCase();
+
+  const safeLang = LANGUAGES.some((l) => l.code === lang) ? lang : "en";
+  const safeRegion = REGIONS.some((r) => r.code === region) ? region : "US";
+  return { language: safeLang, region: safeRegion };
+}
+
 export default function LanguageRegionScreen() {
-  const { profile, updateSettings } = useAuth();
+  const { user, userSettings, isUserSettingsLoading, updateSettings } =
+    useAuth();
 
-  const initialLanguage = profile?.preferences?.language || "en";
-  const initialRegion = profile?.preferences?.region || "US";
-  const initialLocalized = !!profile?.preferences?.localized_content;
+  const [selectedLanguage, setSelectedLanguage] = useState("en");
+  const [selectedRegion, setSelectedRegion] = useState("US");
+  const [localizedContent, setLocalizedContent] = useState(false);
+  const [hydratedOnce, setHydratedOnce] = useState(false);
 
-  const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage);
-  const [selectedRegion, setSelectedRegion] = useState(initialRegion);
-  const [localizedContent, setLocalizedContent] = useState(initialLocalized);
+  // ✅ hydrate from DB when it finishes loading
+  useEffect(() => {
+    if (!user?.id) return;
+    if (isUserSettingsLoading) return;
+
+    const dbLang = userSettings?.language?.toLowerCase() || null;
+    const dbRegion = userSettings?.region?.toUpperCase() || null;
+    const dbLocalized = !!userSettings?.localized_content;
+
+    // If DB has something, use it
+    if (dbLang || dbRegion) {
+      setSelectedLanguage(dbLang || "en");
+      setSelectedRegion(dbRegion || "US");
+      setLocalizedContent(dbLocalized);
+      setHydratedOnce(true);
+      return;
+    }
+
+    // Otherwise, set device locale once + persist
+    if (!hydratedOnce) {
+      const fallback = getDeviceFallback();
+      setSelectedLanguage(fallback.language);
+      setSelectedRegion(fallback.region);
+      setLocalizedContent(false);
+      setHydratedOnce(true);
+
+      void updateSettings({
+        language: fallback.language,
+        region: fallback.region,
+        localized_content: false,
+      });
+    }
+  }, [
+    user?.id,
+    isUserSettingsLoading,
+    userSettings,
+    hydratedOnce,
+    updateSettings,
+  ]);
 
   const languageLabel = useMemo(() => {
     return (
-      LANGUAGES.find((l) => l.code === selectedLanguage)?.name || "English"
+      LANGUAGES.find((l) => l.code === selectedLanguage)?.nativeName ??
+      selectedLanguage
     );
   }, [selectedLanguage]);
 
   const regionLabel = useMemo(() => {
     return (
-      REGIONS.find((r) => r.code === selectedRegion)?.name || "United States"
+      REGIONS.find((r) => r.code === selectedRegion)?.name ?? selectedRegion
     );
   }, [selectedRegion]);
 
-  const updatePref = (patch: any) => {
-    updateSettings.mutate({
-      preferences: { ...profile?.preferences, ...patch },
-    });
+  const save = (patch: {
+    language?: string;
+    region?: string;
+    localized_content?: boolean;
+  }) => {
+    if (!user?.id) return;
+    void updateSettings(patch);
   };
 
   const renderLanguageItem = ({ item }: { item: Language }) => (
@@ -96,7 +150,7 @@ export default function LanguageRegionScreen() {
       activeOpacity={0.85}
       onPress={() => {
         setSelectedLanguage(item.code);
-        updatePref({ language: item.code });
+        save({ language: item.code });
       }}
     >
       <View style={{ flex: 1 }}>
@@ -120,7 +174,7 @@ export default function LanguageRegionScreen() {
       activeOpacity={0.85}
       onPress={() => {
         setSelectedRegion(item.code);
-        updatePref({ region: item.code });
+        save({ region: item.code });
       }}
     >
       <View style={styles.regionTop}>
@@ -166,7 +220,6 @@ export default function LanguageRegionScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Language</Text>
           <Text style={styles.sectionSub}>Changes menus and UI labels.</Text>
-
           <FlatList
             data={LANGUAGES}
             renderItem={renderLanguageItem}
@@ -180,7 +233,6 @@ export default function LanguageRegionScreen() {
           <Text style={styles.sectionSub}>
             Affects formats + local recommendations.
           </Text>
-
           <FlatList
             data={REGIONS}
             renderItem={renderRegionItem}
@@ -204,7 +256,7 @@ export default function LanguageRegionScreen() {
               value={localizedContent}
               onValueChange={(v) => {
                 setLocalizedContent(v);
-                updatePref({ localized_content: v });
+                save({ localized_content: v });
               }}
             />
           </View>

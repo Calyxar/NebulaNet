@@ -1,4 +1,4 @@
-// lib/queries/posts.ts
+// lib/queries/posts.ts — COMPLETED + UPDATED
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { supabase } from "@/lib/supabase";
 
@@ -8,14 +8,14 @@ export type PostVisibility = "public" | "followers" | "private";
    SUPABASE RAW RESPONSE (RELATIONS = ARRAYS)
    ========================================================= */
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string;
   username: string;
   full_name?: string | null;
   avatar_url?: string | null;
 };
 
-type CommunityRow = {
+export type CommunityRow = {
   id: string;
   name: string;
   slug: string;
@@ -61,6 +61,7 @@ export interface Post extends Omit<
   // ✅ UI-safe: always a number
   share_count: number;
 
+  // flags (filled by queries)
   is_liked?: boolean;
   is_saved?: boolean;
   is_owned?: boolean;
@@ -289,7 +290,6 @@ export async function getPosts(
 
   if (userId) query = query.eq("user_id", userId);
   if (visibility) query = query.eq("visibility", visibility);
-  [];
 
   switch (sortBy) {
     case "popular":
@@ -338,8 +338,11 @@ export async function getPosts(
         .in("post_id", ids),
     ]);
 
-    likedIds = likes?.map((l) => l.post_id) ?? [];
-    savedIds = saves?.map((s) => s.post_id) ?? [];
+    // ✅ Fix implicit any for l/s
+    likedIds =
+      (likes as { post_id: string }[] | null)?.map((l) => l.post_id) ?? [];
+    savedIds =
+      (saves as { post_id: string }[] | null)?.map((s) => s.post_id) ?? [];
   }
 
   const posts = (data as SupabasePostResponse[]).map((post) =>

@@ -1,72 +1,107 @@
-// lib/theme.ts - CONSTANTS ONLY
+// lib/theme.ts — CONSTANTS ONLY (SINGLE SOURCE OF TRUTH)
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type Theme = "light" | "dark" | "system";
 
-// Theme colors for both modes
+/**
+ * NebulaNet Theme Tokens
+ * - Keys are identical across light/dark
+ * - No duplicate theme systems
+ * - Safe for Expo + Android + iOS
+ */
 export const Colors = {
   light: {
-    background: "#ffffff",
-    surface: "#f8f8f8",
-    primary: "#000000",
-    secondary: "#666666",
-    tertiary: "#999999",
-    border: "#e5e5e5",
-    error: "#ff3b30",
-    success: "#34c759",
-    warning: "#ff9500",
-    info: "#007AFF",
-    text: "#000000",
-    textSecondary: "#666666",
-    textTertiary: "#999999",
-    accent: "#000000",
-    card: "#ffffff",
-    inputBackground: "#f8f8f8",
-    modalBackground: "rgba(0, 0, 0, 0.5)",
-    storyRing: "#000000",
-    like: "#ff375f",
-    save: "#000000",
-    share: "#666666",
-    comment: "#666666",
+    // Backgrounds
+    background: "#F7F9FC",
+    surface: "#FFFFFF",
+    card: "#FFFFFF",
+    border: "#E5E7EB",
+
+    // Brand
+    primary: "#6D5DF6",
+    accent: "#4FD1C5",
+
+    // Text
+    text: "#0F172A",
+    textSecondary: "#475569",
+    textTertiary: "#94A3B8",
+
+    // Inputs / Modals
+    inputBackground: "#F1F3F7",
+    placeholder: "#94A3B8", // ✅ ADDED (fixes colors.placeholder TS error)
+    modalBackground: "rgba(0,0,0,0.4)",
+
+    // Status
+    success: "#22C55E",
+    error: "#EF4444",
+    warning: "#F59E0B",
+    info: "#0A84FF",
+
+    // Social actions
+    storyRing: "#6D5DF6",
+    like: "#FF375F",
+    save: "#6D5DF6",
+    share: "#475569",
+    comment: "#475569",
+
+    // Neutral aliases (kept for compatibility)
+    secondary: "#475569",
+    tertiary: "#94A3B8",
   },
+
   dark: {
-    background: "#000000",
-    surface: "#1c1c1e",
-    primary: "#ffffff",
-    secondary: "#8e8e93",
-    tertiary: "#636366",
-    border: "#38383a",
-    error: "#ff453a",
-    success: "#32d74b",
-    warning: "#ff9f0a",
-    info: "#0a84ff",
-    text: "#ffffff",
-    textSecondary: "#8e8e93",
-    textTertiary: "#636366",
-    accent: "#ffffff",
-    card: "#1c1c1e",
-    inputBackground: "#2c2c2e",
-    modalBackground: "rgba(0, 0, 0, 0.7)",
-    storyRing: "#ffffff",
-    like: "#ff375f",
-    save: "#ffffff",
-    share: "#8e8e93",
-    comment: "#8e8e93",
+    // 🌑 Dark mode (AMOLED-friendly, not pure black)
+    background: "#0B0E14",
+    surface: "#121826",
+    card: "#121826",
+    border: "#1F2937",
+
+    // Brand (slightly brighter for contrast)
+    primary: "#8A7CFA",
+    accent: "#4FD1C5",
+
+    // Text
+    text: "#E6E9F0",
+    textSecondary: "#AAB0C0",
+    textTertiary: "#7C8293",
+
+    // Inputs / Modals
+    inputBackground: "#161D2D",
+    placeholder: "#7C8293", // ✅ ADDED (fixes colors.placeholder TS error)
+    modalBackground: "rgba(0,0,0,0.6)",
+
+    // Status (dark-tuned)
+    success: "#22C55E",
+    error: "#F87171",
+    warning: "#FBBF24",
+    info: "#38BDF8",
+
+    // Social actions
+    storyRing: "#8A7CFA",
+    like: "#FF4D6D",
+    save: "#8A7CFA",
+    share: "#AAB0C0",
+    comment: "#AAB0C0",
+
+    // Neutral aliases
+    secondary: "#AAB0C0",
+    tertiary: "#7C8293",
   },
 } as const;
 
 export type ColorScheme = keyof typeof Colors;
 
-// Storage helper
+/**
+ * Persisted theme storage
+ */
 export const storage = {
   async getTheme(): Promise<Theme | null> {
     try {
       const savedTheme = await AsyncStorage.getItem("app-theme");
       if (
-        savedTheme &&
-        (savedTheme === "light" ||
-          savedTheme === "dark" ||
-          savedTheme === "system")
+        savedTheme === "light" ||
+        savedTheme === "dark" ||
+        savedTheme === "system"
       ) {
         return savedTheme as Theme;
       }

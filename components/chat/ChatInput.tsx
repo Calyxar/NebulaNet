@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase"; // Adjust path to your supabase client
+import { useTyping } from "@/hooks/useTyping";
+import { supabase } from "@/lib/supabase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
@@ -80,48 +82,10 @@ const commonEmojis: Emoji[] = [
   { emoji: "🎯", name: "Bullseye" },
 ];
 
-// Supabase Storage configuration
 const BUCKETS = {
-  CHAT_MEDIA: "chat-media", // Your Supabase Storage bucket for chat media
-  VOICE_MESSAGES: "voice-messages", // Bucket for voice messages
-  DOCUMENTS: "documents", // Bucket for documents
-};
-
-// Ensure buckets exist (run this once in your app initialization)
-export const initializeSupabaseBuckets = async () => {
-  try {
-    // Check if buckets exist, create if not
-    const { data: buckets } = await supabase.storage.listBuckets();
-    const existingBuckets = buckets?.map((b) => b.name) || [];
-
-    if (!existingBuckets.includes(BUCKETS.CHAT_MEDIA)) {
-      await supabase.storage.createBucket(BUCKETS.CHAT_MEDIA, {
-        public: true,
-        allowedMimeTypes: ["image/*", "video/*"],
-        fileSizeLimit: 52428800, // 50MB
-      });
-    }
-
-    if (!existingBuckets.includes(BUCKETS.VOICE_MESSAGES)) {
-      await supabase.storage.createBucket(BUCKETS.VOICE_MESSAGES, {
-        public: true,
-        allowedMimeTypes: ["audio/*"],
-        fileSizeLimit: 10485760, // 10MB
-      });
-    }
-
-    if (!existingBuckets.includes(BUCKETS.DOCUMENTS)) {
-      await supabase.storage.createBucket(BUCKETS.DOCUMENTS, {
-        public: true,
-        allowedMimeTypes: ["*/*"],
-        fileSizeLimit: 104857600, // 100MB
-      });
-    }
-
-    console.log("✅ Supabase buckets initialized");
-  } catch (error) {
-    console.error("❌ Error initializing Supabase buckets:", error);
-  }
+  CHAT_MEDIA: "chat-media",
+  VOICE_MESSAGES: "voice-messages",
+  DOCUMENTS: "documents",
 };
 
 export default function ChatInput({
@@ -131,6 +95,12 @@ export default function ChatInput({
   conversationId,
   userId,
 }: ChatInputProps) {
+  const { colors } = useTheme();
+
+  // Typing broadcasts (2) ✅
+  const { setTyping } = useTyping(conversationId, userId);
+  const typingIdleTimer = useRef<NodeJS.Timeout | null>(null);
+
   const [message, setMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -141,24 +111,18 @@ export default function ChatInput({
   );
   const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{
-    [key: string]: number;
-  }>({});
 
   const recordingInterval = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // Request microphone permissions
   useEffect(() => {
     requestMicrophonePermission();
   }, []);
 
-  // Cleanup recording on unmount
   useEffect(() => {
     return () => {
-      if (recordingInterval.current) {
-        clearInterval(recordingInterval.current);
-      }
+      if (recordingInterval.current) clearInterval(recordingInterval.current);
+      if (typingIdleTimer.current) clearTimeout(typingIdleTimer.current);
     };
   }, []);
 
@@ -187,33 +151,53 @@ export default function ChatInput({
     }
   };
 
+  // Typing helper
+  const bumpTyping = async (text: string) => {
+    if (!conversationId || !userId) return;
+
+    // user typed something
+    if (text.trim().length > 0) {
+      await setTyping(true);
+      if (typingIdleTimer.current) clearTimeout(typingIdleTimer.current);
+      typingIdleTimer.current = setTimeout(() => {
+        setTyping(false);
+      }, 1200) as unknown as NodeJS.Timeout;
+    } else {
+      await setTyping(false);
+      if (typingIdleTimer.current) clearTimeout(typingIdleTimer.current);
+      typingIdleTimer.current = null;
+    }
+  };
+
   const handleSend = async () => {
     if ((message.trim() || localAttachments.length > 0) && !isUploading) {
       try {
         setIsUploading(true);
 
-        // Upload attachments to Supabase Storage
+        // stop typing once message is sending
+        await setTyping(false);
+        if (typingIdleTimer.current) {
+          clearTimeout(typingIdleTimer.current);
+          typingIdleTimer.current = null;
+        }
+
         const supabaseAttachments: SupabaseAttachment[] = [];
 
         if (localAttachments.length > 0) {
           for (const attachment of localAttachments) {
             const uploadedAttachment = await uploadToSupabase(attachment);
-            if (uploadedAttachment) {
+            if (uploadedAttachment)
               supabaseAttachments.push(uploadedAttachment);
-            }
           }
         }
 
-        // Call the parent component's onSendMessage with Supabase URLs
         onSendMessage(
           message.trim(),
           supabaseAttachments.length > 0 ? supabaseAttachments : undefined,
         );
 
-        // Reset state
         setMessage("");
         setLocalAttachments([]);
-        setUploadProgress({});
         Keyboard.dismiss();
       } catch (error) {
         console.error("Error sending message:", error);
@@ -232,13 +216,11 @@ export default function ChatInput({
       let bucket = BUCKETS.CHAT_MEDIA;
       let fileExtension = "jpg";
 
-      // Determine bucket and file extension based on type
       if (attachment.type === "audio") {
         bucket = BUCKETS.VOICE_MESSAGES;
         fileExtension = "m4a";
       } else if (attachment.type === "file") {
         bucket = BUCKETS.DOCUMENTS;
-        // Get extension from filename
         const parts = attachment.name.split(".");
         fileExtension = parts.length > 1 ? parts[parts.length - 1] : "bin";
       } else if (attachment.type === "video") {
@@ -248,66 +230,25 @@ export default function ChatInput({
       const fileName = `${fileId}.${fileExtension}`;
       const filePath = `${userId || "anonymous"}/${conversationId || "direct"}/${fileName}`;
 
-      // Convert local URI to blob
       const fileInfo = await FileSystem.getInfoAsync(attachment.uri);
-      if (!fileInfo.exists) {
-        throw new Error("File does not exist");
-      }
+      if (!fileInfo.exists) throw new Error("File does not exist");
 
-      // Get file size (handle both FileInfo types)
-      const fileSize = "size" in fileInfo ? fileInfo.size : 0;
+      // Small/simple: always upload blob (works reliably across RN)
+      const response = await fetch(attachment.uri);
+      const fileBlob = await response.blob();
 
-      let fileBlob: Blob | string;
-
-      if (fileSize > 10 * 1024 * 1024) {
-        // 10MB threshold - For large files, use fetch to get blob
-        const response = await fetch(attachment.uri);
-        fileBlob = await response.blob();
-      } else {
-        // For smaller files, read as base64
-        const base64 = await FileSystem.readAsStringAsync(attachment.uri, {
-          encoding: "base64",
-        });
-        fileBlob = `data:${attachment.mimeType};base64,${base64}`;
-      }
-
-      // Upload to Supabase Storage
-      const uploadId = `${bucket}-${filePath}`;
-
-      // Note: Supabase JS client doesn't support onUploadProgress in this context
-      // We'll simulate progress for large files
       const { error } = await supabase.storage
         .from(bucket)
         .upload(filePath, fileBlob, {
           contentType: attachment.mimeType || "application/octet-stream",
           upsert: true,
-          // Note: onUploadProgress is not available in Supabase JS client v2
-          // You would need a custom upload solution for progress tracking
         });
 
-      if (error) {
-        console.error("Upload error:", error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // Get public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from(bucket).getPublicUrl(filePath);
-
-      // Clean up local file after successful upload
-      try {
-        await FileSystem.deleteAsync(attachment.uri);
-      } catch (cleanupError) {
-        console.warn("Could not delete local file:", cleanupError);
-      }
-
-      // Remove progress tracking
-      setUploadProgress((prev) => {
-        const newProgress = { ...prev };
-        delete newProgress[uploadId];
-        return newProgress;
-      });
 
       return {
         url: publicUrl,
@@ -321,10 +262,7 @@ export default function ChatInput({
       };
     } catch (error) {
       console.error("Error uploading to Supabase:", error);
-      Alert.alert(
-        "Upload Failed",
-        `Failed to upload ${attachment.name}. Please try again.`,
-      );
+      Alert.alert("Upload Failed", `Failed to upload ${attachment.name}.`);
       return null;
     }
   };
@@ -344,16 +282,12 @@ export default function ChatInput({
       setIsRecording(true);
       setRecordingDuration(0);
 
-      // Start recording timer - use NodeJS.Timeout for Node environments
       recordingInterval.current = setInterval(() => {
         setRecordingDuration((prev) => prev + 1);
       }, 1000) as unknown as NodeJS.Timeout;
     } catch (err) {
       console.error("Failed to start recording:", err);
-      Alert.alert(
-        "Error",
-        "Failed to start recording. Please check microphone permissions.",
-      );
+      Alert.alert("Error", "Failed to start recording. Check mic permission.");
     }
   };
 
@@ -364,7 +298,6 @@ export default function ChatInput({
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
 
-      // Create audio attachment
       if (uri) {
         const fileInfo = await FileSystem.getInfoAsync(uri);
         const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
@@ -397,42 +330,16 @@ export default function ChatInput({
       await stopRecording();
     } else {
       const hasPermission = await requestMicrophonePermission();
-      if (hasPermission) {
-        await startRecording();
-      } else {
-        Alert.alert(
-          "Permission Required",
-          "Microphone permission is required to record voice messages.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Open Settings",
-              onPress: () => {
-                // Open app settings for permissions
-                if (Platform.OS === "ios") {
-                  // For iOS, you might need a different approach
-                  // Linking.openURL('app-settings:')
-                  console.log("Open iOS settings");
-                } else {
-                  // For Android - You can't directly open settings from JS
-                  // You might need to use a native module
-                  console.log("Cannot open Android settings directly from JS");
-                }
-              },
-            },
-          ],
-        );
-      }
+      if (hasPermission) await startRecording();
+      else
+        Alert.alert("Permission Required", "Microphone permission required.");
     }
   };
 
-  const handleAttachment = () => {
-    setShowAttachmentOptions(true);
-  };
+  const handleAttachment = () => setShowAttachmentOptions(true);
 
   const pickImage = async () => {
     setShowAttachmentOptions(false);
-
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
@@ -461,7 +368,7 @@ export default function ChatInput({
       }
     } catch (error) {
       console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image. Please try again.");
+      Alert.alert("Error", "Failed to pick image.");
     }
   };
 
@@ -471,10 +378,7 @@ export default function ChatInput({
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Camera Permission Required",
-          "Camera permission is required to take photos.",
-        );
+        Alert.alert("Camera Permission Required", "Enable camera permission.");
         return;
       }
 
@@ -496,7 +400,7 @@ export default function ChatInput({
       }
     } catch (error) {
       console.error("Error taking photo:", error);
-      Alert.alert("Error", "Failed to take photo. Please try again.");
+      Alert.alert("Error", "Failed to take photo.");
     }
   };
 
@@ -522,15 +426,13 @@ export default function ChatInput({
       }
     } catch (error) {
       console.error("Error picking document:", error);
-      Alert.alert("Error", "Failed to pick document. Please try again.");
+      Alert.alert("Error", "Failed to pick document.");
     }
   };
 
   const handleEmoji = () => {
     setShowEmojiPicker(!showEmojiPicker);
-    if (!showEmojiPicker) {
-      Keyboard.dismiss();
-    }
+    if (!showEmojiPicker) Keyboard.dismiss();
   };
 
   const insertEmoji = (emoji: string) => {
@@ -540,7 +442,6 @@ export default function ChatInput({
 
   const removeAttachment = (index: number) => {
     const attachment = localAttachments[index];
-    // Clean up local file
     if (attachment.uri) {
       FileSystem.deleteAsync(attachment.uri).catch(console.warn);
     }
@@ -551,11 +452,6 @@ export default function ChatInput({
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const getUploadProgress = (attachment: LocalAttachment) => {
-    const uploadId = `${attachment.type}-${attachment.name}`;
-    return uploadProgress[uploadId] || 0;
   };
 
   const getFileSize = (bytes?: number) => {
@@ -569,20 +465,35 @@ export default function ChatInput({
     <>
       {/* Attachments Preview */}
       {localAttachments.length > 0 && (
-        <View style={styles.attachmentsContainer}>
+        <View
+          style={[
+            styles.attachmentsContainer,
+            {
+              backgroundColor: colors.surface,
+              borderBottomColor: colors.border,
+            },
+          ]}
+        >
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {localAttachments.map((attachment, index) => {
-              const progress = getUploadProgress(attachment);
-              const isUploading = progress > 0 && progress < 100;
-
               return (
-                <View key={index} style={styles.attachmentPreview}>
+                <View
+                  key={index}
+                  style={[
+                    styles.attachmentPreview,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
                   {attachment.type === "image" && (
                     <Image
                       source={{ uri: attachment.uri }}
                       style={styles.previewImage}
                     />
                   )}
+
                   {attachment.type === "video" && (
                     <View style={styles.videoPreview}>
                       <Ionicons name="videocam" size={24} color="#fff" />
@@ -593,49 +504,56 @@ export default function ChatInput({
                       </Text>
                     </View>
                   )}
+
                   {attachment.type === "audio" && (
                     <View style={styles.audioPreview}>
-                      <Ionicons name="mic" size={24} color="#007AFF" />
-                      <Text style={styles.audioDuration}>
+                      <Ionicons name="mic" size={24} color={colors.primary} />
+                      <Text
+                        style={[
+                          styles.audioDuration,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
                         {formatDuration(attachment.duration || 0)}
                       </Text>
                     </View>
                   )}
+
                   {attachment.type === "file" && (
                     <View style={styles.filePreview}>
                       <Ionicons
                         name="document-text"
                         size={24}
-                        color="#007AFF"
+                        color={colors.primary}
                       />
-                      <Text style={styles.fileName} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.fileName,
+                          { color: colors.textSecondary },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {attachment.name}
                       </Text>
-                      <Text style={styles.fileSize}>
+                      <Text
+                        style={[
+                          styles.fileSize,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
                         {getFileSize(attachment.size)}
                       </Text>
                     </View>
                   )}
 
-                  {isUploading && (
-                    <View style={styles.uploadOverlay}>
-                      <ActivityIndicator size="small" color="#fff" />
-                      <Text style={styles.uploadProgressText}>
-                        {Math.round(progress)}%
-                      </Text>
-                    </View>
-                  )}
-
                   <TouchableOpacity
-                    style={styles.removeAttachmentButton}
+                    style={[
+                      styles.removeAttachmentButton,
+                      { backgroundColor: colors.surface },
+                    ]}
                     onPress={() => removeAttachment(index)}
-                    disabled={isUploading}
                   >
-                    <Ionicons
-                      name="close-circle"
-                      size={20}
-                      color={isUploading ? "#999" : "#ff3b30"}
-                    />
+                    <Ionicons name="close-circle" size={20} color="#ff3b30" />
                   </TouchableOpacity>
                 </View>
               );
@@ -646,9 +564,17 @@ export default function ChatInput({
 
       {/* Voice Recording Indicator */}
       {isRecording && (
-        <View style={styles.recordingIndicator}>
+        <View
+          style={[
+            styles.recordingIndicator,
+            {
+              backgroundColor: colors.surface,
+              borderBottomColor: colors.border,
+            },
+          ]}
+        >
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>
+          <Text style={[styles.recordingText, { color: colors.text }]}>
             Recording... {formatDuration(recordingDuration)}
           </Text>
           <TouchableOpacity
@@ -660,39 +586,61 @@ export default function ChatInput({
         </View>
       )}
 
-      <View style={styles.container}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: colors.surface, borderTopColor: colors.border },
+        ]}
+      >
         <TouchableOpacity
           style={[styles.attachmentButton, disabled && styles.disabledButton]}
           onPress={handleAttachment}
           disabled={disabled || isUploading}
         >
           {isUploading ? (
-            <ActivityIndicator size="small" color="#007AFF" />
+            <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
+            <Ionicons
+              name="add-circle-outline"
+              size={28}
+              color={colors.primary}
+            />
           )}
         </TouchableOpacity>
 
-        <View style={styles.inputContainer}>
+        <View
+          style={[
+            styles.inputContainer,
+            { backgroundColor: colors.inputBackground },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.emojiButton, disabled && styles.disabledButton]}
             onPress={handleEmoji}
             disabled={disabled || isUploading}
           >
-            <Ionicons name="happy-outline" size={24} color="#666" />
+            <Ionicons
+              name="happy-outline"
+              size={24}
+              color={colors.textSecondary}
+            />
           </TouchableOpacity>
 
           <TextInput
             ref={inputRef}
             style={[
               styles.input,
+              { color: colors.text },
               disabled && styles.disabledInput,
               isRecording && styles.recordingInput,
             ]}
             value={message}
-            onChangeText={setMessage}
+            onChangeText={(t) => {
+              setMessage(t);
+              bumpTyping(t);
+            }}
             placeholder={placeholder}
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.tertiary}
             multiline
             maxLength={1000}
             editable={!disabled && !isUploading}
@@ -712,9 +660,9 @@ export default function ChatInput({
               disabled={disabled || isUploading}
             >
               {isUploading ? (
-                <ActivityIndicator size="small" color="#007AFF" />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
-                <Ionicons name="send" size={24} color="#007AFF" />
+                <Ionicons name="send" size={24} color={colors.primary} />
               )}
             </TouchableOpacity>
           ) : (
@@ -729,7 +677,7 @@ export default function ChatInput({
               <Ionicons
                 name={isRecording ? "mic" : "mic-outline"}
                 size={24}
-                color={isRecording ? "#ff3b30" : "#666"}
+                color={isRecording ? "#ff3b30" : colors.textSecondary}
               />
             </TouchableOpacity>
           )}
@@ -746,8 +694,15 @@ export default function ChatInput({
         <TouchableWithoutFeedback onPress={() => setShowEmojiPicker(false)}>
           <View style={styles.emojiModalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.emojiModalContent}>
-                <Text style={styles.emojiModalTitle}>Emojis</Text>
+              <View
+                style={[
+                  styles.emojiModalContent,
+                  { backgroundColor: colors.surface },
+                ]}
+              >
+                <Text style={[styles.emojiModalTitle, { color: colors.text }]}>
+                  Emojis
+                </Text>
                 <FlatList
                   data={commonEmojis}
                   keyExtractor={(item, index) => `${item.emoji}-${index}`}
@@ -763,10 +718,17 @@ export default function ChatInput({
                   contentContainerStyle={styles.emojiList}
                 />
                 <TouchableOpacity
-                  style={styles.closeEmojiButton}
+                  style={[
+                    styles.closeEmojiButton,
+                    { borderTopColor: colors.border },
+                  ]}
                   onPress={() => setShowEmojiPicker(false)}
                 >
-                  <Text style={styles.closeEmojiText}>Close</Text>
+                  <Text
+                    style={[styles.closeEmojiText, { color: colors.primary }]}
+                  >
+                    Close
+                  </Text>
                 </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
@@ -786,23 +748,44 @@ export default function ChatInput({
         >
           <View style={styles.optionsModalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.optionsModalContent}>
-                <Text style={styles.optionsModalTitle}>Choose Attachment</Text>
+              <View
+                style={[
+                  styles.optionsModalContent,
+                  { backgroundColor: colors.surface },
+                ]}
+              >
+                <Text
+                  style={[styles.optionsModalTitle, { color: colors.text }]}
+                >
+                  Choose Attachment
+                </Text>
 
                 <TouchableOpacity
                   style={styles.optionButton}
                   onPress={pickImage}
                 >
-                  <Ionicons name="images-outline" size={28} color="#007AFF" />
-                  <Text style={styles.optionText}>Photo & Video Library</Text>
+                  <Ionicons
+                    name="images-outline"
+                    size={28}
+                    color={colors.primary}
+                  />
+                  <Text style={[styles.optionText, { color: colors.text }]}>
+                    Photo & Video Library
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.optionButton}
                   onPress={takePhoto}
                 >
-                  <Ionicons name="camera-outline" size={28} color="#007AFF" />
-                  <Text style={styles.optionText}>Take Photo</Text>
+                  <Ionicons
+                    name="camera-outline"
+                    size={28}
+                    color={colors.primary}
+                  />
+                  <Text style={[styles.optionText, { color: colors.text }]}>
+                    Take Photo
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -812,9 +795,11 @@ export default function ChatInput({
                   <Ionicons
                     name="document-text-outline"
                     size={28}
-                    color="#007AFF"
+                    color={colors.primary}
                   />
-                  <Text style={styles.optionText}>Document</Text>
+                  <Text style={[styles.optionText, { color: colors.text }]}>
+                    Document
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -838,9 +823,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: "#e1e1e1",
   },
   attachmentButton: {
     padding: 8,
@@ -855,7 +838,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-end",
-    backgroundColor: "#f5f5f5",
     borderRadius: 24,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -903,31 +885,22 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
-  // Attachments Preview
   attachmentsContainer: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#f9f9f9",
     borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
   },
   attachmentPreview: {
     marginRight: 8,
     width: 100,
     height: 100,
     borderRadius: 8,
-    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#e1e1e1",
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
   },
-  previewImage: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "cover",
-  },
+  previewImage: { width: "100%", height: "100%", resizeMode: "cover" },
   videoPreview: {
     width: "100%",
     height: "100%",
@@ -935,69 +908,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  videoDuration: {
-    color: "#fff",
-    fontSize: 12,
-    marginTop: 4,
-  },
-  audioPreview: {
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 8,
-  },
-  audioDuration: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
-  },
-  filePreview: {
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 8,
-  },
-  fileName: {
-    fontSize: 10,
-    color: "#666",
-    marginTop: 4,
-    textAlign: "center",
-  },
-  fileSize: {
-    fontSize: 9,
-    color: "#999",
-    marginTop: 2,
-  },
+  videoDuration: { color: "#fff", fontSize: 12, marginTop: 4 },
+  audioPreview: { justifyContent: "center", alignItems: "center", padding: 8 },
+  audioDuration: { fontSize: 12, marginTop: 4 },
+  filePreview: { justifyContent: "center", alignItems: "center", padding: 8 },
+  fileName: { fontSize: 10, marginTop: 4, textAlign: "center" },
+  fileSize: { fontSize: 9, marginTop: 2 },
   removeAttachmentButton: {
     position: "absolute",
     top: -6,
     right: -6,
-    backgroundColor: "#fff",
     borderRadius: 10,
   },
-  uploadOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  uploadProgressText: {
-    color: "#fff",
-    fontSize: 12,
-    marginTop: 4,
-  },
 
-  // Recording Indicator
   recordingIndicator: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: "#ffebee",
     borderBottomWidth: 1,
-    borderBottomColor: "#ffcdd2",
   },
   recordingDot: {
     width: 12,
@@ -1006,31 +935,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#ff3b30",
     marginRight: 8,
   },
-  recordingText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#d32f2f",
-  },
+  recordingText: { flex: 1, fontSize: 14 },
   stopRecordingButton: {
     paddingHorizontal: 12,
     paddingVertical: 4,
     backgroundColor: "#ff3b30",
     borderRadius: 4,
   },
-  stopRecordingText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  stopRecordingText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 
-  // Emoji Picker Modal
   emojiModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   emojiModalContent: {
-    backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
@@ -1042,37 +961,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "center",
   },
-  emojiList: {
-    paddingBottom: 16,
-  },
-  emojiItem: {
-    flex: 1,
-    alignItems: "center",
-    padding: 8,
-  },
-  emojiText: {
-    fontSize: 28,
-  },
+  emojiList: { paddingBottom: 16 },
+  emojiItem: { flex: 1, alignItems: "center", padding: 8 },
+  emojiText: { fontSize: 28 },
   closeEmojiButton: {
     paddingVertical: 12,
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "#e1e1e1",
   },
-  closeEmojiText: {
-    fontSize: 16,
-    color: "#007AFF",
-    fontWeight: "600",
-  },
+  closeEmojiText: { fontSize: 16, fontWeight: "600" },
 
-  // Attachment Options Modal
   optionsModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   optionsModalContent: {
-    backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
@@ -1091,19 +995,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  optionText: {
-    fontSize: 16,
-    marginLeft: 12,
-    color: "#333",
-  },
+  optionText: { fontSize: 16, marginLeft: 12 },
   cancelOptionButton: {
     paddingVertical: 16,
     alignItems: "center",
     marginTop: 8,
   },
-  cancelOptionText: {
-    fontSize: 16,
-    color: "#ff3b30",
-    fontWeight: "600",
-  },
+  cancelOptionText: { fontSize: 16, color: "#ff3b30", fontWeight: "600" },
 });

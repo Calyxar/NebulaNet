@@ -1,4 +1,4 @@
-// app/settings/_layout.tsx
+// app/settings/_layout.tsx — COMPLETED + UPDATED
 import { Stack } from "expo-router";
 import { Platform } from "react-native";
 
@@ -6,7 +6,7 @@ export default function SettingsLayout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: false, // ✅ IMPORTANT: prevents duplicate headers
+        headerShown: false, // ✅ prevents duplicate headers (your screens draw their own)
         animation: Platform.OS === "ios" ? "default" : "slide_from_right",
       }}
     >
@@ -15,6 +15,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="feed-preferences" />
       <Stack.Screen name="saved-content" />
       <Stack.Screen name="language" />
+      <Stack.Screen name="appearance" /> {/* ✅ ADDED */}
       <Stack.Screen name="privacy" />
       <Stack.Screen name="privacy-choice" />
       <Stack.Screen name="blocked" />

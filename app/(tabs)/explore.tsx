@@ -1,7 +1,8 @@
-// app/(tabs)/explore.tsx — COMPLETED (wired to useSearch + no-squish header)
+// app/(tabs)/explore.tsx — COMPLETED + UPDATED (theme + dark mode)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useSearch } from "@/hooks/useSearch";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -26,6 +27,7 @@ type ExploreCategory = "trending" | "account" | "post" | "community";
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] =
@@ -43,7 +45,6 @@ export default function ExploreScreen() {
     [insets.bottom],
   );
 
-  // Map UI category -> search hook type
   const searchType =
     activeCategory === "account"
       ? "account"
@@ -54,7 +55,6 @@ export default function ExploreScreen() {
           : null;
 
   const { data, isSearching, isIdle } = useSearch({
-    // When "trending", we just won't show results.
     type: (searchType ?? "post") as any,
     query: searchQuery,
     minChars: 2,
@@ -68,42 +68,63 @@ export default function ExploreScreen() {
 
   const clearSearch = () => setSearchQuery("");
 
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : ["#DCEBFF", "#EEF4FF", "#FFFFFF"];
+
   return (
     <>
       <StatusBar
-        barStyle="dark-content"
+        barStyle={isDark ? "light-content" : "dark-content"}
         translucent
         backgroundColor="transparent"
       />
 
       <LinearGradient
-        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        colors={gradientColors as any}
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container} edges={["left", "right"]}>
-          {/* ✅ FIX: back + full-width search inside leftWide (real flexible space) */}
           <AppHeader
             backgroundColor="transparent"
             title=""
             leftWide={
               <View style={styles.headerLeftWide}>
                 <TouchableOpacity
-                  style={styles.backCircle}
+                  style={[
+                    styles.backCircle,
+                    {
+                      backgroundColor: colors.card,
+                      shadowOpacity: isDark ? 0.22 : 0.08,
+                    },
+                  ]}
                   onPress={() => router.back()}
                   activeOpacity={0.85}
                 >
-                  <Ionicons name="arrow-back" size={22} color="#111827" />
+                  <Ionicons name="arrow-back" size={22} color={colors.text} />
                 </TouchableOpacity>
 
-                <View style={styles.searchBar}>
-                  <Ionicons name="search" size={18} color="#9CA3AF" />
+                <View
+                  style={[
+                    styles.searchBar,
+                    {
+                      backgroundColor: colors.card,
+                      shadowOpacity: isDark ? 0.18 : 0.06,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="search"
+                    size={18}
+                    color={colors.textTertiary}
+                  />
                   <TextInput
                     value={searchQuery}
                     onChangeText={setSearchQuery}
                     placeholder="Search..."
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.searchInput}
+                    placeholderTextColor={colors.textTertiary}
+                    style={[styles.searchInput, { color: colors.text }]}
                     returnKeyType="search"
                     autoCorrect={false}
                     autoCapitalize="none"
@@ -113,9 +134,16 @@ export default function ExploreScreen() {
                     <TouchableOpacity
                       onPress={clearSearch}
                       activeOpacity={0.85}
-                      style={styles.clearBtn}
+                      style={[
+                        styles.clearBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
                     >
-                      <Ionicons name="close" size={18} color="#6B7280" />
+                      <Ionicons
+                        name="close"
+                        size={18}
+                        color={colors.textTertiary}
+                      />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -123,7 +151,15 @@ export default function ExploreScreen() {
             }
           />
 
-          <View style={styles.segmentWrap}>
+          <View
+            style={[
+              styles.segmentWrap,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.22 : 0.05,
+              },
+            ]}
+          >
             {categories.map((c) => {
               const isActive = activeCategory === c.key;
               return (
@@ -133,13 +169,14 @@ export default function ExploreScreen() {
                   activeOpacity={0.85}
                   style={[
                     styles.segmentItem,
-                    isActive && styles.segmentItemActive,
+                    isActive && { backgroundColor: colors.primary },
                   ]}
                 >
                   <Text
                     style={[
                       styles.segmentText,
-                      isActive && styles.segmentTextActive,
+                      { color: colors.textTertiary },
+                      isActive && { color: "#FFFFFF" },
                     ]}
                   >
                     {c.label}
@@ -156,35 +193,49 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* Trending */}
             {activeCategory === "trending" && (
               <EmptyState
+                colors={colors}
                 icon="trending-up-outline"
                 title="Trending will appear soon"
                 subtitle="As people post and use hashtags, we’ll show what’s trending here."
               />
             )}
 
-            {/* Accounts */}
             {activeCategory === "account" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard />
+                  <LoadingCard colors={colors} />
                 ) : isIdle ? (
                   <EmptyState
+                    colors={colors}
                     icon="search-outline"
                     title="Start typing"
                     subtitle="Type at least 2 characters to search accounts."
                   />
                 ) : accounts.length > 0 ? (
-                  <View style={styles.card}>
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
                     {accounts.map((a, idx) => {
                       const name = a.full_name || a.username || "User";
                       return (
                         <TouchableOpacity
                           key={a.id}
                           activeOpacity={0.85}
-                          style={[styles.row, idx !== 0 && styles.rowBorder]}
+                          style={[
+                            styles.row,
+                            idx !== 0 && [
+                              styles.rowBorder,
+                              { borderTopColor: colors.border },
+                            ],
+                          ]}
                           onPress={() =>
                             a.username
                               ? router.push(`/user/${a.username}`)
@@ -194,21 +245,43 @@ export default function ExploreScreen() {
                           {a.avatar_url ? (
                             <Image
                               source={{ uri: a.avatar_url }}
-                              style={styles.avatar}
+                              style={[
+                                styles.avatar,
+                                { backgroundColor: colors.surface },
+                              ]}
                             />
                           ) : (
-                            <View style={styles.avatarPlaceholder}>
-                              <Text style={styles.avatarText}>
+                            <View
+                              style={[
+                                styles.avatarPlaceholder,
+                                { backgroundColor: colors.surface },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.avatarText,
+                                  { color: colors.primary },
+                                ]}
+                              >
                                 {(name[0] || "U").toUpperCase()}
                               </Text>
                             </View>
                           )}
 
                           <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={styles.rowTitle} numberOfLines={1}>
+                            <Text
+                              style={[styles.rowTitle, { color: colors.text }]}
+                              numberOfLines={1}
+                            >
                               {name}
                             </Text>
-                            <Text style={styles.rowSubtitle} numberOfLines={1}>
+                            <Text
+                              style={[
+                                styles.rowSubtitle,
+                                { color: colors.textTertiary },
+                              ]}
+                              numberOfLines={1}
+                            >
                               @{a.username || "user"}
                             </Text>
                           </View>
@@ -216,7 +289,7 @@ export default function ExploreScreen() {
                           <Ionicons
                             name="chevron-forward"
                             size={18}
-                            color="#9CA3AF"
+                            color={colors.textTertiary}
                           />
                         </TouchableOpacity>
                       );
@@ -224,6 +297,7 @@ export default function ExploreScreen() {
                   </View>
                 ) : (
                   <EmptyState
+                    colors={colors}
                     icon="people-outline"
                     title="No matches"
                     subtitle="Try a different name or username."
@@ -232,13 +306,13 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* Posts */}
             {activeCategory === "post" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard />
+                  <LoadingCard colors={colors} />
                 ) : isIdle ? (
                   <EmptyState
+                    colors={colors}
                     icon="search-outline"
                     title="Start typing"
                     subtitle="Type at least 2 characters to search posts."
@@ -252,22 +326,40 @@ export default function ExploreScreen() {
                         <TouchableOpacity
                           key={p.id}
                           activeOpacity={0.9}
-                          style={styles.postCard}
+                          style={[
+                            styles.postCard,
+                            {
+                              backgroundColor: colors.card,
+                              shadowOpacity: isDark ? 0.22 : 0.05,
+                            },
+                          ]}
                           onPress={() => router.push(`/post/${p.id}`)}
                         >
                           <View style={styles.postTop}>
-                            <Text style={styles.postAuthor} numberOfLines={1}>
+                            <Text
+                              style={[
+                                styles.postAuthor,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={1}
+                            >
                               {author}
                             </Text>
                             <Ionicons
                               name="chevron-forward"
                               size={16}
-                              color="#9CA3AF"
+                              color={colors.textTertiary}
                             />
                           </View>
 
                           {!!p.content && (
-                            <Text style={styles.postContent} numberOfLines={3}>
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={3}
+                            >
                               {p.content}
                             </Text>
                           )}
@@ -277,6 +369,7 @@ export default function ExploreScreen() {
                   </View>
                 ) : (
                   <EmptyState
+                    colors={colors}
                     icon="document-text-outline"
                     title="No matches"
                     subtitle="Try a different keyword."
@@ -285,47 +378,80 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* Communities */}
             {activeCategory === "community" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard />
+                  <LoadingCard colors={colors} />
                 ) : isIdle ? (
                   <EmptyState
+                    colors={colors}
                     icon="search-outline"
                     title="Start typing"
                     subtitle="Type at least 2 characters to search communities."
                   />
                 ) : communities.length > 0 ? (
-                  <View style={styles.card}>
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
                     {communities.map((c, idx) => (
                       <TouchableOpacity
                         key={c.id}
                         activeOpacity={0.85}
-                        style={[styles.row, idx !== 0 && styles.rowBorder]}
+                        style={[
+                          styles.row,
+                          idx !== 0 && [
+                            styles.rowBorder,
+                            { borderTopColor: colors.border },
+                          ],
+                        ]}
                         onPress={() => router.push(`/community/${c.slug}`)}
                       >
-                        <View style={styles.communityBadge}>
-                          <Ionicons name="people" size={18} color="#7C3AED" />
+                        <View
+                          style={[
+                            styles.communityBadge,
+                            { backgroundColor: colors.surface },
+                          ]}
+                        >
+                          <Ionicons
+                            name="people"
+                            size={18}
+                            color={colors.primary}
+                          />
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={styles.rowTitle} numberOfLines={1}>
+                          <Text
+                            style={[styles.rowTitle, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
                             {c.name}
                           </Text>
-                          <Text style={styles.rowSubtitle} numberOfLines={1}>
+                          <Text
+                            style={[
+                              styles.rowSubtitle,
+                              { color: colors.textTertiary },
+                            ]}
+                            numberOfLines={1}
+                          >
                             {c.description || "Community"}
                           </Text>
                         </View>
                         <Ionicons
                           name="chevron-forward"
                           size={18}
-                          color="#9CA3AF"
+                          color={colors.textTertiary}
                         />
                       </TouchableOpacity>
                     ))}
                   </View>
                 ) : (
                   <EmptyState
+                    colors={colors}
                     icon="people-circle-outline"
                     title="No matches"
                     subtitle="Try a different keyword."
@@ -340,11 +466,13 @@ export default function ExploreScreen() {
   );
 }
 
-function LoadingCard() {
+function LoadingCard({ colors }: { colors: any }) {
   return (
-    <View style={styles.loadingCard}>
-      <ActivityIndicator size="small" color="#7C3AED" />
-      <Text style={styles.loadingText}>Searching…</Text>
+    <View style={[styles.loadingCard, { backgroundColor: colors.card }]}>
+      <ActivityIndicator size="small" color={colors.primary} />
+      <Text style={[styles.loadingText, { color: colors.textTertiary }]}>
+        Searching…
+      </Text>
     </View>
   );
 }
@@ -353,18 +481,24 @@ function EmptyState({
   icon,
   title,
   subtitle,
+  colors,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
+  colors: any;
 }) {
   return (
-    <View style={styles.emptyWrap}>
-      <View style={styles.emptyIconCircle}>
-        <Ionicons name={icon} size={26} color="#7C3AED" />
+    <View style={[styles.emptyWrap, { backgroundColor: colors.card }]}>
+      <View
+        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
+      >
+        <Ionicons name={icon} size={26} color={colors.primary} />
       </View>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
+        {subtitle}
+      </Text>
     </View>
   );
 }
@@ -373,7 +507,6 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  // ✅ header row (back + search)
   headerLeftWide: {
     flexDirection: "row",
     alignItems: "center",
@@ -385,12 +518,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
   },
@@ -401,12 +532,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
     gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2,
   },
@@ -414,7 +543,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     fontSize: 15,
-    color: "#111827",
     paddingVertical: 0,
   },
   clearBtn: {
@@ -423,19 +551,16 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
   },
 
   segmentWrap: {
     marginHorizontal: 18,
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 6,
     flexDirection: "row",
     gap: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -446,19 +571,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segmentItemActive: { backgroundColor: "#7C3AED" },
-  segmentText: { fontSize: 13, fontWeight: "700", color: "#9CA3AF" },
-  segmentTextActive: { color: "#FFFFFF" },
+  segmentText: { fontSize: 13, fontWeight: "700" },
 
   content: { paddingHorizontal: 18, paddingTop: 14 },
 
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -469,47 +590,41 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
-  rowBorder: { borderTopWidth: 1, borderTopColor: "#F3F4F6" },
-  rowTitle: { fontSize: 14.5, fontWeight: "900", color: "#111827" },
+  rowBorder: { borderTopWidth: 1 },
+  rowTitle: { fontSize: 14.5, fontWeight: "900" },
   rowSubtitle: {
     marginTop: 2,
     fontSize: 12.5,
     fontWeight: "700",
-    color: "#6B7280",
   },
 
   avatar: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#F3F4F6",
   },
   avatarPlaceholder: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 16, fontWeight: "900", color: "#7C3AED" },
+  avatarText: { fontSize: 16, fontWeight: "900" },
 
   communityBadge: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#F3ECFF",
     alignItems: "center",
     justifyContent: "center",
   },
 
   postCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 14,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -518,23 +633,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  postAuthor: { fontSize: 14, fontWeight: "900", color: "#111827" },
+  postAuthor: { fontSize: 14, fontWeight: "900" },
   postContent: {
     marginTop: 8,
     fontSize: 13.5,
-    color: "#111827",
     lineHeight: 19,
   },
 
   emptyWrap: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     paddingVertical: 26,
     paddingHorizontal: 18,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -542,7 +654,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#F3ECFF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
@@ -550,19 +661,16 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#111827",
     marginBottom: 6,
     textAlign: "center",
   },
   emptySubtitle: {
     fontSize: 13,
-    color: "#6B7280",
     lineHeight: 18,
     textAlign: "center",
   },
 
   loadingCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     paddingVertical: 18,
     paddingHorizontal: 18,
@@ -572,9 +680,8 @@ const styles = StyleSheet.create({
     gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
-  loadingText: { fontSize: 13, fontWeight: "800", color: "#6B7280" },
+  loadingText: { fontSize: 13, fontWeight: "800" },
 });

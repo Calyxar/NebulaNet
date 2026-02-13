@@ -4,12 +4,10 @@
     "slug": "nebulanet",
     "version": "1.0.0",
     "orientation": "portrait",
-
     "icon": "./assets/images/nebulanet-icon.png",
     "scheme": "nebulanet",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -19,16 +17,20 @@
         "backgroundColor": "#000000"
       }
     },
-
-    "assetBundlePatterns": ["**/*"],
-
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nebulanet.app",
       "buildNumber": "1",
-      "associatedDomains": ["applinks:nebulanet.space"],
+      "associatedDomains": [
+        "applinks:nebulanet.space"
+      ],
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "NSPhotoLibraryUsageDescription": "Allow NebulaNet to access your photo library to upload profile pictures and posts.",
         "NSCameraUsageDescription": "Allow NebulaNet to use your camera to take photos and videos for posts.",
         "NSMicrophoneUsageDescription": "Allow NebulaNet to use your microphone for video posts."
@@ -37,17 +39,18 @@
         "usesNonExemptEncryption": false
       }
     },
-
     "android": {
       "package": "com.nebulanet.app",
       "versionCode": 1,
       "versionName": "1.0.0",
-
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
           "data": [
             {
               "scheme": "https",
@@ -82,12 +85,10 @@
           ]
         }
       ],
-
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/nebulanet-icon.png",
         "backgroundColor": "#0B0F1A"
       },
-
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
@@ -96,26 +97,21 @@
         "RECORD_AUDIO",
         "ACCESS_NOTIFICATION_POLICY"
       ],
-
       "softwareKeyboardLayoutMode": "resize"
     },
-
     "androidStatusBar": {
       "barStyle": "dark-content",
       "backgroundColor": "#ffffff"
     },
-
     "androidNavigationBar": {
       "barStyle": "dark-content",
       "backgroundColor": "#ffffff"
     },
-
     "web": {
       "output": "single",
       "favicon": "./assets/images/nebulanet-icon.png",
       "bundler": "metro"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -138,11 +134,14 @@
         {
           "icon": "./assets/images/nebulanet-icon.png",
           "color": "#6D8BFF",
-          "sounds": ["./assets/sounds/notification.wav"]
+          "sounds": [
+            "./assets/sounds/notification.wav"
+          ]
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin",
+      "expo-localization"
     ],
-
     "extra": {
       "eas": {
         "projectId": "e048836d-bf2b-4423-95d8-e6355b78b981"
@@ -155,18 +154,14 @@
       "enableDebug": true,
       "appVersion": "1.0.0"
     },
-
     "experiments": {
       "typedRoutes": true,
       "tsconfigPaths": true
     },
-
     "owner": "alyjbak28",
-
     "runtimeVersion": {
       "policy": "appVersion"
     },
-
     "updates": {
       "url": "https://u.expo.dev/e048836d-bf2b-4423-95d8-e6355b78b981",
       "fallbackToCacheTimeout": 0

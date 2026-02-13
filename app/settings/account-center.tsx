@@ -1,4 +1,8 @@
-// app/settings/account-center.tsx — COMPLETED (Back + X header + fixes “can’t exit settings”)
+// app/settings/account-center.tsx — COMPLETED + FIXED TS ERROR
+// ✅ Back + X header
+// ✅ Fixes “can’t exit settings”
+// ✅ Fixes TypeScript onPress type error
+
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -98,8 +102,9 @@ export default function AccountCenterScreen() {
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container}>
-        {/* ✅ Header with Back + X */}
+        {/* Header */}
         <View style={styles.header}>
+          {/* Back */}
           <TouchableOpacity
             style={styles.headerCircleButton}
             activeOpacity={0.85}
@@ -108,6 +113,7 @@ export default function AccountCenterScreen() {
             <Ionicons name="arrow-back" size={20} color="#111827" />
           </TouchableOpacity>
 
+          {/* Center Title */}
           <View style={styles.headerCenter}>
             <View style={styles.logoBubble}>
               <Ionicons
@@ -127,10 +133,11 @@ export default function AccountCenterScreen() {
             </View>
           </View>
 
+          {/* Close (FIXED) */}
           <TouchableOpacity
             style={styles.headerCircleButton}
             activeOpacity={0.85}
-            onPress={closeSettings}
+            onPress={() => closeSettings()} // ✅ FIXED HERE
           >
             <Ionicons name="close" size={20} color="#111827" />
           </TouchableOpacity>
@@ -176,7 +183,6 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  // ✅ Header (Back + Title + X)
   header: {
     paddingHorizontal: 18,
     paddingTop: 6,
@@ -205,7 +211,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-
   logoBubble: {
     width: 44,
     height: 44,
