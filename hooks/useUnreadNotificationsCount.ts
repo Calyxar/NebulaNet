@@ -1,7 +1,8 @@
+// hooks/useUnreadNotificationsCount.ts
 import { useAuth } from "@/hooks/useAuth";
 import {
-    getUnreadNotificationsCount,
-    subscribeToNotifications,
+  getUnreadNotificationsCount,
+  subscribeToNotifications,
 } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 
@@ -10,22 +11,36 @@ export function useUnreadNotificationsCount() {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    let cleanup: undefined | (() => void);
-
-    async function boot() {
-      if (!user?.id) return;
-      const initial = await getUnreadNotificationsCount();
-      setCount(initial);
-
-      cleanup = subscribeToNotifications(user.id, async () => {
-        const next = await getUnreadNotificationsCount();
-        setCount(next);
-      });
+    if (!user?.id) {
+      setCount(0);
+      return;
     }
 
-    boot();
+    let alive = true;
+    let cleanup: undefined | (() => void);
+
+    const refresh = async () => {
+      try {
+        const next = await getUnreadNotificationsCount();
+        if (!alive) return;
+        setCount(next);
+      } catch {
+        // keep last known count; don't crash UI
+      }
+    };
+
+    (async () => {
+      await refresh();
+
+      // Subscribe AFTER initial fetch
+      cleanup = subscribeToNotifications(user.id, () => {
+        // fire and forget; refresh handles its own guards
+        refresh();
+      });
+    })();
 
     return () => {
+      alive = false;
       cleanup?.();
     };
   }, [user?.id]);

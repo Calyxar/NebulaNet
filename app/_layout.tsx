@@ -1,7 +1,8 @@
-// app/_layout.tsx — providers only (NO auth gating here) + ✅ 30-day inactivity watcher
+// app/_layout.tsx — COMPLETED + UPDATED (stable provider order + themed status bar)
+
 import { startInactivityWatcher } from "@/lib/inactivity";
 import { AuthProvider } from "@/providers/AuthProvider";
-import { ThemeProvider } from "@/providers/ThemeProvider";
+import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -13,6 +14,17 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-url-polyfill/auto";
 
 SplashScreen.preventAutoHideAsync();
+
+function ThemedStatusBar() {
+  const { isDark } = useTheme();
+  return (
+    <StatusBar
+      barStyle={isDark ? "light-content" : "dark-content"}
+      backgroundColor="transparent"
+      translucent
+    />
+  );
+}
 
 export default function RootLayout() {
   const [queryClient] = useState(
@@ -36,10 +48,11 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (fontsLoaded || fontError) SplashScreen.hideAsync();
+    if (fontsLoaded || fontError) {
+      void SplashScreen.hideAsync();
+    }
   }, [fontsLoaded, fontError]);
 
-  // ✅ 30-day inactivity watcher (logs user out only after being away >= 30 days)
   useEffect(() => {
     const stop = startInactivityWatcher();
     return stop;
@@ -50,33 +63,21 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        {Platform.OS === "ios" && <StatusBar barStyle="dark-content" />}
         <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <AuthProvider>
+          {/* ✅ AuthProvider must wrap ThemeProvider (ThemeProvider needs user/settings) */}
+          <AuthProvider>
+            <ThemeProvider>
+              <ThemedStatusBar />
+
               <Stack screenOptions={{ headerShown: false }}>
-                {/* Public */}
                 <Stack.Screen name="index" />
-                <Stack.Screen name="privacy" />
-                <Stack.Screen name="delete-account" />
                 <Stack.Screen name="(auth)" />
-                <Stack.Screen name="verify-email-handler/index" />
-
-                {/* Protected */}
                 <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="post" />
-                <Stack.Screen name="user" />
-                <Stack.Screen name="community" />
-                <Stack.Screen name="create" />
                 <Stack.Screen name="settings" />
-                <Stack.Screen name="profile" />
-                <Stack.Screen name="u/[id]" />
-
-                {/* 404 */}
                 <Stack.Screen name="+not-found" />
               </Stack>
-            </AuthProvider>
-          </ThemeProvider>
+            </ThemeProvider>
+          </AuthProvider>
         </QueryClientProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>

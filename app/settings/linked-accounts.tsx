@@ -67,7 +67,7 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
 };
 
 export default function LinkedAccountsScreen() {
-  const { user, signInWithGoogle } = useAuth();
+  const { user, googleLogin } = useAuth();
 
   const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([
     {
@@ -81,8 +81,12 @@ export default function LinkedAccountsScreen() {
   const handleConnect = (provider: keyof typeof PROVIDER_INFO) => {
     switch (provider) {
       case "google":
-        signInWithGoogle();
+        Alert.alert(
+          "Google Connect",
+          "Google credentials are configured, but linking requires a Google sign-in flow to generate an idToken.\n\nOnce implemented, call:\n\ngoogleLogin.mutate({ idToken, accessToken })",
+        );
         break;
+
       default:
         Alert.alert(
           "Coming Soon",

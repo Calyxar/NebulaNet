@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx — COMPLETED (AppHeader leftWide fix + pixel-perfect header)
+// app/(tabs)/home.tsx — UPDATED (dark mode support)
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
@@ -32,6 +32,8 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { useTheme } from "@/providers/ThemeProvider";
+
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -44,26 +46,10 @@ const timeAgo = (iso: string) => {
 
 type FeedTab = "for-you" | "following" | "my-community";
 
-function StoriesHeader() {
-  return (
-    <View style={styles.storiesWrap}>
-      <TouchableOpacity
-        style={styles.storyItem}
-        onPress={() => router.push("/create/story")}
-        activeOpacity={0.7}
-      >
-        <View style={styles.addStoryCircle}>
-          <Ionicons name="add" size={28} color="#7C3AED" />
-        </View>
-        <Text style={styles.storyLabel}>Add Story</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { colors, isDark } = useTheme();
 
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
@@ -100,27 +86,41 @@ export default function HomeScreen() {
     return (
       <>
         <AppHeader
-          backgroundColor="#F5F7FF"
+          backgroundColor={colors.background}
           leftWide={
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/icon.png")}
                 style={styles.brandLogo}
               />
-              <Text style={styles.brandText} numberOfLines={1}>
+              <Text
+                style={[styles.brandText, { color: colors.text }]}
+                numberOfLines={1}
+              >
                 NebulaNet
               </Text>
             </View>
           }
           right={
             <TouchableOpacity
-              style={styles.bellWrap}
+              style={[
+                styles.bellWrap,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
               onPress={() => router.push("/notifications")}
               activeOpacity={0.7}
             >
-              <Bell size={22} color="#7C3AED" strokeWidth={2.5} />
+              <Bell size={22} color={colors.primary} strokeWidth={2.5} />
               {unreadCount > 0 && (
-                <View style={styles.badge}>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.surface,
+                    },
+                  ]}
+                >
                   <Text style={styles.badgeText}>
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </Text>
@@ -130,30 +130,65 @@ export default function HomeScreen() {
           }
         />
 
-        <StoriesHeader />
+        {/* Stories */}
+        <View
+          style={[styles.storiesWrap, { backgroundColor: colors.background }]}
+        >
+          <TouchableOpacity
+            style={styles.storyItem}
+            onPress={() => router.push("/create/story")}
+            activeOpacity={0.7}
+          >
+            <View
+              style={[
+                styles.addStoryCircle,
+                { borderColor: colors.primary, backgroundColor: colors.card },
+              ]}
+            >
+              <Ionicons name="add" size={28} color={colors.primary} />
+            </View>
+            <Text style={[styles.storyLabel, { color: colors.text }]}>
+              Add Story
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        <View style={styles.segmentWrap}>
-          <View style={styles.segment}>
+        {/* Segments */}
+        <View
+          style={[styles.segmentWrap, { backgroundColor: colors.background }]}
+        >
+          <View
+            style={[
+              styles.segment,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.25 : 0.05,
+              },
+            ]}
+          >
             <SegBtn
               label="For You"
               active={activeTab === "for-you"}
               onPress={() => setActiveTab("for-you")}
+              colors={colors}
             />
             <SegBtn
               label="Following"
               active={activeTab === "following"}
               onPress={() => setActiveTab("following")}
+              colors={colors}
             />
             <SegBtn
               label="My Community"
               active={activeTab === "my-community"}
               onPress={() => setActiveTab("my-community")}
+              colors={colors}
             />
           </View>
         </View>
       </>
     );
-  }, [activeTab, unreadCount]);
+  }, [activeTab, unreadCount, colors, isDark]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -162,7 +197,15 @@ export default function HomeScreen() {
       const media = item.media_urls?.[0];
 
       return (
-        <View style={styles.card}>
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.card,
+              shadowOpacity: isDark ? 0.22 : 0.05,
+            },
+          ]}
+        >
           <View style={styles.cardTop}>
             <View style={styles.authorRow}>
               {avatar ? (
@@ -172,7 +215,7 @@ export default function HomeScreen() {
                   style={[
                     styles.avatar,
                     {
-                      backgroundColor: "#E0E7FF",
+                      backgroundColor: colors.surface,
                       alignItems: "center",
                       justifyContent: "center",
                     },
@@ -180,7 +223,7 @@ export default function HomeScreen() {
                 >
                   <Text
                     style={{
-                      color: "#7C3AED",
+                      color: colors.primary,
                       fontWeight: "700",
                       fontSize: 16,
                     }}
@@ -191,44 +234,66 @@ export default function HomeScreen() {
               )}
 
               <View>
-                <Text style={styles.author}>{author}</Text>
-                <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
+                <Text style={[styles.author, { color: colors.text }]}>
+                  {author}
+                </Text>
+                <Text style={[styles.time, { color: colors.textTertiary }]}>
+                  {timeAgo(item.created_at)}
+                </Text>
               </View>
             </View>
 
             <TouchableOpacity activeOpacity={0.7}>
-              <MoreVertical size={20} color="#9CA3AF" />
+              <MoreVertical size={20} color={colors.textTertiary} />
             </TouchableOpacity>
           </View>
 
-          {!!item.content && <Text style={styles.content}>{item.content}</Text>}
+          {!!item.content && (
+            <Text style={[styles.content, { color: colors.text }]}>
+              {item.content}
+            </Text>
+          )}
 
           {!!media && (
             <Image
               source={{ uri: media }}
-              style={[styles.media, { height: mediaHeight }]}
+              style={[
+                styles.media,
+                { height: mediaHeight, backgroundColor: colors.surface },
+              ]}
               resizeMode="cover"
             />
           )}
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => onLike(item.id)}
               activeOpacity={0.7}
             >
-              <Heart size={20} color="#111827" fill="none" strokeWidth={2.5} />
-              <Text style={styles.actionText}>{item.like_count ?? 0}</Text>
+              <Heart
+                size={20}
+                color={colors.text}
+                fill="none"
+                strokeWidth={2.5}
+              />
+              <Text style={[styles.actionText, { color: colors.text }]}>
+                {item.like_count ?? 0}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
-              <MessageCircle size={20} color="#111827" strokeWidth={2.5} />
-              <Text style={styles.actionText}>{item.comment_count ?? 0}</Text>
+              <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
+              <Text style={[styles.actionText, { color: colors.text }]}>
+                {item.comment_count ?? 0}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
-              <Repeat2 size={20} color="#111827" strokeWidth={2.5} />
-              <Text style={styles.actionText}>{item.share_count ?? 0}</Text>
+              <Repeat2 size={20} color={colors.text} strokeWidth={2.5} />
+              <Text style={[styles.actionText, { color: colors.text }]}>
+                {item.share_count ?? 0}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -238,7 +303,7 @@ export default function HomeScreen() {
             >
               <Bookmark
                 size={20}
-                color="#111827"
+                color={colors.text}
                 fill="none"
                 strokeWidth={2.5}
               />
@@ -247,21 +312,24 @@ export default function HomeScreen() {
         </View>
       );
     },
-    [onLike, onSave, mediaHeight],
+    [onLike, onSave, mediaHeight, colors, isDark],
   );
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#7C3AED" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={["left", "right"]}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      edges={["left", "right"]}
+    >
       <FlatList
         data={posts}
         keyExtractor={(item) => item.id}
@@ -273,14 +341,14 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            colors={["#7C3AED"]}
-            tintColor="#7C3AED"
+            colors={[colors.primary]}
+            tintColor={colors.primary}
           />
         }
         ListFooterComponent={
           isFetchingNextPage ? (
             <View style={{ paddingVertical: 20 }}>
-              <ActivityIndicator size="small" color="#7C3AED" />
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
           ) : null
         }
@@ -297,18 +365,26 @@ function SegBtn({
   label,
   active,
   onPress,
+  colors,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  colors: any;
 }) {
   return (
     <TouchableOpacity
-      style={[styles.segBtn, active && styles.segBtnActive]}
+      style={[styles.segBtn, active && { backgroundColor: colors.primary }]}
       onPress={onPress}
       activeOpacity={0.8}
     >
-      <Text style={[styles.segText, active && styles.segTextActive]}>
+      <Text
+        style={[
+          styles.segText,
+          { color: colors.textTertiary },
+          active && { color: "#FFFFFF" },
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -316,10 +392,8 @@ function SegBtn({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F5F7FF" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  // ✅ IMPORTANT: allow brand to take space without being squished
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -330,7 +404,6 @@ const styles = StyleSheet.create({
   brandText: {
     fontSize: 22,
     fontWeight: "900",
-    color: "#111827",
     letterSpacing: -0.5,
     flexShrink: 1,
   },
@@ -339,16 +412,15 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#E0E7FF",
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+    borderWidth: 1,
   },
   badge: {
     position: "absolute",
     top: 4,
     right: 4,
-    backgroundColor: "#7C3AED",
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -356,7 +428,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 5,
     borderWidth: 2,
-    borderColor: "#E0E7FF",
   },
   badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 
@@ -364,7 +435,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#F5F7FF",
   },
   storyItem: { alignItems: "center", marginRight: 16 },
   addStoryCircle: {
@@ -373,34 +443,25 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,
-    backgroundColor: "#FFFFFF",
   },
   storyLabel: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#111827",
     maxWidth: 72,
     textAlign: "center",
   },
 
-  segmentWrap: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    backgroundColor: "#F5F7FF",
-  },
+  segmentWrap: { paddingHorizontal: 14, paddingBottom: 14 },
   segment: {
-    backgroundColor: "#fff",
     borderRadius: 24,
     padding: 6,
     flexDirection: "row",
     gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
@@ -412,19 +473,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segBtnActive: { backgroundColor: "#7C3AED" },
-  segText: { fontSize: 13, fontWeight: "800", color: "#9CA3AF" },
-  segTextActive: { color: "#FFFFFF" },
+  segText: { fontSize: 13, fontWeight: "800" },
 
   card: {
     marginHorizontal: 14,
     marginBottom: 12,
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 14,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -435,23 +492,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   authorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-  },
-  author: { fontSize: 14, fontWeight: "900", color: "#111827" },
-  time: { fontSize: 12, fontWeight: "700", color: "#9CA3AF", marginTop: 2 },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
+  author: { fontSize: 14, fontWeight: "900" },
+  time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
 
-  content: { fontSize: 14, color: "#111827", lineHeight: 20, marginBottom: 10 },
-
-  media: {
-    width: "100%",
-    borderRadius: 18,
-    backgroundColor: "#F3F4F6",
-    marginBottom: 12,
-  },
+  content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
+  media: { width: "100%", borderRadius: 18, marginBottom: 12 },
 
   actions: {
     flexDirection: "row",
@@ -459,8 +505,7 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
   },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { fontSize: 12.5, fontWeight: "800", color: "#111827" },
+  actionText: { fontSize: 12.5, fontWeight: "800" },
 });

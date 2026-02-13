@@ -1,4 +1,4 @@
-// app/settings/routes.ts
+// app/settings/routes.ts — COMPLETED + UPDATED
 import { router } from "expo-router";
 
 export const SETTINGS_ROUTES = {
@@ -7,6 +7,7 @@ export const SETTINGS_ROUTES = {
   feedPreferences: "/settings/feed-preferences",
   savedContent: "/settings/saved-content",
   language: "/settings/language",
+  appearance: "/settings/appearance",
   privacy: "/settings/privacy",
   blocked: "/settings/blocked",
   notifications: "/settings/notifications",
@@ -34,12 +35,11 @@ export function replaceSettings(key: SettingsRouteKey) {
  * Always "replace" out of settings to avoid looping inside the settings stack.
  */
 export function closeSettings(returnTo?: string) {
-  // If caller gave us a route, go there.
   if (returnTo && typeof returnTo === "string" && returnTo.length) {
     router.replace(returnTo as any);
     return;
   }
 
-  // Otherwise go to your own profile tab (adjust if your route differs)
+  // default: go back to profile tab
   router.replace("/(tabs)/profile" as any);
 }

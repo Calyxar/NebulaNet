@@ -1,6 +1,7 @@
-// app/user/[username].tsx — COMPLETED (privacy gating + hide flags via RPC + optimistic follow + skeletons + UserActionsSheet block/remove)
+// app/user/[username].tsx
 
 import { useAuth } from "@/hooks/useAuth";
+import { createOrOpenChat } from "@/hooks/useCreateOrOpenChat";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -56,6 +57,11 @@ type FollowEdge = {
   follower_id: string;
   following_id: string;
   status: "accepted" | "pending";
+};
+
+type BlockEdge = {
+  blocker_id: string;
+  blocked_id: string;
 };
 
 const profileTabs = ["Activity", "Post", "Tagged", "Media"] as const;
@@ -121,6 +127,26 @@ export default function UserProfileScreen() {
   const isFollowing = !!followEdge && followEdge.status === "accepted";
   const isRequested = !!followEdge && followEdge.status === "pending";
 
+  // 2.5) Block edge (either direction)
+  const { data: blockEdge } = useQuery({
+    queryKey: ["block-edge", user?.id, target?.id],
+    enabled: !!user?.id && !!target?.id && !isMe,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("user_blocks")
+        .select("blocker_id,blocked_id")
+        .or(
+          `and(blocker_id.eq.${user!.id},blocked_id.eq.${target!.id}),and(blocker_id.eq.${target!.id},blocked_id.eq.${user!.id})`,
+        )
+        .maybeSingle();
+
+      if (error) throw error;
+      return (data as BlockEdge | null) ?? null;
+    },
+  });
+
+  const isBlocked = !!blockEdge;
+
   // 3) Can view posts?
   const isPrivate = !!target?.is_private;
   const canViewPosts = useMemo(() => {
@@ -130,7 +156,7 @@ export default function UserProfileScreen() {
     return isFollowing;
   }, [target?.id, isMe, isPrivate, isFollowing]);
 
-  // 4) Privacy flags (hide followers/following) via RPC
+  // 4) Privacy flags via RPC (your function maps from is_private)
   const { data: privacyFlags, isLoading: loadingFlags } = useQuery({
     queryKey: ["profile-privacy-flags", target?.id, user?.id],
     enabled: !!target?.id,
@@ -213,7 +239,6 @@ export default function UserProfileScreen() {
     mutationFn: async () => {
       if (!user?.id || !target?.id) throw new Error("Missing ids");
 
-      // If already following or requested -> unfollow/cancel request
       if (followEdge) {
         const { error } = await supabase
           .from("follows")
@@ -224,7 +249,6 @@ export default function UserProfileScreen() {
         return { next: null as FollowEdge | null };
       }
 
-      // Let DB trigger decide pending vs accepted
       const { data, error } = await supabase
         .from("follows")
         .insert({
@@ -252,10 +276,8 @@ export default function UserProfileScreen() {
       const prevStats = qc.getQueryData<UserStats>(statsKey);
 
       if (prevEdge) {
-        // optimistic delete
         qc.setQueryData(edgeKey, null);
 
-        // followers count down only if previously accepted
         if (prevStats && prevEdge.status === "accepted") {
           qc.setQueryData<UserStats>(statsKey, {
             ...prevStats,
@@ -263,7 +285,6 @@ export default function UserProfileScreen() {
           });
         }
       } else {
-        // optimistic insert (guess status)
         const guessedStatus: FollowEdge["status"] = target.is_private
           ? "pending"
           : "accepted";
@@ -308,7 +329,7 @@ export default function UserProfileScreen() {
     },
   });
 
-  // 8) Block mutation (DB trigger handles cleanup)
+  // 8) Block mutation
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.id || !target?.id) throw new Error("Missing ids");
@@ -322,10 +343,8 @@ export default function UserProfileScreen() {
       return target.id;
     },
     onSuccess: (targetId) => {
-      // wipe social caches (lists, feed, notifications, etc.)
       invalidateAfterBlock(qc, user!.id, targetId);
 
-      // plus profile-specific caches
       qc.invalidateQueries({ queryKey: ["user-profile", username] });
       qc.invalidateQueries({ queryKey: ["user-stats", targetId] });
       qc.invalidateQueries({ queryKey: ["user-posts", targetId] });
@@ -385,7 +404,31 @@ export default function UserProfileScreen() {
     router.push(`/user/${target.username}/following`);
   };
 
-  // ---------- Skeleton page while loading profile ----------
+  // DM rules: blocked OR (private + not following) => no message
+  const canMessage = !isBlocked && (!isPrivate || isFollowing);
+
+  const handleMessage = async () => {
+    if (!user?.id || !target?.id) return;
+
+    if (isBlocked) {
+      Alert.alert("Message unavailable", "You can’t message this user.");
+      return;
+    }
+
+    if (isPrivate && !isFollowing) {
+      Alert.alert("Private account", "Follow this user to message them.");
+      return;
+    }
+
+    try {
+      const conversationId = await createOrOpenChat(user.id, target.id);
+      router.push(`/chat/${conversationId}`);
+    } catch (err) {
+      console.error(err);
+      Alert.alert("Error", "Could not start conversation.");
+    }
+  };
+
   if (loadingProfile) {
     return (
       <SafeAreaView style={styles.container}>
@@ -445,7 +488,6 @@ export default function UserProfileScreen() {
     );
   }
 
-  // ---------- Not found ----------
   if (!target) {
     return (
       <SafeAreaView style={styles.container}>
@@ -478,7 +520,6 @@ export default function UserProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -510,7 +551,6 @@ export default function UserProfileScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.profileTopRow}>
             <View style={styles.profileImageContainer}>
@@ -582,11 +622,10 @@ export default function UserProfileScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.messageButton}
+                style={[styles.messageButton, !canMessage && { opacity: 0.4 }]}
                 activeOpacity={0.9}
-                onPress={() =>
-                  Alert.alert("Coming soon", "DM screen coming next.")
-                }
+                onPress={handleMessage}
+                disabled={!canMessage}
               >
                 <Text style={styles.messageButtonText}>Message</Text>
               </TouchableOpacity>
@@ -627,7 +666,6 @@ export default function UserProfileScreen() {
           )}
         </View>
 
-        {/* Tabs */}
         <View style={styles.tabsContainer}>
           {profileTabs.map((tab) => (
             <TouchableOpacity
@@ -648,7 +686,6 @@ export default function UserProfileScreen() {
           ))}
         </View>
 
-        {/* Content */}
         <View style={styles.contentSection}>
           {activeTab === "Activity" && (
             <View style={styles.emptyState}>
@@ -756,7 +793,6 @@ export default function UserProfileScreen() {
         </View>
       </ScrollView>
 
-      {/* BottomSheet Actions */}
       {!isMe ? (
         <UserActionsSheet
           ref={sheetRef}

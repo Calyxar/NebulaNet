@@ -1,5 +1,6 @@
-// app/(tabs)/create.tsx — COMPLETED (AppHeader + clean safe-area)
+// app/(tabs)/create.tsx — COMPLETED + UPDATED (theme + dark mode)
 import AppHeader from "@/components/navigation/AppHeader";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
@@ -24,6 +25,8 @@ interface CreateOption {
 }
 
 export default function CreateScreen() {
+  const { colors, isDark } = useTheme();
+
   const options: CreateOption[] = useMemo(
     () => [
       {
@@ -70,16 +73,19 @@ export default function CreateScreen() {
   return (
     <>
       <StatusBar
-        barStyle="dark-content"
+        barStyle={isDark ? "light-content" : "dark-content"}
         translucent
         backgroundColor="transparent"
       />
 
       {/* ✅ AppHeader handles TOP safe-area; keep only left/right here */}
-      <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+      <SafeAreaView
+        style={[styles.safe, { backgroundColor: colors.background }]}
+        edges={["left", "right"]}
+      >
         <AppHeader
           title="Create"
-          backgroundColor="#F5F7FF"
+          backgroundColor="transparent"
           onBack={() => router.back()}
         />
 
@@ -87,74 +93,154 @@ export default function CreateScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <View style={styles.card}>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.22 : 0.05,
+              },
+            ]}
+          >
             {options.map((o, idx) => (
               <TouchableOpacity
                 key={o.id}
-                style={[styles.row, idx !== 0 && styles.rowBorder]}
+                style={[
+                  styles.row,
+                  idx !== 0 && [
+                    styles.rowBorder,
+                    { borderTopColor: colors.border },
+                  ],
+                ]}
                 onPress={() => go(o.route)}
                 activeOpacity={0.85}
               >
-                <View style={styles.iconCircle}>
-                  <Ionicons name={o.icon} size={22} color="#7C3AED" />
+                <View
+                  style={[
+                    styles.iconCircle,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons name={o.icon} size={22} color={colors.primary} />
                 </View>
 
                 <View style={styles.rowText}>
-                  <Text style={styles.rowTitle}>{o.title}</Text>
-                  <Text style={styles.rowSubtitle}>{o.subtitle}</Text>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    {o.title}
+                  </Text>
+                  <Text
+                    style={[styles.rowSubtitle, { color: colors.textTertiary }]}
+                  >
+                    {o.subtitle}
+                  </Text>
                 </View>
 
-                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
             ))}
           </View>
 
           <View style={styles.quickWrap}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Quick Actions
+            </Text>
 
             <View style={styles.quickRow}>
               <TouchableOpacity
-                style={styles.quickCard}
+                style={[
+                  styles.quickCard,
+                  {
+                    backgroundColor: colors.card,
+                    shadowOpacity: isDark ? 0.22 : 0.05,
+                  },
+                ]}
                 onPress={() => go("/create/post")}
                 activeOpacity={0.85}
               >
-                <View style={styles.quickIcon}>
-                  <Ionicons name="add" size={20} color="#7C3AED" />
+                <View
+                  style={[
+                    styles.quickIcon,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons name="add" size={20} color={colors.primary} />
                 </View>
-                <Text style={styles.quickText}>Quick Post</Text>
+                <Text style={[styles.quickText, { color: colors.text }]}>
+                  Quick Post
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.quickCard}
+                style={[
+                  styles.quickCard,
+                  {
+                    backgroundColor: colors.card,
+                    shadowOpacity: isDark ? 0.22 : 0.05,
+                  },
+                ]}
                 onPress={() => go("/create/story")}
                 activeOpacity={0.85}
               >
-                <View style={styles.quickIcon}>
-                  <Ionicons name="camera" size={20} color="#7C3AED" />
+                <View
+                  style={[
+                    styles.quickIcon,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons name="camera" size={20} color={colors.primary} />
                 </View>
-                <Text style={styles.quickText}>Story</Text>
+                <Text style={[styles.quickText, { color: colors.text }]}>
+                  Story
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.quickCard}
+                style={[
+                  styles.quickCard,
+                  {
+                    backgroundColor: colors.card,
+                    shadowOpacity: isDark ? 0.22 : 0.05,
+                  },
+                ]}
                 onPress={() => go("/create/media")}
                 activeOpacity={0.85}
               >
-                <View style={styles.quickIcon}>
-                  <Ionicons name="videocam" size={20} color="#7C3AED" />
+                <View
+                  style={[
+                    styles.quickIcon,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons name="videocam" size={20} color={colors.primary} />
                 </View>
-                <Text style={styles.quickText}>Media</Text>
+                <Text style={[styles.quickText, { color: colors.text }]}>
+                  Media
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.tip}>
-            <View style={styles.tipIcon}>
-              <Ionicons name="bulb-outline" size={20} color="#7C3AED" />
+          <View
+            style={[
+              styles.tip,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.22 : 0.05,
+              },
+            ]}
+          >
+            <View style={[styles.tipIcon, { backgroundColor: colors.surface }]}>
+              <Ionicons name="bulb-outline" size={20} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.tipTitle}>Pro Tip</Text>
-              <Text style={styles.tipText}>
+              <Text style={[styles.tipTitle, { color: colors.text }]}>
+                Pro Tip
+              </Text>
+              <Text style={[styles.tipText, { color: colors.textTertiary }]}>
                 Posts with images usually get more engagement.
               </Text>
             </View>
@@ -170,7 +256,6 @@ export default function CreateScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#F5F7FF",
   },
 
   content: {
@@ -180,12 +265,10 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -199,14 +282,12 @@ const styles = StyleSheet.create({
   },
   rowBorder: {
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
   },
 
   iconCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F3ECFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -216,13 +297,11 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 14.5,
     fontWeight: "900",
-    color: "#111827",
   },
   rowSubtitle: {
     marginTop: 2,
     fontSize: 12.5,
     fontWeight: "700",
-    color: "#6B7280",
   },
 
   quickWrap: {
@@ -231,7 +310,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: "900",
-    color: "#111827",
     marginBottom: 10,
     paddingLeft: 2,
   },
@@ -242,13 +320,11 @@ const styles = StyleSheet.create({
   },
   quickCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
     borderRadius: 18,
     paddingVertical: 14,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -256,7 +332,6 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
@@ -264,12 +339,10 @@ const styles = StyleSheet.create({
   quickText: {
     fontSize: 12.5,
     fontWeight: "900",
-    color: "#111827",
   },
 
   tip: {
     marginTop: 14,
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 14,
     flexDirection: "row",
@@ -277,7 +350,6 @@ const styles = StyleSheet.create({
     gap: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
     shadowRadius: 16,
     elevation: 2,
   },
@@ -285,7 +357,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F3ECFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -293,14 +364,12 @@ const styles = StyleSheet.create({
   tipTitle: {
     fontSize: 13.5,
     fontWeight: "900",
-    color: "#111827",
     marginBottom: 2,
   },
 
   tipText: {
     fontSize: 12.5,
     fontWeight: "700",
-    color: "#6B7280",
     lineHeight: 18,
   },
 });

@@ -1,10 +1,13 @@
-// app/(tabs)/chat.tsx — COMPLETED (AppHeader rightWide + non-squished New Chat pill)
+// app/(tabs)/chat.tsx — COMPLETED + UPDATED (ThemeProvider + safe typing/online + stable name/avatar)
+// Keeps your timestamp formatting + name/avatar helpers, but now uses theme colors everywhere.
+
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
 import { ChatConversation } from "@/lib/queries/chat";
 import { useAuth } from "@/providers/AuthProvider";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
@@ -23,9 +26,19 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+type ParticipantRow = {
+  user_id: string;
+  profiles?: {
+    username?: string | null;
+    full_name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+};
+
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
   const { conversations, loading, loadConversations } = useChat();
 
   const bottomPad = useMemo(
@@ -33,7 +46,8 @@ export default function ChatScreen() {
     [insets.bottom],
   );
 
-  const formatTimestamp = (dateString: string) => {
+  const formatTimestamp = (dateString?: string) => {
+    if (!dateString) return "";
     const date = new Date(dateString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -53,7 +67,7 @@ export default function ChatScreen() {
 
     if (!item.is_group && item.participants?.length === 2 && userId) {
       const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId,
+        (p: ParticipantRow) => p.user_id !== userId,
       );
       return otherParticipant?.profiles?.avatar_url || null;
     }
@@ -65,7 +79,7 @@ export default function ChatScreen() {
 
     if (!item.is_group && item.participants?.length === 2 && userId) {
       const otherParticipant = item.participants.find(
-        (p) => p.user_id !== userId,
+        (p: ParticipantRow) => p.user_id !== userId,
       );
       return (
         otherParticipant?.profiles?.full_name ||
@@ -82,52 +96,57 @@ export default function ChatScreen() {
     router.push({ pathname: "/chat/[id]", params: { id: conversationId } });
   };
 
-  const onPressSearch = () => {
-    // wire later if you have a search screen
-    // router.push("/chat/search");
-  };
-
-  const onPressNewChat = () => {
-    // wire later if you have a new-chat screen
-    // router.push("/chat/new");
-  };
+  const onPressSearch = () => router.push("/chat/search");
+  const onPressNewChat = () => router.push("/chat/new");
 
   return (
     <>
       <StatusBar
-        barStyle="dark-content"
+        barStyle={isDark ? "light-content" : "dark-content"}
         translucent
         backgroundColor="transparent"
       />
 
-      <SafeAreaView style={styles.container} edges={["left", "right"]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={["left", "right"]}
+      >
         <AppHeader
           title="Chat"
-          backgroundColor="#FFFFFF"
-          // ✅ rightWide prevents the 44px "right" slot from squishing the pill
+          backgroundColor={colors.surface}
           rightWide={
             <View style={styles.headerActions}>
               <TouchableOpacity
-                style={styles.iconButton}
+                style={[styles.iconButton, { backgroundColor: colors.surface }]}
                 activeOpacity={0.7}
                 onPress={onPressSearch}
               >
-                <Ionicons name="search-outline" size={22} color="#111827" />
+                <Ionicons name="search-outline" size={22} color={colors.text} />
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.addButton}
+                style={[
+                  styles.addButton,
+                  { backgroundColor: colors.inputBackground },
+                ]}
                 activeOpacity={0.85}
                 onPress={onPressNewChat}
               >
-                <Ionicons name="add" size={18} color="#111827" />
-                <Text style={styles.addButtonText}>New Chat</Text>
+                <Ionicons name="add" size={18} color={colors.text} />
+                <Text style={[styles.addButtonText, { color: colors.text }]}>
+                  New Chat
+                </Text>
               </TouchableOpacity>
             </View>
           }
         />
 
-        <View style={styles.storiesContainer}>
+        <View
+          style={[
+            styles.storiesContainer,
+            { borderBottomColor: colors.border },
+          ]}
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -137,13 +156,21 @@ export default function ChatScreen() {
 
         {loading.conversations ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#7C3AED" />
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : conversations.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="chatbubble-outline" size={64} color="#E0E0E0" />
-            <Text style={styles.emptyStateTitle}>No conversations yet</Text>
-            <Text style={styles.emptyStateText}>
+            <Ionicons
+              name="chatbubble-outline"
+              size={64}
+              color={colors.border}
+            />
+            <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+              No conversations yet
+            </Text>
+            <Text
+              style={[styles.emptyStateText, { color: colors.textSecondary }]}
+            >
               Start a conversation with someone!
             </Text>
           </View>
@@ -179,7 +206,7 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
+  container: { flex: 1 },
 
   headerActions: {
     flexDirection: "row",
@@ -192,15 +219,12 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
   },
 
-  // ✅ Slightly taller pill so it looks balanced in a 56px header row
   addButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
     paddingHorizontal: 12,
     height: 40,
     borderRadius: 20,
@@ -209,13 +233,11 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#111827",
   },
 
   storiesContainer: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
   },
   storiesContent: {
     paddingHorizontal: 16,
@@ -235,9 +257,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 16,
     marginBottom: 8,
-    color: "#000",
   },
-  emptyStateText: { fontSize: 15, color: "#999", textAlign: "center" },
+  emptyStateText: { fontSize: 15, textAlign: "center" },
 
   listContent: { paddingTop: 0 },
 });
