@@ -52,6 +52,10 @@ type UserSettingsRow = {
   onboarding_completed_at: string | null;
   theme_preference: ThemePreference | null;
   preferences?: Preferences | null;
+  /** Locale: top-level for DB/API compatibility */
+  language?: string | null;
+  region?: string | null;
+  localized_content?: boolean | null;
   updated_at: string | null;
 };
 
