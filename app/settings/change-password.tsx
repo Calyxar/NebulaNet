@@ -21,7 +21,7 @@ interface PasswordStrength {
 }
 
 export default function ChangePasswordScreen() {
-  const { user, updatePassword } = useAuth();
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     currentPassword: "",
     newPassword: "",
@@ -81,8 +81,15 @@ export default function ChangePasswordScreen() {
         return;
       }
 
-      // Update to new password
-      await updatePassword.mutateAsync({ newPassword: formData.newPassword });
+      // Update to new password using Supabase
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: formData.newPassword,
+      });
+
+      if (updateError) {
+        Alert.alert("Error", updateError.message || "Failed to update password");
+        return;
+      }
 
       // Clear form
       setFormData({
@@ -411,7 +418,7 @@ export default function ChangePasswordScreen() {
         <Button
           title="Update Password"
           onPress={handleUpdatePassword}
-          loading={isLoading || updatePassword.isPending}
+          loading={isLoading}
           disabled={
             !formData.currentPassword ||
             !formData.newPassword ||
@@ -430,7 +437,7 @@ export default function ChangePasswordScreen() {
               confirmPassword: "",
             });
           }}
-          disabled={isLoading || updatePassword.isPending}
+          disabled={isLoading}
         >
           <Text style={styles.cancelButtonText}>Clear Form</Text>
         </TouchableOpacity>
