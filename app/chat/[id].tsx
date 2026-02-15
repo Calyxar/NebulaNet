@@ -51,7 +51,7 @@ export default function ChatConversationScreen() {
       user?.id
     ) {
       const other = conversation.participants.find(
-        (p) => p.user_id !== user.id,
+        (p: any) => p.user_id !== user.id,
       );
       return (
         other?.profiles?.full_name ||
@@ -81,7 +81,7 @@ export default function ChatConversationScreen() {
       user?.id
     ) {
       const other = conversation.participants.find(
-        (p) => p.user_id !== user.id,
+        (p: any) => p.user_id !== user.id,
       );
       return other?.profiles?.username || "";
     }

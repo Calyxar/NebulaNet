@@ -1,17 +1,53 @@
 // lib/queries/chat.ts - UPDATED VERSION WITH ALL SUBSCRIPTIONS
 import { SupabaseAttachment } from "@/components/chat/ChatInput";
-import { supabase, Tables } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
-export type ChatMessage = Tables["messages"]["Row"] & {
-  sender?: Tables["profiles"]["Row"];
+// Minimal type definitions for database rows (replace with generated types if available)
+type MessageRow = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  attachments?: SupabaseAttachment[];
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  username: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+};
+
+type ConversationRow = {
+  id: string;
+  name: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_id: string | null;
+  is_typing: boolean | null;
+  is_group?: boolean | null;
+  avatar_url?: string | null;
+  unread_count?: number | null;
+  is_online?: boolean | null;
+  is_pinned?: boolean | null;
+};
+
+export type ChatMessage = MessageRow & {
+  sender?: ProfileRow;
   // ✅ Already added: attachments property
   attachments?: SupabaseAttachment[];
 };
 
-export type ChatConversation = Tables["conversations"]["Row"] & {
+export type ChatConversation = ConversationRow & {
   participants?: {
     user_id: string;
-    profiles?: Tables["profiles"]["Row"];
+    profiles?: ProfileRow;
   }[];
   last_message?: ChatMessage;
 };
@@ -33,7 +69,7 @@ export const chatSubscriptions = {
         table: "messages",
         filter: `conversation_id=eq.${conversationId}`,
       },
-      (payload) => {
+      (payload: { new: MessageRow }) => {
         // Only call callback for messages not from current user
         if (payload.new.sender_id !== userId) {
           callback(payload);
@@ -110,7 +146,7 @@ export const chatSubscriptions = {
         table: "conversations",
         filter: `id=eq.${conversationId}`,
       },
-      (payload) => {
+      (payload: { new: ConversationRow; old?: ConversationRow }) => {
         if (payload.new.is_typing !== payload.old?.is_typing) {
           callback(payload);
         }

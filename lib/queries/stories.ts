@@ -112,6 +112,39 @@ export async function fetchActiveStories(): Promise<StoryRow[]> {
   }));
 }
 
+export async function fetchActiveStoriesByUser(
+  userId: string,
+): Promise<StoryRow[]> {
+  const { data, error } = await supabase
+    .from("stories")
+    .select(
+      `
+      id,
+      user_id,
+      media_url,
+      media_type,
+      caption,
+      created_at,
+      expires_at,
+      profiles:profiles (
+        username,
+        full_name,
+        avatar_url
+      )
+    `,
+    )
+    .eq("user_id", userId)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    profiles: normalizeProfile(row.profiles),
+  }));
+}
+
 /* -------------------- SEEN -------------------- */
 
 export async function markStorySeen(storyId: string) {
@@ -234,4 +267,23 @@ export async function createStory(params: {
     ...(inserted as any),
     profiles: normalizeProfile((inserted as any).profiles),
   };
+}
+
+/* -------------------- REPLIES -------------------- */
+
+export async function sendStoryReply(
+  storyId: string,
+  content: string,
+): Promise<void> {
+  const { data } = await supabase.auth.getUser();
+  const user = data.user;
+  if (!user) throw new Error("Not authenticated");
+
+  const { error } = await supabase.from("story_comments").insert({
+    story_id: storyId,
+    user_id: user.id,
+    content: content.trim(),
+  });
+
+  if (error) throw error;
 }

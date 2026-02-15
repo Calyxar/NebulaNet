@@ -87,9 +87,24 @@ export default function LanguageRegionScreen() {
     if (!user?.id) return;
     if (isUserSettingsLoading) return;
 
-    const dbLang = userSettings?.language?.toLowerCase() || null;
-    const dbRegion = userSettings?.region?.toUpperCase() || null;
-    const dbLocalized = !!userSettings?.localized_content;
+    // Provide fallbacks and avoid errors if userSettings props do not exist
+    const dbLang =
+      userSettings &&
+      "language" in userSettings &&
+      typeof (userSettings as any).language === "string"
+        ? ((userSettings as any).language || "").toLowerCase() || null
+        : null;
+
+    const dbRegion =
+      userSettings &&
+      "region" in userSettings &&
+      typeof (userSettings as any).region === "string"
+        ? ((userSettings as any).region || "").toUpperCase() || null
+        : null;
+
+    const dbLocalized = !!(userSettings && "localized_content" in userSettings
+      ? (userSettings as any).localized_content
+      : false);
 
     // If DB has something, use it
     if (dbLang || dbRegion) {

@@ -428,7 +428,7 @@ export function useNotifications() {
             table: "notifications",
             filter: `receiver_id=eq.${user.id}`,
           },
-          async (payload) => {
+          async (payload: { new: unknown }) => {
             // Play sound for new notification
             await playNotificationSound();
 

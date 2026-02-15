@@ -185,7 +185,7 @@ export default function StoryViewerScreen() {
           return;
         }
 
-        const idx = list.findIndex((s) => s.id === story.id);
+        const idx = list.findIndex((s: StoryRow) => s.id === story.id);
         setStories(list);
         setIndex(idx >= 0 ? idx : 0);
         setIsOwner(!!me && me.id === story.user_id);
