@@ -1,4 +1,12 @@
-// app/community/[slug].tsx - FIXED (types + supabase joins + FlatList overloads)
+// app/community/[slug].tsx — COMPLETED + UPDATED ✅
+// Fixes included:
+// ✅ Uses slug routes (/community/[slug])
+// ✅ Works whether your communities table has (is_private/owner_id) OR NOT (fallback-safe)
+// ✅ Uses communities.image_url (your DB column) instead of avatar_url
+// ✅ Private gating uses computed "joined" (no stale isJoined bug)
+// ✅ Supabase joins aliased to singular "profile" to match TS
+// ✅ Separate FlatLists to avoid TS overload issues
+
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,9 +38,16 @@ type Community = {
   slug: string;
   name: string;
   description: string | null;
-  is_private: boolean;
-  owner_id: string;
-  avatar_url?: string | null;
+
+  // Your DB columns (confirmed)
+  image_url: string | null;
+  member_count: number | null;
+  created_at?: string;
+  updated_at?: string;
+
+  // Optional (only if your schema has them)
+  is_private?: boolean | null;
+  owner_id?: string | null;
   banner_url?: string | null;
 };
 
@@ -43,15 +58,13 @@ type Post = {
   content: string;
   media_urls: string[];
   created_at: string;
-  // IMPORTANT: make this singular so it matches Supabase join output when aliased
-  profile: ProfileMini | null;
+  profile: ProfileMini | null; // join alias output (singular)
 };
 
 type Member = {
   user_id: string;
   joined_at: string;
-  // IMPORTANT: make this singular so it matches Supabase join output when aliased
-  profile: ProfileMini | null;
+  profile: ProfileMini | null; // join alias output (singular)
 };
 
 type Rule = {
@@ -69,7 +82,7 @@ type MediaGridItem = {
 /* ----------------------------- helpers ----------------------------- */
 
 const isVideoUrl = (url: string) =>
-  /\.(mp4|mov|m4v|webm)$/i.test(url) || url.includes("video");
+  /\.(mp4|mov|m4v|webm)$/i.test(url) || url.toLowerCase().includes("video");
 
 const formatTimeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -80,6 +93,10 @@ const formatTimeAgo = (iso: string) => {
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
 };
+
+function normalizeBool(v: any): boolean {
+  return v === true;
+}
 
 /* ----------------------------- screen ----------------------------- */
 
@@ -104,22 +121,58 @@ export default function CommunityScreen() {
 
   /* ----------------------------- load ----------------------------- */
 
+  const fetchCommunityBySlug = useCallback(async (slugValue: string) => {
+    // Try "full" select first (in case you DO have private fields)
+    const fullSelect =
+      "id, slug, name, description, image_url, member_count, created_at, updated_at, is_private, owner_id, banner_url";
+    const minimalSelect =
+      "id, slug, name, description, image_url, member_count, created_at, updated_at";
+
+    const attempt1 = await supabase
+      .from("communities")
+      .select(fullSelect)
+      .eq("slug", slugValue)
+      .single();
+
+    if (!attempt1.error && attempt1.data) return attempt1.data as Community;
+
+    // Fallback: if your schema does NOT have is_private/owner_id/banner_url,
+    // retry with minimal columns so the screen doesn't break.
+    const msg = attempt1.error?.message ?? "";
+    const looksLikeMissingColumn =
+      msg.includes("does not exist") || msg.includes("column");
+
+    if (looksLikeMissingColumn) {
+      const attempt2 = await supabase
+        .from("communities")
+        .select(minimalSelect)
+        .eq("slug", slugValue)
+        .single();
+
+      if (attempt2.error) throw attempt2.error;
+      if (!attempt2.data) throw new Error("Community not found");
+      return attempt2.data as Community;
+    }
+
+    throw attempt1.error;
+  }, []);
+
   const loadCommunity = useCallback(async () => {
     if (!slug) return;
+
     setLoading(true);
 
     try {
-      const { data: c, error: cErr } = await supabase
-        .from("communities")
-        .select("*")
-        .eq("slug", slug)
-        .single();
-
-      if (cErr) throw cErr;
-      if (!c) throw new Error("Community not found");
+      // 1) Fetch the community by slug (fallback-safe)
+      const c = await fetchCommunityBySlug(slug);
       setCommunity(c);
 
-      // joined / moderator checks
+      // 2) Determine membership + moderator status
+      let joined = false;
+      let moderator = false;
+
+      const ownerId = c.owner_id ?? null;
+
       if (user?.id) {
         const [{ data: member, error: memErr }, { data: mod, error: modErr }] =
           await Promise.all([
@@ -140,19 +193,22 @@ export default function CommunityScreen() {
         if (memErr) console.warn("member check error", memErr);
         if (modErr) console.warn("mod check error", modErr);
 
-        const joined = !!member || c.owner_id === user.id;
-        const moderator = !!mod || c.owner_id === user.id;
-        setIsJoined(joined);
-        setIsModerator(moderator);
-      } else {
-        setIsJoined(false);
-        setIsModerator(false);
+        joined = !!member || (!!ownerId && ownerId === user.id);
+        moderator = !!mod || (!!ownerId && ownerId === user.id);
       }
 
-      // If private and not joined -> don't fetch private tabs content
-      const canViewPrivate =
-        !c.is_private || isJoined || c.owner_id === user?.id;
+      setIsJoined(joined);
+      setIsModerator(moderator);
 
+      // ✅ Private gating:
+      // If your DB lacks is_private, treat as public.
+      const isPrivate = normalizeBool(c.is_private);
+      const isOwner = !!ownerId && ownerId === user?.id;
+
+      // ✅ FIX: use computed "joined" (not stale state)
+      const canViewPrivate = !isPrivate || joined || isOwner;
+
+      // 3) Load tabs content only if allowed
       const [
         { data: p, error: pErr },
         { data: m, error: mErr },
@@ -162,10 +218,10 @@ export default function CommunityScreen() {
           ? supabase
               .from("posts")
               .select(
-                // IMPORTANT: alias join to singular "profile" (not "profiles")
                 "id, user_id, community_id, content, media_urls, created_at, profile:profiles!posts_user_id_fkey(username, full_name, avatar_url)",
               )
               .eq("community_id", c.id)
+              .eq("is_visible", true)
               .order("created_at", { ascending: false })
           : Promise.resolve({ data: [], error: null } as any),
 
@@ -173,10 +229,10 @@ export default function CommunityScreen() {
           ? supabase
               .from("community_members")
               .select(
-                // IMPORTANT: alias join to singular "profile" (not "profiles")
                 "user_id, joined_at, profile:profiles!community_members_user_id_fkey(username, full_name, avatar_url)",
               )
               .eq("community_id", c.id)
+              .order("joined_at", { ascending: false })
           : Promise.resolve({ data: [], error: null } as any),
 
         canViewPrivate
@@ -184,7 +240,7 @@ export default function CommunityScreen() {
               .from("community_rules")
               .select("id, title, description")
               .eq("community_id", c.id)
-              .order("rule_order")
+              .order("rule_order", { ascending: true })
           : Promise.resolve({ data: [], error: null } as any),
       ]);
 
@@ -200,23 +256,24 @@ export default function CommunityScreen() {
       setMembers(membersTyped);
       setRules(rulesTyped);
 
+      // 4) Build media grid list
       const grid: MediaGridItem[] = [];
-      postsTyped.forEach((post) =>
-        (post.media_urls ?? []).forEach((url: string) =>
+      postsTyped.forEach((post) => {
+        (post.media_urls ?? []).forEach((url: string) => {
           grid.push({
             postId: post.id,
             url,
             type: isVideoUrl(url) ? "video" : "image",
-          }),
-        ),
-      );
+          });
+        });
+      });
       setMedia(grid);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load community");
     } finally {
       setLoading(false);
     }
-  }, [slug, user?.id, isJoined]);
+  }, [slug, user?.id, fetchCommunityBySlug]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -244,9 +301,9 @@ export default function CommunityScreen() {
 
         {!!item.content && <Text style={styles.content}>{item.content}</Text>}
 
-        {firstMedia && (
+        {firstMedia ? (
           <Image source={{ uri: firstMedia }} style={styles.mediaHero} />
-        )}
+        ) : null}
       </View>
     );
   }, []);
@@ -295,9 +352,16 @@ export default function CommunityScreen() {
 
   const isLocked = useMemo(() => {
     if (!community) return false;
-    if (!community.is_private) return false;
+
+    // If your schema doesn't have is_private, don't lock
+    const isPrivate = normalizeBool(community.is_private);
+    if (!isPrivate) return false;
+
     if (!user?.id) return true;
-    if (community.owner_id === user.id) return false;
+
+    const isOwner = !!community.owner_id && community.owner_id === user.id;
+    if (isOwner) return false;
+
     return !isJoined;
   }, [community, user?.id, isJoined]);
 
@@ -317,6 +381,8 @@ export default function CommunityScreen() {
     );
   }
 
+  const showPrivatePill = normalizeBool(community.is_private);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -334,13 +400,23 @@ export default function CommunityScreen() {
           )}
         </View>
 
-        {community.is_private && (
+        {showPrivatePill && (
           <View style={styles.privatePill}>
             <Ionicons name="lock-closed" size={14} color="#7C3AED" />
             <Text style={styles.privatePillText}>Private</Text>
           </View>
         )}
       </View>
+
+      {/* Optional community image */}
+      {!!community.image_url && (
+        <View style={{ paddingHorizontal: 14, paddingTop: 10 }}>
+          <Image
+            source={{ uri: community.image_url }}
+            style={styles.communityHero}
+          />
+        </View>
+      )}
 
       {/* Locked State */}
       {isLocked ? (
@@ -364,7 +440,7 @@ export default function CommunityScreen() {
             ))}
           </View>
 
-          {/* Content (separate FlatLists to fix TS overload issues) */}
+          {/* Content */}
           {activeTab === "feed" && (
             <FlatList<Post>
               data={posts}
@@ -463,6 +539,13 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: "900" },
   subtitle: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  communityHero: {
+    width: "100%",
+    height: 160,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+  },
 
   privatePill: {
     flexDirection: "row",

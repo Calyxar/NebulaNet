@@ -1,5 +1,5 @@
-// hooks/useFeed.ts
-import { MediaItem } from "@/components/media/MediaUpload";
+// hooks/useFeed.ts — FINAL ✅ (no is_public, uses visibility + media_urls + communities.slug)
+
 import { supabase } from "@/lib/supabase";
 import {
   useInfiniteQuery,
@@ -12,84 +12,57 @@ export type PostVisibility = "public" | "followers" | "private";
 export interface Post {
   id: string;
   content: string;
-  title?: string;
+  title?: string | null;
   user_id: string;
-  community_id?: string;
+  community_id?: string | null;
 
-  // NEW preferred
-  visibility?: PostVisibility;
-
-  // OLD legacy
-  is_public?: boolean;
+  visibility: PostVisibility;
 
   created_at: string;
   updated_at: string;
+
   like_count: number;
   comment_count: number;
   share_count: number;
-  media: MediaItem[];
+
+  media_urls?: string[];
+
   user: {
     id: string;
     username: string;
-    full_name?: string;
-    avatar_url?: string;
+    full_name?: string | null;
+    avatar_url?: string | null;
   };
+
   community?: {
     id: string;
     name: string;
     slug: string;
-    avatar_url?: string;
-  };
+    avatar_url?: string | null;
+  } | null;
+
   is_liked?: boolean;
   is_saved?: boolean;
-
-  // handy for UI
-  _visibility?: PostVisibility;
 }
 
 interface CreatePostData {
   title?: string;
   content: string;
-  community_id?: string;
-
-  // NEW preferred
+  community_id?: string | null;
   visibility?: PostVisibility;
-
-  // OLD legacy
-  is_public?: boolean;
-
-  media?: MediaItem[];
+  media_urls?: string[];
 }
 
 interface FeedFilters {
   type?: "home" | "community" | "user";
-  communitySlug?: string;
+  communitySlug?: string; // ✅ real slug now
   username?: string;
   sort?: "newest" | "popular" | "trending";
 }
 
-function normalizeVisibility(p: Post): PostVisibility {
-  if (p.visibility) return p.visibility;
-  return p.is_public === false ? "private" : "public";
-}
-
-function applyVisibilityWrite(data: {
-  visibility?: PostVisibility;
-  is_public?: boolean;
-}) {
-  if (data.visibility) {
-    return {
-      visibility: data.visibility,
-      is_public: data.visibility === "private" ? false : true,
-    };
-  }
-  if (typeof data.is_public === "boolean") {
-    return {
-      is_public: data.is_public,
-      visibility: data.is_public ? "public" : "private",
-    };
-  }
-  return { visibility: "public" as const, is_public: true };
+function normalizeVisibility(v: any): PostVisibility {
+  if (v === "public" || v === "followers" || v === "private") return v;
+  return "public";
 }
 
 export function useFeed(filters: FeedFilters = { type: "home" }) {
@@ -108,10 +81,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         saves!left(user_id, post_id)
       `,
       )
+      .eq("is_visible", true) // ✅ since you have it
       .order("created_at", { ascending: false })
       .range(pageParam * PAGE_SIZE, (pageParam + 1) * PAGE_SIZE - 1);
 
-    // community filter
+    // community filter by slug
     if (filters.type === "community" && filters.communitySlug) {
       const { data: community } = await supabase
         .from("communities")
@@ -119,7 +93,7 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         .eq("slug", filters.communitySlug)
         .single();
 
-      if (community) query = query.eq("community_id", community.id);
+      if (community?.id) query = query.eq("community_id", community.id);
     }
 
     // user filter
@@ -130,10 +104,10 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         .eq("username", filters.username)
         .single();
 
-      if (userRow) query = query.eq("user_id", userRow.id);
+      if (userRow?.id) query = query.eq("user_id", userRow.id);
     }
 
-    // home feed: followed users OR joined communities OR your own posts
+    // home feed logic
     if (filters.type === "home") {
       const {
         data: { user },
@@ -159,20 +133,13 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
           .map((j: any) => j.community_id)
           .filter(Boolean);
 
-        // Build OR safely (Supabase OR breaks on empty in())
         const orParts: string[] = [];
-
-        // include your own posts
         orParts.push(`user_id.eq.${user.id}`);
-
-        if (userIds.length > 0) {
+        if (userIds.length > 0)
           orParts.push(`user_id.in.(${userIds.join(",")})`);
-        }
-        if (communityIds.length > 0) {
+        if (communityIds.length > 0)
           orParts.push(`community_id.in.(${communityIds.join(",")})`);
-        }
 
-        // Only apply OR if we actually have something (we always have own posts)
         query = query.or(orParts.join(","));
       }
     }
@@ -195,19 +162,16 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
     } = await supabase.auth.getUser();
 
     const postsWithStatus: Post[] =
-      data?.map((post: any) => {
-        const normalized = normalizeVisibility(post as Post);
-        return {
-          ...(post as Post),
-          _visibility: normalized,
-          is_liked: user
-            ? post.likes?.some((like: any) => like.user_id === user.id)
-            : false,
-          is_saved: user
-            ? post.saves?.some((save: any) => save.user_id === user.id)
-            : false,
-        };
-      }) || [];
+      data?.map((post: any) => ({
+        ...(post as Post),
+        visibility: normalizeVisibility(post.visibility),
+        is_liked: user
+          ? post.likes?.some((like: any) => like.user_id === user.id)
+          : false,
+        is_saved: user
+          ? post.saves?.some((save: any) => save.user_id === user.id)
+          : false,
+      })) || [];
 
     return {
       posts: postsWithStatus,
@@ -229,20 +193,19 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const privacyWrite = applyVisibilityWrite({
-        visibility: postData.visibility,
-        is_public: postData.is_public,
-      });
-
       const { data, error } = await supabase
         .from("posts")
         .insert({
           user_id: user.id,
-          title: postData.title,
+          title: postData.title ?? null,
           content: postData.content,
-          community_id: postData.community_id,
-          media: postData.media || [],
-          ...privacyWrite,
+          community_id: postData.community_id ?? null,
+          media_urls: postData.media_urls ?? [],
+          visibility: postData.visibility ?? "public",
+          is_visible: true,
+          like_count: 0,
+          comment_count: 0,
+          share_count: 0,
         })
         .select()
         .single();
@@ -267,7 +230,7 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         .select("*")
         .eq("user_id", user.id)
         .eq("post_id", postId)
-        .single();
+        .maybeSingle();
 
       if (existingLike) {
         const { error } = await supabase
@@ -303,7 +266,7 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         .select("*")
         .eq("user_id", user.id)
         .eq("post_id", postId)
-        .single();
+        .maybeSingle();
 
       if (existingSave) {
         const { error } = await supabase

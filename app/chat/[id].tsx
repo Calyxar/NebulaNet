@@ -134,7 +134,7 @@ export default function ChatConversationScreen() {
         <ChatList
           messages={messages.map((msg) => ({
             id: msg.id,
-            content: msg.content,
+            content: msg.content ?? "",
             sender: msg.sender_id === user?.id ? "me" : "other",
             timestamp: new Date(msg.created_at).toLocaleTimeString([], {
               hour: "2-digit",
@@ -145,9 +145,9 @@ export default function ChatConversationScreen() {
               : msg.delivered_at
                 ? "delivered"
                 : "sent",
-            mediaUrl: msg.media_url || undefined,
-            mediaType: msg.media_type || undefined,
-            attachments: msg.attachments || undefined,
+            mediaUrl: msg.media_url ?? undefined,
+            mediaType: (msg.media_type as "image" | "video" | "audio" | "file" | undefined) ?? undefined,
+            attachments: msg.attachments ?? undefined,
           }))}
           isLoading={loading.messages}
         />

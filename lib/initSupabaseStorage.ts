@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 export const initializeStorageBuckets = async () => {
   try {
     const { data: buckets } = await supabase.storage.listBuckets();
-    const existingBuckets = buckets?.map((b) => b.name) || [];
+    const existingBuckets = buckets?.map((b: { name: string }) => b.name) || [];
 
     const requiredBuckets = [
       {
