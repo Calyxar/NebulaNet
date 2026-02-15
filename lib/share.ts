@@ -1,6 +1,7 @@
 // lib/share.ts
 import * as Clipboard from "expo-clipboard";
 import { Alert, Platform, Share as RNShare } from "react-native";
+import { supabase } from "./supabase";
 
 // Remove these imports if they don't exist in supabase.ts
 // import {
@@ -23,17 +24,23 @@ export const generateCommunityLink = (slug: string): string => {
   return `https://nebulanet.space/community/${slug}`;
 };
 
-// Mock incrementShareCount function - replace with real implementation
 const incrementShareCount = async (postId: string): Promise<void> => {
   try {
-    // TODO: Replace with actual Supabase call
-    // Example:
-    // const { error } = await supabase
-    //   .from('posts')
-    //   .update({ share_count: supabase.sql('share_count + 1') })
-    //   .eq('id', postId);
+    const { data, error: fetchError } = await supabase
+      .from("posts")
+      .select("share_count")
+      .eq("id", postId)
+      .single();
 
-    console.log(`Share count incremented for post ${postId}`);
+    if (fetchError || data == null) return;
+
+    const next = (data.share_count ?? 0) + 1;
+    const { error: updateError } = await supabase
+      .from("posts")
+      .update({ share_count: next })
+      .eq("id", postId);
+
+    if (updateError) throw updateError;
   } catch (error) {
     console.error("Error incrementing share count:", error);
   }

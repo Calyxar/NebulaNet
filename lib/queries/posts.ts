@@ -1,4 +1,5 @@
-// lib/queries/posts.ts — COMPLETED + UPDATED
+// lib/queries/posts.ts — FINAL ✅ (media_urls + visibility + communities.slug)
+
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { supabase } from "@/lib/supabase";
 
@@ -35,14 +36,11 @@ interface SupabasePostResponse {
 
   like_count: number;
   comment_count: number;
-
-  // ✅ Keep raw as nullable (what Supabase might return)
   share_count: number | null;
 
   created_at: string;
   updated_at: string;
 
-  // Relations come back as arrays in Supabase
   user: ProfileRow[];
   community?: CommunityRow[] | null;
 }
@@ -57,11 +55,8 @@ export interface Post extends Omit<
 > {
   user: ProfileRow | null;
   community: CommunityRow | null;
-
-  // ✅ UI-safe: always a number
   share_count: number;
 
-  // flags (filled by queries)
   is_liked?: boolean;
   is_saved?: boolean;
   is_owned?: boolean;
@@ -88,7 +83,7 @@ export interface UpdatePostData {
 export interface PostFilters {
   limit?: number;
   offset?: number;
-  communitySlug?: string;
+  communitySlug?: string; // ✅ real slug
   username?: string;
   userId?: string;
   visibility?: PostVisibility;
@@ -105,14 +100,9 @@ export interface PaginatedPosts {
    HELPERS
    ========================================================= */
 
-function normalizeVisibility(p: {
-  visibility?: unknown;
-  is_public?: unknown;
-}): PostVisibility {
+function normalizeVisibility(p: { visibility?: unknown }): PostVisibility {
   const v = p?.visibility;
   if (v === "public" || v === "followers" || v === "private") return v;
-  if (typeof p?.is_public === "boolean")
-    return p.is_public ? "public" : "private";
   return "public";
 }
 
@@ -125,10 +115,7 @@ function normalizePost(
     user: post.user?.[0] ?? null,
     community: post.community?.[0] ?? null,
     visibility: normalizeVisibility(post),
-
-    // ✅ normalize share_count to a real number
     share_count: typeof post.share_count === "number" ? post.share_count : 0,
-
     ...extras,
   };
 }
@@ -149,10 +136,6 @@ function makeObjectPath(userId: string, ext: string): string {
   return `media/${userId}/${Date.now()}-${rand}.${ext}`;
 }
 
-/**
- * For posts.media_urls, decide what types you accept.
- * Default: image/video/gif only.
- */
 const POST_MEDIA_TYPES: ReadonlySet<MediaType> = new Set([
   "image",
   "video",
@@ -164,9 +147,7 @@ async function uploadOneToBucket(
   item: MediaItem,
   bucket: string,
 ): Promise<{ publicUrl: string; objectPath: string }> {
-  if (isRemoteUrl(item.uri)) {
-    return { publicUrl: item.uri, objectPath: "" };
-  }
+  if (isRemoteUrl(item.uri)) return { publicUrl: item.uri, objectPath: "" };
 
   const res = await fetch(item.uri);
   if (!res.ok) throw new Error("Failed to read media file");
@@ -194,8 +175,7 @@ async function uploadOneToBucket(
   if (uploadError) throw uploadError;
 
   const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
-  if (!data?.publicUrl)
-    throw new Error("Failed to get public URL for uploaded media");
+  if (!data?.publicUrl) throw new Error("Failed to get public URL");
 
   return { publicUrl: data.publicUrl, objectPath };
 }
@@ -212,7 +192,6 @@ async function uploadMediaForPost(
 
   for (const item of media) {
     if (!POST_MEDIA_TYPES.has(item.type)) continue;
-
     const { publicUrl, objectPath } = await uploadOneToBucket(
       userId,
       item,
@@ -276,6 +255,7 @@ export async function getPosts(
       .select("id")
       .eq("slug", communitySlug)
       .single();
+
     if (data?.id) query = query.eq("community_id", data.id);
   }
 
@@ -310,10 +290,7 @@ export async function getPosts(
   query = query.range(offset, offset + limit - 1);
 
   const { data, error, count } = await query;
-  if (error || !data) {
-    console.error(error);
-    return { posts: [], total: 0, hasMore: false };
-  }
+  if (error || !data) return { posts: [], total: 0, hasMore: false };
 
   const {
     data: { user },
@@ -338,7 +315,6 @@ export async function getPosts(
         .in("post_id", ids),
     ]);
 
-    // ✅ Fix implicit any for l/s
     likedIds =
       (likes as { post_id: string }[] | null)?.map((l) => l.post_id) ?? [];
     savedIds =
@@ -399,12 +375,10 @@ export async function getPostById(id: string): Promise<Post | null> {
     is_saved = !!save;
   }
 
-  const row = data as SupabasePostResponse;
-
-  return normalizePost(row, {
+  return normalizePost(data as SupabasePostResponse, {
     is_liked,
     is_saved,
-    is_owned: user ? row.user_id === user.id : false,
+    is_owned: user ? (data as SupabasePostResponse).user_id === user.id : false,
   });
 }
 
@@ -422,7 +396,6 @@ export async function createPost(
   if (!user) throw new Error("User not authenticated");
 
   const bucket = "post-media";
-
   const uploaded = await uploadMediaForPost(user.id, postData.media, bucket);
 
   const { data, error } = await supabase
@@ -437,12 +410,12 @@ export async function createPost(
       like_count: 0,
       comment_count: 0,
       share_count: 0,
+      is_visible: true, // ✅ since your posts table has it
     })
     .select(POST_SELECT)
     .single();
 
   if (error || !data) {
-    console.error(error);
     await cleanupUploaded(bucket, uploaded.uploadedObjectPaths);
     return null;
   }
@@ -481,11 +454,7 @@ export async function updatePost(
     .select(POST_SELECT)
     .single();
 
-  if (error || !data) {
-    console.error(error);
-    return null;
-  }
-
+  if (error || !data) return null;
   return normalizePost(data as SupabasePostResponse, { is_owned: true });
 }
 
@@ -505,11 +474,5 @@ export async function deletePost(postId: string): Promise<boolean> {
     .delete()
     .eq("id", postId)
     .eq("user_id", user.id);
-
-  if (error) {
-    console.error(error);
-    return false;
-  }
-
-  return true;
+  return !error;
 }

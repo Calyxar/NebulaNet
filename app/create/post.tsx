@@ -1,4 +1,6 @@
-// app/create/post.tsx - NebulaNet (single version) ✅ privacy + record video + schema-consistent
+// app/create/post.tsx — UPDATED ✅ uses visibility + media_urls (no is_public)
+// Fixes: "Could not find is_public column" + aligns to posts table columns
+
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,16 +23,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 type MediaType = "image" | "video";
 type Visibility = "public" | "followers" | "private";
 
-interface MediaItem {
-  id: string;
-  uri: string; // final uploaded URL
-  type: MediaType;
-  name?: string;
-  size?: number;
-  duration?: number;
-  thumbnail?: string; // optional thumbnail URL
-}
-
 interface LocalMediaItem {
   uri: string; // local file:// URI
   type: MediaType;
@@ -42,7 +34,8 @@ export default function CreatePostScreen() {
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
 
-  const [selectedCommunity] = useState(""); // wire later
+  // IMPORTANT: this should be a community_id (uuid) when you wire it
+  const [selectedCommunityId] = useState<string>(""); // wire later
   const [visibility, setVisibility] = useState<Visibility>("public");
 
   const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
@@ -91,7 +84,7 @@ export default function CreatePostScreen() {
 
     const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
-      type: "image" as const, // ✅ TS fix
+      type: "image" as const,
     }));
 
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
@@ -112,7 +105,7 @@ export default function CreatePostScreen() {
 
     const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
-      type: "video" as const, // ✅ TS fix
+      type: "video" as const,
     }));
 
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
@@ -130,10 +123,10 @@ export default function CreatePostScreen() {
     if (result.canceled || !result.assets?.length) return;
 
     setMediaItems((prev) =>
-      [
-        ...prev,
-        { uri: result.assets[0].uri, type: "video" as const }, // ✅ TS fix
-      ].slice(0, 10),
+      [...prev, { uri: result.assets[0].uri, type: "video" as const }].slice(
+        0,
+        10,
+      ),
     );
   };
 
@@ -167,15 +160,15 @@ export default function CreatePostScreen() {
   };
 
   /**
-   * Upload media to Supabase Storage and return MediaItem[]
+   * Upload media to Supabase Storage and return public URL string[]
    * Bucket: post-media
    * Path: media/<userId>/<timestamp-random>.<ext>
    */
-  const uploadPostMedia = async (): Promise<MediaItem[]> => {
+  const uploadPostMedia = async (): Promise<string[]> => {
     if (!user) throw new Error("Not logged in");
     if (mediaItems.length === 0) return [];
 
-    const uploaded: MediaItem[] = [];
+    const uploadedUrls: string[] = [];
 
     for (const item of mediaItems) {
       const { ext, mime } = getFileInfo(item.uri, item.type);
@@ -201,17 +194,10 @@ export default function CreatePostScreen() {
       }
 
       const { data } = supabase.storage.from("post-media").getPublicUrl(path);
-
-      uploaded.push({
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        uri: data.publicUrl,
-        type: item.type,
-        name: fileName,
-        thumbnail: data.publicUrl,
-      });
+      uploadedUrls.push(data.publicUrl);
     }
 
-    return uploaded;
+    return uploadedUrls;
   };
 
   const toggleVisibility = () => {
@@ -246,34 +232,27 @@ export default function CreatePostScreen() {
 
     setIsPosting(true);
     try {
-      const uploadedMedia = await uploadPostMedia();
-
-      const postType =
-        uploadedMedia.length === 0
-          ? "text"
-          : uploadedMedia.some((m) => m.type === "video")
-            ? "video"
-            : "image";
-
-      const is_public_legacy = visibility === "private" ? false : true;
+      const media_urls = await uploadPostMedia();
 
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
+
+        // NOTE: your posts table screenshot did NOT show a "title" column.
+        // If your DB doesn't have it, this will error. If you want to store title,
+        // add a title column in SQL. Otherwise remove this line.
         title: title.trim(),
+
         content: bodyText.trim(),
 
-        // ✅ matches your queries
-        media: uploadedMedia,
+        // ✅ your DB has media_urls (not media)
+        media_urls,
 
-        community_id: selectedCommunity || null,
+        community_id: selectedCommunityId || null,
 
-        // ✅ privacy (new + legacy)
+        // ✅ NEW privacy column that your DB has
         visibility,
-        is_public: is_public_legacy,
 
-        post_type: postType,
-
-        // ✅ matches your queries/posts.ts
+        // counts
         like_count: 0,
         comment_count: 0,
         share_count: 0,
@@ -299,7 +278,6 @@ export default function CreatePostScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -316,7 +294,6 @@ export default function CreatePostScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Main Input Card */}
           <View style={styles.inputCard}>
             <TextInput
               style={styles.titleInput}
@@ -337,7 +314,6 @@ export default function CreatePostScreen() {
               textAlignVertical="top"
             />
 
-            {/* Media Preview */}
             {mediaItems.length > 0 && (
               <View style={styles.previewWrap}>
                 <Text style={styles.previewLabel}>Attachments</Text>
@@ -367,7 +343,6 @@ export default function CreatePostScreen() {
               </View>
             )}
 
-            {/* Media Actions */}
             <View style={styles.mediaActions}>
               <TouchableOpacity
                 style={styles.mediaButton}
@@ -385,7 +360,6 @@ export default function CreatePostScreen() {
                 <Ionicons name="videocam-outline" size={20} color="#666" />
               </TouchableOpacity>
 
-              {/* Record video */}
               <TouchableOpacity
                 style={styles.mediaButton}
                 onPress={recordVideo}
@@ -394,7 +368,6 @@ export default function CreatePostScreen() {
                 <Ionicons name="camera-outline" size={20} color="#666" />
               </TouchableOpacity>
 
-              {/* Visibility cycle */}
               <TouchableOpacity
                 style={styles.mediaButton}
                 onPress={toggleVisibility}
@@ -411,7 +384,6 @@ export default function CreatePostScreen() {
             </View>
           </View>
 
-          {/* Privacy option card */}
           <TouchableOpacity
             style={styles.optionCard}
             onPress={toggleVisibility}
@@ -429,7 +401,6 @@ export default function CreatePostScreen() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Footer Actions */}
         <View style={styles.footer}>
           <TouchableOpacity
             style={styles.draftButton}
@@ -455,9 +426,9 @@ export default function CreatePostScreen() {
   );
 }
 
+// styles unchanged (kept exactly as you had them)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -476,10 +447,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 18, fontWeight: "600", color: "#000" },
   headerSpacer: { width: 40 },
-
   scrollView: { flex: 1 },
   scrollContent: { padding: 16 },
-
   inputCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -500,7 +469,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 12,
   },
-
   previewWrap: {
     marginTop: 6,
     marginBottom: 12,
@@ -516,7 +484,6 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginBottom: 10,
   },
-
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -532,7 +499,6 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   gridItem: { width: "100%", height: "100%" },
-
   videoBadge: {
     position: "absolute",
     left: 8,
@@ -546,7 +512,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   videoBadgeText: { color: "#fff", fontWeight: "800", fontSize: 10 },
-
   removeBtn: {
     position: "absolute",
     top: 8,
@@ -558,7 +523,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   mediaActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -576,7 +540,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   spacer: { flex: 1 },
-
   visibilityPill: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -584,7 +547,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#F5F5F5",
   },
   visibilityText: { fontSize: 12, color: "#374151", fontWeight: "700" },
-
   optionCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -604,7 +566,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionText: { fontSize: 15, fontWeight: "500", color: "#000" },
-
   footer: {
     flexDirection: "row",
     paddingHorizontal: 16,
