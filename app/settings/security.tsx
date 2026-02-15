@@ -18,15 +18,11 @@ import { supabase } from "@/lib/supabase";
 
 type PasswordForm = { current: string; next: string; confirm: string };
 
+const emailVerified = (user: { email_confirmed_at?: string | null } | null) =>
+  !!user?.email_confirmed_at;
+
 export default function SecurityScreen() {
-  const {
-    user,
-    profile,
-    updatePassword,
-    enableTwoFactor,
-    disableTwoFactor,
-    resetPassword,
-  } = useAuth();
+  const { user } = useAuth();
 
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwordData, setPasswordData] = useState<PasswordForm>({
@@ -34,6 +30,8 @@ export default function SecurityScreen() {
     next: "",
     confirm: "",
   });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   const handlePasswordUpdate = async () => {
     if (!passwordData.current) {
@@ -56,20 +54,31 @@ export default function SecurityScreen() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user?.email || "",
       password: passwordData.current,
     });
 
-    if (error) {
+    if (signInError) {
       Alert.alert("Error", "Current password incorrect");
       return;
     }
 
-    await updatePassword.mutateAsync({ newPassword: passwordData.next });
-    setShowPasswordForm(false);
-    setPasswordData({ current: "", next: "", confirm: "" });
-    Alert.alert("Success", "Password updated");
+    setIsUpdatingPassword(true);
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: passwordData.next,
+      });
+      if (updateError) {
+        Alert.alert("Error", updateError.message ?? "Failed to update password");
+        return;
+      }
+      setShowPasswordForm(false);
+      setPasswordData({ current: "", next: "", confirm: "" });
+      Alert.alert("Success", "Password updated");
+    } finally {
+      setIsUpdatingPassword(false);
+    }
   };
 
   const handleResetPassword = () => {
@@ -80,13 +89,27 @@ export default function SecurityScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Send",
-          onPress: (email: string | undefined) => {
-            if (email) resetPassword.mutate({ email });
+          onPress: async (email: string | undefined) => {
+            if (!email?.trim()) return;
+            setIsResettingPassword(true);
+            try {
+              const { error } = await supabase.auth.resetPasswordForEmail(
+                email.trim(),
+                { redirectTo: undefined },
+              );
+              if (error) {
+                Alert.alert("Error", error.message ?? "Failed to send reset email");
+              } else {
+                Alert.alert("Success", "Check your email for the reset link");
+              }
+            } finally {
+              setIsResettingPassword(false);
+            }
           },
         },
       ],
       "plain-text",
-      user?.email || "",
+      user?.email ?? "",
     );
   };
 
@@ -128,18 +151,18 @@ export default function SecurityScreen() {
               <View style={styles.rowIcon}>
                 <Ionicons
                   name={
-                    profile?.email_verified
+                    emailVerified(user)
                       ? "checkmark-circle"
                       : "warning-outline"
                   }
                   size={18}
-                  color={profile?.email_verified ? "#16A34A" : "#F59E0B"}
+                  color={emailVerified(user) ? "#16A34A" : "#F59E0B"}
                 />
               </View>
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle}>Email Verification</Text>
                 <Text style={styles.rowDesc}>
-                  {profile?.email_verified ? "Verified" : "Unverified"}
+                  {emailVerified(user) ? "Verified" : "Unverified"}
                 </Text>
               </View>
             </View>
@@ -154,20 +177,16 @@ export default function SecurityScreen() {
               </View>
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle}>Two-Factor Authentication</Text>
-                <Text style={styles.rowDesc}>
-                  {profile?.two_factor_enabled ? "Enabled" : "Disabled"}
-                </Text>
+                <Text style={styles.rowDesc}>Disabled</Text>
               </View>
               <Button
-                title={profile?.two_factor_enabled ? "Disable" : "Enable"}
+                title="Enable"
                 variant="outline"
-                onPress={
-                  profile?.two_factor_enabled
-                    ? () => disableTwoFactor.mutate()
-                    : () => enableTwoFactor.mutate()
-                }
-                loading={
-                  disableTwoFactor.isPending || enableTwoFactor.isPending
+                onPress={() =>
+                  Alert.alert(
+                    "Coming soon",
+                    "Two-factor authentication will be available in a future update.",
+                  )
                 }
                 style={styles.smallButton}
               />
@@ -232,7 +251,7 @@ export default function SecurityScreen() {
                 <Button
                   title="Update Password"
                   onPress={handlePasswordUpdate}
-                  loading={updatePassword.isPending}
+                  loading={isUpdatingPassword}
                   disabled={
                     !passwordData.current ||
                     passwordData.next.length < 6 ||
@@ -246,7 +265,7 @@ export default function SecurityScreen() {
                     setShowPasswordForm(false);
                     setPasswordData({ current: "", next: "", confirm: "" });
                   }}
-                  disabled={updatePassword.isPending}
+                  disabled={isUpdatingPassword}
                 />
               </View>
             </View>
@@ -269,7 +288,7 @@ export default function SecurityScreen() {
                 title="Send"
                 variant="outline"
                 onPress={handleResetPassword}
-                loading={resetPassword.isPending}
+                loading={isResettingPassword}
                 style={styles.smallButton}
               />
             </View>

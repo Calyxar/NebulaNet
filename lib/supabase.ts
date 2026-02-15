@@ -158,6 +158,106 @@ export async function getProfile(userId: string) {
   return data ?? null;
 }
 
+/** Current user's profile row, or null if not signed in / no profile. */
+export async function getCurrentUserProfile() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  return getProfile(user.id);
+}
+
+/** Create a comment on a story. Returns the inserted comment row. */
+export async function createStoryComment(
+  storyId: string,
+  content: string,
+): Promise<{ id: string; story_id: string; user_id: string; content: string; created_at: string }> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("story_comments")
+    .insert({
+      story_id: storyId,
+      user_id: user.id,
+      content: content.trim(),
+    })
+    .select("id, story_id, user_id, content, created_at")
+    .single();
+
+  if (error) throw error;
+  if (!data) throw new Error("Failed to create story comment");
+  return data as { id: string; story_id: string; user_id: string; content: string; created_at: string };
+}
+
+/** Increment share_count for a post by id. */
+export async function incrementShareCount(postId: string): Promise<void> {
+  const { data, error: fetchError } = await supabase
+    .from("posts")
+    .select("share_count")
+    .eq("id", postId)
+    .single();
+
+  if (fetchError || data == null) return;
+
+  const next = (data.share_count ?? 0) + 1;
+  await supabase.from("posts").update({ share_count: next }).eq("id", postId);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            NOTIFICATIONS (UNREAD)                           */
+/* -------------------------------------------------------------------------- */
+
+/** Returns the number of unread notifications for the current user. */
+export async function getUnreadNotificationsCount(): Promise<number> {
+  const user = await getCurrentUser();
+  if (!user) return 0;
+
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("*", { count: "exact", head: true })
+    .eq("receiver_id", user.id)
+    .eq("read", false);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * Subscribe to notifications for a user (INSERT/UPDATE on notifications table).
+ * Returns an unsubscribe function.
+ */
+export function subscribeToNotifications(
+  userId: string,
+  onNotify: () => void,
+): () => void {
+  const channel = supabase
+    .channel(`notifications-unread-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `receiver_id=eq.${userId}`,
+      },
+      onNotify,
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "notifications",
+        filter: `receiver_id=eq.${userId}`,
+      },
+      onNotify,
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                TEST HELPER                                 */
 /* -------------------------------------------------------------------------- */
@@ -185,5 +285,10 @@ export default {
   getCurrentSession,
   updateProfile,
   getProfile,
+  getCurrentUserProfile,
+  createStoryComment,
+  incrementShareCount,
+  getUnreadNotificationsCount,
+  subscribeToNotifications,
   testConnection,
 };

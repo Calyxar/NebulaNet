@@ -406,7 +406,7 @@ export async function getSuggestedUsers(
   }
 
   // Extract the IDs of users that current user follows
-  const followingIds = followingData.map(f => f.following_id);
+  const followingIds = (followingData ?? []).map((f: { following_id: string }) => f.following_id);
 
   // Get users that are followed by people you follow
   const { data: suggestions } = await supabase
@@ -526,7 +526,7 @@ export function subscribeToUserProfile(
         table: 'profiles',
         filter: `id=eq.${userId}`,
       },
-      async (payload) => {
+      async (payload: { new: Record<string, unknown>; old?: Record<string, unknown> }) => {
         const profile = await getUserProfile(userId);
         if (profile) callback(profile);
       }

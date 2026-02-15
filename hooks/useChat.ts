@@ -263,11 +263,11 @@ export const useChat = () => {
         if (payload.new.is_typing) {
           const conversation = getConversation(activeConversation);
           const typingParticipant = conversation?.participants?.find(
-            (p) => p.user_id !== user.id,
+            (p: { user_id: string }) => p.user_id !== user.id,
           );
           if (typingParticipant) {
             setTypingUsers((prev) =>
-              new Set(prev).add(typingParticipant.user_id),
+              new Set(prev).add(typingParticipant.user_id)
             );
           }
         } else {

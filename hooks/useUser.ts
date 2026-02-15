@@ -123,7 +123,7 @@ export function useUser(username?: string) {
         .eq('following_id', userQuery.data.id);
 
       if (error) throw error;
-      return data.map(item => item.follower);
+      return (data ?? []).map((item: { follower: UserProfile }) => item.follower);
     },
     enabled: !!userQuery.data?.id,
   });
@@ -142,7 +142,7 @@ export function useUser(username?: string) {
         .eq('follower_id', userQuery.data.id);
 
       if (error) throw error;
-      return data.map(item => item.following);
+      return (data ?? []).map((item: { following: UserProfile }) => item.following);
     },
     enabled: !!userQuery.data?.id,
   });

@@ -184,10 +184,10 @@ export default function ChatScreen() {
                 name={getConversationName(item, user?.id)}
                 lastMessage={item.last_message?.content || "No messages yet"}
                 timestamp={formatTimestamp(item.updated_at)}
-                unreadCount={item.unread_count}
-                isOnline={item.is_online}
-                isTyping={item.is_typing}
-                isPinned={item.is_pinned}
+                unreadCount={item.unread_count ?? 0}
+                isOnline={item.is_online ?? false}
+                isTyping={item.is_typing ?? false}
+                isPinned={item.is_pinned ?? false}
                 avatar={getAvatarUrl(item, user?.id)}
                 onPress={() => openConversation(item.id)}
               />

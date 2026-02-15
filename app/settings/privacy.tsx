@@ -274,7 +274,7 @@ export default function PrivacyScreen() {
           <TouchableOpacity
             style={styles.headerCircleButton}
             activeOpacity={0.85}
-            onPress={closeSettings}
+            onPress={() => closeSettings()}
           >
             <Ionicons name="close" size={20} color="#111827" />
           </TouchableOpacity>
