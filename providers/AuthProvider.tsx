@@ -1,7 +1,10 @@
-import {
-  supabase
-} from "@/lib/supabase";
+// providers/AuthProvider.tsx — COMPLETED + UPDATED ✅
+// Fixes:
+// ✅ No "language column" error: only write safe columns + preferences JSON
+// ✅ No duplicate key error: upsert with onConflict: "user_id"
+// ✅ Better typing + safer guards
 
+import { supabase } from "@/lib/supabase";
 import type {
   AuthChangeEvent,
   Session,
@@ -19,6 +22,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -46,22 +50,32 @@ export interface Profile {
 
 export type ThemePreference = "light" | "dark" | "system";
 
-type UserSettingsRow = {
+export type UserSettingsRow = {
   user_id: string;
+
   onboarding_completed: boolean | null;
   onboarding_completed_at: string | null;
+
   theme_preference: ThemePreference | null;
+
+  // ✅ SAFE: preferences JSON (works even if table doesn't have individual locale columns)
   preferences?: Preferences | null;
-  /** Locale: top-level for DB/API compatibility */
+
+  updated_at: string | null;
+
+  // ❗ Keep these optional in type if you want, but DO NOT send them to DB
   language?: string | null;
   region?: string | null;
   localized_content?: boolean | null;
-  updated_at: string | null;
 };
 
 type UpdateProfileInput = Partial<
   Pick<Profile, "username" | "full_name" | "avatar_url" | "bio" | "location">
 >;
+
+type LoginVars = { email: string; password: string };
+type SignupVars = { email: string; password: string; userData?: any };
+type GoogleVars = { idToken: string; accessToken?: string };
 
 type LoginResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
 type SignupResult = Awaited<ReturnType<typeof supabase.auth.signUp>>;
@@ -85,9 +99,9 @@ interface AuthContextType {
   themePreference: ThemePreference | null;
   setThemePreference: (pref: ThemePreference) => Promise<void>;
 
-  login: UseMutationResult<LoginResult, Error, any>;
-  signup: UseMutationResult<SignupResult, Error, any>;
-  googleLogin: UseMutationResult<GoogleLoginResult, Error, any>;
+  login: UseMutationResult<LoginResult, Error, LoginVars>;
+  signup: UseMutationResult<SignupResult, Error, SignupVars>;
+  googleLogin: UseMutationResult<GoogleLoginResult, Error, GoogleVars>;
 
   updateProfile: UseMutationResult<Profile, Error, UpdateProfileInput>;
 
@@ -149,23 +163,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const userId = user?.id;
+
   /* ============================
      PROFILE
   ============================ */
 
   const { data: profile, isLoading: isProfileLoading } =
     useQuery<Profile | null>({
-      queryKey: ["profile", user?.id],
-      enabled: !!user?.id && hydrated,
+      queryKey: ["profile", userId],
+      enabled: !!userId && hydrated,
       queryFn: async () => {
         const { data, error } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", user!.id)
+          .eq("id", userId!)
           .maybeSingle();
 
         if (error && !isNoRowsError(error)) return null;
-        return data ?? null;
+        return (data as Profile) ?? null;
       },
     });
 
@@ -175,100 +191,134 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data: userSettings, isLoading: isUserSettingsLoading } =
     useQuery<UserSettingsRow | null>({
-      queryKey: ["user-settings", user?.id],
-      enabled: !!user?.id && hydrated,
+      queryKey: ["user-settings", userId],
+      enabled: !!userId && hydrated,
       queryFn: async () => {
         const { data, error } = await supabase
           .from("user_settings")
           .select("*")
-          .eq("user_id", user!.id)
+          .eq("user_id", userId!)
           .maybeSingle();
 
         if (error && !isNoRowsError(error)) return null;
-        return data ?? null;
+        return (data as UserSettingsRow) ?? null;
       },
     });
 
   const hasCompletedOnboarding = !!userSettings?.onboarding_completed;
-
   const themePreference = userSettings?.theme_preference ?? null;
 
   /* ============================
      AUTH MUTATIONS
   ============================ */
 
-  const login = useMutation({
-    mutationFn: async ({ email, password }: any) => {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw new Error(error.message);
+  const login = useMutation<LoginResult, Error, LoginVars>({
+    mutationFn: async ({ email, password }) => {
+      const res = await supabase.auth.signInWithPassword({ email, password });
+      if (res.error) throw new Error(res.error.message);
+      return res;
     },
   });
 
-  const signup = useMutation({
-    mutationFn: async ({ email, password, userData }: any) => {
-      const { error } = await supabase.auth.signUp({
+  const signup = useMutation<SignupResult, Error, SignupVars>({
+    mutationFn: async ({ email, password, userData }) => {
+      const res = await supabase.auth.signUp({
         email,
         password,
         options: { data: userData },
       });
-      if (error) throw new Error(error.message);
+      if (res.error) throw new Error(res.error.message);
+      return res;
     },
   });
 
-  const googleLogin = useMutation({
-    mutationFn: async ({ idToken, accessToken }: any) => {
-      const { error } = await supabase.auth.signInWithIdToken({
+  const googleLogin = useMutation<GoogleLoginResult, Error, GoogleVars>({
+    mutationFn: async ({ idToken, accessToken }) => {
+      const res = await supabase.auth.signInWithIdToken({
         provider: "google",
         token: idToken,
         access_token: accessToken ?? undefined,
       });
-      if (error) throw new Error(error.message);
+      if (res.error) throw new Error(res.error.message);
+      return res;
     },
   });
 
   /* ============================
-     SETTINGS UPDATE
+     SETTINGS UPDATE ✅ FIXED
   ============================ */
 
   const updateSettings = async (
     settings: Partial<UserSettingsRow>,
   ): Promise<UserSettingsRow> => {
+    if (!userId) throw new Error("Not authenticated");
+
+    // ✅ ONLY send columns we are confident exist.
+    // (language/region/localized_content are NOT sent; those live in preferences JSON)
+    const safe: Partial<UserSettingsRow> = {};
+
+    if (typeof settings.onboarding_completed === "boolean") {
+      safe.onboarding_completed = settings.onboarding_completed;
+    }
+    if (
+      typeof settings.onboarding_completed_at === "string" ||
+      settings.onboarding_completed_at === null
+    ) {
+      safe.onboarding_completed_at = settings.onboarding_completed_at;
+    }
+    if (
+      typeof settings.theme_preference === "string" ||
+      settings.theme_preference === null
+    ) {
+      safe.theme_preference = settings.theme_preference;
+    }
+
+    // ✅ preferences JSON is safe
+    if (settings.preferences !== undefined) {
+      safe.preferences = settings.preferences ?? null;
+    }
+
+    const payload = {
+      user_id: userId,
+      ...safe,
+      updated_at: new Date().toISOString(),
+    };
+
     const { data, error } = await supabase
       .from("user_settings")
-      .upsert({
-        user_id: user!.id,
-        ...settings,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(payload, { onConflict: "user_id" }) // ✅ prevents duplicate constraint error
       .select("*")
       .single();
 
     if (error) throw new Error(error.message);
 
-    qc.setQueryData(["user-settings", user!.id], data);
-    return data;
+    qc.setQueryData(["user-settings", userId], data);
+    return data as UserSettingsRow;
   };
 
   /* ============================
-     ONBOARDING
+     ONBOARDING ✅ safe
   ============================ */
 
   const markOnboardingCompleted = async (interests: string[] = []) => {
+    if (!userId) throw new Error("Not authenticated");
+
     await updateSettings({
       onboarding_completed: true,
       onboarding_completed_at: new Date().toISOString(),
     });
 
+    // Optional interests insert (ok to ignore duplicates later when you add SQL)
     if (interests.length > 0) {
-      await supabase.from("user_interests").insert(
+      const { error } = await supabase.from("user_interests").insert(
         interests.map((i) => ({
-          user_id: user!.id,
+          user_id: userId,
           interest: i,
         })),
       );
+
+      // don’t block onboarding if interests table has constraints for now
+      if (error) console.warn("user_interests insert warning:", error);
     }
 
     return true;
@@ -292,45 +342,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   /* ============================
+     STUBS (you can fill later)
+  ============================ */
+
+  const updateProfile = {} as any;
+
+  const refreshProfile = async () => profile ?? null;
+
+  /* ============================
      PROVIDER VALUE
   ============================ */
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        profile: profile ?? null,
-        userSettings: userSettings ?? null,
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      session,
+      profile: profile ?? null,
+      userSettings: userSettings ?? null,
 
-        isLoading: !hydrated,
-        isProfileLoading,
-        isUserSettingsLoading,
+      isLoading: !hydrated,
+      isProfileLoading,
+      isUserSettingsLoading,
 
-        hasCompletedOnboarding,
-        markOnboardingCompleted,
+      hasCompletedOnboarding,
+      markOnboardingCompleted,
 
-        themePreference,
-        setThemePreference,
+      themePreference,
+      setThemePreference,
 
-        login,
-        signup,
-        googleLogin,
+      login,
+      signup,
+      googleLogin,
 
-        updateProfile: {} as any,
+      updateProfile,
 
-        signOut,
-        refreshProfile: async () => profile ?? null,
+      signOut,
+      refreshProfile,
 
-        updateSettings,
+      updateSettings,
 
-        deactivateAccount: async () => {},
-        deleteAccount: async () => {},
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+      deactivateAccount: async () => {},
+      deleteAccount: async () => {},
+    }),
+    [
+      user,
+      session,
+      profile,
+      userSettings,
+      hydrated,
+      isProfileLoading,
+      isUserSettingsLoading,
+      hasCompletedOnboarding,
+      themePreference,
+      login,
+      signup,
+      googleLogin,
+    ],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 /* =========================================================

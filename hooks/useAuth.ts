@@ -1,4 +1,4 @@
-// hooks/useAuth.ts — COMPLETED + UPDATED
+// hooks/useAuth.ts — COMPLETED + UPDATED ✅
 
 import { supabase } from "@/lib/supabase";
 import { useAuth as useProviderAuth } from "@/providers/AuthProvider";
@@ -6,30 +6,8 @@ import { useAuth as useProviderAuth } from "@/providers/AuthProvider";
 export const useAuth = () => {
   const ctx = useProviderAuth();
 
-  const {
-    user,
-    session,
-    profile,
-    userSettings, // ✅ Added
-
-    isLoading,
-    isProfileLoading,
-    isUserSettingsLoading, // ✅ Added
-
-    hasCompletedOnboarding,
-    markOnboardingCompleted,
-
-    themePreference,
-    setThemePreference,
-
-    deactivateAccount,
-    deleteAccount,
-
-    updateSettings,
-  } = ctx;
-
-  const isAuthenticated = !!session?.user;
-  const isEmailVerified = !!user?.email_confirmed_at;
+  const isAuthenticated = !!ctx.session?.user;
+  const isEmailVerified = !!ctx.user?.email_confirmed_at;
 
   const mutateProfile = async () => {
     try {
@@ -39,24 +17,25 @@ export const useAuth = () => {
     }
   };
 
-  const checkSession = async () => session;
+  const checkSession = async () => ctx.session;
 
   return {
-    // core user
-    user,
-    session,
-    profile,
-    userSettings, // ✅ Now exposed
+    // core
+    user: ctx.user,
+    session: ctx.session,
+    profile: ctx.profile,
+    userSettings: ctx.userSettings,
 
-    // loading states
-    isLoading,
-    isProfileLoading,
-    isUserSettingsLoading, // ✅ Now exposed
+    // loading
+    isLoading: ctx.isLoading,
+    isProfileLoading: ctx.isProfileLoading,
+    isUserSettingsLoading: ctx.isUserSettingsLoading,
 
-    // auth helpers
+    // derived
     isAuthenticated,
     isEmailVerified,
 
+    // auth actions
     login: ctx.login,
     signup: ctx.signup,
     googleLogin: ctx.googleLogin,
@@ -67,23 +46,22 @@ export const useAuth = () => {
     mutateProfile,
 
     // onboarding
-    hasCompletedOnboarding,
-    markOnboardingCompleted,
+    hasCompletedOnboarding: ctx.hasCompletedOnboarding,
+    markOnboardingCompleted: ctx.markOnboardingCompleted,
 
     // theme
-    themePreference,
-    setThemePreference,
+    themePreference: ctx.themePreference,
+    setThemePreference: ctx.setThemePreference,
 
     // account management
-    deactivateAccount,
-    deleteAccount,
+    deactivateAccount: ctx.deactivateAccount,
+    deleteAccount: ctx.deleteAccount,
 
-    // settings updater
-    updateSettings,
+    // settings
+    updateSettings: ctx.updateSettings,
 
-    // direct client access
+    // direct client (if you want)
     supabaseClient: supabase,
-    isGoogleReady: true,
   };
 };
 

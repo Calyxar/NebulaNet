@@ -1,5 +1,6 @@
-// app/create/post.tsx — UPDATED ✅ uses visibility + media_urls (no is_public)
-// Fixes: "Could not find is_public column" + aligns to posts table columns
+// app/create/post.tsx — COMPLETED + UPDATED ✅
+// ✅ uses visibility + media_urls (no is_public)
+// ✅ FIXES ImagePicker.MediaType TS error by supporting BOTH old + new APIs
 
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -27,6 +28,12 @@ interface LocalMediaItem {
   uri: string; // local file:// URI
   type: MediaType;
 }
+
+// ✅ Works with BOTH APIs:
+// - Older: ImagePicker.MediaTypeOptions
+// - Newer: ImagePicker.MediaType / MediaType[]
+const PickerMedia: any =
+  (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
 export default function CreatePostScreen() {
   const { user } = useAuth();
@@ -74,7 +81,7 @@ export default function CreatePostScreen() {
     if (!(await ensureLibraryPermission())) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: PickerMedia.Images, // ✅ compatible
       allowsMultipleSelection: true,
       selectionLimit: 10,
       quality: 0.9,
@@ -94,7 +101,7 @@ export default function CreatePostScreen() {
     if (!(await ensureLibraryPermission())) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: PickerMedia.Videos, // ✅ compatible
       allowsMultipleSelection: true,
       selectionLimit: 5,
       quality: 1,
@@ -115,7 +122,7 @@ export default function CreatePostScreen() {
     if (!(await ensureCameraPermission())) return;
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: PickerMedia.Videos, // ✅ compatible
       videoMaxDuration: 60,
       quality: 1,
     });
@@ -237,22 +244,18 @@ export default function CreatePostScreen() {
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
 
-        // NOTE: your posts table screenshot did NOT show a "title" column.
-        // If your DB doesn't have it, this will error. If you want to store title,
-        // add a title column in SQL. Otherwise remove this line.
+        // NOTE: if your posts table doesn't have "title", this will error.
+        // Remove it OR add a title column in SQL.
         title: title.trim(),
 
         content: bodyText.trim(),
 
-        // ✅ your DB has media_urls (not media)
         media_urls,
 
         community_id: selectedCommunityId || null,
 
-        // ✅ NEW privacy column that your DB has
         visibility,
 
-        // counts
         like_count: 0,
         comment_count: 0,
         share_count: 0,

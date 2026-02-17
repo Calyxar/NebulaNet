@@ -17,20 +17,14 @@
         "backgroundColor": "#000000"
       }
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nebulanet.app",
       "buildNumber": "1",
-      "associatedDomains": [
-        "applinks:nebulanet.space"
-      ],
+      "associatedDomains": ["applinks:nebulanet.space"],
       "infoPlist": {
-        "UIBackgroundModes": [
-          "remote-notification"
-        ],
+        "UIBackgroundModes": ["remote-notification"],
         "NSPhotoLibraryUsageDescription": "Allow NebulaNet to access your photo library to upload profile pictures and posts.",
         "NSCameraUsageDescription": "Allow NebulaNet to use your camera to take photos and videos for posts.",
         "NSMicrophoneUsageDescription": "Allow NebulaNet to use your microphone for video posts."
@@ -47,10 +41,7 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ],
+          "category": ["BROWSABLE", "DEFAULT"],
           "data": [
             {
               "scheme": "https",
@@ -95,7 +86,8 @@
         "VIBRATE",
         "CAMERA",
         "RECORD_AUDIO",
-        "ACCESS_NOTIFICATION_POLICY"
+        "ACCESS_NOTIFICATION_POLICY",
+        "com.android.vending.BILLING"
       ],
       "softwareKeyboardLayoutMode": "resize"
     },
@@ -134,13 +126,12 @@
         {
           "icon": "./assets/images/nebulanet-icon.png",
           "color": "#6D8BFF",
-          "sounds": [
-            "./assets/sounds/notification.wav"
-          ]
+          "sounds": ["./assets/sounds/notification.wav"]
         }
       ],
       "@react-native-google-signin/google-signin",
-      "expo-localization"
+      "expo-localization",
+      "expo-build-properties"
     ],
     "extra": {
       "eas": {

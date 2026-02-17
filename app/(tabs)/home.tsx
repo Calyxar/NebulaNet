@@ -1,4 +1,9 @@
-// app/(tabs)/home.tsx — UPDATED (dark mode support)
+// app/(tabs)/home.tsx — COMPLETED + UPDATED ✅
+// ✅ Dark mode support
+// ✅ Shows Video badge + Play overlay when post is video (uses post_type if present, else infers from media URL)
+// ✅ Tapping a post opens /post/[id] so users can view, like, comment, share
+// ✅ Comment icon opens the post too (common UX)
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
@@ -42,6 +47,26 @@ const timeAgo = (iso: string) => {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+};
+
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return (
+    clean.endsWith(".mp4") ||
+    clean.endsWith(".mov") ||
+    clean.endsWith(".m4v") ||
+    clean.endsWith(".webm") ||
+    clean.endsWith(".mkv") ||
+    clean.endsWith(".avi")
+  );
+};
+
+const isVideoPost = (post: any) => {
+  if (post?.post_type === "video") return true;
+  if (post?.post_type === "mixed") return true;
+  const first = post?.media_urls?.[0];
+  return isVideoUrl(first);
 };
 
 type FeedTab = "for-you" | "following" | "my-community";
@@ -190,14 +215,21 @@ export default function HomeScreen() {
     );
   }, [activeTab, unreadCount, colors, isDark]);
 
+  const openPost = (postId: string) => {
+    router.push(`/post/${postId}` as any);
+  };
+
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
       const author = item.user?.full_name || item.user?.username || "User";
       const avatar = item.user?.avatar_url;
       const media = item.media_urls?.[0];
+      const video = isVideoPost(item);
 
       return (
-        <View
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={() => openPost(item.id)}
           style={[
             styles.card,
             {
@@ -243,32 +275,80 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => openPost(item.id)}
+            >
               <MoreVertical size={20} color={colors.textTertiary} />
             </TouchableOpacity>
           </View>
 
           {!!item.content && (
-            <Text style={[styles.content, { color: colors.text }]}>
+            <Text
+              style={[styles.content, { color: colors.text }]}
+              numberOfLines={6}
+            >
               {item.content}
             </Text>
           )}
 
           {!!media && (
-            <Image
-              source={{ uri: media }}
+            <View
               style={[
-                styles.media,
+                styles.mediaWrap,
                 { height: mediaHeight, backgroundColor: colors.surface },
               ]}
-              resizeMode="cover"
-            />
+            >
+              {/* For videos: Image may not always render a frame. Still fine as a “cover”.
+                  If it fails to load, user can tap to open post where video plays. */}
+              <Image
+                source={{ uri: media }}
+                style={styles.media}
+                resizeMode="cover"
+              />
+
+              {video && (
+                <>
+                  <View
+                    style={[
+                      styles.videoBadge,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(0,0,0,0.55)"
+                          : "rgba(0,0,0,0.45)",
+                      },
+                    ]}
+                  >
+                    <Ionicons name="videocam" size={14} color="#fff" />
+                    <Text style={styles.videoBadgeText}>Video</Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.playOverlay,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(0,0,0,0.45)"
+                          : "rgba(0,0,0,0.35)",
+                        borderColor: "rgba(255,255,255,0.35)",
+                      },
+                    ]}
+                  >
+                    <Ionicons name="play" size={28} color="#fff" />
+                  </View>
+                </>
+              )}
+            </View>
           )}
 
+          {/* ACTIONS */}
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <TouchableOpacity
               style={styles.actionBtn}
-              onPress={() => onLike(item.id)}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onLike(item.id);
+              }}
               activeOpacity={0.7}
             >
               <Heart
@@ -282,14 +362,28 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                openPost(item.id);
+              }}
+              activeOpacity={0.7}
+            >
               <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
               <Text style={[styles.actionText, { color: colors.text }]}>
                 {item.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                openPost(item.id); // sharing is available on detail page too
+              }}
+              activeOpacity={0.7}
+            >
               <Repeat2 size={20} color={colors.text} strokeWidth={2.5} />
               <Text style={[styles.actionText, { color: colors.text }]}>
                 {item.share_count ?? 0}
@@ -298,7 +392,10 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               style={styles.actionBtn}
-              onPress={() => onSave(item.id)}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onSave(item.id);
+              }}
               activeOpacity={0.7}
             >
               <Bookmark
@@ -309,7 +406,7 @@ export default function HomeScreen() {
               />
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
       );
     },
     [onLike, onSave, mediaHeight, colors, isDark],
@@ -497,7 +594,42 @@ const styles = StyleSheet.create({
   time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
 
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  media: { width: "100%", borderRadius: 18, marginBottom: 12 },
+
+  mediaWrap: {
+    width: "100%",
+    borderRadius: 18,
+    overflow: "hidden",
+    marginBottom: 12,
+    position: "relative",
+  },
+  media: { width: "100%", height: "100%" },
+
+  videoBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  videoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+
+  playOverlay: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    width: 56,
+    height: 56,
+    marginLeft: -28,
+    marginTop: -28,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
 
   actions: {
     flexDirection: "row",
