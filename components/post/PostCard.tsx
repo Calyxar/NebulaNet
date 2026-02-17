@@ -7,9 +7,15 @@ import {
   shareWithOptions,
 } from "@/lib/share";
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+type AlertAction = {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+};
 
 interface PostCardProps {
   id: string;
@@ -41,7 +47,12 @@ interface PostCardProps {
   onCommentPress?: () => void;
   onSharePress?: () => void | Promise<void>;
   onSavePress?: () => void | Promise<void>;
-  onMorePress?: () => void;
+
+  /**
+   * Optional: allow parent to ADD actions (not replace).
+   * Return extra Alert actions to append.
+   */
+  getMoreActions?: () => AlertAction[];
 
   /* analytics */
   onVisible?: () => void;
@@ -66,13 +77,12 @@ export default function PostCard({
   onCommentPress,
   onSharePress,
   onSavePress,
-  onMorePress,
+  getMoreActions,
   onVisible,
 }: PostCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
-  // View tracking — fire once per mount
   const hasTrackedView = useRef(false);
 
   useEffect(() => {
@@ -81,10 +91,6 @@ export default function PostCard({
       onVisible();
     }
   }, [onVisible]);
-
-  /* ------------------------------------------------------------------ */
-  /* Handlers                                                           */
-  /* ------------------------------------------------------------------ */
 
   const handleLike = async () => {
     await onLikePress?.();
@@ -99,13 +105,7 @@ export default function PostCard({
 
     setIsSharing(true);
     try {
-      await shareWithOptions({
-        id,
-        title,
-        content,
-        author,
-      });
-
+      await shareWithOptions({ id, title, content, author });
       await onSharePress?.();
     } catch (e) {
       console.warn("Share failed:", e);
@@ -119,13 +119,7 @@ export default function PostCard({
 
     setIsSharing(true);
     try {
-      await shareToChat({
-        id,
-        title,
-        content,
-        author,
-      });
-
+      await shareToChat({ id, title, content, author });
       await onSharePress?.();
     } catch (e) {
       console.warn("Share to chat failed:", e);
@@ -134,12 +128,14 @@ export default function PostCard({
     }
   };
 
+  const handleBoost = () => {
+    router.push(`/boost/${id}` as any);
+  };
+
   const handleMoreOptions = () => {
-    Alert.alert("More Options", undefined, [
-      {
-        text: "Share to Chat",
-        onPress: handleShareToChat,
-      },
+    const base: AlertAction[] = [
+      { text: "Boost Post", onPress: handleBoost },
+      { text: "Share to Chat", onPress: handleShareToChat },
       {
         text: "Copy Link",
         onPress: async () => {
@@ -154,16 +150,19 @@ export default function PostCard({
         onPress: () =>
           Alert.alert("Report", "Reporting will be available soon."),
       },
+    ];
+
+    const extra = getMoreActions?.() ?? [];
+
+    Alert.alert("More Options", undefined, [
+      ...base,
+      ...extra,
       { text: "Cancel", style: "cancel" },
     ]);
   };
 
   const displayContent =
     expanded || content.length <= 150 ? content : `${content.slice(0, 150)}…`;
-
-  /* ------------------------------------------------------------------ */
-  /* Render                                                             */
-  /* ------------------------------------------------------------------ */
 
   return (
     <View style={styles.container}>
@@ -185,7 +184,7 @@ export default function PostCard({
         <View style={styles.headerRight}>
           <Text style={styles.timestamp}>{timestamp}</Text>
           <TouchableOpacity
-            onPress={onMorePress ?? handleMoreOptions}
+            onPress={handleMoreOptions}
             style={styles.moreButton}
           >
             <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
@@ -265,10 +264,6 @@ export default function PostCard({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Small helpers                                                              */
-/* -------------------------------------------------------------------------- */
-
 function Stat({
   icon,
   value,
@@ -321,10 +316,6 @@ function Action({
   return children ? children : content;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Styles                                                                     */
-/* -------------------------------------------------------------------------- */
-
 const styles = StyleSheet.create({
   container: {
     backgroundColor: "#fff",
@@ -334,30 +325,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e5e5",
   },
-
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 12,
   },
-
   authorInfo: { flexDirection: "row", flex: 1 },
   authorDetails: { marginLeft: 12, flex: 1 },
   authorName: { fontSize: 16, fontWeight: "600" },
   authorUsername: { fontSize: 14, color: "#666" },
   community: { fontSize: 14, color: "#666", fontWeight: "500" },
-
   headerRight: { alignItems: "flex-end" },
   timestamp: { fontSize: 12, color: "#666" },
   moreButton: { padding: 4 },
-
   content: { marginBottom: 12 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500" },
-
   viewCount: { fontSize: 12, color: "#666", marginBottom: 8 },
-
   mediaContainer: { marginTop: 12 },
   mediaPreview: {
     height: 150,
@@ -367,7 +352,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   mediaText: { marginTop: 8, color: "#666" },
-
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -377,17 +361,9 @@ const styles = StyleSheet.create({
     borderColor: "#e5e5e5",
     marginBottom: 12,
   },
-  statItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginRight: 20,
-  },
+  statItem: { flexDirection: "row", alignItems: "center", marginRight: 20 },
   statText: { marginLeft: 4, color: "#666" },
-
-  actions: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
+  actions: { flexDirection: "row", justifyContent: "space-around" },
   actionButton: { alignItems: "center", padding: 4 },
   actionText: { fontSize: 12, marginTop: 4, color: "#666" },
 });

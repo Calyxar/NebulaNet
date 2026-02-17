@@ -1,11 +1,9 @@
-// app/community/[slug].tsx — COMPLETED + UPDATED ✅
-// Fixes included:
-// ✅ Uses slug routes (/community/[slug])
-// ✅ Works whether your communities table has (is_private/owner_id) OR NOT (fallback-safe)
-// ✅ Uses communities.image_url (your DB column) instead of avatar_url
-// ✅ Private gating uses computed "joined" (no stale isJoined bug)
-// ✅ Supabase joins aliased to singular "profile" to match TS
-// ✅ Separate FlatLists to avoid TS overload issues
+// app/community/[slug].tsx — ✅ UPDATED (Join/Leave + Locked Join button)
+// Includes:
+// ✅ Join/Leave button in header
+// ✅ Join button in locked state (private community)
+// ✅ Best-effort member_count update (won’t crash if column missing)
+// ✅ Keeps your fallback-safe schema logic
 
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -118,6 +116,7 @@ export default function CommunityScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   /* ----------------------------- load ----------------------------- */
 
@@ -288,6 +287,98 @@ export default function CommunityScreen() {
     void loadCommunity();
   }, [loadCommunity]);
 
+  /* ----------------------------- join/leave ----------------------------- */
+
+  const bumpMemberCount = useCallback(
+    async (delta: number) => {
+      if (!community?.id) return;
+      // best-effort: if member_count column exists, keep it somewhat accurate
+      try {
+        const current =
+          typeof community.member_count === "number"
+            ? community.member_count
+            : 0;
+        const next = Math.max(0, current + delta);
+        const { error } = await supabase
+          .from("communities")
+          .update({ member_count: next })
+          .eq("id", community.id);
+        if (!error)
+          setCommunity((prev) =>
+            prev ? { ...prev, member_count: next } : prev,
+          );
+      } catch {
+        // ignore
+      }
+    },
+    [community?.id, community?.member_count],
+  );
+
+  const joinCommunity = useCallback(async () => {
+    if (!community?.id) return;
+    if (!user?.id) {
+      Alert.alert("Sign in required", "Log in to join communities.");
+      return;
+    }
+
+    setJoining(true);
+    try {
+      const { error } = await supabase.from("community_members").insert({
+        community_id: community.id,
+        user_id: user.id,
+      });
+      if (error) throw error;
+
+      setIsJoined(true);
+      await bumpMemberCount(+1);
+
+      // reload content (private communities unlock)
+      await loadCommunity();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to join.");
+    } finally {
+      setJoining(false);
+    }
+  }, [community?.id, user?.id, loadCommunity, bumpMemberCount]);
+
+  const leaveCommunity = useCallback(async () => {
+    if (!community?.id) return;
+    if (!user?.id) return;
+
+    // Optional: prevent owner from leaving their own community
+    if (community.owner_id && community.owner_id === user.id) {
+      Alert.alert("Owner", "You can’t leave a community you own.");
+      return;
+    }
+
+    setJoining(true);
+    try {
+      const { error } = await supabase
+        .from("community_members")
+        .delete()
+        .eq("community_id", community.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      setIsJoined(false);
+      await bumpMemberCount(-1);
+
+      // reload (may lock if private)
+      await loadCommunity();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to leave.");
+    } finally {
+      setJoining(false);
+    }
+  }, [
+    community?.id,
+    user?.id,
+    community?.owner_id,
+    loadCommunity,
+    bumpMemberCount,
+  ]);
+
   /* ----------------------------- renderers ----------------------------- */
 
   const renderPost = useCallback(({ item }: { item: Post }) => {
@@ -382,6 +473,7 @@ export default function CommunityScreen() {
   }
 
   const showPrivatePill = normalizeBool(community.is_private);
+  const isOwner = !!community.owner_id && community.owner_id === user?.id;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -393,6 +485,21 @@ export default function CommunityScreen() {
 
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{community.name}</Text>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {!!community.member_count && (
+              <Text style={styles.metaText}>
+                {community.member_count} members
+              </Text>
+            )}
+            {showPrivatePill && (
+              <View style={styles.privatePill}>
+                <Ionicons name="lock-closed" size={14} color="#7C3AED" />
+                <Text style={styles.privatePillText}>Private</Text>
+              </View>
+            )}
+          </View>
+
           {!!community.description && (
             <Text style={styles.subtitle} numberOfLines={1}>
               {community.description}
@@ -400,11 +507,20 @@ export default function CommunityScreen() {
           )}
         </View>
 
-        {showPrivatePill && (
-          <View style={styles.privatePill}>
-            <Ionicons name="lock-closed" size={14} color="#7C3AED" />
-            <Text style={styles.privatePillText}>Private</Text>
-          </View>
+        {/* Join/Leave (hide for owner) */}
+        {!isOwner && (
+          <TouchableOpacity
+            onPress={isJoined ? leaveCommunity : joinCommunity}
+            style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
+            activeOpacity={0.85}
+            disabled={joining}
+          >
+            <Text
+              style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
+            >
+              {joining ? "..." : isJoined ? "Joined" : "Join"}
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -426,6 +542,17 @@ export default function CommunityScreen() {
           <Text style={styles.lockedSubtitle}>
             Join to view posts, members, rules, and media.
           </Text>
+
+          <TouchableOpacity
+            style={styles.lockJoinBtn}
+            onPress={joinCommunity}
+            activeOpacity={0.9}
+            disabled={joining}
+          >
+            <Text style={styles.lockJoinBtnText}>
+              {joining ? "Joining..." : "Join Community"}
+            </Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <>
@@ -538,7 +665,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
   },
   title: { fontSize: 16, fontWeight: "900" },
-  subtitle: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  metaText: { fontSize: 12, color: "#6B7280", fontWeight: "700" },
+  subtitle: { fontSize: 12, color: "#6B7280", marginTop: 4 },
 
   communityHero: {
     width: "100%",
@@ -558,6 +687,20 @@ const styles = StyleSheet.create({
   },
   privatePillText: { color: "#7C3AED", fontWeight: "900", fontSize: 12 },
 
+  joinBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#7C3AED",
+  },
+  joinBtnJoined: {
+    backgroundColor: "#EEF2FF",
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+  },
+  joinBtnText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+  joinBtnTextJoined: { color: "#4338CA" },
+
   lockedContainer: {
     flex: 1,
     alignItems: "center",
@@ -571,6 +714,14 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     lineHeight: 20,
   },
+  lockJoinBtn: {
+    marginTop: 16,
+    backgroundColor: "#7C3AED",
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  lockJoinBtnText: { color: "#fff", fontWeight: "900" },
 
   tabs: {
     flexDirection: "row",

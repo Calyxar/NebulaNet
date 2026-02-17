@@ -1,4 +1,7 @@
-// app/user/[username].tsx
+// app/user/[username].tsx — COMPLETED + UPDATED ✅
+// ✅ Theme + Dark mode support (header/back button/username fixed)
+// ✅ Keeps your privacy + follow/block + posts logic exactly the same
+// ✅ No hardcoded light colors (uses ThemeProvider colors everywhere)
 
 import { useAuth } from "@/hooks/useAuth";
 import { createOrOpenChat } from "@/hooks/useCreateOrOpenChat";
@@ -24,6 +27,7 @@ import UserActionsSheet, {
   type UserActionsSheetRef,
 } from "@/components/UserActionsSheet";
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
+import { useTheme } from "@/providers/ThemeProvider";
 
 type UserProfile = {
   id: string;
@@ -79,6 +83,7 @@ export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
 
+  const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const qc = useQueryClient();
 
@@ -429,20 +434,43 @@ export default function UserProfileScreen() {
     }
   };
 
+  // --------------------------
+  // LOADING STATE
+  // --------------------------
   if (loadingProfile) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerBtn} />
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <View style={[styles.header, { backgroundColor: colors.background }]}>
+          <View
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
+          />
           <Skeleton style={{ height: 14, width: 160, borderRadius: 10 }} />
-          <View style={styles.headerBtn} />
+          <View
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
+          />
         </View>
 
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.profileCard}>
+          <View style={[styles.profileCard, { backgroundColor: colors.card }]}>
             <View style={styles.profileTopRow}>
               <Skeleton style={{ width: 80, height: 80, borderRadius: 40 }} />
               <View style={styles.statsRow}>
@@ -488,24 +516,59 @@ export default function UserProfileScreen() {
     );
   }
 
+  // --------------------------
+  // NOT FOUND
+  // --------------------------
   if (!target) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <View style={[styles.header, { backgroundColor: colors.background }]}>
           <TouchableOpacity
-            style={styles.headerBtn}
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
             onPress={() => router.back()}
+            activeOpacity={0.85}
           >
-            <Ionicons name="arrow-back" size={24} color="#000" />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Not Found</Text>
-          <View style={styles.headerBtn} />
+
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Not Found
+          </Text>
+
+          <View
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: "transparent",
+                borderColor: "transparent",
+                shadowOpacity: 0,
+                borderWidth: 0,
+              },
+            ]}
+          />
         </View>
 
         <View style={styles.emptyState}>
-          <Ionicons name="person-outline" size={64} color="#C5CAE9" />
-          <Text style={styles.emptyTitle}>User Not Found</Text>
-          <Text style={styles.emptyDescription}>
+          <Ionicons
+            name="person-outline"
+            size={64}
+            color={colors.textTertiary}
+          />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            User Not Found
+          </Text>
+          <Text
+            style={[styles.emptyDescription, { color: colors.textTertiary }]}
+          >
             This user doesn&apos;t exist or has been deleted.
           </Text>
         </View>
@@ -519,30 +582,63 @@ export default function UserProfileScreen() {
     !isMe && hideFollowing ? "—" : formatNumber(stats?.following || 0);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
+      {/* ✅ THEME HEADER (fixes back button + username visibility) */}
+      <View style={[styles.header, { backgroundColor: colors.background }]}>
         <TouchableOpacity
-          style={styles.headerBtn}
+          style={[
+            styles.headerBtn,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              shadowOpacity: isDark ? 0.22 : 0.08,
+            },
+          ]}
           onPress={() => router.back()}
+          activeOpacity={0.85}
         >
-          <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>@{target.username}</Text>
+        {/* ✅ username now uses theme text color so it is visible in dark mode */}
+        <Text
+          style={[styles.headerTitle, { color: colors.text }]}
+          numberOfLines={1}
+        >
+          @{target.username}
+        </Text>
 
         {!isMe ? (
           <TouchableOpacity
-            style={styles.headerBtn}
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
             onPress={() => sheetRef.current?.snapToIndex(0)}
+            activeOpacity={0.85}
           >
-            <Ionicons name="ellipsis-vertical" size={20} color="#000" />
+            <Ionicons name="ellipsis-vertical" size={20} color={colors.text} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.headerBtn}
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
             onPress={handleShareProfile}
+            activeOpacity={0.85}
           >
-            <Ionicons name="share-outline" size={22} color="#000" />
+            <Ionicons name="share-outline" size={20} color={colors.text} />
           </TouchableOpacity>
         )}
       </View>
@@ -551,7 +647,12 @@ export default function UserProfileScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.profileCard}>
+        <View
+          style={[
+            styles.profileCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.profileTopRow}>
             <View style={styles.profileImageContainer}>
               {target.avatar_url ? (
@@ -560,7 +661,12 @@ export default function UserProfileScreen() {
                   style={styles.profileImage}
                 />
               ) : (
-                <View style={styles.profileImagePlaceholder}>
+                <View
+                  style={[
+                    styles.profileImagePlaceholder,
+                    { backgroundColor: colors.primary },
+                  ]}
+                >
                   <Text style={styles.profileImageText}>
                     {(target.username?.charAt(0) || "U").toUpperCase()}
                   </Text>
@@ -570,128 +676,210 @@ export default function UserProfileScreen() {
 
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>
+                <Text style={[styles.statValue, { color: colors.text }]}>
                   {loadingStats ? "…" : formatNumber(stats?.posts || 0)}
                 </Text>
-                <Text style={styles.statLabel}>Post</Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
+                  Post
+                </Text>
               </View>
 
               <Pressable style={styles.statItem} onPress={goFollowers}>
-                <Text style={styles.statValue}>
+                <Text style={[styles.statValue, { color: colors.text }]}>
                   {loadingStats || loadingFlags ? "…" : followersDisplay}
                 </Text>
-                <Text style={styles.statLabel}>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
                   Followers {!isMe && hideFollowers ? "• Hidden" : ""}
                 </Text>
               </Pressable>
 
               <Pressable style={styles.statItem} onPress={goFollowing}>
-                <Text style={styles.statValue}>
+                <Text style={[styles.statValue, { color: colors.text }]}>
                   {loadingStats || loadingFlags ? "…" : followingDisplay}
                 </Text>
-                <Text style={styles.statLabel}>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
                   Following {!isMe && hideFollowing ? "• Hidden" : ""}
                 </Text>
               </Pressable>
             </View>
           </View>
 
-          <Text style={styles.displayName}>
+          <Text style={[styles.displayName, { color: colors.text }]}>
             {target.full_name || target.username}
           </Text>
-          {!!target.bio && <Text style={styles.bio}>{target.bio}</Text>}
+
+          {!!target.bio && (
+            <Text style={[styles.bio, { color: colors.textTertiary }]}>
+              {target.bio}
+            </Text>
+          )}
 
           {target.is_private ? (
-            <View style={styles.privatePill}>
-              <Ionicons name="lock-closed-outline" size={14} color="#4C1D95" />
-              <Text style={styles.privatePillText}>Private account</Text>
+            <View
+              style={[styles.privatePill, { backgroundColor: colors.surface }]}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={14}
+                color={colors.primary}
+              />
+              <Text style={[styles.privatePillText, { color: colors.primary }]}>
+                Private account
+              </Text>
             </View>
           ) : null}
 
           {!isMe ? (
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={[styles.followButtonBase, followBtnStyle]}
+                style={[
+                  styles.followButtonBase,
+                  followBtnStyle,
+                  isFollowing || isRequested
+                    ? { backgroundColor: colors.surface }
+                    : { backgroundColor: colors.primary },
+                ]}
                 onPress={() => followMutation.mutate()}
                 activeOpacity={0.9}
                 disabled={followMutation.isPending || loadingEdge}
               >
-                <Text style={[styles.followButtonBaseText, followBtnTextStyle]}>
+                <Text
+                  style={[
+                    styles.followButtonBaseText,
+                    isFollowing || isRequested
+                      ? { color: colors.textTertiary }
+                      : { color: "#FFFFFF" },
+                  ]}
+                >
                   {loadingEdge ? "…" : followBtnText}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.messageButton, !canMessage && { opacity: 0.4 }]}
+                style={[
+                  styles.messageButton,
+                  { backgroundColor: colors.surface },
+                  !canMessage && { opacity: 0.4 },
+                ]}
                 activeOpacity={0.9}
                 onPress={handleMessage}
                 disabled={!canMessage}
               >
-                <Text style={styles.messageButtonText}>Message</Text>
+                <Text
+                  style={[styles.messageButtonText, { color: colors.text }]}
+                >
+                  Message
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.shareButton}
+                style={[
+                  styles.shareButton,
+                  { backgroundColor: colors.surface },
+                ]}
                 onPress={handleShareProfile}
                 activeOpacity={0.9}
               >
-                <Ionicons name="share-outline" size={18} color="#000" />
+                <Ionicons name="share-outline" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={styles.messageButton}
+                style={[
+                  styles.messageButton,
+                  { backgroundColor: colors.surface },
+                ]}
                 onPress={() => router.push("/profile/edit")}
                 activeOpacity={0.9}
               >
-                <Text style={styles.messageButtonText}>Edit Profile</Text>
+                <Text
+                  style={[styles.messageButtonText, { color: colors.text }]}
+                >
+                  Edit Profile
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.messageButton}
+                style={[
+                  styles.messageButton,
+                  { backgroundColor: colors.surface },
+                ]}
                 onPress={() => router.push("/settings")}
                 activeOpacity={0.9}
               >
-                <Text style={styles.messageButtonText}>Settings</Text>
+                <Text
+                  style={[styles.messageButtonText, { color: colors.text }]}
+                >
+                  Settings
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.shareButton}
+                style={[
+                  styles.shareButton,
+                  { backgroundColor: colors.surface },
+                ]}
                 onPress={handleShareProfile}
               >
-                <Ionicons name="share-outline" size={18} color="#000" />
+                <Ionicons name="share-outline" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        <View style={styles.tabsContainer}>
-          {profileTabs.map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.activeTab]}
-              onPress={() => setActiveTab(tab)}
-              activeOpacity={0.9}
-            >
-              <Text
+        {/* Tabs */}
+        <View style={[styles.tabsContainer, { backgroundColor: colors.card }]}>
+          {profileTabs.map((tab) => {
+            const active = activeTab === tab;
+            return (
+              <TouchableOpacity
+                key={tab}
                 style={[
-                  styles.tabText,
-                  activeTab === tab && styles.activeTabText,
+                  styles.tab,
+                  active && { backgroundColor: colors.primary },
                 ]}
+                onPress={() => setActiveTab(tab)}
+                activeOpacity={0.9}
               >
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: colors.textTertiary },
+                    active && { color: "#FFFFFF", fontWeight: "800" },
+                  ]}
+                >
+                  {tab}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
+        {/* Content */}
         <View style={styles.contentSection}>
           {activeTab === "Activity" && (
             <View style={styles.emptyState}>
-              <Ionicons name="pulse-outline" size={64} color="#C5CAE9" />
-              <Text style={styles.emptyTitle}>No Activity Yet</Text>
-              <Text style={styles.emptyDescription}>
+              <Ionicons
+                name="pulse-outline"
+                size={64}
+                color={colors.textTertiary}
+              />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                No Activity Yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptyDescription,
+                  { color: colors.textTertiary },
+                ]}
+              >
                 This user&apos;s recent activity will appear here
               </Text>
             </View>
@@ -700,23 +888,33 @@ export default function UserProfileScreen() {
           {activeTab === "Post" && (
             <>
               {!canViewPosts ? (
-                <View style={styles.lockedCard}>
+                <View
+                  style={[styles.lockedCard, { backgroundColor: colors.card }]}
+                >
                   <Ionicons
                     name="lock-closed-outline"
                     size={28}
-                    color="#7C3AED"
+                    color={colors.primary}
                   />
-                  <Text style={styles.lockedTitle}>
+                  <Text style={[styles.lockedTitle, { color: colors.text }]}>
                     This account is private
                   </Text>
-                  <Text style={styles.lockedDesc}>
+                  <Text
+                    style={[styles.lockedDesc, { color: colors.textTertiary }]}
+                  >
                     Follow to see posts from @{target.username}.
                   </Text>
                 </View>
               ) : loadingPosts ? (
                 <View style={{ gap: 12 }}>
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <View key={i} style={styles.postCard}>
+                    <View
+                      key={i}
+                      style={[
+                        styles.postCard,
+                        { backgroundColor: colors.card },
+                      ]}
+                    >
                       <Skeleton
                         style={{ height: 12, width: "75%", borderRadius: 10 }}
                       />
@@ -742,13 +940,26 @@ export default function UserProfileScreen() {
               ) : posts && posts.length > 0 ? (
                 <View style={{ gap: 12 }}>
                   {posts.map((p) => (
-                    <View key={p.id} style={styles.postCard}>
-                      <Text style={styles.postContent}>{p.content}</Text>
+                    <View
+                      key={p.id}
+                      style={[
+                        styles.postCard,
+                        { backgroundColor: colors.card },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.postContent, { color: colors.text }]}
+                      >
+                        {p.content}
+                      </Text>
 
                       {!!p.media_urls?.[0] && (
                         <Image
                           source={{ uri: p.media_urls[0] }}
-                          style={styles.postImage}
+                          style={[
+                            styles.postImage,
+                            { backgroundColor: colors.surface },
+                          ]}
                           resizeMode="cover"
                         />
                       )}
@@ -760,10 +971,17 @@ export default function UserProfileScreen() {
                   <Ionicons
                     name="document-text-outline"
                     size={64}
-                    color="#C5CAE9"
+                    color={colors.textTertiary}
                   />
-                  <Text style={styles.emptyTitle}>No Posts Yet</Text>
-                  <Text style={styles.emptyDescription}>
+                  <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                    No Posts Yet
+                  </Text>
+                  <Text
+                    style={[
+                      styles.emptyDescription,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
                     This user hasn&apos;t posted anything yet
                   </Text>
                 </View>
@@ -773,9 +991,20 @@ export default function UserProfileScreen() {
 
           {activeTab === "Tagged" && (
             <View style={styles.emptyState}>
-              <Ionicons name="pricetag-outline" size={64} color="#C5CAE9" />
-              <Text style={styles.emptyTitle}>No Tags Yet</Text>
-              <Text style={styles.emptyDescription}>
+              <Ionicons
+                name="pricetag-outline"
+                size={64}
+                color={colors.textTertiary}
+              />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                No Tags Yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptyDescription,
+                  { color: colors.textTertiary },
+                ]}
+              >
                 Posts where this user is tagged will appear here
               </Text>
             </View>
@@ -783,9 +1012,20 @@ export default function UserProfileScreen() {
 
           {activeTab === "Media" && (
             <View style={styles.emptyState}>
-              <Ionicons name="images-outline" size={64} color="#C5CAE9" />
-              <Text style={styles.emptyTitle}>No Media</Text>
-              <Text style={styles.emptyDescription}>
+              <Ionicons
+                name="images-outline"
+                size={64}
+                color={colors.textTertiary}
+              />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                No Media
+              </Text>
+              <Text
+                style={[
+                  styles.emptyDescription,
+                  { color: colors.textTertiary },
+                ]}
+              >
                 Photos and videos will appear here
               </Text>
             </View>
@@ -839,7 +1079,7 @@ export default function UserProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  container: { flex: 1 },
   scrollView: { flex: 1 },
 
   header: {
@@ -848,25 +1088,32 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#E8EAF6",
   },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 3,
   },
-  headerTitle: { fontSize: 16, fontWeight: "600", color: "#000" },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    maxWidth: "70%",
+  },
 
   profileCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 20,
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 12,
+    borderWidth: 1,
   },
   profileTopRow: {
     flexDirection: "row",
@@ -879,7 +1126,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#7C3AED",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -887,29 +1133,23 @@ const styles = StyleSheet.create({
 
   statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
   statItem: { alignItems: "center" },
-  statValue: { fontSize: 20, fontWeight: "700", color: "#000" },
-  statLabel: { fontSize: 13, color: "#666", marginTop: 4, textAlign: "center" },
+  statValue: { fontSize: 20, fontWeight: "800" },
+  statLabel: { fontSize: 13, marginTop: 4, textAlign: "center" },
 
-  displayName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  bio: { fontSize: 14, color: "#666", lineHeight: 20, marginBottom: 10 },
+  displayName: { fontSize: 18, fontWeight: "800", marginBottom: 8 },
+  bio: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
 
   privatePill: {
     alignSelf: "flex-start",
     flexDirection: "row",
     gap: 6,
     alignItems: "center",
-    backgroundColor: "#EDEBFF",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
     marginBottom: 14,
   },
-  privatePillText: { fontSize: 12, fontWeight: "800", color: "#4C1D95" },
+  privatePillText: { fontSize: 12, fontWeight: "900" },
 
   actionButtons: { flexDirection: "row", gap: 8 },
 
@@ -919,23 +1159,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  followButtonBaseText: { fontSize: 14, fontWeight: "600" },
-  followButton: { backgroundColor: "#7C3AED" },
-  followButtonText: { color: "#FFFFFF" },
-  followingButton: { backgroundColor: "#F5F5F5" },
-  followingButtonText: { color: "#666" },
+  followButtonBaseText: { fontSize: 14, fontWeight: "800" },
+  followButton: {},
+  followButtonText: {},
+  followingButton: {},
+  followingButtonText: {},
 
   messageButton: {
     flex: 1,
-    backgroundColor: "#F5F5F5",
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: "center",
   },
-  messageButtonText: { fontSize: 14, fontWeight: "600", color: "#000" },
+  messageButtonText: { fontSize: 14, fontWeight: "800" },
 
   shareButton: {
-    backgroundColor: "#F5F5F5",
     width: 40,
     height: 40,
     borderRadius: 8,
@@ -945,21 +1183,18 @@ const styles = StyleSheet.create({
 
   tabsContainer: {
     flexDirection: "row",
-    backgroundColor: "#FFFFFF",
     borderRadius: 25,
     padding: 4,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 22 },
-  activeTab: { backgroundColor: "#7C3AED" },
-  tabText: { fontSize: 14, color: "#666", fontWeight: "500" },
-  activeTabText: { color: "#FFFFFF", fontWeight: "600" },
+  tabText: { fontSize: 14, fontWeight: "700" },
 
   contentSection: { paddingHorizontal: 16, paddingBottom: 20 },
 
-  postCard: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16 },
-  postContent: { fontSize: 14, color: "#666", lineHeight: 20 },
+  postCard: { borderRadius: 16, padding: 16 },
+  postContent: { fontSize: 14, lineHeight: 20 },
   postImage: { width: "100%", height: 200, borderRadius: 12, marginTop: 12 },
 
   emptyState: {
@@ -969,35 +1204,22 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
+    fontWeight: "800",
     marginTop: 16,
     marginBottom: 8,
   },
-  emptyDescription: {
-    fontSize: 14,
-    color: "#9FA8DA",
-    textAlign: "center",
-    lineHeight: 20,
-  },
+  emptyDescription: { fontSize: 14, textAlign: "center", lineHeight: 20 },
 
   lockedCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 18,
     alignItems: "center",
     gap: 8,
   },
-  lockedTitle: {
-    marginTop: 4,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-  },
+  lockedTitle: { marginTop: 4, fontSize: 16, fontWeight: "900" },
   lockedDesc: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
   },

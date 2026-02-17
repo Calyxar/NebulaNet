@@ -1,33 +1,33 @@
-// app/(tabs)/create.tsx — COMPLETED + UPDATED (Create Community + removed Quick Actions)
+// app/(tabs)/create.tsx — CLEAN MINIMAL VERSION ✅
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
 import {
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type CreateOptionId =
-  | "post"
-  | "story"
-  | "media"
-  | "poll"
-  | "event"
-  | "community";
+type CreateRoute =
+  | "/create/post"
+  | "/create/story"
+  | "/create/media"
+  | "/create/poll"
+  | "/create/event"
+  | "/create/community";
 
 interface CreateOption {
-  id: CreateOptionId;
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
-  route: string;
+  route: CreateRoute;
 }
 
 export default function CreateScreen() {
@@ -36,52 +36,44 @@ export default function CreateScreen() {
   const options: CreateOption[] = useMemo(
     () => [
       {
-        id: "post",
         title: "Create Post",
         subtitle: "Text, images, or videos",
         icon: "document-text-outline",
         route: "/create/post",
       },
       {
-        id: "story",
         title: "Add Story",
         subtitle: "Disappears after 24 hours",
         icon: "flash-outline",
         route: "/create/story",
       },
       {
-        id: "media",
         title: "Upload Media",
         subtitle: "Photos, videos, or audio",
         icon: "images-outline",
         route: "/create/media",
       },
       {
-        id: "poll",
         title: "Create Poll",
-        subtitle: "Ask your community",
+        subtitle: "Ask your audience",
         icon: "bar-chart-outline",
         route: "/create/poll",
       },
       {
-        id: "event",
         title: "Create Event",
         subtitle: "Meetups or virtual",
         icon: "calendar-outline",
         route: "/create/event",
       },
       {
-        id: "community",
         title: "Create Community",
-        subtitle: "Start your own space",
+        subtitle: "Start a space people can join",
         icon: "people-outline",
         route: "/create/community",
       },
     ],
     [],
   );
-
-  const go = (route: string) => router.push(route as any);
 
   return (
     <>
@@ -90,6 +82,7 @@ export default function CreateScreen() {
         translucent
         backgroundColor="transparent"
       />
+
       <SafeAreaView
         style={[styles.safe, { backgroundColor: colors.background }]}
         edges={["left", "right"]}
@@ -109,13 +102,13 @@ export default function CreateScreen() {
               styles.card,
               {
                 backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.22 : 0.05,
+                shadowOpacity: isDark ? 0.25 : 0.05,
               },
             ]}
           >
             {options.map((o, idx) => (
               <TouchableOpacity
-                key={o.id}
+                key={o.title}
                 style={[
                   styles.row,
                   idx !== 0 && [
@@ -123,7 +116,7 @@ export default function CreateScreen() {
                     { borderTopColor: colors.border },
                   ],
                 ]}
-                onPress={() => go(o.route)}
+                onPress={() => router.push(o.route)}
                 activeOpacity={0.85}
               >
                 <View
@@ -135,7 +128,7 @@ export default function CreateScreen() {
                   <Ionicons name={o.icon} size={22} color={colors.primary} />
                 </View>
 
-                <View style={styles.rowText}>
+                <View style={{ flex: 1 }}>
                   <Text style={[styles.rowTitle, { color: colors.text }]}>
                     {o.title}
                   </Text>
@@ -155,30 +148,7 @@ export default function CreateScreen() {
             ))}
           </View>
 
-          {/* Tip (kept, small + helpful) */}
-          <View
-            style={[
-              styles.tip,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.22 : 0.05,
-              },
-            ]}
-          >
-            <View style={[styles.tipIcon, { backgroundColor: colors.surface }]}>
-              <Ionicons name="bulb-outline" size={20} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.tipTitle, { color: colors.text }]}>
-                Pro Tip
-              </Text>
-              <Text style={[styles.tipText, { color: colors.textTertiary }]}>
-                Posts with images usually get more engagement.
-              </Text>
-            </View>
-          </View>
-
-          <View style={{ height: 18 }} />
+          <View style={{ height: 30 }} />
         </ScrollView>
       </SafeAreaView>
     </>
@@ -191,7 +161,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 18,
     paddingTop: 6,
-    paddingBottom: 24,
   },
 
   card: {
@@ -207,62 +176,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 16,
     gap: 12,
   },
+
   rowBorder: {
     borderTopWidth: 1,
   },
 
   iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  rowText: { flex: 1 },
 
   rowTitle: {
-    fontSize: 14.5,
+    fontSize: 15,
     fontWeight: "900",
   },
+
   rowSubtitle: {
     marginTop: 2,
-    fontSize: 12.5,
-    fontWeight: "700",
-  },
-
-  tip: {
-    marginTop: 14,
-    borderRadius: 22,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  tipIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  tipTitle: {
-    fontSize: 13.5,
-    fontWeight: "900",
-    marginBottom: 2,
-  },
-
-  tipText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    lineHeight: 18,
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

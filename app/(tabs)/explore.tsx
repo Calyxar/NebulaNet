@@ -1,4 +1,10 @@
-// app/(tabs)/explore.tsx — COMPLETED + UPDATED (theme + dark mode)
+// app/(tabs)/explore.tsx — COMPLETED + UPDATED ✅
+// ✅ Theme + dark mode support
+// ✅ Fixes TS error: removes post_type usage (infers media type from media_urls)
+// ✅ Post results show image thumb OR video thumb with "Video" badge + play overlay
+// ✅ Tapping a post opens /post/[id] so users can like/comment/share there
+// ✅ Back button works: router.canGoBack() fallback to /(tabs)/home
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useSearch } from "@/hooks/useSearch";
@@ -24,6 +30,35 @@ import {
 } from "react-native-safe-area-context";
 
 type ExploreCategory = "trending" | "account" | "post" | "community";
+
+/* =========================
+   MEDIA TYPE HELPERS
+========================= */
+
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return (
+    clean.endsWith(".mp4") ||
+    clean.endsWith(".mov") ||
+    clean.endsWith(".m4v") ||
+    clean.endsWith(".webm") ||
+    clean.endsWith(".mkv") ||
+    clean.endsWith(".avi")
+  );
+};
+
+const isImageUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return (
+    clean.endsWith(".jpg") ||
+    clean.endsWith(".jpeg") ||
+    clean.endsWith(".png") ||
+    clean.endsWith(".webp") ||
+    clean.endsWith(".gif")
+  );
+};
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
@@ -72,6 +107,11 @@ export default function ExploreScreen() {
     ? [colors.background, colors.background, colors.background]
     : ["#DCEBFF", "#EEF4FF", "#FFFFFF"];
 
+  const onBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/home");
+  };
+
   return (
     <>
       <StatusBar
@@ -99,7 +139,7 @@ export default function ExploreScreen() {
                       shadowOpacity: isDark ? 0.22 : 0.08,
                     },
                   ]}
-                  onPress={() => router.back()}
+                  onPress={onBack}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-back" size={22} color={colors.text} />
@@ -322,6 +362,11 @@ export default function ExploreScreen() {
                     {posts.map((p) => {
                       const author =
                         p.user?.full_name || p.user?.username || "User";
+
+                      const first = p.media_urls?.[0] ?? null;
+                      const hasImage = isImageUrl(first);
+                      const hasVideo = isVideoUrl(first);
+
                       return (
                         <TouchableOpacity
                           key={p.id}
@@ -362,6 +407,42 @@ export default function ExploreScreen() {
                             >
                               {p.content}
                             </Text>
+                          )}
+
+                          {(hasImage || hasVideo) && (
+                            <View
+                              style={[
+                                styles.thumbWrap,
+                                { backgroundColor: colors.surface },
+                              ]}
+                            >
+                              {/* If it's an image, show it */}
+                              {hasImage ? (
+                                <Image
+                                  source={{ uri: first! }}
+                                  style={styles.thumb}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                // If it's a video, show a thumbnail placeholder with overlays
+                                <View style={styles.videoThumbInner}>
+                                  <Ionicons
+                                    name="videocam"
+                                    size={18}
+                                    color="#fff"
+                                  />
+                                  <Text style={styles.videoLabel}>Video</Text>
+
+                                  <View style={styles.playCircle}>
+                                    <Ionicons
+                                      name="play"
+                                      size={18}
+                                      color="#fff"
+                                    />
+                                  </View>
+                                </View>
+                              )}
+                            </View>
                           )}
                         </TouchableOpacity>
                       );
@@ -638,6 +719,45 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 13.5,
     lineHeight: 19,
+  },
+
+  /* ✅ NEW: post media thumb */
+  thumbWrap: {
+    marginTop: 12,
+    width: "100%",
+    height: 160,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  thumb: {
+    width: "100%",
+    height: "100%",
+  },
+
+  videoThumbInner: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  videoLabel: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  playCircle: {
+    marginTop: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
   },
 
   emptyWrap: {

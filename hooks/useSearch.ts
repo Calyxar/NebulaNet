@@ -1,10 +1,14 @@
-// hooks/useSearch.ts — COMPLETE (accounts/posts/communities + debounce + React Query)
+// hooks/useSearch.ts — FINAL (accounts / posts / communities + visibility + post_type + debounce fixed)
 
 import { supabase } from "@/lib/supabase";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type SearchType = "account" | "post" | "community";
+
+/* =========================================================
+   TYPES
+========================================================= */
 
 export type SearchAccount = {
   id: string;
@@ -21,6 +25,8 @@ export type SearchPost = {
   like_count: number | null;
   comment_count: number | null;
   share_count: number | null;
+  visibility: "public" | "followers" | "private";
+  post_type?: string | null; // ✅ FIXED (was missing before)
   user: {
     id: string;
     username: string | null;
@@ -41,8 +47,8 @@ export type UseSearchParams = {
   type: SearchType;
   query: string;
   limit?: number;
-  minChars?: number; // default 2
-  debounceMs?: number; // default 350
+  minChars?: number;
+  debounceMs?: number;
 };
 
 type UseSearchReturn = {
@@ -59,21 +65,28 @@ type UseSearchReturn = {
   refetch: () => void;
 };
 
+/* =========================================================
+   DEBOUNCE
+========================================================= */
+
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
 
-  // simple debounce with setTimeout
-  useMemo(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(t);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebounced(value);
+    }, delayMs);
+
+    return () => clearTimeout(timeout);
   }, [value, delayMs]);
 
   return debounced;
 }
 
-/** ---------------------------
- *  Supabase search queries
- *  --------------------------*/
+/* =========================================================
+   SUPABASE SEARCH QUERIES
+========================================================= */
+
 async function searchAccounts(q: string, limit: number) {
   const like = `%${q}%`;
 
@@ -90,7 +103,6 @@ async function searchAccounts(q: string, limit: number) {
 async function searchPosts(q: string, limit: number) {
   const like = `%${q}%`;
 
-  // Assumes relationship: posts.user_id -> profiles.id
   const { data, error } = await supabase
     .from("posts")
     .select(
@@ -102,15 +114,18 @@ async function searchPosts(q: string, limit: number) {
       like_count,
       comment_count,
       share_count,
-      user:profiles (
+      visibility,
+      post_type,
+      user:profiles!posts_user_id_fkey (
         id,
         username,
         full_name,
         avatar_url
       )
-    `,
+      `,
     )
     .ilike("content", like)
+    .eq("visibility", "public") // ✅ IMPORTANT (prevents RLS issues)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -121,7 +136,6 @@ async function searchPosts(q: string, limit: number) {
 async function searchCommunities(q: string, limit: number) {
   const like = `%${q}%`;
 
-  // Adjust table/columns if your community schema differs
   const { data, error } = await supabase
     .from("communities")
     .select("id, name, slug, description, avatar_url")
@@ -132,9 +146,10 @@ async function searchCommunities(q: string, limit: number) {
   return (data ?? []) as SearchCommunity[];
 }
 
-/** ---------------------------
- *  Main hook
- *  --------------------------*/
+/* =========================================================
+   MAIN HOOK
+========================================================= */
+
 export function useSearch(params: UseSearchParams): UseSearchReturn {
   const { type, query, limit = 20, minChars = 2, debounceMs = 350 } = params;
 
@@ -157,17 +172,22 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
         const accounts = await searchAccounts(debouncedQuery, limit);
         return { accounts, posts: [], communities: [] };
       }
+
       if (type === "post") {
         const posts = await searchPosts(debouncedQuery, limit);
         return { accounts: [], posts, communities: [] };
       }
-      // community
+
       const communities = await searchCommunities(debouncedQuery, limit);
       return { accounts: [], posts: [], communities };
     },
   });
 
-  const data = q.data ?? { accounts: [], posts: [], communities: [] };
+  const data = q.data ?? {
+    accounts: [],
+    posts: [],
+    communities: [],
+  };
 
   return {
     query: trimmed,

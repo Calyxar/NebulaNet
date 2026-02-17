@@ -1,4 +1,9 @@
-// app/(auth)/onboarding.tsx — COMPLETED + UPDATED (Skip works + no redirect loop safe)
+// app/(auth)/onboarding.tsx — COMPLETED + UPDATED ✅
+// Fixes included:
+// ✅ No POP_TO_TOP warning (no dismissAll / popToTop)
+// ✅ Redirect only when logged in + completed
+// ✅ Prevents double-tap Skip/Continue
+// ✅ Skip + Continue both consistent + safe
 
 import { useAuth } from "@/hooks/useAuth";
 import { router } from "expo-router";
@@ -46,6 +51,7 @@ export default function OnboardingScreen() {
 
   const maxSelections = 20;
   const selectedCount = selectedInterests.length;
+
   const progress = useMemo(
     () => (selectedCount / maxSelections) * 100,
     [selectedCount],
@@ -54,15 +60,18 @@ export default function OnboardingScreen() {
   const { height: SCREEN_HEIGHT } = useWindowDimensions();
   const isShort = SCREEN_HEIGHT < 700;
 
-  // ✅ If already completed, exit onboarding safely
+  // ✅ If already completed, exit onboarding safely (only when logged in)
   useEffect(() => {
-    if (hasCompletedOnboarding) {
-      router.dismissAll();
-      router.replace("/(tabs)/home");
-    }
-  }, [hasCompletedOnboarding]);
+    if (!user?.id) return;
+    if (!hasCompletedOnboarding) return;
+
+    router.replace("/(tabs)/home");
+     
+  }, [user?.id, hasCompletedOnboarding]);
 
   const toggleInterest = (interestId: string) => {
+    if (isLoading) return;
+
     setSelectedInterests((prev) => {
       if (prev.includes(interestId))
         return prev.filter((id) => id !== interestId);
@@ -80,10 +89,7 @@ export default function OnboardingScreen() {
       [
         {
           text: "OK",
-          onPress: () => {
-            router.dismissAll();
-            router.replace("/(auth)/login");
-          },
+          onPress: () => router.replace("/(auth)/login"),
         },
       ],
     );
@@ -91,28 +97,27 @@ export default function OnboardingScreen() {
     return false;
   };
 
-  const finish = () => {
-    router.dismissAll();
-    router.replace("/(tabs)/home");
-  };
+  const goHome = () => router.replace("/(tabs)/home");
 
   const handleSkip = async () => {
+    if (isLoading) return;
     if (!requireAuthOrSendToLogin()) return;
 
     setIsLoading(true);
     try {
-      // ✅ mark complete, no interests
-      await markOnboardingCompleted([]);
-      finish();
+      await markOnboardingCompleted([]); // mark complete, no interests
     } catch (e) {
       console.error("Onboarding skip error:", e);
-      finish();
+      // still proceed so user isn't stuck
     } finally {
       setIsLoading(false);
+      goHome();
     }
   };
 
   const handleContinue = async () => {
+    if (isLoading) return;
+
     if (selectedCount === 0) {
       Alert.alert(
         "Select Interests",
@@ -125,15 +130,14 @@ export default function OnboardingScreen() {
 
     setIsLoading(true);
     try {
-      const ok = await markOnboardingCompleted(selectedInterests); // ✅ provider inserts interests
-      if (!ok) throw new Error("Failed to save onboarding data");
-      finish();
+      await markOnboardingCompleted(selectedInterests);
+      goHome();
     } catch (error) {
       console.error("Onboarding error:", error);
       Alert.alert(
         "Error",
         "Failed to save your preferences. You can update them later in settings.",
-        [{ text: "Go to Home", onPress: finish }],
+        [{ text: "Go to Home", onPress: goHome }],
       );
     } finally {
       setIsLoading(false);
