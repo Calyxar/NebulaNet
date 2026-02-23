@@ -1,11 +1,10 @@
-// app/(tabs)/chat.tsx — COMPLETED + UPDATED (ThemeProvider + safe typing/online + stable name/avatar)
-// Keeps your timestamp formatting + name/avatar helpers, but now uses theme colors everywhere.
+// app/(tabs)/chat.tsx
 
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useChat } from "@/hooks/useChat";
-import { ChatConversation } from "@/lib/queries/chat";
+import { type ChatConversation } from "@/lib/firestore/chat";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,15 +25,6 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-type ParticipantRow = {
-  user_id: string;
-  profiles?: {
-    username?: string | null;
-    full_name?: string | null;
-    avatar_url?: string | null;
-  } | null;
-};
-
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -46,7 +36,7 @@ export default function ChatScreen() {
     [insets.bottom],
   );
 
-  const formatTimestamp = (dateString?: string) => {
+  const formatTimestamp = (dateString?: string): string => {
     if (!dateString) return "";
     const date = new Date(dateString);
     const now = new Date();
@@ -56,48 +46,40 @@ export default function ChatScreen() {
     const diffDays = Math.floor(diffMs / 86400000);
 
     if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours} hr ago`;
-    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString();
   };
 
-  const getAvatarUrl = (item: ChatConversation, userId?: string) => {
+  const getAvatarUrl = (
+    item: ChatConversation,
+    userId?: string,
+  ): string | null => {
     if (item.avatar_url) return item.avatar_url;
-
-    if (!item.is_group && item.participants?.length === 2 && userId) {
-      const otherParticipant = item.participants.find(
-        (p: ParticipantRow) => p.user_id !== userId,
-      );
-      return otherParticipant?.profiles?.avatar_url || null;
+    if (!item.is_group && (item.participants?.length ?? 0) >= 2 && userId) {
+      const other = item.participants.find((p) => p.user_id !== userId);
+      return other?.profiles?.avatar_url ?? null;
     }
     return null;
   };
 
-  const getConversationName = (item: ChatConversation, userId?: string) => {
+  const getConversationName = (
+    item: ChatConversation,
+    userId?: string,
+  ): string => {
     if (item.name) return item.name;
-
-    if (!item.is_group && item.participants?.length === 2 && userId) {
-      const otherParticipant = item.participants.find(
-        (p: ParticipantRow) => p.user_id !== userId,
-      );
+    if (!item.is_group && (item.participants?.length ?? 0) >= 2 && userId) {
+      const other = item.participants.find((p) => p.user_id !== userId);
       return (
-        otherParticipant?.profiles?.full_name ||
-        otherParticipant?.profiles?.username ||
+        other?.profiles?.full_name ||
+        other?.profiles?.username ||
         "Unknown User"
       );
     }
-
-    if (item.is_group) return `${item.participants?.length || 0} members`;
+    if (item.is_group) return `${item.participants?.length ?? 0} members`;
     return "Chat";
   };
-
-  const openConversation = (conversationId: string) => {
-    router.push({ pathname: "/chat/[id]", params: { id: conversationId } });
-  };
-
-  const onPressSearch = () => router.push("/chat/search");
-  const onPressNewChat = () => router.push("/chat/new");
 
   return (
     <>
@@ -106,7 +88,6 @@ export default function ChatScreen() {
         translucent
         backgroundColor="transparent"
       />
-
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["left", "right"]}
@@ -119,18 +100,17 @@ export default function ChatScreen() {
               <TouchableOpacity
                 style={[styles.iconButton, { backgroundColor: colors.surface }]}
                 activeOpacity={0.7}
-                onPress={onPressSearch}
+                onPress={() => router.push("/chat/search")}
               >
                 <Ionicons name="search-outline" size={22} color={colors.text} />
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.addButton,
                   { backgroundColor: colors.inputBackground },
                 ]}
                 activeOpacity={0.85}
-                onPress={onPressNewChat}
+                onPress={() => router.push("/chat/new")}
               >
                 <Ionicons name="add" size={18} color={colors.text} />
                 <Text style={[styles.addButtonText, { color: colors.text }]}>
@@ -154,7 +134,7 @@ export default function ChatScreen() {
           />
         </View>
 
-        {loading.conversations ? (
+        {loading.conversations && conversations.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
@@ -182,14 +162,21 @@ export default function ChatScreen() {
               <ConversationItem
                 id={item.id}
                 name={getConversationName(item, user?.id)}
-                lastMessage={item.last_message?.content || "No messages yet"}
+                lastMessage={item.last_message?.content ?? ""}
+                attachments={item.last_message?.attachments ?? null}
+                mediaType={item.last_message?.media_type ?? null}
                 timestamp={formatTimestamp(item.updated_at)}
-                unreadCount={item.unread_count ?? 0}
-                isOnline={item.is_online ?? false}
-                isTyping={item.is_typing ?? false}
-                isPinned={item.is_pinned ?? false}
+                unreadCount={item.unread_count}
+                isOnline={item.is_online}
+                isTyping={item.is_typing}
+                isPinned={item.is_pinned}
                 avatar={getAvatarUrl(item, user?.id)}
-                onPress={() => openConversation(item.id)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/chat/[id]",
+                    params: { id: item.id },
+                  })
+                }
               />
             )}
             contentContainerStyle={[
@@ -207,12 +194,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconButton: {
     width: 44,
     height: 44,
@@ -220,7 +202,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   addButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,22 +211,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     gap: 6,
   },
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-
-  storiesContainer: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  storiesContent: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-
+  addButtonText: { fontSize: 13, fontWeight: "800" },
+  storiesContainer: { paddingVertical: 12, borderBottomWidth: 1 },
+  storiesContent: { paddingHorizontal: 16, gap: 12 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   emptyState: {
     flex: 1,
     justifyContent: "center",
@@ -259,6 +228,5 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyStateText: { fontSize: 15, textAlign: "center" },
-
   listContent: { paddingTop: 0 },
 });

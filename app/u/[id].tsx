@@ -1,5 +1,6 @@
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
 import { router, useLocalSearchParams } from "expo-router";
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
@@ -25,21 +26,25 @@ export default function UserIdRedirectScreen() {
         );
 
       try {
-        const q = supabase
-          .from("profiles")
-          .select("id, username")
-          .limit(1)
-          .maybeSingle();
-
-        const { data, error } = looksLikeUuid
-          ? await q.eq("id", raw)
-          : await q.eq("username", raw);
+        const q = looksLikeUuid
+          ? query(
+              collection(db, "profiles"),
+              where("__name__", "==", raw),
+              limit(1),
+            )
+          : query(
+              collection(db, "profiles"),
+              where("username", "==", raw),
+              limit(1),
+            );
+        const snap = await getDocs(q);
 
         if (!alive) return;
 
-        if (error) throw error;
+        const data = snap.empty
+          ? null
+          : ({ id: snap.docs[0].id, ...snap.docs[0].data() } as any);
 
-        // If we found a username, redirect to the canonical URL
         if (data?.username) {
           router.replace(`/user/${data.username}`);
           return;

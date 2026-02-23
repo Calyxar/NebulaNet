@@ -11,20 +11,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
 import {
-    FlatList,
-    Pressable,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    View,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where
+} from "firebase/firestore";
 
 import UserActionsSheet, {
-    type UserActionsSheetRef,
+  type UserActionsSheetRef,
 } from "@/components/UserActionsSheet";
 import UserRow, { type UserRowModel } from "@/components/UserRow";
 
@@ -80,26 +89,34 @@ export default function BlockedUsersScreen() {
     queryKey: ["my-blocks", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("user_blocks")
-        .select(
-          `
-          id,
-          blocker_id,
-          blocked_id,
-          created_at,
-          blocked:profiles!user_blocks_blocked_id_fkey (
-            id, username, full_name, avatar_url, is_private
-          )
-        `,
-        )
-        .eq("blocker_id", myId!)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      // ✅ cast through unknown to avoid PostgREST join typing drama
-      return (data ?? []) as unknown as BlockedJoinRow[];
+      const snap = await getDocs(
+        query(collection(db, "user_blocks"), where("blocker_id", "==", myId!)),
+      );
+      const rows = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "profiles", data.blocked_id));
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            id: d.id,
+            blocker_id: data.blocker_id,
+            blocked_id: data.blocked_id,
+            created_at: data.created_at ?? "",
+            blocked: p
+              ? [
+                  {
+                    id: pSnap.id,
+                    username: p.username,
+                    full_name: p.full_name ?? null,
+                    avatar_url: p.avatar_url ?? null,
+                    is_private: p.is_private ?? false,
+                  },
+                ]
+              : null,
+          } as BlockedJoinRow;
+        }),
+      );
+      return rows;
     },
   });
 
@@ -134,13 +151,14 @@ export default function BlockedUsersScreen() {
     mutationFn: async (targetUserId: string) => {
       if (!myId) throw new Error("Not signed in");
 
-      const { error } = await supabase
-        .from("user_blocks")
-        .delete()
-        .eq("blocker_id", myId)
-        .eq("blocked_id", targetUserId);
-
-      if (error) throw error;
+      const snap = await getDocs(
+        query(
+          collection(db, "user_blocks"),
+          where("blocker_id", "==", myId),
+          where("blocked_id", "==", targetUserId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       return targetUserId;
     },
     onMutate: async (targetUserId) => {

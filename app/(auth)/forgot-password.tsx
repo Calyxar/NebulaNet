@@ -1,19 +1,24 @@
-// app/(auth)/forgot-password.tsx
-import { supabase } from "@/lib/supabase";
+// app/(auth)/forgot-password.tsx — FIREBASE ✅
+// ✅ Replaces Supabase resetPasswordForEmail
+// ✅ Sends Firebase password reset email
+// ✅ Uses your domain as the continue URL
+
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { sendPasswordResetEmail } from "firebase/auth";
 import React, { useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -22,54 +27,65 @@ export default function ForgotPasswordScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
-  const validateEmail = (email: string) => {
+  const validateEmail = (v: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return emailRegex.test(v);
   };
 
   const handleResetPassword = async () => {
-    if (!email.trim()) {
+    const trimmed = email.trim().toLowerCase();
+
+    if (!trimmed) {
       Alert.alert("Error", "Please enter your email address");
       return;
     }
 
-    if (!validateEmail(email)) {
+    if (!validateEmail(trimmed)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "nebulanet://reset-password",
-      });
+      // ✅ Where the user returns after clicking the email link.
+      // Put a page on this domain that can redirect to your app’s create-password screen.
+      const continueUrl = "https://nebulanet.space/reset-password";
 
-      if (error) {
-        throw error;
-      }
+      await sendPasswordResetEmail(auth, trimmed, { url: continueUrl });
 
       setEmailSent(true);
       Alert.alert(
         "Check Your Email",
-        `We've sent a password reset link to ${email}. Please check your inbox and follow the instructions.`,
+        `We've sent a password reset link to ${trimmed}. Please check your inbox and follow the instructions.`,
         [
           {
             text: "OK",
             onPress: () => {
-              // Optionally navigate back to login
-              setTimeout(() => {
-                router.back();
-              }, 500);
+              setTimeout(() => router.back(), 500);
             },
           },
         ],
       );
     } catch (error: any) {
       console.error("Reset password error:", error);
-      Alert.alert(
-        "Error",
-        error.message || "Failed to send reset email. Please try again.",
-      );
+
+      // Firebase often returns "auth/user-not-found" — we still show success-ish
+      // so attackers can’t enumerate emails.
+      const code = error?.code as string | undefined;
+
+      if (code === "auth/user-not-found") {
+        setEmailSent(true);
+        Alert.alert(
+          "Check Your Email",
+          `If an account exists for ${trimmed}, you’ll receive a reset link shortly.`,
+          [{ text: "OK", onPress: () => router.back() }],
+        );
+      } else {
+        Alert.alert(
+          "Error",
+          error?.message || "Failed to send reset email. Please try again.",
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -197,10 +213,8 @@ export default function ForgotPasswordScreen() {
               </>
             )}
 
-            {/* Spacer */}
             <View style={styles.spacer} />
 
-            {/* Help Text */}
             {!emailSent && (
               <View style={styles.helpContainer}>
                 <Text style={styles.helpText}>
@@ -219,13 +233,8 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  keyboardView: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
@@ -241,18 +250,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  iconContainer: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
+  iconContainer: { alignItems: "center", marginBottom: 24 },
   iconCircle: {
     width: 100,
     height: 100,
@@ -261,10 +264,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  header: {
-    marginBottom: 32,
-    alignItems: "center",
-  },
+  header: { marginBottom: 32, alignItems: "center" },
   title: {
     fontSize: 28,
     fontWeight: "700",
@@ -288,23 +288,13 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginBottom: 24,
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
   resetButton: {
     backgroundColor: "#7C3AED",
     paddingVertical: 18,
@@ -312,29 +302,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
     shadowColor: "#7C3AED",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  resetButtonDisabled: {
-    opacity: 0.6,
-  },
-  resetButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  successContainer: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  successIcon: {
-    marginBottom: 16,
-  },
+  resetButtonDisabled: { opacity: 0.6 },
+  resetButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
+  successContainer: { alignItems: "center", marginBottom: 32 },
+  successIcon: { marginBottom: 16 },
   successText: {
     fontSize: 24,
     fontWeight: "700",
@@ -347,20 +323,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
-  emailText: {
-    fontWeight: "600",
-    color: "#7C3AED",
-  },
-  resendButton: {
-    paddingVertical: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  resendButtonText: {
-    fontSize: 15,
-    color: "#7C3AED",
-    fontWeight: "500",
-  },
+  emailText: { fontWeight: "600", color: "#7C3AED" },
+  resendButton: { paddingVertical: 12, alignItems: "center", marginBottom: 16 },
+  resendButtonText: { fontSize: 15, color: "#7C3AED", fontWeight: "500" },
   backToLoginButton: {
     backgroundColor: "#FFFFFF",
     paddingVertical: 16,
@@ -369,26 +334,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#7C3AED",
   },
-  backToLoginText: {
-    color: "#7C3AED",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  spacer: {
-    flex: 1,
-    minHeight: 20,
-  },
-  helpContainer: {
-    alignItems: "center",
-    paddingVertical: 16,
-  },
-  helpText: {
-    fontSize: 15,
-    color: "#9FA8DA",
-    textAlign: "center",
-  },
-  helpLink: {
-    color: "#000",
-    fontWeight: "600",
-  },
+  backToLoginText: { color: "#7C3AED", fontSize: 17, fontWeight: "600" },
+  spacer: { flex: 1, minHeight: 20 },
+  helpContainer: { alignItems: "center", paddingVertical: 16 },
+  helpText: { fontSize: 15, color: "#9FA8DA", textAlign: "center" },
+  helpLink: { color: "#000", fontWeight: "600" },
 });

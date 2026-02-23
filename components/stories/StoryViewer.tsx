@@ -1,7 +1,7 @@
 // components/stories/StoryViewer.tsx
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { ResizeMode, Video } from "expo-av";
+import { getDownloadURL, getStorage, ref } from "firebase/storage";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
@@ -43,19 +43,12 @@ function isHttpUrl(value?: string) {
   return /^https?:\/\//i.test(value);
 }
 
-// If you store private bucket paths, generate a signed URL.
-// NOTE: Bucket name must match your Supabase bucket.
+// Firebase Storage: get download URL from a storage path
+// If the value is already an https:// URL (from getDownloadURL), use it directly.
 async function getSignedStoryUrl(path: string) {
-  // 1 hour signed URL
-  const expiresIn = 60 * 60;
-
-  const { data, error } = await supabase.storage
-    .from("stories")
-    .createSignedUrl(path, expiresIn);
-
-  if (error) throw error;
-  if (!data?.signedUrl) throw new Error("Failed to create signed URL");
-  return data.signedUrl;
+  const storage = getStorage();
+  const storageRef = ref(storage, path);
+  return await getDownloadURL(storageRef);
 }
 
 export default function StoryViewer({

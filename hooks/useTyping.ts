@@ -1,35 +1,14 @@
-// hooks/useTyping.ts — COMPLETED + UPDATED
-// ✅ Fixes implicit any
-// ✅ Cross-platform timeout typing
-// ✅ Provides setTyping() for ChatInput.tsx
-// ✅ Realtime typingUserIds + isSomeoneTyping
+// hooks/useTyping.ts — FIRESTORE VERSION ✅ (COMPLETED + UPDATED)
+// ✅ Drops Supabase typing_status table
+// ✅ Uses Firestore conversation doc field: typing.{userId} = boolean
+// ✅ Uses chatSubscriptions.subscribeToTypingStatus for realtime
+// ✅ Keeps SAME API: { typingUserIds, isSomeoneTyping, setTyping() }
+// ✅ Debounced stop-typing + auto-expire other users after 4.5s
 
-import { supabase } from "@/lib/supabase";
+import { chatQueries, chatSubscriptions } from "@/lib/firestore/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type TypingPayload = {
-  new?: {
-    conversation_id?: string | null;
-    user_id?: string | null;
-    is_typing?: boolean | null;
-    updated_at?: string | null;
-  };
-  old?: {
-    conversation_id?: string | null;
-    user_id?: string | null;
-    is_typing?: boolean | null;
-    updated_at?: string | null;
-  };
-};
-
-type TypingRow = {
-  conversation_id: string;
-  user_id: string;
-  is_typing: boolean;
-  updated_at?: string | null;
-};
-
-const TABLE = "typing_status"; // <-- change if your table name differs
+type TypingMap = Record<string, boolean | null | undefined>;
 
 export function useTyping(conversationId?: string, myUserId?: string) {
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -55,34 +34,36 @@ export function useTyping(conversationId?: string, myUserId?: string) {
     }
   };
 
-  const markTyping = (row: TypingRow) => {
-    // never show me as "typing" in the UI list
-    if (!row.user_id || row.user_id === myUserId) return;
+  const markTyping = (userId: string, isTyping: boolean) => {
+    if (!userId || userId === myUserId) return;
 
     setTypingUserIds((prev) => {
       const s = new Set(prev);
-      if (row.is_typing) s.add(row.user_id);
-      else s.delete(row.user_id);
+      if (isTyping) s.add(userId);
+      else s.delete(userId);
       return Array.from(s);
     });
 
-    // auto-expire typing after 4.5s (in case we miss the "false" event)
-    clearExpiryTimer(row.user_id);
-    if (row.is_typing) {
+    // auto-expire typing after 4.5s (in case we miss the "false" state)
+    clearExpiryTimer(userId);
+    if (isTyping) {
       const t = setTimeout(() => {
-        setTypingUserIds((prev) => prev.filter((id) => id !== row.user_id));
-        clearExpiryTimer(row.user_id);
+        setTypingUserIds((prev) => prev.filter((id) => id !== userId));
+        clearExpiryTimer(userId);
       }, 4500);
-      expiryTimersRef.current.set(row.user_id, t);
+      expiryTimersRef.current.set(userId, t);
     }
   };
 
   // ✅ THIS is what ChatInput expects
+  // Note: In Firestore chat.ts, updateTypingStatus writes:
+  // - is_typing boolean (compat)
+  // - typing.{uid} boolean (best)
   const setTyping = useCallback(
     async (isTyping: boolean) => {
       if (!enabled) return;
 
-      // Debounce "stop typing" so we don't spam DB while user pauses
+      // Debounce "stop typing"
       if (!isTyping) {
         if (stopTypingTimerRef.current) {
           clearTimeout(stopTypingTimerRef.current);
@@ -91,15 +72,7 @@ export function useTyping(conversationId?: string, myUserId?: string) {
 
         stopTypingTimerRef.current = setTimeout(async () => {
           try {
-            await supabase.from(TABLE).upsert(
-              {
-                conversation_id: conversationId!,
-                user_id: myUserId!,
-                is_typing: false,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "conversation_id,user_id" },
-            );
+            await chatQueries.updateTypingStatus(conversationId!, false);
           } catch {
             // ignore
           }
@@ -110,20 +83,12 @@ export function useTyping(conversationId?: string, myUserId?: string) {
 
       // Immediate "start typing"
       try {
-        await supabase.from(TABLE).upsert(
-          {
-            conversation_id: conversationId!,
-            user_id: myUserId!,
-            is_typing: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "conversation_id,user_id" },
-        );
+        await chatQueries.updateTypingStatus(conversationId!, true);
       } catch {
         // ignore
       }
     },
-    [enabled, conversationId, myUserId],
+    [enabled, conversationId],
   );
 
   useEffect(() => {
@@ -131,19 +96,19 @@ export function useTyping(conversationId?: string, myUserId?: string) {
 
     let mounted = true;
 
+    // Boot: read current conversation typing map once
     const boot = async () => {
       try {
-        const { data, error } = await supabase
-          .from(TABLE)
-          .select("conversation_id,user_id,is_typing,updated_at")
-          .eq("conversation_id", conversationId!)
-          .neq("user_id", myUserId!)
-          .eq("is_typing", true);
+        const { data } = await chatQueries.getConversation(conversationId!);
+        if (!mounted || !data) return;
 
-        if (error) throw error;
-        if (!mounted) return;
+        const typing: TypingMap = (data as any)?.typing ?? {};
+        for (const [uid, v] of Object.entries(typing || {})) {
+          if (v) markTyping(uid, true);
+        }
 
-        (data as TypingRow[] | null)?.forEach((r) => markTyping(r));
+        // Back-compat: if you ever used a single boolean is_typing,
+        // we CANNOT know who is typing from that field, so we ignore it here.
       } catch {
         // ignore
       }
@@ -151,32 +116,36 @@ export function useTyping(conversationId?: string, myUserId?: string) {
 
     boot();
 
-    const channel = supabase
-      .channel(`typing:${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: TABLE,
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        ({ new: n, old: o }: TypingPayload) => {
-          const row = (n || o) as TypingRow | undefined;
-          if (!row?.conversation_id || !row?.user_id) return;
-          markTyping({
-            conversation_id: row.conversation_id,
-            user_id: row.user_id,
-            is_typing: !!row.is_typing,
-            updated_at: row.updated_at ?? null,
-          });
-        },
-      )
-      .subscribe();
+    // Realtime: listen to conversation doc changes
+    const unsub = chatSubscriptions.subscribeToTypingStatus(
+      conversationId!,
+      (payload: any) => {
+        const doc = payload?.new;
+        if (!doc) return;
+
+        const typing: TypingMap = doc.typing ?? {};
+
+        // Update all "true" users first (to refresh expiry timers)
+        for (const [uid, v] of Object.entries(typing || {})) {
+          if (!!v) markTyping(uid, true);
+        }
+
+        // Then remove anyone who is now false (or missing) from our local list
+        setTypingUserIds((prev) => {
+          const next = prev.filter((uid) => !!typing?.[uid]);
+          // clear timers for removed
+          for (const uid of prev) {
+            if (!typing?.[uid]) clearExpiryTimer(uid);
+          }
+          return next;
+        });
+      },
+    );
 
     return () => {
       mounted = false;
-      supabase.removeChannel(channel);
+
+      unsub?.();
 
       if (stopTypingTimerRef.current) {
         clearTimeout(stopTypingTimerRef.current);
@@ -193,6 +162,6 @@ export function useTyping(conversationId?: string, myUserId?: string) {
   return {
     typingUserIds,
     isSomeoneTyping: typingUserIds.length > 0,
-    setTyping, // ✅ ChatInput uses this
+    setTyping,
   };
 }

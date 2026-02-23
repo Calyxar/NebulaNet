@@ -1,8 +1,11 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import * as Haptics from "expo-haptics";
 import { Home, MessageCircle, Plus, Search, User } from "lucide-react-native";
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,10 +23,85 @@ export function getTabBarHeight(insetsBottom: number) {
 }
 
 // ✅ Put tabs in the exact order you want visually
-// Example here: Home, Explore, Create, Chat, Profile
 const ORDER = ["home", "explore", "create", "chat", "profile"] as const;
 
-export default function CurvedTabBar({ state, navigation }: BottomTabBarProps) {
+function CreateTabButton({
+  onPress,
+  colors,
+  isDark,
+}: {
+  onPress: () => void;
+  colors: any;
+  isDark: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [pressed, setPressed] = useState(false);
+
+  // ✅ tight / premium press-in
+  const pressIn = () => {
+    setPressed(true);
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      speed: 28,
+      bounciness: 4,
+    }).start();
+  };
+
+  // ✅ faster snap-back
+  const pressOut = () => {
+    setPressed(false);
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 26,
+      bounciness: 6,
+    }).start();
+  };
+
+  const handlePress = () => {
+    void Haptics.selectionAsync();
+    onPress();
+  };
+
+  return (
+    <Pressable
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      onPress={handlePress}
+      hitSlop={14}
+      style={styles.createPressable}
+    >
+      <Animated.View
+        style={[
+          styles.createButton,
+          {
+            backgroundColor: colors.primary,
+            borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.08)",
+            transform: [{ scale }],
+          },
+        ]}
+      >
+        {/* ✅ soft pressed overlay */}
+        <View
+          pointerEvents="none"
+          style={[
+            styles.softPressOverlay,
+            { opacity: pressed ? 0.08 : 0, backgroundColor: "#000" },
+          ]}
+        />
+
+        <Plus size={28} color="#FFFFFF" strokeWidth={3} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+export default function CurvedTabBar({
+  state,
+  navigation,
+  descriptors, // ✅ IMPORTANT: needed to read tabBarBadge
+}: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const height = getTabBarHeight(insets.bottom);
 
@@ -50,8 +128,8 @@ export default function CurvedTabBar({ state, navigation }: BottomTabBarProps) {
             paddingBottom: Math.max(insets.bottom, 8),
             backgroundColor: colors.card,
             borderTopColor: colors.border,
-            shadowOpacity: isDark ? 0.25 : 0.1,
-            elevation: isDark ? 10 : 20,
+            shadowOpacity: isDark ? 0.18 : 0.08,
+            elevation: isDark ? 8 : 4,
           },
         ]}
       >
@@ -59,6 +137,9 @@ export default function CurvedTabBar({ state, navigation }: BottomTabBarProps) {
           const index = state.routes.findIndex((r) => r.key === route.key);
           const isFocused = state.index === index;
           const isCreate = route.name === "create";
+
+          // ✅ Read the badge from screen options (set in TabsLayout)
+          const badge = descriptors?.[route.key]?.options?.tabBarBadge;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -75,6 +156,30 @@ export default function CurvedTabBar({ state, navigation }: BottomTabBarProps) {
           const iconSize = isFocused ? 26 : 24;
           const color = isFocused ? activeColor : inactiveColor;
           const strokeWidth = isFocused ? 2.5 : 2;
+
+          const label =
+            route.name === "home"
+              ? "Home"
+              : route.name === "explore"
+                ? "Explore"
+                : route.name === "chat"
+                  ? "Chat"
+                  : route.name === "profile"
+                    ? "Profile"
+                    : "";
+
+          // ✅ Special create button with animation + haptics
+          if (isCreate) {
+            return (
+              <View key={route.key} style={[styles.tab, styles.createTab]}>
+                <CreateTabButton
+                  onPress={onPress}
+                  colors={colors}
+                  isDark={isDark}
+                />
+              </View>
+            );
+          }
 
           const Icon = () => {
             switch (route.name) {
@@ -110,58 +215,48 @@ export default function CurvedTabBar({ state, navigation }: BottomTabBarProps) {
                     strokeWidth={strokeWidth}
                   />
                 );
-              case "create":
-                return (
-                  <View
-                    style={[
-                      styles.createButton,
-                      {
-                        backgroundColor: colors.primary,
-                        // ✅ NO “light” / NO shine
-                        shadowColor: colors.primary,
-                        shadowOpacity: isDark ? 0.3 : 0.22,
-                        elevation: isDark ? 10 : 6,
-                      },
-                    ]}
-                  >
-                    <Plus size={30} color="#FFFFFF" strokeWidth={3} />
-                  </View>
-                );
               default:
                 return null;
             }
           };
 
-          const label =
-            route.name === "home"
-              ? "Home"
-              : route.name === "explore"
-                ? "Explore"
-                : route.name === "chat"
-                  ? "Chat"
-                  : route.name === "profile"
-                    ? "Profile"
-                    : "";
+          const showBadge =
+            badge !== undefined &&
+            badge !== null &&
+            badge !== 0 &&
+            badge !== "" &&
+            badge !== false;
 
           return (
             <TouchableOpacity
               key={route.key}
-              onPress={onPress}
-              style={[styles.tab, isCreate && styles.createTab]}
-              activeOpacity={0.75}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onPress();
+              }}
+              style={styles.tab}
+              activeOpacity={0.85}
             >
-              <Icon />
-              {!isCreate && (
-                <Text
-                  style={[
-                    styles.label,
-                    { color: inactiveColor },
-                    isFocused && { color: activeColor },
-                  ]}
-                >
-                  {label}
-                </Text>
-              )}
+              <View style={styles.iconWrap}>
+                <Icon />
+
+                {/* ✅ Badge */}
+                {showBadge ? (
+                  <View style={[styles.badge, { borderColor: colors.card }]}>
+                    <Text style={styles.badgeText}>{String(badge)}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <Text
+                style={[
+                  styles.label,
+                  { color: inactiveColor },
+                  isFocused && { color: activeColor },
+                ]}
+              >
+                {label}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -200,7 +295,12 @@ const styles = StyleSheet.create({
   },
 
   createTab: {
-    marginTop: -22,
+    marginTop: -20,
+  },
+
+  createPressable: {
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   createButton: {
@@ -209,15 +309,53 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    // ✅ no gradient, no highlight, no “light strip”
-    overflow: "visible",
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 10,
+
+    // ✅ Completely removes ugly glow/light
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 0,
+    elevation: 0,
+
+    // ✅ premium border instead of glow
+    borderWidth: 1,
+
+    // so the overlay clips perfectly
+    overflow: "hidden",
+  },
+
+  softPressOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
 
   label: {
     fontSize: 11,
     fontWeight: "700",
     marginTop: 4,
+  },
+
+  // ✅ badge support
+  iconWrap: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -12,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EF4444",
+    borderWidth: 2, // gives a “cutout” look against card background
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "900",
   },
 });

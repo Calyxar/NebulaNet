@@ -1,14 +1,22 @@
 // app/settings/saved-content.tsx — COMPLETED (NebulaNet reskin + NO TS type mismatch)
 // ✅ Fixes the "SavedRaw/HiddenRaw may be a mistake..." error by typing RAW as the
-//    *actual* Supabase embed shape (object OR array) and normalizing safely.
 // ✅ NebulaNet gradient + card UI (matches your settings/index.tsx vibe)
 
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   FlatList,
@@ -141,85 +149,102 @@ export default function SavedContentScreen() {
   const [activeTab, setActiveTab] = useState<"saved" | "hidden">("saved");
 
   const savedQuery = useQuery({
-    queryKey: ["saved-posts", user?.id],
+    queryKey: ["saved-posts", user?.uid],
     enabled: !!user && activeTab === "saved",
     queryFn: async (): Promise<SavedItem[]> => {
       if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("saved_posts")
-        .select(
-          `
-          id,
-          post_id,
-          saved_at,
-          post:posts!inner(
-            id,
-            title,
-            content,
-            media_urls,
-            author:profiles!posts_user_id_fkey(
-              username,
-              avatar_url
-            )
-          )
-        `,
-        )
-        .eq("user_id", user.id)
-        .order("saved_at", { ascending: false });
-
-      if (error) throw error;
+      const snap = await getDocs(
+        query(collection(db, "saved_posts"), where("user_id", "==", user.uid)),
+      );
+      const rows = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "posts", data.post_id));
+          if (!pSnap.exists()) return null;
+          const post = pSnap.data() as any;
+          const aSnap = post.user_id
+            ? await getDoc(doc(db, "profiles", post.user_id))
+            : null;
+          const author = aSnap?.exists() ? (aSnap.data() as any) : null;
+          return {
+            id: d.id,
+            post_id: data.post_id,
+            saved_at: data.saved_at ?? "",
+            post: {
+              id: pSnap.id,
+              title: post.title ?? null,
+              content: post.content ?? "",
+              media_urls: post.media_urls ?? [],
+              author: author
+                ? {
+                    username: author.username,
+                    avatar_url: author.avatar_url ?? null,
+                  }
+                : { username: "Unknown" },
+            },
+          };
+        }),
+      );
+      const data = rows.filter(Boolean);
 
       // ✅ No mismatch: we treat the runtime shape as SavedRaw (post/author can be object or array)
-      return normalizeSaved((data ?? []) as SavedRaw[]);
+      return normalizeSaved(data as any[]);
     },
   });
 
   const hiddenQuery = useQuery({
-    queryKey: ["hidden-posts", user?.id],
+    queryKey: ["hidden-posts", user?.uid],
     enabled: !!user && activeTab === "hidden",
     queryFn: async (): Promise<HiddenItem[]> => {
       if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("hidden_posts")
-        .select(
-          `
-          id,
-          post_id,
-          hidden_at,
-          post:posts!inner(
-            id,
-            title,
-            content,
-            author:profiles!posts_user_id_fkey(
-              username
-            )
-          )
-        `,
-        )
-        .eq("user_id", user.id)
-        .order("hidden_at", { ascending: false });
-
-      if (error) throw error;
-
-      return normalizeHidden((data ?? []) as HiddenRaw[]);
+      const hSnap = await getDocs(
+        query(collection(db, "hidden_posts"), where("user_id", "==", user.uid)),
+      );
+      const hRows = await Promise.all(
+        hSnap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "posts", data.post_id));
+          if (!pSnap.exists()) return null;
+          const post = pSnap.data() as any;
+          const aSnap = post.user_id
+            ? await getDoc(doc(db, "profiles", post.user_id))
+            : null;
+          const author = aSnap?.exists() ? (aSnap.data() as any) : null;
+          return {
+            id: d.id,
+            post_id: data.post_id,
+            hidden_at: data.hidden_at ?? "",
+            post: {
+              id: pSnap.id,
+              title: post.title ?? null,
+              content: post.content ?? "",
+              author: author
+                ? { username: author.username }
+                : { username: "Unknown" },
+            },
+          };
+        }),
+      );
+      return normalizeHidden(hRows.filter(Boolean) as any[]);
     },
   });
 
   const unhideMutation = useMutation({
     mutationFn: async (postId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("hidden_posts")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("post_id", postId);
-
-      if (error) throw error;
+      const uhSnap = await getDocs(
+        query(
+          collection(db, "hidden_posts"),
+          where("user_id", "==", user.uid),
+          where("post_id", "==", postId),
+        ),
+      );
+      await Promise.all(uhSnap.docs.map((d) => deleteDoc(d.ref)));
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hidden-posts", user?.id] });
+      qc.invalidateQueries({ queryKey: ["hidden-posts", user?.uid] });
     },
   });
 

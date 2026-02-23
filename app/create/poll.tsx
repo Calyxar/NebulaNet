@@ -1,15 +1,22 @@
-// app/create/poll.tsx - DESIGN MATCH (NebulaNet)
+// app/create/media.tsx - DESIGN MATCH + RELIABLE UPLOAD (NebulaNet)
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import * as VideoThumbnails from "expo-video-thumbnails";
+import { addDoc, collection } from "firebase/firestore";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
-  Modal,
-  Platform,
+  Image,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -20,104 +27,171 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-export default function CreatePollScreen() {
+type MediaType = "image" | "video";
+
+interface MediaItem {
+  uri: string;
+  type: MediaType;
+  thumbnail?: string;
+}
+
+export default function CreateMediaScreen() {
   const { user } = useAuth();
-
-  const [question, setQuestion] = useState("");
-  const [options, setOptions] = useState(["", ""]);
+  const [caption, setCaption] = useState("");
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<"photos" | "videos">("photos");
 
-  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-
-  const [allowMultiple, setAllowMultiple] = useState(false);
-  const [isAnonymous, setIsAnonymous] = useState(false);
-
-  const validOptions = useMemo(
-    () => options.map((o) => o.trim()).filter(Boolean),
-    [options],
+  const countLabel = useMemo(
+    () => `${mediaItems.length}/10 selected`,
+    [mediaItems.length],
   );
 
-  const addOption = () => {
-    if (options.length < 6) setOptions((prev) => [...prev, ""]);
-  };
+  const pickMedia = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-  const removeOption = (index: number) => {
-    if (options.length <= 2) return;
-    setOptions((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const updateOption = (index: number, value: string) => {
-    setOptions((prev) => prev.map((o, i) => (i === index ? value : o)));
-  };
-
-  const formatDateTime = (date: Date) => {
-    try {
-      return date.toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "Selected";
-    }
-  };
-
-  const handleCreatePoll = async () => {
-    if (!question.trim()) {
-      Alert.alert("Error", "Please enter a poll question");
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "We need photo library permissions to upload media.",
+      );
       return;
     }
-    if (validOptions.length < 2) {
-      Alert.alert("Error", "Please add at least 2 options");
-      return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes:
+        selectedTab === "photos"
+          ? ImagePicker.MediaTypeOptions.Images
+          : ImagePicker.MediaTypeOptions.Videos,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+      quality: 0.9,
+      videoMaxDuration: 60,
+    });
+
+    if (result.canceled) return;
+    if (!result.assets?.length) return;
+
+    const newItems: MediaItem[] = [];
+
+    for (const asset of result.assets) {
+      const type: MediaType = asset.type === "video" ? "video" : "image";
+
+      const item: MediaItem = { uri: asset.uri, type };
+
+      // Thumbnail for videos
+      if (type === "video") {
+        try {
+          const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+            time: 150,
+          });
+          item.thumbnail = thumb.uri;
+        } catch (e) {
+          console.warn("Video thumbnail failed:", e);
+        }
+      }
+
+      newItems.push(item);
     }
+
+    setMediaItems((prev) => [...prev, ...newItems].slice(0, 10));
+  };
+
+  const removeMedia = (index: number) => {
+    setMediaItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // ✅ Robust file info parsing
+  const getFileInfo = (uri: string, type: MediaType) => {
+    const cleanUri = uri.split("?")[0];
+    const extRaw = cleanUri.split(".").pop()?.toLowerCase();
+
+    // some Android URIs won't have an extension; default safely
+    const ext =
+      extRaw && extRaw.length <= 5 ? extRaw : type === "video" ? "mp4" : "jpg";
+
+    const mime =
+      type === "video"
+        ? ext === "mov"
+          ? "video/quicktime"
+          : "video/mp4"
+        : ext === "png"
+          ? "image/png"
+          : ext === "webp"
+            ? "image/webp"
+            : "image/jpeg";
+
+    return { ext, mime };
+  };
+
+  // ✅ RELIABLE upload for Android/iOS dev builds: use ArrayBuffer (not Blob)
+  const uploadMedia = async (): Promise<string[]> => {
+    if (!user) throw new Error("Not logged in");
+    if (mediaItems.length === 0) return [];
+
+    const uploadedUrls: string[] = [];
+
+    for (const item of mediaItems) {
+      const { ext, mime } = getFileInfo(item.uri, item.type);
+
+      const fileName = `${user.id}/${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.${ext}`;
+      const path = `media/${fileName}`;
+
+      try {
+        const res = await fetch(item.uri);
+        const arrayBuffer = await res.arrayBuffer();
+
+        const storage = getStorage();
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
+
+        if (uploadError) throw uploadError;
+
+        const publicUrl = await getDownloadURL(fileRef);
+        uploadedUrls.push(publicUrl);
+      } catch (err) {
+        console.error("Upload failed:", err);
+        throw new Error(
+          "Failed to upload media. Check storage policies/bucket.",
+        );
+      }
+    }
+
+    return uploadedUrls;
+  };
+
+  const handleShareMedia = async () => {
     if (!user) {
-      Alert.alert("Error", "You must be logged in to create a poll");
+      Alert.alert("Error", "You must be logged in to share media");
+      return;
+    }
+    if (mediaItems.length === 0) {
+      Alert.alert("Error", "Please select at least one photo or video");
       return;
     }
 
     setIsLoading(true);
     try {
+      const mediaUrls = await uploadMedia();
+
+      const postType = mediaItems.some((m) => m.type === "video")
+        ? "video"
+        : "image";
+
+      const title =
+        caption.trim() ||
+        `${mediaItems.length} ${mediaItems.length === 1 ? "item" : "items"} shared`;
+
       const nowIso = new Date().toISOString();
 
-      const { data: pollData, error: pollError } = await supabase
-        .from("polls")
-        .insert({
-          user_id: user.id,
-          question: question.trim(),
-          expires_at: expiresAt?.toISOString() || null,
-          allow_multiple: allowMultiple,
-          is_anonymous: isAnonymous,
-          votes_count: 0,
-          created_at: nowIso,
-          updated_at: nowIso,
-        })
-        .select()
-        .single();
-
-      if (pollError) throw pollError;
-
-      const pollOptions = validOptions.map((option, index) => ({
-        poll_id: pollData.id,
-        option_text: option,
-        option_order: index,
-        votes_count: 0,
-        created_at: nowIso,
-      }));
-
-      const { error: optionsError } = await supabase
-        .from("poll_options")
-        .insert(pollOptions);
-      if (optionsError) throw optionsError;
-
-      const { error: postError } = await supabase.from("posts").insert({
-        user_id: user.id,
-        title: `Poll: ${question.trim()}`,
-        content: `Vote on this poll!`,
-        poll_id: pollData.id,
-        post_type: "poll",
+      await addDoc(collection(db, "posts"), {
+        user_id: auth.currentUser!.uid,
+        title,
+        content: caption.trim(),
+        media_urls: mediaUrls,
+        post_type: postType,
         likes_count: 0,
         comments_count: 0,
         shares_count: 0,
@@ -125,25 +199,23 @@ export default function CreatePollScreen() {
         updated_at: nowIso,
       });
 
-      if (postError) throw postError;
+      if (error) throw error;
 
-      Alert.alert("Success", "Poll created successfully!", [
+      Alert.alert("Success", "Media shared successfully!", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed to create poll.");
+      Alert.alert("Error", error?.message || "Failed to share media.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const canCreate = question.trim().length > 0 && validOptions.length >= 2;
-
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
       <SafeAreaView style={styles.safe}>
-        {/* Header (matches your Create screen style) */}
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -151,7 +223,7 @@ export default function CreatePollScreen() {
           >
             <Ionicons name="arrow-back" size={22} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Poll</Text>
+          <Text style={styles.headerTitle}>Upload Media</Text>
           <View style={{ width: 44 }} />
         </View>
 
@@ -160,174 +232,191 @@ export default function CreatePollScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* Question Card */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Poll Question</Text>
-            <View style={styles.inputWrap}>
-              <TextInput
-                value={question}
-                onChangeText={setQuestion}
-                placeholder="What would you like to ask?"
-                placeholderTextColor="#9CA3AF"
-                maxLength={200}
-                style={styles.questionInput}
+          {/* Tabs */}
+          <View style={styles.tabsWrap}>
+            <TouchableOpacity
+              style={[styles.tab, selectedTab === "photos" && styles.tabActive]}
+              onPress={() => setSelectedTab("photos")}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="image-outline"
+                size={18}
+                color={selectedTab === "photos" ? "#FFFFFF" : "#6B7280"}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === "photos" && styles.tabTextActive,
+                ]}
+              >
+                Photos
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, selectedTab === "videos" && styles.tabActive]}
+              onPress={() => setSelectedTab("videos")}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="videocam-outline"
+                size={18}
+                color={selectedTab === "videos" ? "#FFFFFF" : "#6B7280"}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  selectedTab === "videos" && styles.tabTextActive,
+                ]}
+              >
+                Videos
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Add Media Card */}
+          <TouchableOpacity
+            style={styles.addCard}
+            onPress={pickMedia}
+            activeOpacity={0.85}
+          >
+            <View style={styles.addIconCircle}>
+              <Ionicons
+                name={selectedTab === "photos" ? "images" : "videocam"}
+                size={26}
+                color="#7C3AED"
               />
             </View>
-            <Text style={styles.counter}>{question.length}/200</Text>
-          </View>
+            <Text style={styles.addTitle}>
+              Add {selectedTab === "photos" ? "Photos" : "Videos"}
+            </Text>
+            <Text style={styles.addSub}>{countLabel}</Text>
+          </TouchableOpacity>
 
-          {/* Options Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>Options</Text>
-              <Text style={styles.miniMeta}>{validOptions.length}/6</Text>
-            </View>
+          {/* Grid Preview */}
+          {mediaItems.length > 0 && (
+            <View style={styles.gridCard}>
+              <Text style={styles.cardTitle}>Preview</Text>
 
-            {options.map((option, index) => {
-              const letter = String.fromCharCode(65 + index);
-              return (
-                <View key={`opt-${index}`} style={styles.optionRow}>
-                  <View style={styles.optionBadge}>
-                    <Text style={styles.optionBadgeText}>{letter}</Text>
-                  </View>
+              <View style={styles.grid}>
+                {mediaItems.map((item, index) => (
+                  <View
+                    key={`${item.uri}-${index}`}
+                    style={styles.gridItemWrap}
+                  >
+                    <Image
+                      source={{
+                        uri:
+                          item.type === "video"
+                            ? item.thumbnail || item.uri
+                            : item.uri,
+                      }}
+                      style={styles.gridItem}
+                    />
 
-                  <TextInput
-                    value={option}
-                    onChangeText={(v) => updateOption(index, v)}
-                    placeholder={`Option ${index + 1}`}
-                    placeholderTextColor="#9CA3AF"
-                    maxLength={100}
-                    style={styles.optionInput}
-                  />
+                    {item.type === "video" && (
+                      <View style={styles.videoBadge}>
+                        <Ionicons name="play" size={12} color="#fff" />
+                        <Text style={styles.videoBadgeText}>Video</Text>
+                      </View>
+                    )}
 
-                  {options.length > 2 && (
                     <TouchableOpacity
-                      onPress={() => removeOption(index)}
                       style={styles.removeBtn}
+                      onPress={() => removeMedia(index)}
                       activeOpacity={0.85}
                     >
-                      <Ionicons name="close" size={18} color="#fff" />
+                      <Ionicons name="close" size={16} color="#fff" />
                     </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
 
-            {options.length < 6 && (
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={addOption}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="add" size={18} color="#7C3AED" />
-                <Text style={styles.addBtnText}>Add Option</Text>
-              </TouchableOpacity>
-            )}
+          {/* Caption */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Caption</Text>
+            <View style={styles.captionWrap}>
+              <TextInput
+                value={caption}
+                onChangeText={setCaption}
+                placeholder={`Describe your ${selectedTab}...`}
+                placeholderTextColor="#9CA3AF"
+                multiline
+                numberOfLines={4}
+                maxLength={500}
+                style={styles.captionInput}
+              />
+            </View>
+            <Text style={styles.counter}>{caption.length}/500</Text>
           </View>
 
-          {/* Settings Card */}
+          {/* Details */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Poll Settings</Text>
+            <Text style={styles.cardTitle}>Media Details</Text>
 
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={() => setShowDatePicker(true)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.settingIcon}>
-                <Ionicons name="time-outline" size={18} color="#7C3AED" />
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons name="images-outline" size={18} color="#7C3AED" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Ends</Text>
-                <Text style={styles.settingValue}>
-                  {expiresAt ? formatDateTime(expiresAt) : "Never"}
+                <Text style={styles.detailLabel}>Media Count</Text>
+                <Text style={styles.detailValue}>
+                  {mediaItems.length}{" "}
+                  {mediaItems.length === 1 ? "item" : "items"}
                 </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.detailLabel}>Content Type</Text>
+                <Text style={styles.detailValue}>
+                  {mediaItems.length === 0
+                    ? "None selected"
+                    : selectedTab === "photos"
+                      ? "Photos"
+                      : "Videos"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailIcon}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.detailLabel}>Privacy</Text>
+                <Text style={styles.detailValue}>Public</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={() => setAllowMultiple((v) => !v)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.settingIcon}>
-                <Ionicons name="checkbox-outline" size={18} color="#7C3AED" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Allow multiple votes</Text>
-                <Text style={styles.settingDesc}>
-                  Users can vote for more than one option
-                </Text>
-              </View>
-              <Toggle value={allowMultiple} />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={() => setIsAnonymous((v) => !v)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.settingIcon}>
-                <Ionicons name="eye-off-outline" size={18} color="#7C3AED" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Anonymous voting</Text>
-                <Text style={styles.settingDesc}>Hide voter identities</Text>
-              </View>
-              <Toggle value={isAnonymous} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Preview Card */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Preview</Text>
-            <View style={styles.previewCard}>
-              <Text style={styles.previewQuestion} numberOfLines={2}>
-                {question.trim() || "What’s your poll question?"}
-              </Text>
-
-              <View style={{ gap: 10 }}>
-                {options.map((opt, index) => {
-                  const letter = String.fromCharCode(65 + index);
-                  return (
-                    <View key={`pv-${index}`} style={styles.previewOption}>
-                      <View style={styles.previewBadge}>
-                        <Text style={styles.previewBadgeText}>{letter}</Text>
-                      </View>
-                      <Text style={styles.previewOptionText} numberOfLines={1}>
-                        {opt.trim() || `Option ${index + 1}`}
-                      </Text>
-                      <View style={styles.previewPctPill}>
-                        <Text style={styles.previewPctText}>0%</Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-
-              <View style={styles.previewMetaRow}>
-                <Text style={styles.previewMetaText}>0 votes</Text>
-                <Text style={styles.previewMetaText}>
-                  {expiresAt
-                    ? `Ends ${formatDateTime(expiresAt)}`
-                    : "No end date"}
-                </Text>
-              </View>
             </View>
           </View>
 
           {/* Actions */}
           <View style={styles.actions}>
             <Button
-              title="Create Poll"
-              onPress={handleCreatePoll}
+              title={`Share ${selectedTab === "photos" ? "Photos" : "Videos"}`}
+              onPress={handleShareMedia}
               loading={isLoading}
-              disabled={!canCreate}
+              disabled={mediaItems.length === 0}
               style={styles.primaryBtn}
             />
 
@@ -342,99 +431,10 @@ export default function CreatePollScreen() {
 
           <View style={{ height: 24 }} />
         </ScrollView>
-
-        {/* Date Picker Sheet */}
-        <Modal
-          visible={showDatePicker}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowDatePicker(false)}
-        >
-          <TouchableOpacity
-            style={styles.sheetBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowDatePicker(false)}
-          >
-            <TouchableOpacity
-              style={styles.sheet}
-              activeOpacity={1}
-              onPress={() => {}}
-            >
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Set end time</Text>
-                <TouchableOpacity
-                  onPress={() => setShowDatePicker(false)}
-                  style={styles.sheetClose}
-                >
-                  <Ionicons name="close" size={18} color="#111827" />
-                </TouchableOpacity>
-              </View>
-
-              <DateTimePicker
-                value={
-                  expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-                }
-                mode="datetime"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onChange={(event, selectedDate) => {
-                  // Android fires twice; close on selection
-                  if (Platform.OS === "android") setShowDatePicker(false);
-                  setExpiresAt(selectedDate || null);
-                }}
-                minimumDate={new Date()}
-              />
-
-              {Platform.OS === "ios" && (
-                <TouchableOpacity
-                  style={styles.sheetDone}
-                  onPress={() => setShowDatePicker(false)}
-                >
-                  <Text style={styles.sheetDoneText}>Done</Text>
-                </TouchableOpacity>
-              )}
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
       </SafeAreaView>
     </>
   );
 }
-
-/* -------------------- Small Toggle -------------------- */
-
-function Toggle({ value }: { value: boolean }) {
-  return (
-    <View style={[toggleStyles.wrap, value && toggleStyles.wrapOn]}>
-      <View style={[toggleStyles.knob, value && toggleStyles.knobOn]} />
-    </View>
-  );
-}
-
-const toggleStyles = StyleSheet.create({
-  wrap: {
-    width: 44,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#E5E7EB",
-    padding: 3,
-    justifyContent: "center",
-  },
-  wrapOn: {
-    backgroundColor: "#7C3AED",
-  },
-  knob: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    alignSelf: "flex-start",
-  },
-  knobOn: {
-    alignSelf: "flex-end",
-  },
-});
-
-/* -------------------- Styles -------------------- */
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#E8EAF6" },
@@ -469,6 +469,74 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, gap: 14 },
 
+  tabsWrap: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 6,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  tab: {
+    flex: 1,
+    height: 40,
+    borderRadius: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F3F4F6",
+  },
+  tabActive: {
+    backgroundColor: "#7C3AED",
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#6B7280",
+  },
+  tabTextActive: {
+    color: "#FFFFFF",
+  },
+
+  addCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingVertical: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  addIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F3ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  addTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  addSub: { marginTop: 6, fontSize: 12, fontWeight: "800", color: "#9CA3AF" },
+
+  gridCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -479,96 +547,83 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-  cardHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
   cardTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
     color: "#111827",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  miniMeta: { fontSize: 13, fontWeight: "700", color: "#9CA3AF" },
 
-  inputWrap: {
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 10,
+  },
+  gridItemWrap: {
+    width: "32%",
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#F3F4F6",
+  },
+  gridItem: { width: "100%", height: "100%" },
+
+  videoBadge: {
+    position: "absolute",
+    left: 8,
+    bottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  videoBadgeText: { color: "#fff", fontWeight: "900", fontSize: 10 },
+
+  removeBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(239,68,68,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  captionWrap: {
     backgroundColor: "#F3ECFF",
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  questionInput: {
-    fontSize: 16,
+  captionInput: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#111827",
+    minHeight: 110,
+    textAlignVertical: "top",
   },
   counter: {
     marginTop: 10,
     fontSize: 12,
     color: "#9CA3AF",
-    fontWeight: "700",
+    fontWeight: "800",
     alignSelf: "flex-end",
   },
 
-  optionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  optionBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionBadgeText: { color: "#fff", fontWeight: "900" },
-  optionInput: {
-    flex: 1,
-    backgroundColor: "#F8F8F8",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "#EEE",
-    fontSize: 15,
-    color: "#111827",
-    fontWeight: "600",
-  },
-  removeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#EF4444",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  addBtn: {
-    marginTop: 6,
-    height: 44,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E9D5FF",
-    backgroundColor: "#F3ECFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  addBtnText: { color: "#7C3AED", fontWeight: "900" },
-
-  settingRow: {
+  detailRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
-  settingIcon: {
+  detailIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -576,108 +631,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  settingLabel: { fontSize: 15, fontWeight: "800", color: "#111827" },
-  settingValue: {
+  detailLabel: { fontSize: 13, fontWeight: "800", color: "#111827" },
+  detailValue: {
+    marginTop: 2,
     fontSize: 13,
     fontWeight: "700",
     color: "#6B7280",
-    marginTop: 2,
   },
-  settingDesc: { fontSize: 13, color: "#6B7280", marginTop: 2 },
-
   divider: { height: 1, backgroundColor: "#F1F1F1" },
-
-  previewCard: {
-    backgroundColor: "#F8F8F8",
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#EEE",
-  },
-  previewQuestion: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-    marginBottom: 12,
-  },
-  previewOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "#EEE",
-  },
-  previewBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#E8E0FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  previewBadgeText: { color: "#7C3AED", fontWeight: "900", fontSize: 12 },
-  previewOptionText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  previewPctPill: {
-    backgroundColor: "#F3ECFF",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  previewPctText: { color: "#7C3AED", fontWeight: "900", fontSize: 12 },
-  previewMetaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 12,
-  },
-  previewMetaText: { fontSize: 12, fontWeight: "700", color: "#9CA3AF" },
 
   actions: { gap: 12 },
   primaryBtn: { backgroundColor: "#7C3AED", borderRadius: 28 },
   cancelBtn: { alignItems: "center", paddingVertical: 10 },
-  cancelText: { color: "#6B7280", fontWeight: "800" },
-
-  sheetBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 16,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  sheetTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  sheetClose: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheetDone: {
-    marginTop: 12,
-    height: 46,
-    borderRadius: 18,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheetDoneText: { color: "#fff", fontWeight: "900" },
+  cancelText: { color: "#6B7280", fontWeight: "900" },
 });

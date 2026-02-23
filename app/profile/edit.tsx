@@ -24,8 +24,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/providers/ThemeProvider";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 
 function base64ToUint8Array(base64: string) {
   const binary = base64Decode(base64);
@@ -145,23 +150,12 @@ export default function EditProfileScreen() {
       const fileName = `${Date.now()}.${ext}`;
       const filePath = `${user.id}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, bytes, {
-          contentType,
-          upsert: true,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(filePath);
-
-      const publicUrl = urlData?.publicUrl;
-
+      const storage = getStorage();
+      const fileRef = storageRef(storage, filePath);
+      await uploadBytes(fileRef, bytes, { contentType });
+      const publicUrl = await getDownloadURL(fileRef);
       if (!publicUrl)
-        throw new Error("Could not create public URL for avatar.");
+        throw new Error("Could not create download URL for avatar.");
 
       setAvatar(publicUrl);
 

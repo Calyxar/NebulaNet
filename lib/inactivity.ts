@@ -1,16 +1,16 @@
-import { supabase } from "@/lib/supabase";
+// lib/inactivity.ts — FIREBASE ✅
+
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
 import { AppState, type AppStateStatus } from "react-native";
 
 const LAST_ACTIVE_KEY = "nebulanet:last_active_ms";
-
-// pick what you want (example: 2 hours)
-const INACTIVITY_LIMIT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+const INACTIVITY_LIMIT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 let currentState: AppStateStatus = AppState.currentState;
 
 async function saveLastActiveNow() {
   try {
-    // AsyncStorage is already used by supabase internally, but we can import it directly too.
     const AsyncStorage = (
       await import("@react-native-async-storage/async-storage")
     ).default;
@@ -35,30 +35,22 @@ async function getLastActiveMs(): Promise<number | null> {
 async function checkAndLogoutIfInactive() {
   const last = await getLastActiveMs();
   if (!last) return;
-
-  const diff = Date.now() - last;
-  if (diff >= INACTIVITY_LIMIT_MS) {
-    // sign out after inactivity
-    await supabase.auth.signOut();
+  if (Date.now() - last >= INACTIVITY_LIMIT_MS) {
+    await signOut(auth);
   }
 }
 
 export function startInactivityWatcher() {
-  // initial mark
   saveLastActiveNow();
 
   const sub = AppState.addEventListener("change", async (nextState) => {
-    // going background -> record timestamp
     if (currentState === "active" && nextState.match(/inactive|background/)) {
       await saveLastActiveNow();
     }
-
-    // coming back -> check how long gone
     if (currentState.match(/inactive|background/) && nextState === "active") {
       await checkAndLogoutIfInactive();
       await saveLastActiveNow();
     }
-
     currentState = nextState;
   });
 

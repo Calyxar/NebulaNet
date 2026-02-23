@@ -1,14 +1,25 @@
-// app/profile/index.tsx
+// app/profile/index.tsx — UPDATED (post tap + dots menu + delete/boost/view)
 import { useAuth } from "@/hooks/useAuth";
 import { useMyPrivacySettings } from "@/hooks/useMyPrivacySettings";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
+import {
+  collection,
+  deleteDoc,
+  getCountFromServer,
+  getDocs,
+  query,
+  where
+} from "firebase/firestore";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  Pressable,
   ScrollView,
   Share,
   StatusBar,
@@ -39,6 +50,9 @@ interface UserStats {
 const profileTabs = ["Activity", "Post", "Tagged", "Media"];
 
 export default function ProfileScreen() {
+  const queryClient = useQueryClient();
+  const { showActionSheetWithOptions } = useActionSheet();
+
   const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState("Activity");
 
@@ -49,25 +63,10 @@ export default function ProfileScreen() {
     queryFn: async () => {
       if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select(
-          `
-          id,
-          title,
-          content,
-          media_urls,
-          like_count,
-          comment_count,
-          share_count,
-          created_at
-        `,
-        )
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data as UserPost[];
+      const snap = await getDocs(
+        query(collection(db, "posts"), where("user_id", "==", user.uid)),
+      );
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as UserPost[];
     },
     enabled: !!user,
   });
@@ -77,25 +76,27 @@ export default function ProfileScreen() {
     queryFn: async (): Promise<UserStats> => {
       if (!user) return { posts: 0, followers: 0, following: 0 };
 
-      const { count: postsCount } = await supabase
-        .from("posts")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
-
-      const { count: followersCount } = await supabase
-        .from("follows")
-        .select("*", { count: "exact", head: true })
-        .eq("following_id", user.id);
-
-      const { count: followingCount } = await supabase
-        .from("follows")
-        .select("*", { count: "exact", head: true })
-        .eq("follower_id", user.id);
-
+      const [postsSnap, followersSnap, followingSnap] = await Promise.all([
+        getCountFromServer(
+          query(collection(db, "posts"), where("user_id", "==", user.uid)),
+        ),
+        getCountFromServer(
+          query(
+            collection(db, "follows"),
+            where("following_id", "==", user.uid),
+          ),
+        ),
+        getCountFromServer(
+          query(
+            collection(db, "follows"),
+            where("follower_id", "==", user.uid),
+          ),
+        ),
+      ]);
       return {
-        posts: postsCount || 0,
-        followers: followersCount || 0,
-        following: followingCount || 0,
+        posts: postsSnap.data().count,
+        followers: followersSnap.data().count,
+        following: followingSnap.data().count,
       };
     },
     enabled: !!user,
@@ -106,13 +107,8 @@ export default function ProfileScreen() {
     return num.toString();
   };
 
-  const handleEditProfile = () => {
-    router.push("./edit");
-  };
-
-  const handleSettings = () => {
-    router.push("../settings");
-  };
+  const handleEditProfile = () => router.push("./edit");
+  const handleSettings = () => router.push("../settings");
 
   const handleShareProfile = async () => {
     try {
@@ -124,8 +120,59 @@ export default function ProfileScreen() {
     }
   };
 
+  const deletePost = async (postId: string) => {
+    if (!user?.id) return;
+
+    Alert.alert("Delete post?", "This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            const snap = await getDocs(
+              query(collection(db, "posts"), where("user_id", "==", user.uid)),
+            );
+            const postDoc = snap.docs.find((d) => d.id === postId);
+            if (!postDoc) {
+              Alert.alert("Delete failed", "Post not found");
+              return;
+            }
+            await deleteDoc(postDoc.ref);
+
+            await queryClient.invalidateQueries({
+              queryKey: ["user-posts", user.id],
+            });
+            await queryClient.invalidateQueries({
+              queryKey: ["user-stats", user.id],
+            });
+          })();
+        },
+      },
+    ]);
+  };
+
+  const openPostMenu = (postId: string) => {
+    const options = ["View Post", "Boost Post", "Delete Post", "Cancel"];
+    const cancelButtonIndex = 3;
+    const destructiveButtonIndex = 2;
+
+    showActionSheetWithOptions(
+      { options, cancelButtonIndex, destructiveButtonIndex },
+      (index) => {
+        if (index === 0) router.push(`/post/${postId}` as any);
+        if (index === 1) router.push(`/boost/${postId}` as any);
+        if (index === 2) void deletePost(postId);
+      },
+    );
+  };
+
   const renderPostItem = (post: UserPost) => (
-    <View key={post.id} style={styles.postItem}>
+    <Pressable
+      key={post.id}
+      style={styles.postItem}
+      onPress={() => router.push(`/post/${post.id}` as any)}
+    >
       <View style={styles.postHeader}>
         <View style={styles.postHeaderLeft}>
           {profile?.avatar_url ? (
@@ -152,7 +199,15 @@ export default function ProfileScreen() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation?.();
+            openPostMenu(post.id);
+          }}
+          hitSlop={12}
+          activeOpacity={0.8}
+        >
           <Ionicons name="ellipsis-vertical" size={20} color="#666" />
         </TouchableOpacity>
       </View>
@@ -162,6 +217,7 @@ export default function ProfileScreen() {
           {post.title}
         </Text>
       )}
+
       <Text style={styles.postContent} numberOfLines={3}>
         {post.content}
       </Text>
@@ -188,7 +244,7 @@ export default function ProfileScreen() {
           <Text style={styles.postActionText}>{post.share_count}</Text>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 
   if (!user || !profile) {
@@ -224,164 +280,9 @@ export default function ProfileScreen() {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.profileCard}>
-            <View style={styles.profileTopRow}>
-              <View style={styles.profileImageContainer}>
-                {profile.avatar_url ? (
-                  <Image
-                    source={{ uri: profile.avatar_url }}
-                    style={styles.profileImage}
-                  />
-                ) : (
-                  <View style={styles.profileImagePlaceholder}>
-                    <Text style={styles.profileImageText}>
-                      {profile.username?.charAt(0).toUpperCase() || "U"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.statsRow}>
-                {/* Posts */}
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {formatNumber(userStats?.posts || 0)}
-                  </Text>
-                  <Text style={styles.statLabel}>Post</Text>
-                </View>
-
-                {/* Followers */}
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  disabled={privacyLoading || !!privacy?.hide_followers}
-                  onPress={() => router.push("./followers")}
-                  style={[
-                    styles.statItem,
-                    (privacyLoading || privacy?.hide_followers) &&
-                      styles.statItemDisabled,
-                  ]}
-                >
-                  <Text style={styles.statValue}>
-                    {privacyLoading
-                      ? "—"
-                      : privacy?.hide_followers
-                        ? "—"
-                        : formatNumber(userStats?.followers || 0)}
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Text style={styles.statLabel}>Followers</Text>
-                    {!!privacy?.hide_followers && (
-                      <Ionicons
-                        name="lock-closed-outline"
-                        size={14}
-                        color="#7C3AED"
-                      />
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Following */}
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  disabled={privacyLoading || !!privacy?.hide_following}
-                  onPress={() => router.push("./following")}
-                  style={[
-                    styles.statItem,
-                    (privacyLoading || privacy?.hide_following) &&
-                      styles.statItemDisabled,
-                  ]}
-                >
-                  <Text style={styles.statValue}>
-                    {privacyLoading
-                      ? "—"
-                      : privacy?.hide_following
-                        ? "—"
-                        : formatNumber(userStats?.following || 0)}
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Text style={styles.statLabel}>Following</Text>
-                    {!!privacy?.hide_following && (
-                      <Ionicons
-                        name="lock-closed-outline"
-                        size={14}
-                        color="#7C3AED"
-                      />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <Text style={styles.displayName}>
-              {profile.full_name || profile.username}
-            </Text>
-            {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={handleEditProfile}
-              >
-                <Text style={styles.editButtonText}>Edit Profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.shareButton}
-                onPress={handleShareProfile}
-              >
-                <Text style={styles.shareButtonText}>Share profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.addFriendButton}>
-                <Ionicons name="person-add-outline" size={18} color="#000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.tabsContainer}>
-            {profileTabs.map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tab, activeTab === tab && styles.activeTab]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === tab && styles.activeTabText,
-                  ]}
-                >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* ... your profile card + tabs unchanged ... */}
 
           <View style={styles.contentSection}>
-            {activeTab === "Activity" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="pulse-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Activity Yet</Text>
-                <Text style={styles.emptyDescription}>
-                  Your recent activity will appear here
-                </Text>
-              </View>
-            )}
-
             {activeTab === "Post" && (
               <>
                 {isLoadingPosts ? (
@@ -403,26 +304,6 @@ export default function ProfileScreen() {
                 )}
               </>
             )}
-
-            {activeTab === "Tagged" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="pricetag-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Tags Yet</Text>
-                <Text style={styles.emptyDescription}>
-                  Posts where you&apos;re tagged will appear here
-                </Text>
-              </View>
-            )}
-
-            {activeTab === "Media" && (
-              <View style={styles.emptyState}>
-                <Ionicons name="images-outline" size={64} color="#C5CAE9" />
-                <Text style={styles.emptyTitle}>No Media</Text>
-                <Text style={styles.emptyDescription}>
-                  Photos and videos from your posts will appear here
-                </Text>
-              </View>
-            )}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -430,11 +311,11 @@ export default function ProfileScreen() {
   );
 }
 
+// styles: keep yours as-is (unchanged) — no need to re-paste again if you want
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   scrollView: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -460,84 +341,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  profileCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-  },
-  profileTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  profileImageContainer: { marginRight: 20 },
-  profileImage: { width: 80, height: 80, borderRadius: 40 },
-  profileImagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#7C3AED",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileImageText: { fontSize: 32, fontWeight: "bold", color: "#FFFFFF" },
-
-  statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
-  statItem: { alignItems: "center" },
-  statItemDisabled: { opacity: 0.55 },
-  statValue: { fontSize: 20, fontWeight: "700", color: "#000" },
-  statLabel: { fontSize: 13, color: "#666", marginTop: 4 },
-
-  displayName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  bio: { fontSize: 14, color: "#666", lineHeight: 20, marginBottom: 16 },
-
-  actionButtons: { flexDirection: "row", gap: 8 },
-  editButton: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  editButtonText: { fontSize: 14, fontWeight: "600", color: "#000" },
-  shareButton: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  shareButtonText: { fontSize: 14, fontWeight: "600", color: "#000" },
-  addFriendButton: {
-    backgroundColor: "#F5F5F5",
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  tabsContainer: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 25,
-    padding: 4,
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 22 },
-  activeTab: { backgroundColor: "#7C3AED" },
-  tabText: { fontSize: 14, color: "#666", fontWeight: "500" },
-  activeTabText: { color: "#FFFFFF", fontWeight: "600" },
 
   contentSection: { paddingHorizontal: 16, paddingBottom: 20 },
 

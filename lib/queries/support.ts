@@ -1,16 +1,27 @@
-import { supabase } from "@/lib/supabase";
+// lib/queries/support.ts — FIRESTORE ✅
+
+import { db } from "@/lib/firebase";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
+import { getAuth } from "firebase/auth";
+import {
+  addDoc,
+  collection,
+  doc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { Platform } from "react-native";
 import { uploadSupportScreenshot } from "./supportUpload";
+
+const auth = getAuth();
 
 export async function submitSupportReport(params: {
   subject: string;
   details: string;
   screenshotUri?: string | null;
 }) {
-  const { data: auth } = await supabase.auth.getUser();
-  const user = auth.user;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
   const appVersion =
@@ -18,43 +29,37 @@ export async function submitSupportReport(params: {
     (Constants as any)?.manifest?.version ??
     null;
 
-  // 1) Create report row first (no screenshot yet)
-  const { data: created, error: createError } = await supabase
-    .from("support_reports")
-    .insert({
-      user_id: user.id,
-      subject: params.subject.trim(),
-      details: params.details.trim(),
-      app_version: appVersion,
-      platform: Platform.OS,
-      device_name: Device.deviceName ?? null,
-      os_version: Device.osVersion ?? null,
-      screenshot_bucket: null,
-      screenshot_path: null,
-    })
-    .select("id")
-    .single();
+  // 1) create report
+  const createdRef = await addDoc(collection(db, "support_reports"), {
+    user_id: user.uid,
+    subject: params.subject.trim(),
+    details: params.details.trim(),
+    app_version: appVersion,
+    platform: Platform.OS,
+    device_name: Device.deviceName ?? null,
+    os_version: Device.osVersion ?? null,
+    screenshot_bucket: null,
+    screenshot_path: null,
+    status: "open",
+    admin_note: null,
+    created_at: serverTimestamp(),
+    updated_at: serverTimestamp(),
+  });
 
-  if (createError) throw createError;
-
-  // 2) If screenshot provided, upload and update report
+  // 2) upload screenshot + update
   if (params.screenshotUri) {
     const uploaded = await uploadSupportScreenshot({
       uri: params.screenshotUri,
-      userId: user.id,
-      reportId: created.id,
+      userId: user.uid,
+      reportId: createdRef.id,
     });
 
-    const { error: updateError } = await supabase
-      .from("support_reports")
-      .update({
-        screenshot_bucket: uploaded.bucket,
-        screenshot_path: uploaded.path,
-      })
-      .eq("id", created.id);
-
-    if (updateError) throw updateError;
+    await updateDoc(doc(db, "support_reports", createdRef.id), {
+      screenshot_bucket: uploaded.bucket,
+      screenshot_path: uploaded.path,
+      updated_at: serverTimestamp(),
+    });
   }
 
-  return created;
+  return { id: createdRef.id };
 }

@@ -1,20 +1,27 @@
-// lib/queries/chat.ts - UPDATED VERSION WITH ALL SUBSCRIPTIONS
-import { SupabaseAttachment } from "@/components/chat/ChatInput";
-import { supabase } from "@/lib/supabase";
+// lib/queries/chat.ts — FIRESTORE ✅ MIGRATED FROM SUPABASE
+// ✅ Fixed: SupabaseAttachment -> ChatAttachment
+// ✅ Fixed: limit parameter conflict in getMessages -> pageSize
 
-// Minimal type definitions for database rows (replace with generated types if available)
-type MessageRow = {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  content: string | null;
-  media_url: string | null;
-  media_type: string | null;
-  attachments?: SupabaseAttachment[];
-  created_at: string;
-  delivered_at: string | null;
-  read_at: string | null;
-};
+import { ChatAttachment } from "@/components/chat/ChatInput";
+import { db } from "@/lib/firebase";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+
+/* -------------------- TYPES -------------------- */
 
 type ProfileRow = {
   id: string;
@@ -22,6 +29,19 @@ type ProfileRow = {
   full_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+};
+
+type MessageRow = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  attachments?: ChatAttachment[];
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
 };
 
 type ConversationRow = {
@@ -40,8 +60,7 @@ type ConversationRow = {
 
 export type ChatMessage = MessageRow & {
   sender?: ProfileRow;
-  // ✅ Already added: attachments property
-  attachments?: SupabaseAttachment[];
+  attachments?: ChatAttachment[];
 };
 
 export type ChatConversation = ConversationRow & {
@@ -52,202 +71,259 @@ export type ChatConversation = ConversationRow & {
   last_message?: ChatMessage;
 };
 
-// ✅ UPDATED: Complete chatSubscriptions with all required functions
+/* -------------------- HELPERS -------------------- */
+
+function tsToIso(ts: any): string {
+  if (!ts) return new Date().toISOString();
+  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
+
+async function getProfile(userId: string): Promise<ProfileRow | undefined> {
+  const snap = await getDoc(doc(db, "profiles", userId));
+  if (!snap.exists()) return undefined;
+  const d = snap.data() as any;
+  return {
+    id: snap.id,
+    username: d.username ?? "",
+    full_name: d.full_name ?? null,
+    avatar_url: d.avatar_url ?? null,
+    bio: d.bio ?? null,
+  };
+}
+
+function docToMessage(d: any, id: string): MessageRow {
+  return {
+    id,
+    conversation_id: d.conversation_id,
+    sender_id: d.sender_id,
+    content: d.content ?? null,
+    media_url: d.media_url ?? null,
+    media_type: d.media_type ?? null,
+    attachments: d.attachments ?? [],
+    created_at: tsToIso(d.created_at),
+    delivered_at: d.delivered_at ? tsToIso(d.delivered_at) : null,
+    read_at: d.read_at ? tsToIso(d.read_at) : null,
+  };
+}
+
+function docToConversation(d: any, id: string): ConversationRow {
+  return {
+    id,
+    name: d.name ?? null,
+    created_at: tsToIso(d.created_at),
+    updated_at: tsToIso(d.updated_at),
+    last_message_id: d.last_message_id ?? null,
+    is_typing: d.is_typing ?? false,
+    is_group: d.is_group ?? false,
+    avatar_url: d.avatar_url ?? null,
+    unread_count: d.unread_count ?? 0,
+    is_online: d.is_online ?? false,
+    is_pinned: d.is_pinned ?? false,
+  };
+}
+
+/* -------------------- SUBSCRIPTIONS -------------------- */
+
 export const chatSubscriptions = {
   subscribeToMessages: (
     conversationId: string,
     userId: string,
     callback: (payload: any) => void,
   ) => {
-    const channel = supabase.channel(`messages-${conversationId}`);
-
-    channel.on(
-      "postgres_changes" as any,
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-        filter: `conversation_id=eq.${conversationId}`,
-      },
-      (payload: { new: MessageRow }) => {
-        // Only call callback for messages not from current user
-        if (payload.new.sender_id !== userId) {
-          callback(payload);
-        }
-      },
+    const q = query(
+      collection(db, "messages"),
+      where("conversation_id", "==", conversationId),
+      orderBy("created_at", "desc"),
+      limit(50),
     );
 
-    channel.subscribe();
-
-    return () => {
-      console.log("📡 Unsubscribing from messages");
-      supabase.removeChannel(channel);
-    };
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const msg = { id: change.doc.id, ...change.doc.data() } as any;
+          if (msg.sender_id !== userId) {
+            callback({ new: docToMessage(msg, change.doc.id) });
+          }
+        }
+      });
+    });
   },
 
-  // ✅ ADDED: subscribeToUserConversations (called in useChat)
   subscribeToUserConversations: (
     userId: string,
     callback: (payload: any) => void,
   ) => {
-    const channel = supabase.channel(`user-conversations-${userId}`);
-
-    channel.on(
-      "postgres_changes" as any,
-      {
-        event: "*",
-        schema: "public",
-        table: "conversations",
-      },
-      callback,
+    const q = query(
+      collection(db, "conversation_participants"),
+      where("user_id", "==", userId),
     );
 
-    channel.subscribe();
-
-    return () => {
-      console.log("📡 Unsubscribing from user conversations");
-      supabase.removeChannel(channel);
-    };
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({ type: change.type, data: change.doc.data() });
+      });
+    });
   },
 
-  // ✅ ADDED: subscribeToConversations (general)
   subscribeToConversations: (callback: (payload: any) => void) => {
-    const channel = supabase.channel("conversations-global");
-
-    channel.on(
-      "postgres_changes" as any,
-      {
-        event: "*",
-        schema: "public",
-        table: "conversations",
-      },
-      callback,
-    );
-
-    channel.subscribe();
-
-    return () => {
-      console.log("📡 Unsubscribing from conversations");
-      supabase.removeChannel(channel);
-    };
+    const q = collection(db, "conversations");
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({
+          type: change.type,
+          data: { id: change.doc.id, ...change.doc.data() },
+        });
+      });
+    });
   },
 
   subscribeToTypingStatus: (
     conversationId: string,
     callback: (payload: any) => void,
   ) => {
-    const channel = supabase.channel(`typing-${conversationId}`);
-
-    channel.on(
-      "postgres_changes" as any,
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "conversations",
-        filter: `id=eq.${conversationId}`,
-      },
-      (payload: { new: ConversationRow; old?: ConversationRow }) => {
-        if (payload.new.is_typing !== payload.old?.is_typing) {
-          callback(payload);
-        }
-      },
-    );
-
-    channel.subscribe();
-
-    return () => {
-      console.log("📡 Unsubscribing from typing status");
-      supabase.removeChannel(channel);
-    };
+    return onSnapshot(doc(db, "conversations", conversationId), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data() as any;
+        callback({ new: { is_typing: d.is_typing } });
+      }
+    });
   },
 
-  // ✅ ADDED: subscribeToUserParticipants (called in useChat)
   subscribeToUserParticipants: (
     userId: string,
     callback: (payload: any) => void,
   ) => {
-    const channel = supabase.channel(`user-participants-${userId}`);
-
-    channel.on(
-      "postgres_changes" as any,
-      {
-        event: "*",
-        schema: "public",
-        table: "conversation_participants",
-        filter: `user_id=eq.${userId}`,
-      },
-      callback,
+    const q = query(
+      collection(db, "conversation_participants"),
+      where("user_id", "==", userId),
     );
 
-    channel.subscribe();
-
-    return () => {
-      console.log("📡 Unsubscribing from user participants");
-      supabase.removeChannel(channel);
-    };
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({ type: change.type, data: change.doc.data() });
+      });
+    });
   },
 };
 
-// ✅ UPDATED: Fix the sendMessage function to handle attachments properly
+/* -------------------- QUERIES -------------------- */
+
 export const chatQueries = {
-  // Get all conversations for current user
   getConversations: async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select(
-          `
-          *,
-          participants:conversation_participants(
-            user_id,
-            profiles:user_id(*)
-          ),
-          last_message:messages!last_message_id(*)
-        `,
-        )
-        .eq("participants.user_id", userId)
-        .order("updated_at", { ascending: false });
+      const partSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("user_id", "==", userId),
+        ),
+      );
 
-      if (error) throw error;
-      return { data: data as ChatConversation[], error: null };
+      const convIds = partSnap.docs.map(
+        (d) => (d.data() as any).conversation_id as string,
+      );
+      if (!convIds.length) return { data: [], error: null };
+
+      const conversations: ChatConversation[] = [];
+
+      for (let i = 0; i < convIds.length; i += 10) {
+        const batch = convIds.slice(i, i + 10);
+        const convSnaps = await getDocs(
+          query(
+            collection(db, "conversations"),
+            where("__name__", "in", batch),
+          ),
+        );
+
+        for (const convDoc of convSnaps.docs) {
+          const conv = docToConversation(convDoc.data(), convDoc.id);
+
+          const pSnap = await getDocs(
+            query(
+              collection(db, "conversation_participants"),
+              where("conversation_id", "==", convDoc.id),
+            ),
+          );
+
+          const participants = await Promise.all(
+            pSnap.docs.map(async (p) => {
+              const pd = p.data() as any;
+              const profile = await getProfile(pd.user_id);
+              return { user_id: pd.user_id, profiles: profile };
+            }),
+          );
+
+          let last_message: ChatMessage | undefined;
+          if (conv.last_message_id) {
+            const msgSnap = await getDoc(
+              doc(db, "messages", conv.last_message_id),
+            );
+            if (msgSnap.exists()) {
+              last_message = docToMessage(
+                msgSnap.data() as any,
+                msgSnap.id,
+              ) as ChatMessage;
+            }
+          }
+
+          conversations.push({ ...conv, participants, last_message });
+        }
+      }
+
+      conversations.sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
+
+      return { data: conversations, error: null };
     } catch (error) {
       console.error("Error fetching conversations:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  // Get messages for a conversation
-  getMessages: async (conversationId: string, page = 0, limit = 20) => {
+  // ✅ Fixed: renamed `limit` param to `pageSize` to avoid conflict with Firestore limit()
+  getMessages: async (
+    conversationId: string,
+    page = 0,
+    pageSize: number = 20,
+  ) => {
     try {
-      const from = page * limit;
-      const to = from + limit - 1;
+      const snap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+          orderBy("created_at", "desc"),
+          limit(pageSize),
+        ),
+      );
 
-      const { data, error } = await supabase
-        .from("messages")
-        .select(
-          `
-          *,
-          sender:profiles!messages_sender_id_fkey(*)
-        `,
-        )
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .range(from, to);
+      const msgs: ChatMessage[] = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const msg = docToMessage(data, d.id) as ChatMessage;
+          if (data.sender_id) {
+            msg.sender = await getProfile(data.sender_id);
+          }
+          return msg;
+        }),
+      );
 
-      if (error) throw error;
-      return { data: data as ChatMessage[], error: null };
+      const from = page * pageSize;
+      return { data: msgs.slice(from, from + pageSize), error: null };
     } catch (error) {
       console.error("Error fetching messages:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  // ✅ FIXED: sendMessage function to properly handle attachments
   sendMessage: async (
     conversationId: string,
     senderId: string,
     content: string,
-    attachments?: SupabaseAttachment[],
+    attachments?: ChatAttachment[],
     mediaUrl?: string,
     mediaType?: "image" | "video" | "audio" | "file",
   ) => {
@@ -257,18 +333,15 @@ export const chatQueries = {
         sender_id: senderId,
         content: content.trim() || null,
         delivered_at: new Date().toISOString(),
-        read_at: null, // Initially null, will be updated when read
+        read_at: null,
+        created_at: serverTimestamp(),
       };
 
-      // Handle attachments
       if (attachments && attachments.length > 0) {
         messageData.attachments = attachments;
-        // Use first attachment for legacy media_url/type support
-        const firstAttachment = attachments[0];
-        messageData.media_url = firstAttachment.url;
-        messageData.media_type = firstAttachment.type;
+        messageData.media_url = attachments[0].url;
+        messageData.media_type = attachments[0].type;
       } else if (mediaUrl && mediaType) {
-        // Legacy support for single media
         messageData.media_url = mediaUrl;
         messageData.media_type = mediaType;
         messageData.attachments = [
@@ -281,71 +354,50 @@ export const chatQueries = {
         ];
       }
 
-      const { data, error } = await supabase
-        .from("messages")
-        .insert(messageData)
-        .select(
-          `
-          *,
-          sender:profiles!messages_sender_id_fkey(*)
-        `,
-        )
-        .single();
+      const msgRef = await addDoc(collection(db, "messages"), messageData);
 
-      if (error) throw error;
+      await updateDoc(doc(db, "conversations", conversationId), {
+        updated_at: serverTimestamp(),
+        last_message_id: msgRef.id,
+      });
 
-      // Update conversation timestamp and last message
-      await supabase
-        .from("conversations")
-        .update({
-          updated_at: new Date().toISOString(),
-          last_message_id: data.id,
-        })
-        .eq("id", conversationId);
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+          where("user_id", "!=", senderId),
+        ),
+      );
 
-      // Increment unread count for other participants
-      const { data: participants } = await supabase
-        .from("conversation_participants")
-        .select("user_id")
-        .eq("conversation_id", conversationId)
-        .neq("user_id", senderId);
+      const batch = writeBatch(db);
+      pSnap.docs.forEach((p) => {
+        const current = (p.data() as any).unread_count ?? 0;
+        batch.update(p.ref, { unread_count: current + 1 });
+      });
+      await batch.commit();
 
-      if (participants && participants.length > 0) {
-        for (const participant of participants) {
-          await supabase
-            .from("conversation_participants")
-            .update({
-              unread_count: supabase.rpc("increment", {
-                table_name: "conversation_participants",
-                column_name: "unread_count",
-                id: participant.user_id,
-              }),
-            })
-            .eq("conversation_id", conversationId)
-            .eq("user_id", participant.user_id);
-        }
-      }
+      const sender = await getProfile(senderId);
+      const newMsg: ChatMessage = {
+        ...docToMessage({ ...messageData, created_at: new Date() }, msgRef.id),
+        sender,
+      };
 
-      return { data: data as ChatMessage, error: null };
+      return { data: newMsg, error: null };
     } catch (error) {
       console.error("Error sending message:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  // Create a new conversation
   createConversation: async (
     participantIds: string[],
     name?: string,
     isGroup = false,
   ) => {
     try {
-      if (participantIds.length === 0) {
-        throw new Error("No participants provided");
-      }
+      if (!participantIds.length) throw new Error("No participants provided");
 
-      // First create the conversation
-      const conversationData: any = {
+      const convRef = await addDoc(collection(db, "conversations"), {
         name: name || null,
         is_group: isGroup,
         avatar_url: null,
@@ -354,79 +406,68 @@ export const chatQueries = {
         is_pinned: false,
         unread_count: 0,
         last_message_id: null,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+
+      const batch = writeBatch(db);
+      participantIds.forEach((userId) => {
+        const ref = doc(collection(db, "conversation_participants"));
+        batch.set(ref, {
+          conversation_id: convRef.id,
+          user_id: userId,
+          unread_count: 0,
+          joined_at: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+
+      const convSnap = await getDoc(convRef);
+      const conv = docToConversation(convSnap.data(), convSnap.id);
+
+      const participants = await Promise.all(
+        participantIds.map(async (userId) => ({
+          user_id: userId,
+          profiles: await getProfile(userId),
+        })),
+      );
+
+      return {
+        data: { ...conv, participants } as ChatConversation,
+        error: null,
       };
-
-      const { data: conversation, error: convError } = await supabase
-        .from("conversations")
-        .insert(conversationData)
-        .select()
-        .single();
-
-      if (convError) throw convError;
-
-      // Add participants
-      const participantsData = participantIds.map((userId) => ({
-        conversation_id: conversation.id,
-        user_id: userId,
-        unread_count: 0,
-        joined_at: new Date().toISOString(),
-      }));
-
-      const { error: partError } = await supabase
-        .from("conversation_participants")
-        .insert(participantsData);
-
-      if (partError) {
-        // Cleanup on error
-        await supabase.from("conversations").delete().eq("id", conversation.id);
-        throw partError;
-      }
-
-      // Get full conversation data with participants
-      const { data: fullConversation, error: fetchError } = await supabase
-        .from("conversations")
-        .select(
-          `
-          *,
-          participants:conversation_participants(
-            user_id,
-            profiles:user_id(*)
-          )
-        `,
-        )
-        .eq("id", conversation.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      return { data: fullConversation as ChatConversation, error: null };
     } catch (error) {
       console.error("Error creating conversation:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  // Mark messages as read
   markAsRead: async (conversationId: string, userId: string) => {
     try {
-      // Mark messages as read
-      const { error: messagesError } = await supabase
-        .from("messages")
-        .update({ read_at: new Date().toISOString() })
-        .eq("conversation_id", conversationId)
-        .neq("sender_id", userId)
-        .is("read_at", null);
+      const snap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+          where("sender_id", "!=", userId),
+        ),
+      );
 
-      if (messagesError) throw messagesError;
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => {
+        if (!(d.data() as any).read_at) {
+          batch.update(d.ref, { read_at: new Date().toISOString() });
+        }
+      });
+      await batch.commit();
 
-      // Reset unread count for user
-      const { error: unreadError } = await supabase
-        .from("conversation_participants")
-        .update({ unread_count: 0 })
-        .eq("conversation_id", conversationId)
-        .eq("user_id", userId);
-
-      if (unreadError) throw unreadError;
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+          where("user_id", "==", userId),
+        ),
+      );
+      pSnap.docs.forEach((d) => updateDoc(d.ref, { unread_count: 0 }));
 
       return { error: null };
     } catch (error) {
@@ -435,58 +476,74 @@ export const chatQueries = {
     }
   },
 
-  // Get conversation by ID
   getConversation: async (conversationId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select(
-          `
-          *,
-          participants:conversation_participants(
-            user_id,
-            profiles:user_id(*)
-          ),
-          last_message:messages!last_message_id(*)
-        `,
-        )
-        .eq("id", conversationId)
-        .single();
+      const convSnap = await getDoc(doc(db, "conversations", conversationId));
+      if (!convSnap.exists()) throw new Error("Conversation not found");
 
-      if (error) throw error;
-      return { data: data as ChatConversation, error: null };
+      const conv = docToConversation(convSnap.data(), convSnap.id);
+
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+
+      const participants = await Promise.all(
+        pSnap.docs.map(async (p) => {
+          const pd = p.data() as any;
+          return {
+            user_id: pd.user_id,
+            profiles: await getProfile(pd.user_id),
+          };
+        }),
+      );
+
+      let last_message: ChatMessage | undefined;
+      if (conv.last_message_id) {
+        const msgSnap = await getDoc(doc(db, "messages", conv.last_message_id));
+        if (msgSnap.exists()) {
+          last_message = docToMessage(
+            msgSnap.data() as any,
+            msgSnap.id,
+          ) as ChatMessage;
+        }
+      }
+
+      return {
+        data: { ...conv, participants, last_message } as ChatConversation,
+        error: null,
+      };
     } catch (error) {
       console.error("Error fetching conversation:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  // Delete conversation
   deleteConversation: async (conversationId: string) => {
     try {
-      // Delete messages first
-      const { error: messagesError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("conversation_id", conversationId);
+      const batch = writeBatch(db);
 
-      if (messagesError) throw messagesError;
+      const msgSnap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+      msgSnap.docs.forEach((d) => batch.delete(d.ref));
 
-      // Delete participants
-      const { error: participantsError } = await supabase
-        .from("conversation_participants")
-        .delete()
-        .eq("conversation_id", conversationId);
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+      pSnap.docs.forEach((d) => batch.delete(d.ref));
 
-      if (participantsError) throw participantsError;
+      batch.delete(doc(db, "conversations", conversationId));
 
-      // Finally delete conversation
-      const { error } = await supabase
-        .from("conversations")
-        .delete()
-        .eq("id", conversationId);
-
-      if (error) throw error;
+      await batch.commit();
       return { error: null };
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -494,15 +551,11 @@ export const chatQueries = {
     }
   },
 
-  // Update typing status
   updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
     try {
-      const { error } = await supabase
-        .from("conversations")
-        .update({ is_typing: isTyping })
-        .eq("id", conversationId);
-
-      if (error) throw error;
+      await updateDoc(doc(db, "conversations", conversationId), {
+        is_typing: isTyping,
+      });
       return { error: null };
     } catch (error) {
       console.error("Error updating typing status:", error);
@@ -511,7 +564,7 @@ export const chatQueries = {
   },
 };
 
-// ✅ Export individual functions for backward compatibility
+/* -------------------- BACKWARD COMPAT EXPORTS -------------------- */
 export const getConversations = chatQueries.getConversations;
 export const getMessages = chatQueries.getMessages;
 export const sendMessage = chatQueries.sendMessage;

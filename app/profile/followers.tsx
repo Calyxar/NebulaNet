@@ -7,7 +7,18 @@ import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
 
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -44,26 +55,34 @@ export default function FollowersScreen() {
     queryKey: ["my-followers-with-status", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select(
-          `
-          follower_id,
-          status,
-          follower:profiles!follows_follower_id_fkey (
-            id, username, full_name, avatar_url, is_private
-          )
-        `,
-        )
-        .eq("following_id", myId!)
-        // show accepted + pending so you can see requests badge here
-        .in("status", ["accepted", "pending"])
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const mapped: FollowRow[] = (data as any) ?? [];
-      return mapped.filter((r) => !!r.follower);
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("following_id", "==", myId!),
+          where("status", "in", ["accepted", "pending"]),
+        ),
+      );
+      const rows = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "profiles", data.follower_id));
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            follower_id: data.follower_id,
+            status: data.status,
+            follower: p
+              ? {
+                  id: pSnap.id,
+                  username: p.username,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                  is_private: p.is_private ?? false,
+                }
+              : null,
+          } as FollowRow;
+        }),
+      );
+      return rows.filter((r) => !!r.follower);
     },
   });
 
@@ -78,17 +97,16 @@ export default function FollowersScreen() {
     queryKey: ["i-follow-back-set", myId, followerIds.join(",")],
     enabled: !!myId && followerIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select("following_id")
-        .eq("follower_id", myId!)
-        .in("following_id", followerIds)
-        .eq("status", "accepted");
-
-      if (error) throw error;
-
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", myId!),
+          where("following_id", "in", followerIds),
+          where("status", "==", "accepted"),
+        ),
+      );
       const set = new Set<string>();
-      (data as any[] | null)?.forEach((r) => set.add(r.following_id));
+      snap.docs.forEach((d) => set.add((d.data() as any).following_id));
       return set;
     },
   });
@@ -111,12 +129,14 @@ export default function FollowersScreen() {
   const removeFollower = useMutation({
     mutationFn: async (targetUserId: string) => {
       if (!myId) throw new Error("Not signed in");
-      const { error } = await supabase
-        .from("follows")
-        .delete()
-        .eq("follower_id", targetUserId)
-        .eq("following_id", myId);
-      if (error) throw error;
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", targetUserId),
+          where("following_id", "==", myId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
     onSuccess: async () => {
       await qc.invalidateQueries({
@@ -130,19 +150,29 @@ export default function FollowersScreen() {
       if (!myId) throw new Error("Not signed in");
 
       // If you haven’t created the blocks table yet, we’ll do it next.
-      const { error } = await supabase.from("user_blocks").insert({
+      await addDoc(collection(db, "user_blocks"), {
         blocker_id: myId,
         blocked_id: targetUserId,
+        created_at: serverTimestamp(),
       });
-      if (error) throw error;
-
-      // Also remove any follow relationship both ways (optional but common)
-      await supabase
-        .from("follows")
-        .delete()
-        .or(
-          `and(follower_id.eq.${myId},following_id.eq.${targetUserId}),and(follower_id.eq.${targetUserId},following_id.eq.${myId})`,
-        );
+      // Remove follow both ways
+      const [s1, s2] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "follows"),
+            where("follower_id", "==", myId),
+            where("following_id", "==", targetUserId),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "follows"),
+            where("follower_id", "==", targetUserId),
+            where("following_id", "==", myId),
+          ),
+        ),
+      ]);
+      await Promise.all([...s1.docs, ...s2.docs].map((d) => deleteDoc(d.ref)));
     },
     onSuccess: async () => {
       await qc.invalidateQueries({

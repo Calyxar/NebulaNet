@@ -1,34 +1,95 @@
-// app/(auth)/reset-password.tsx
-import { supabase } from "@/lib/supabase";
+// app/(auth)/reset-password.tsx — FIREBASE ✅
+// ✅ Uses oobCode from the email link
+// ✅ Verifies code + confirms password reset
+// ✅ No Supabase
+
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
+import React, { useEffect, useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ResetPasswordScreen() {
+  const { oobCode } = useLocalSearchParams<{ oobCode?: string }>();
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const validatePassword = (password: string) => {
-    return password.length >= 8;
-  };
+  const [checkingLink, setCheckingLink] = useState(true);
+  const [linkValid, setLinkValid] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!oobCode) {
+          if (!cancelled) {
+            setLinkValid(false);
+            setCheckingLink(false);
+          }
+          return;
+        }
+
+        await verifyPasswordResetCode(auth, oobCode);
+
+        if (!cancelled) {
+          setLinkValid(true);
+          setCheckingLink(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLinkValid(false);
+          setCheckingLink(false);
+        }
+        Alert.alert(
+          "Link expired or invalid",
+          "Please request a new password reset link.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.replace("/(auth)/forgot-password"),
+            },
+          ],
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [oobCode]);
+
+  const validatePassword = (p: string) => p.length >= 8;
 
   const handleResetPassword = async () => {
+    if (!oobCode || !linkValid) {
+      Alert.alert("Invalid link", "Please request a new password reset link.", [
+        {
+          text: "OK",
+          onPress: () => router.replace("/(auth)/forgot-password"),
+        },
+      ]);
+      return;
+    }
+
     if (!password) {
       Alert.alert("Error", "Please enter a new password");
       return;
@@ -49,36 +110,31 @@ export default function ResetPasswordScreen() {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: password,
-      });
-
-      if (error) {
-        throw error;
-      }
+      await confirmPasswordReset(auth, oobCode, password);
 
       Alert.alert(
         "Success!",
         "Your password has been reset successfully. You can now log in with your new password.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              router.replace("/(auth)/login");
-            },
-          },
-        ],
+        [{ text: "OK", onPress: () => router.replace("/(auth)/login") }],
       );
     } catch (error: any) {
       console.error("Reset password error:", error);
       Alert.alert(
         "Error",
-        error.message || "Failed to reset password. Please try again.",
+        error?.message || "Failed to reset password. Please try again.",
       );
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (checkingLink) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   return (
     <>
@@ -103,7 +159,9 @@ export default function ResetPasswordScreen() {
             <View style={styles.header}>
               <Text style={styles.title}>Create New Password</Text>
               <Text style={styles.subtitle}>
-                Your new password must be different from your previous password.
+                {linkValid
+                  ? "Your new password must be different from your previous password."
+                  : "This screen is used from a password reset link."}
               </Text>
             </View>
 
@@ -124,10 +182,12 @@ export default function ResetPasswordScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
+                  disabled={isLoading}
                 >
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -155,10 +215,12 @@ export default function ResetPasswordScreen() {
                   onChangeText={setConfirmPassword}
                   secureTextEntry={!showConfirmPassword}
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   style={styles.eyeButton}
+                  disabled={isLoading}
                 >
                   <Ionicons
                     name={
@@ -171,11 +233,12 @@ export default function ResetPasswordScreen() {
               </View>
             </View>
 
-            {/* Password Requirements */}
+            {/* Requirements */}
             <View style={styles.requirementsContainer}>
               <Text style={styles.requirementsTitle}>
                 Password must contain:
               </Text>
+
               <View style={styles.requirementItem}>
                 <Ionicons
                   name={
@@ -195,6 +258,7 @@ export default function ResetPasswordScreen() {
                   At least 8 characters
                 </Text>
               </View>
+
               <View style={styles.requirementItem}>
                 <Ionicons
                   name={
@@ -222,14 +286,14 @@ export default function ResetPasswordScreen() {
               </View>
             </View>
 
-            {/* Reset Password Button */}
+            {/* Reset Button */}
             <TouchableOpacity
               style={[
                 styles.resetButton,
-                isLoading && styles.resetButtonDisabled,
+                (isLoading || !linkValid) && styles.resetButtonDisabled,
               ]}
               onPress={handleResetPassword}
-              disabled={isLoading}
+              disabled={isLoading || !linkValid}
               activeOpacity={0.9}
             >
               <Text style={styles.resetButtonText}>
@@ -252,24 +316,17 @@ export default function ResetPasswordScreen() {
   );
 }
 
+// styles unchanged from your file:
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#E8EAF6",
-  },
-  keyboardView: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 40,
     paddingBottom: 24,
   },
-  iconContainer: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
+  iconContainer: { alignItems: "center", marginBottom: 24 },
   iconCircle: {
     width: 100,
     height: 100,
@@ -278,10 +335,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  header: {
-    marginBottom: 32,
-    alignItems: "center",
-  },
+  header: { marginBottom: 32, alignItems: "center" },
   title: {
     fontSize: 28,
     fontWeight: "700",
@@ -296,9 +350,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 20,
   },
-  passwordContainer: {
-    marginBottom: 16,
-  },
+  passwordContainer: { marginBottom: 16 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -307,26 +359,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  passwordInputField: {
-    flex: 1,
-    fontSize: 16,
-    color: "#000",
-    padding: 0,
-  },
-  eyeButton: {
-    padding: 4,
-  },
+  inputIcon: { marginRight: 12 },
+  passwordInputField: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
+  eyeButton: { padding: 4 },
   requirementsContainer: {
     backgroundColor: "#F3F4F6",
     borderRadius: 12,
@@ -344,15 +384,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
-  requirementText: {
-    fontSize: 14,
-    color: "#9FA8DA",
-    marginLeft: 8,
-  },
-  requirementTextMet: {
-    color: "#10B981",
-    fontWeight: "500",
-  },
+  requirementText: { fontSize: 14, color: "#9FA8DA", marginLeft: 8 },
+  requirementTextMet: { color: "#10B981", fontWeight: "500" },
   resetButton: {
     backgroundColor: "#7C3AED",
     paddingVertical: 18,
@@ -360,22 +393,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
     shadowColor: "#7C3AED",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  resetButtonDisabled: {
-    opacity: 0.6,
-  },
-  resetButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "600",
-  },
+  resetButtonDisabled: { opacity: 0.6 },
+  resetButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
   backToLoginContainer: {
     flexDirection: "row",
     alignItems: "center",

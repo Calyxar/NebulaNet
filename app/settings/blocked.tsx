@@ -1,8 +1,17 @@
 // app/settings/blocked.tsx
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -51,98 +60,99 @@ export default function BlockedAccountsScreen() {
   const [activeTab, setActiveTab] = useState<"blocked" | "muted">("blocked");
 
   const { data: blockedUsers = [], isLoading: isLoadingBlocked } = useQuery({
-    queryKey: ["blocked-users", user?.id],
+    queryKey: ["blocked-users", user?.uid],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("blocked_users")
-        .select(
-          `
-          id,
-          blocked_id,
-          created_at,
-          profiles!blocked_users_blocked_id_fkey (
-            username,
-            full_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("blocker_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      return (data || []).map((item: any) => ({
-        id: item.id,
-        blocked_id: item.blocked_id,
-        created_at: item.created_at,
-        profile: item.profiles?.[0] || { username: "Unknown" },
-      })) as BlockedUser[];
+      const snap = await getDocs(
+        query(
+          collection(db, "user_blocks"),
+          where("blocker_id", "==", user.uid),
+        ),
+      );
+      return Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "profiles", data.blocked_id));
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            id: d.id,
+            blocked_id: data.blocked_id,
+            created_at: data.created_at ?? "",
+            profile: p
+              ? {
+                  username: p.username,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                }
+              : { username: "Unknown" },
+          };
+        }),
+      ) as Promise<BlockedUser[]>;
     },
-    enabled: !!user,
+    enabled: !!user?.uid,
   });
 
   const { data: mutedUsers = [], isLoading: isLoadingMuted } = useQuery({
-    queryKey: ["muted-users", user?.id],
+    queryKey: ["muted-users", user?.uid],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("muted_users")
-        .select(
-          `
-          id,
-          muted_id,
-          created_at,
-          profiles!muted_users_muted_id_fkey (
-            username,
-            full_name,
-            avatar_url
-          )
-        `,
-        )
-        .eq("muter_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      return (data || []).map((item: any) => ({
-        id: item.id,
-        muted_id: item.muted_id,
-        created_at: item.created_at,
-        profile: item.profiles?.[0] || { username: "Unknown" },
-      })) as MutedUser[];
+      const snap = await getDocs(
+        query(collection(db, "muted_users"), where("muter_id", "==", user.uid)),
+      );
+      return Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "profiles", data.muted_id));
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            id: d.id,
+            muted_id: data.muted_id,
+            created_at: data.created_at ?? "",
+            profile: p
+              ? {
+                  username: p.username,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                }
+              : { username: "Unknown" },
+          };
+        }),
+      ) as Promise<MutedUser[]>;
     },
-    enabled: !!user,
+    enabled: !!user?.uid,
   });
 
   const unblockUser = useMutation({
     mutationFn: async (blockedUserId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("blocked_users")
-        .delete()
-        .eq("blocker_id", user.id)
-        .eq("blocked_id", blockedUserId);
-      if (error) throw error;
+      const snap = await getDocs(
+        query(
+          collection(db, "user_blocks"),
+          where("blocker_id", "==", user.uid),
+          where("blocked_id", "==", blockedUserId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.uid] });
     },
   });
 
   const unmuteUser = useMutation({
     mutationFn: async (mutedUserId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("muted_users")
-        .delete()
-        .eq("muter_id", user.id)
-        .eq("muted_id", mutedUserId);
-      if (error) throw error;
+      const snap = await getDocs(
+        query(
+          collection(db, "muted_users"),
+          where("muter_id", "==", user.uid),
+          where("muted_id", "==", mutedUserId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.uid] });
     },
   });
 

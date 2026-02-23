@@ -1,6 +1,19 @@
-// hooks/useUser.ts
-import { supabase } from '@/lib/supabase';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+// hooks/useUser.ts — FIREBASE ✅
+
+import { auth, db } from "@/lib/firebase";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 
 interface UserProfile {
   id: string;
@@ -28,144 +41,124 @@ interface UpdateProfileData {
 export function useUser(username?: string) {
   const queryClient = useQueryClient();
 
-  // Get user by username
   const userQuery = useQuery({
-    queryKey: ['user', username],
+    queryKey: ["user", username],
+    enabled: !!username,
     queryFn: async () => {
       if (!username) return null;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single();
-
-      if (error) throw error;
-      return data as UserProfile;
+      const snap = await getDocs(
+        query(collection(db, "profiles"), where("username", "==", username)),
+      );
+      if (snap.empty) throw new Error("User not found");
+      const d = snap.docs[0].data() as any;
+      return { id: snap.docs[0].id, ...d } as UserProfile;
     },
-    enabled: !!username,
   });
 
-  // Get current user's profile
   const currentUserQuery = useQuery({
-    queryKey: ['currentUser'],
+    queryKey: ["currentUser"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = auth.currentUser;
       if (!user) return null;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error) throw error;
-      return data as UserProfile;
+      const snap = await getDoc(doc(db, "profiles", user.uid));
+      if (!snap.exists()) return null;
+      return { id: snap.id, ...snap.data() } as UserProfile;
     },
   });
 
-  // Toggle follow
   const toggleFollow = useMutation({
     mutationFn: async (targetUserId: string) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const user = auth.currentUser;
+      if (!user) throw new Error("Not authenticated");
 
-      // Check if already following
-      const { data: existingFollow } = await supabase
-        .from('follows')
-        .select('*')
-        .eq('follower_id', user.id)
-        .eq('following_id', targetUserId)
-        .single();
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", user.uid),
+          where("following_id", "==", targetUserId),
+        ),
+      );
 
-      if (existingFollow) {
-        // Unfollow
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.id)
-          .eq('following_id', targetUserId);
-        
-        if (error) throw error;
-        return 'unfollowed';
+      if (!snap.empty) {
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+        return "unfollowed";
       } else {
-        // Follow
-        const { error } = await supabase
-          .from('follows')
-          .insert({
-            follower_id: user.id,
-            following_id: targetUserId,
-          });
-        
-        if (error) throw error;
-        return 'followed';
+        await addDoc(collection(db, "follows"), {
+          follower_id: user.uid,
+          following_id: targetUserId,
+          status: "accepted",
+          created_at: serverTimestamp(),
+        });
+        return "followed";
       }
     },
-    onSuccess: (result, targetUserId) => {
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
-      queryClient.invalidateQueries({ queryKey: ['followers', targetUserId] });
-      queryClient.invalidateQueries({ queryKey: ['following', targetUserId] });
+    onSuccess: (_result, targetUserId) => {
+      queryClient.invalidateQueries({ queryKey: ["user"] });
+      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      queryClient.invalidateQueries({ queryKey: ["followers", targetUserId] });
+      queryClient.invalidateQueries({ queryKey: ["following", targetUserId] });
     },
   });
 
-  // Get followers
   const followersQuery = useQuery({
-    queryKey: ['followers', userQuery.data?.id],
+    queryKey: ["followers", userQuery.data?.id],
+    enabled: !!userQuery.data?.id,
     queryFn: async () => {
       if (!userQuery.data?.id) return [];
-
-      const { data, error } = await supabase
-        .from('follows')
-        .select(`
-          follower:profiles!follows_follower_id_fkey(*)
-        `)
-        .eq('following_id', userQuery.data.id);
-
-      if (error) throw error;
-      return (data ?? []).map((item: { follower: UserProfile }) => item.follower);
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("following_id", "==", userQuery.data.id),
+        ),
+      );
+      const profiles = await Promise.all(
+        snap.docs.map(async (d) => {
+          const followerId = (d.data() as any).follower_id;
+          const pSnap = await getDoc(doc(db, "profiles", followerId));
+          return pSnap.exists() ? { id: pSnap.id, ...pSnap.data() } : null;
+        }),
+      );
+      return profiles.filter(Boolean) as UserProfile[];
     },
-    enabled: !!userQuery.data?.id,
   });
 
-  // Get following
   const followingQuery = useQuery({
-    queryKey: ['following', userQuery.data?.id],
+    queryKey: ["following", userQuery.data?.id],
+    enabled: !!userQuery.data?.id,
     queryFn: async () => {
       if (!userQuery.data?.id) return [];
-
-      const { data, error } = await supabase
-        .from('follows')
-        .select(`
-          following:profiles!follows_following_id_fkey(*)
-        `)
-        .eq('follower_id', userQuery.data.id);
-
-      if (error) throw error;
-      return (data ?? []).map((item: { following: UserProfile }) => item.following);
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", userQuery.data.id),
+        ),
+      );
+      const profiles = await Promise.all(
+        snap.docs.map(async (d) => {
+          const followingId = (d.data() as any).following_id;
+          const pSnap = await getDoc(doc(db, "profiles", followingId));
+          return pSnap.exists() ? { id: pSnap.id, ...pSnap.data() } : null;
+        }),
+      );
+      return profiles.filter(Boolean) as UserProfile[];
     },
-    enabled: !!userQuery.data?.id,
   });
 
-  // Update profile
   const updateProfile = useMutation({
     mutationFn: async (updates: UpdateProfileData) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data as UserProfile;
+      const user = auth.currentUser;
+      if (!user) throw new Error("Not authenticated");
+      await setDoc(
+        doc(db, "profiles", user.uid),
+        { ...updates, updated_at: new Date().toISOString() },
+        { merge: true },
+      );
+      const snap = await getDoc(doc(db, "profiles", user.uid));
+      return { id: snap.id, ...snap.data() } as UserProfile;
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(['currentUser'], data);
-      queryClient.invalidateQueries({ queryKey: ['user'] });
+      queryClient.setQueryData(["currentUser"], data);
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 

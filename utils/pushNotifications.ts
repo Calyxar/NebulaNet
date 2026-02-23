@@ -1,7 +1,9 @@
-// utils/pushNotifications.ts
-import { supabase } from "@/lib/supabase";
+// utils/pushNotifications.ts — FIREBASE ✅
+
+import { auth, db } from "@/lib/firebase";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
+import { doc, setDoc } from "firebase/firestore";
 
 export async function registerForPushNotificationsAsync() {
   if (!Device.isDevice) {
@@ -25,13 +27,13 @@ export async function registerForPushNotificationsAsync() {
   const token = (await Notifications.getExpoPushTokenAsync()).data;
   console.log("Push Token:", token);
 
-  // Store token in Supabase
-  const user = await supabase.auth.getUser();
-  if (user.data.user) {
-    await supabase
-      .from("profiles")
-      .update({ push_token: token })
-      .eq("id", user.data.user.id);
+  const user = auth.currentUser;
+  if (user) {
+    await setDoc(
+      doc(db, "profiles", user.uid),
+      { push_token: token },
+      { merge: true },
+    );
   }
 
   return token;

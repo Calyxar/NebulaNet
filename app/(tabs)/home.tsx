@@ -1,15 +1,20 @@
 // app/(tabs)/home.tsx — COMPLETED + UPDATED ✅
-// ✅ Dark mode support
-// ✅ Shows Video badge + Play overlay when post is video (uses post_type if present, else infers from media URL)
-// ✅ Tapping a post opens /post/[id] so users can view, like, comment, share
-// ✅ Comment icon opens the post too (common UX)
+// ✅ Stories grouped by user (one bubble per user)
+// ✅ "My Communities" row ONLY appears when activeTab === "my-community"
+// ✅ Community search by name (filters your joined/owned communities)
+// ✅ My Community feed uses joined/owned communityIds (via useCommunities)
+// ✅ For You includes your own posts automatically (RLS) — no filtering needed
+// ✅ FIX: Community image field uses image_url (not avatar_url)
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
+import { useActiveStories } from "@/hooks/useStories";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
-import type { Post } from "@/lib/queries/posts";
+import type { Post } from "@/lib/firestore/posts";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
@@ -28,6 +33,7 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -37,7 +43,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-import { useTheme } from "@/providers/ThemeProvider";
+type FeedTab = "for-you" | "following" | "my-community";
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -69,8 +75,6 @@ const isVideoPost = (post: any) => {
   return isVideoUrl(first);
 };
 
-type FeedTab = "for-you" | "following" | "my-community";
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -87,8 +91,14 @@ export default function HomeScreen() {
   );
 
   const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
+  const [communitySearch, setCommunitySearch] = useState("");
+
   const unreadCount = useUnreadNotificationsCount();
 
+  const { data: storiesRaw } = useActiveStories();
+  const { myCommunities, myCommunityIds } = useCommunities();
+
+  // ✅ Feed (My Community uses ids)
   const {
     data,
     fetchNextPage,
@@ -97,7 +107,7 @@ export default function HomeScreen() {
     refetch,
     isRefetching,
     isLoading,
-  } = useInfiniteFeedPosts(activeTab);
+  } = useInfiniteFeedPosts(activeTab, { communityIds: myCommunityIds });
 
   const posts = useMemo(
     () => data?.pages.flatMap((p) => p.posts) ?? [],
@@ -106,6 +116,41 @@ export default function HomeScreen() {
 
   const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
     useFeedInteractions();
+
+  const openPost = (postId: string) => router.push(`/post/${postId}` as any);
+
+  // ✅ GROUP STORIES BY USER so each user appears once
+  const stories = useMemo(() => {
+    const list = storiesRaw ?? [];
+    const map = new Map<string, any>();
+
+    for (const s of list) {
+      const uid = s.user_id;
+      const existing = map.get(uid);
+
+      // choose newest story per user
+      if (!existing) map.set(uid, s);
+      else {
+        const a = new Date(existing.created_at).getTime();
+        const b = new Date(s.created_at).getTime();
+        if (b > a) map.set(uid, s);
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [storiesRaw]);
+
+  // ✅ filter joined communities by name
+  const filteredCommunities = useMemo(() => {
+    const q = communitySearch.trim().toLowerCase();
+    if (!q) return myCommunities;
+    return myCommunities.filter((c) =>
+      (c.name ?? "").toLowerCase().includes(q),
+    );
+  }, [communitySearch, myCommunities]);
 
   const Header = useMemo(() => {
     return (
@@ -155,30 +200,93 @@ export default function HomeScreen() {
           }
         />
 
-        {/* Stories */}
+        {/* ✅ Stories (one bubble per user) */}
         <View
           style={[styles.storiesWrap, { backgroundColor: colors.background }]}
         >
-          <TouchableOpacity
-            style={styles.storyItem}
-            onPress={() => router.push("/create/story")}
-            activeOpacity={0.7}
-          >
-            <View
-              style={[
-                styles.addStoryCircle,
-                { borderColor: colors.primary, backgroundColor: colors.card },
-              ]}
-            >
-              <Ionicons name="add" size={28} color={colors.primary} />
-            </View>
-            <Text style={[styles.storyLabel, { color: colors.text }]}>
-              Add Story
-            </Text>
-          </TouchableOpacity>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={[{ id: "add" }, ...(stories ?? [])] as any[]}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingRight: 16 }}
+            renderItem={({ item }) => {
+              if (item.id === "add") {
+                return (
+                  <TouchableOpacity
+                    style={styles.storyItem}
+                    onPress={() => router.push("/create/story")}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.addStoryCircle,
+                        {
+                          borderColor: colors.primary,
+                          backgroundColor: colors.card,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="add" size={28} color={colors.primary} />
+                    </View>
+                    <Text style={[styles.storyLabel, { color: colors.text }]}>
+                      Add Story
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              const p = item.profiles;
+              const label = p?.username || p?.full_name || "User";
+              const avatar = p?.avatar_url;
+
+              return (
+                <TouchableOpacity
+                  style={styles.storyItem}
+                  onPress={() => router.push(`/story/${item.id}` as any)}
+                  activeOpacity={0.7}
+                >
+                  {avatar ? (
+                    <Image
+                      source={{ uri: avatar }}
+                      style={[
+                        styles.storyAvatar,
+                        { borderColor: colors.primary },
+                      ]}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.storyAvatar,
+                        {
+                          backgroundColor: colors.surface,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{ color: colors.primary, fontWeight: "900" }}
+                      >
+                        {label[0]?.toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+
+                  <Text
+                    style={[styles.storyLabel, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
         </View>
 
-        {/* Segments */}
+        {/* ✅ Segments */}
         <View
           style={[styles.segmentWrap, { backgroundColor: colors.background }]}
         >
@@ -211,13 +319,128 @@ export default function HomeScreen() {
             />
           </View>
         </View>
+
+        {/* ✅ My Communities row (ONLY in My Community tab) */}
+        {activeTab === "my-community" && (
+          <View
+            style={[
+              styles.myCommunityPanel,
+              { backgroundColor: colors.background },
+            ]}
+          >
+            <View
+              style={[
+                styles.communitySearchWrap,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  shadowOpacity: isDark ? 0.22 : 0.06,
+                },
+              ]}
+            >
+              <Ionicons name="search" size={18} color={colors.textTertiary} />
+              <TextInput
+                value={communitySearch}
+                onChangeText={setCommunitySearch}
+                placeholder="Search your communities..."
+                placeholderTextColor={colors.textTertiary}
+                style={[styles.communitySearchInput, { color: colors.text }]}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+              />
+              {!!communitySearch.trim() && (
+                <TouchableOpacity
+                  onPress={() => setCommunitySearch("")}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.clearBtnSmall,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons
+                    name="close"
+                    size={16}
+                    color={colors.textTertiary}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {filteredCommunities.length > 0 ? (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={filteredCommunities}
+                keyExtractor={(c) => c.id}
+                contentContainerStyle={{ paddingRight: 16, paddingLeft: 16 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.communityPill}
+                    onPress={() =>
+                      router.push(`/community/${item.slug}` as any)
+                    }
+                    activeOpacity={0.85}
+                  >
+                    {/* ✅ use image_url */}
+                    {item.image_url ? (
+                      <Image
+                        source={{ uri: item.image_url }}
+                        style={styles.communityAvatar}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.communityAvatar,
+                          {
+                            backgroundColor: colors.surface,
+                            borderColor: colors.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{ color: colors.primary, fontWeight: "900" }}
+                        >
+                          {(item.name?.[0] ?? "C").toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+
+                    <Text
+                      style={[styles.communityName, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            ) : (
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingTop: 8,
+                  paddingBottom: 2,
+                }}
+              >
+                <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
+                  No communities match “{communitySearch.trim()}”.
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </>
     );
-  }, [activeTab, unreadCount, colors, isDark]);
-
-  const openPost = (postId: string) => {
-    router.push(`/post/${postId}` as any);
-  };
+  }, [
+    activeTab,
+    unreadCount,
+    colors,
+    isDark,
+    stories,
+    filteredCommunities,
+    communitySearch,
+  ]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -299,8 +522,6 @@ export default function HomeScreen() {
                 { height: mediaHeight, backgroundColor: colors.surface },
               ]}
             >
-              {/* For videos: Image may not always render a frame. Still fine as a “cover”.
-                  If it fails to load, user can tap to open post where video plays. */}
               <Image
                 source={{ uri: media }}
                 style={styles.media}
@@ -341,7 +562,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* ACTIONS */}
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -380,7 +600,7 @@ export default function HomeScreen() {
               style={styles.actionBtn}
               onPress={(e) => {
                 e.stopPropagation?.();
-                openPost(item.id); // sharing is available on detail page too
+                openPost(item.id);
               }}
               activeOpacity={0.7}
             >
@@ -528,12 +748,8 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 
-  storiesWrap: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  storyItem: { alignItems: "center", marginRight: 16 },
+  storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
+  storyItem: { alignItems: "center", marginRight: 16, width: 72 },
   addStoryCircle: {
     width: 68,
     height: 68,
@@ -544,6 +760,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 6,
   },
+  storyAvatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    marginBottom: 6,
+    borderWidth: 2,
+  },
   storyLabel: {
     fontSize: 12,
     fontWeight: "700",
@@ -551,7 +774,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  segmentWrap: { paddingHorizontal: 14, paddingBottom: 14 },
+  segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
   segment: {
     borderRadius: 24,
     padding: 6,
@@ -571,6 +794,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segText: { fontSize: 13, fontWeight: "800" },
+
+  myCommunityPanel: { paddingBottom: 10 },
+  communitySearchWrap: {
+    marginHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  communitySearchInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14.5,
+    fontWeight: "700",
+  },
+  clearBtnSmall: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  communityPill: { alignItems: "center", marginRight: 12, width: 86 },
+  communityAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginBottom: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  communityName: {
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+    maxWidth: 86,
+  },
 
   card: {
     marginHorizontal: 14,

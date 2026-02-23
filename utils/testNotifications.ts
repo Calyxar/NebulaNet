@@ -1,36 +1,37 @@
-// utils/testNotifications.ts - Test Script
-import { supabase } from "@/lib/supabase";
+// utils/testNotifications.ts — FIREBASE ✅
+
+import { auth, db } from "@/lib/firebase";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
 export async function createTestNotifications() {
-  const user = await supabase.auth.getUser();
-  if (!user.data.user) return;
+  const user = auth.currentUser;
+  if (!user) return;
 
   const testNotifications = [
     {
-      type: "like" as const,
-      sender_id: user.data.user.id,
-      receiver_id: user.data.user.id,
+      type: "like",
+      sender_id: user.uid,
+      receiver_id: user.uid,
       post_id: "test-post-1",
       read: false,
     },
     {
-      type: "comment" as const,
-      sender_id: user.data.user.id,
-      receiver_id: user.data.user.id,
+      type: "comment",
+      sender_id: user.uid,
+      receiver_id: user.uid,
       post_id: "test-post-2",
       comment_id: "test-comment-1",
       read: false,
     },
-    {
-      type: "follow" as const,
-      sender_id: user.data.user.id,
-      receiver_id: user.data.user.id,
-      read: false,
-    },
+    { type: "follow", sender_id: user.uid, receiver_id: user.uid, read: false },
   ];
 
-  for (const notification of testNotifications) {
-    await supabase.from("notifications").insert(notification);
+  for (const n of testNotifications) {
+    await addDoc(collection(db, "notifications"), {
+      ...n,
+      created_at: serverTimestamp(),
+    });
   }
+
   console.log("✅ Test notifications created");
 }

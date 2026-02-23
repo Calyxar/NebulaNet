@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NebulaNet — Reset Password</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Arial;
+        background: #0b0f1a;
+        color: #fff;
+        margin: 0;
+      }
+      .wrap {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 40px 20px;
+      }
+      .card {
+        background: #121a2b;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 22px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 22px;
+      }
+      p {
+        margin: 8px 0;
+        color: rgba(255, 255, 255, 0.8);
+        line-height: 1.4;
+      }
+      .row {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      input {
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
+        outline: none;
+      }
+      button {
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 0;
+        background: #6d8bff;
+        color: #0b0f1a;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .muted {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.65);
+      }
+      .ok {
+        color: #34d399;
+        font-weight: 700;
+      }
+      .bad {
+        color: #fb7185;
+        font-weight: 700;
+      }
+      .btnlink {
+        display: inline-block;
+        margin-top: 14px;
+        color: #6d8bff;
+        text-decoration: none;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Reset your password</h1>
+        <p id="status" class="muted">Loading…</p>
+
+        <form id="form" style="display: none" class="row">
+          <input
+            id="pw"
+            type="password"
+            placeholder="New password (min 8 chars)"
+            minlength="8"
+            required
+          />
+          <input
+            id="pw2"
+            type="password"
+            placeholder="Confirm new password"
+            minlength="8"
+            required
+          />
+          <button id="submit" type="submit">Reset password</button>
+        </form>
+
+        <a
+          id="openApp"
+          class="btnlink"
+          href="nebulanet://auth/login"
+          style="display: none"
+        >
+          Open NebulaNet
+        </a>
+      </div>
+    </div>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+      import {
+        getAuth,
+        verifyPasswordResetCode,
+        confirmPasswordReset,
+      } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyCld45HfLvQHTY7FpPXhwUIE5docgd5nv0",
+        authDomain: "nebulanet-abf99.firebaseapp.com",
+        projectId: "nebulanet-abf99",
+        storageBucket: "nebulanet-abf99.firebasestorage.app",
+        messagingSenderId: "218927734181",
+        appId: "1:218927734181:web:4ef20e8f3eca46da3d1c4c",
+        measurementId: "G-2QLTHPBWSP",
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+
+      const statusEl = document.getElementById("status");
+      const form = document.getElementById("form");
+      const pw = document.getElementById("pw");
+      const pw2 = document.getElementById("pw2");
+      const btn = document.getElementById("submit");
+      const openApp = document.getElementById("openApp");
+
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode"); // resetPassword
+      const oobCode = params.get("oobCode"); // action code
+
+      const showOpenApp = () => {
+        openApp.style.display = "inline-block";
+        setTimeout(() => {
+          window.location.href = "nebulanet://auth/login";
+        }, 1200);
+      };
+
+      (async () => {
+        try {
+          if (mode !== "resetPassword" || !oobCode) {
+            statusEl.innerHTML = `<span class="bad">Invalid reset link.</span>`;
+            showOpenApp();
+            return;
+          }
+
+          // Validate code
+          await verifyPasswordResetCode(auth, oobCode);
+
+          statusEl.textContent = "Enter a new password.";
+          form.style.display = "flex";
+        } catch (e) {
+          console.error(e);
+          statusEl.innerHTML = `<span class="bad">Reset link is invalid or expired.</span>`;
+          showOpenApp();
+        }
+      })();
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const a = pw.value.trim();
+        const b = pw2.value.trim();
+
+        if (a.length < 8) {
+          statusEl.innerHTML = `<span class="bad">Password must be at least 8 characters.</span>`;
+          return;
+        }
+        if (a !== b) {
+          statusEl.innerHTML = `<span class="bad">Passwords do not match.</span>`;
+          return;
+        }
+
+        btn.disabled = true;
+        statusEl.textContent = "Resetting…";
+
+        try {
+          await confirmPasswordReset(auth, oobCode, a);
+          statusEl.innerHTML = `<span class="ok">✅ Password reset successful.</span>`;
+          form.style.display = "none";
+          showOpenApp();
+        } catch (e) {
+          console.error(e);
+          statusEl.innerHTML = `<span class="bad">Could not reset password. Try again.</span>`;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

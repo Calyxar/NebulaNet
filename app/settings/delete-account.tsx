@@ -1,9 +1,10 @@
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { useMemo, useState } from "react";
 import {
   Alert,
@@ -75,13 +76,18 @@ export default function DeleteAccountScreen() {
             try {
               // ✅ OPTIONAL re-auth: keeps Play reviewers happy and protects user
               // NOTE: This does NOT leak any keys; it's normal user auth.
-              const { error: signInError } =
-                await supabase.auth.signInWithPassword({
-                  email: user.email,
-                  password,
-                });
-
-              if (signInError) {
+              const currentUser = auth.currentUser;
+              if (!currentUser) {
+                Alert.alert("Error", "Not signed in");
+                return;
+              }
+              const credential = EmailAuthProvider.credential(
+                user.email!,
+                password,
+              );
+              try {
+                await reauthenticateWithCredential(currentUser, credential);
+              } catch {
                 Alert.alert("Incorrect password", "Please try again.");
                 return;
               }

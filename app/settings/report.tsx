@@ -1,11 +1,19 @@
 // app/settings/report.tsx  ✅ COMPLETED + UPDATED (Supabase report + optional screenshot upload)
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import {
+  addDoc,
+  collection,
+  doc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
+import { getStorage, ref as storageRef, uploadBytes } from "firebase/storage";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -28,9 +36,7 @@ async function submitSupportReport(params: {
   details: string;
   screenshotUri?: string | null;
 }) {
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  if (authError) throw authError;
-  const user = auth.user;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
   const appVersion =
@@ -38,55 +44,31 @@ async function submitSupportReport(params: {
     (Constants as any)?.manifest?.version ??
     null;
 
-  // 1) create report row first
-  const { data: created, error: createError } = await supabase
-    .from("support_reports")
-    .insert({
-      user_id: user.id,
-      subject: params.subject.trim(),
-      details: params.details.trim(),
-      app_version: appVersion,
-      platform: Platform.OS,
-      device_name: Device.deviceName ?? null,
-      os_version: Device.osVersion ?? null,
-      screenshot_bucket: null,
-      screenshot_path: null,
-    })
-    .select("id")
-    .single();
+  const reportRef = await addDoc(collection(db, "support_reports"), {
+    user_id: user.uid,
+    subject: params.subject.trim(),
+    details: params.details.trim(),
+    app_version: appVersion,
+    platform: Platform.OS,
+    device_name: Device.deviceName ?? null,
+    os_version: Device.osVersion ?? null,
+    screenshot_path: null,
+    created_at: serverTimestamp(),
+  });
 
-  if (createError) throw createError;
-  if (!created?.id) throw new Error("Failed to create report");
-
-  // 2) optional screenshot upload (PRIVATE bucket)
   if (params.screenshotUri) {
-    const reportId = created.id as string;
-    const path = `${user.id}/support/${reportId}.jpg`;
-
+    const path = `${user.uid}/support/${reportRef.id}.jpg`;
     const resp = await fetch(params.screenshotUri);
     const blob = await resp.blob();
-
-    const { error: uploadError } = await supabase.storage
-      .from(SUPPORT_BUCKET)
-      .upload(path, blob, {
-        upsert: true,
-        contentType: "image/jpeg",
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { error: updateError } = await supabase
-      .from("support_reports")
-      .update({
-        screenshot_bucket: SUPPORT_BUCKET,
-        screenshot_path: path,
-      })
-      .eq("id", reportId);
-
-    if (updateError) throw updateError;
+    const storage = getStorage();
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, blob, { contentType: "image/jpeg" });
+    await updateDoc(doc(db, "support_reports", reportRef.id), {
+      screenshot_path: path,
+    });
   }
 
-  return created;
+  return { id: reportRef.id };
 }
 
 export default function ReportProblemScreen() {

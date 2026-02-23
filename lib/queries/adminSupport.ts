@@ -1,5 +1,20 @@
-// lib/queries/adminSupport.ts
-import { supabase } from "@/lib/supabase";
+// lib/queries/adminSupport.ts — FIRESTORE ✅ MIGRATED FROM SUPABASE
+
+import { db, storage } from "@/lib/firebase";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit as lim,
+  orderBy,
+  query,
+  Timestamp,
+  updateDoc,
+} from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
+
+/* -------------------- TYPES -------------------- */
 
 export type SupportProfile = {
   id: string;
@@ -7,8 +22,6 @@ export type SupportProfile = {
   full_name: string | null;
   avatar_url: string | null;
 };
-
-type EmbeddedProfile = SupportProfile | SupportProfile[] | null;
 
 export type SupportReportRow = {
   id: string;
@@ -21,87 +34,96 @@ export type SupportReportRow = {
   device_name: string | null;
   os_version: string | null;
   created_at: string;
-
-  // Raw embed (can be object or array depending on relationship shape)
-  profiles?: EmbeddedProfile;
-
-  // Normalized single profile for UI
   profile: SupportProfile | null;
-
-  // Optional if you add it later
   status?: "open" | "resolved";
 };
 
-function normalizeProfile(p: EmbeddedProfile): SupportProfile | null {
-  if (!p) return null;
-  if (Array.isArray(p)) return p[0] ?? null;
-  return p;
+/* -------------------- HELPERS -------------------- */
+
+function tsToIso(ts: any): string {
+  if (!ts) return "";
+  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
-export async function adminGetSupportReports(limit = 50, offset = 0) {
-  const { data, error } = await supabase
-    .from("support_reports")
-    .select(
-      `
-      id,
-      subject,
-      details,
-      screenshot_bucket,
-      screenshot_path,
-      app_version,
-      platform,
-      device_name,
-      os_version,
-      created_at,
-      status,
-      profiles:profiles!support_reports_user_id_fkey(
-        id,
-        username,
-        full_name,
-        avatar_url
-      )
-    `,
-    )
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+/* -------------------- QUERIES -------------------- */
 
-  if (error) throw error;
+export async function adminGetSupportReports(
+  limitCount = 50,
+  offset = 0,
+): Promise<SupportReportRow[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, "support_reports"),
+      orderBy("created_at", "desc"),
+      lim(Math.min(500, offset + limitCount)),
+    ),
+  );
 
-  // Strongly type the raw rows
-  const rows = (data ?? []) as (Omit<SupportReportRow, "profile"> & { profiles?: EmbeddedProfile })[];
+  const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const paged = rows.slice(offset, offset + limitCount);
 
-  // Normalize profiles -> profile (single object)
-  const normalized: SupportReportRow[] = rows.map((r) => ({
-    ...r,
-    profile: normalizeProfile(r.profiles ?? null),
-  }));
+  // Fetch profiles for each report
+  const results: SupportReportRow[] = await Promise.all(
+    paged.map(async (r) => {
+      let profile: SupportProfile | null = null;
 
-  return normalized;
+      if (r.user_id) {
+        try {
+          const profileSnap = await getDoc(doc(db, "profiles", r.user_id));
+          if (profileSnap.exists()) {
+            const p = profileSnap.data() as any;
+            profile = {
+              id: profileSnap.id,
+              username: p.username ?? "",
+              full_name: p.full_name ?? null,
+              avatar_url: p.avatar_url ?? null,
+            };
+          }
+        } catch {
+          // profile not found, leave null
+        }
+      }
+
+      return {
+        id: r.id,
+        subject: r.subject ?? "",
+        details: r.details ?? "",
+        screenshot_bucket: r.screenshot_bucket ?? null,
+        screenshot_path: r.screenshot_path ?? null,
+        app_version: r.app_version ?? null,
+        platform: r.platform ?? null,
+        device_name: r.device_name ?? null,
+        os_version: r.os_version ?? null,
+        created_at: tsToIso(r.created_at),
+        status: r.status ?? "open",
+        profile,
+      };
+    }),
+  );
+
+  return results;
 }
 
 export async function adminGetScreenshotSignedUrl(
   bucket: string,
   path: string,
-  expiresInSeconds = 90,
-) {
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(path, expiresInSeconds);
-
-  if (error) throw error;
-  return data?.signedUrl ?? null;
+): Promise<string | null> {
+  // Firebase Storage uses getDownloadURL (permanent URL, no expiry needed)
+  try {
+    const url = await getDownloadURL(ref(storage, path));
+    return url;
+  } catch {
+    return null;
+  }
 }
 
-// Optional: status update (used by the dashboard "Mark resolved")
 export async function adminUpdateSupportReportStatus(
   reportId: string,
   status: "open" | "resolved",
-) {
-  const { error } = await supabase
-    .from("support_reports")
-    .update({ status })
-    .eq("id", reportId);
-
-  if (error) throw error;
+): Promise<boolean> {
+  await updateDoc(doc(db, "support_reports", reportId), { status });
   return true;
 }

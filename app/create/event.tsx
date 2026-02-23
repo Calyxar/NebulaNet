@@ -2,11 +2,16 @@
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import {
+  addDoc,
+  collection,
+  serverTimestamp
+} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -83,8 +88,8 @@ export default function CreateEventScreen() {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.from("events").insert({
-        user_id: user.id,
+      await addDoc(collection(db, "events"), {
+        user_id: auth.currentUser!.uid,
         title: title.trim(),
         description: description.trim() || null,
         location: location.trim() || null,
@@ -94,9 +99,8 @@ export default function CreateEventScreen() {
         end_time: endDate.toISOString(),
         max_attendees: max,
         attendees_count: 0,
+        created_at: serverTimestamp(),
       });
-
-      if (error) throw error;
 
       Alert.alert("Success", "Event created successfully!", [
         { text: "OK", onPress: () => router.back() },

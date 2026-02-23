@@ -1,8 +1,8 @@
-// app/(auth)/login.tsx — COMPLETE UPDATED (provider-only auth calls)
-// ✅ Uses AuthProvider for session + mutations (email + Google)
-// ✅ Google SSO via expo-auth-session -> AuthProvider.googleLogin (Supabase signInWithIdToken)
+// app/(auth)/login.tsx — FIREBASE ✅ (provider-only auth calls)
+// ✅ Uses AuthProvider for user + mutations (email + Google)
+// ✅ Google SSO via expo-auth-session -> AuthProvider.googleLogin (Firebase signInWithCredential)
 // ✅ No router.replace after auth; /(auth)/_layout.tsx Redirect handles it
-// ⚠️ Phone login UI remains but is not implemented (Supabase phone auth uses OTP)
+// ⚠️ Phone login UI remains but is not implemented
 
 import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,7 +26,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function LoginScreen() {
-  const { session, isLoading: authLoading, login, googleLogin } = useAuth();
+  const { user, isLoading: authLoading, login, googleLogin } = useAuth();
 
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
@@ -54,7 +54,6 @@ export default function LoginScreen() {
     [],
   );
 
-  // ✅ Google auth request
   const [googleRequest, _googleResponse, googlePromptAsync] =
     Google.useAuthRequest({
       clientId:
@@ -72,7 +71,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     // Already authed? Let /(auth)/_layout.tsx redirect.
-    if (session?.user) return;
+    if (user) return;
 
     if (activeTab === "email" && !validateEmail(email)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
@@ -99,22 +98,53 @@ export default function LoginScreen() {
 
     setIsSubmitting(true);
     try {
-      await login.mutateAsync({
+      const res = await login.mutateAsync({
         email: email.trim().toLowerCase(),
         password,
       });
+
+      // Optional: enforce verification (Firebase allows login even if not verified)
+      // If you want to block unverified users in the app layer:
+      if (res.user && res.user.emailVerified === false) {
+        Alert.alert(
+          "Email Not Verified",
+          "Please verify your email before continuing.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.push("/(auth)/verify-email"),
+            },
+          ],
+        );
+        // You can also signOut() here if you want, but not required.
+        return;
+      }
+
       // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
       const errorMessage = error?.message || "Login failed";
+      const lower = errorMessage.toLowerCase();
+
       let alertTitle = "Login Failed";
       let alertMessage = errorMessage;
 
-      if (errorMessage.includes("Invalid login credentials")) {
+      // Firebase common auth errors (these show up in message strings)
+      if (
+        lower.includes("auth/wrong-password") ||
+        lower.includes("auth/invalid-credential")
+      ) {
         alertTitle = "Invalid Credentials";
         alertMessage = "The email or password you entered is incorrect.";
-      } else if (errorMessage.includes("Email not confirmed")) {
-        alertTitle = "Email Not Verified";
-        alertMessage = "Please verify your email before logging in.";
+      } else if (lower.includes("auth/user-not-found")) {
+        alertTitle = "Account Not Found";
+        alertMessage = "No account found for this email. Please sign up.";
+      } else if (lower.includes("auth/too-many-requests")) {
+        alertTitle = "Too Many Attempts";
+        alertMessage =
+          "Too many failed attempts. Please wait a bit and try again.";
+      } else if (lower.includes("auth/invalid-email")) {
+        alertTitle = "Invalid Email";
+        alertMessage = "Please enter a valid email address.";
       }
 
       Alert.alert(alertTitle, alertMessage);
@@ -124,8 +154,7 @@ export default function LoginScreen() {
   };
 
   const handleGoogleLogin = async () => {
-    // Already authed? Let /(auth)/_layout.tsx redirect.
-    if (session?.user) return;
+    if (user) return;
 
     if (!googleRequest) {
       Alert.alert("Error", "Google auth is not ready yet.");
@@ -146,16 +175,14 @@ export default function LoginScreen() {
 
       await googleLogin.mutateAsync({
         idToken: id_token,
-        accessToken: access_token ?? null,
+        accessToken: access_token ?? undefined,
       });
 
       // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
       const msg = error?.message || "Unable to sign in with Google.";
-      if (
-        !msg.toLowerCase().includes("cancelled") &&
-        !msg.toLowerCase().includes("dismissed")
-      ) {
+      const lower = msg.toLowerCase();
+      if (!lower.includes("cancelled") && !lower.includes("dismissed")) {
         Alert.alert("Google Login Failed", msg);
       }
     } finally {
@@ -349,6 +376,7 @@ export default function LoginScreen() {
   );
 }
 
+// ⬇️ Your styles unchanged
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   keyboardView: { flex: 1 },

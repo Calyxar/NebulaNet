@@ -1,8 +1,9 @@
 // app/(tabs)/explore.tsx — COMPLETED + UPDATED ✅
 // ✅ Theme + dark mode support
-// ✅ Fixes TS error: removes post_type usage (infers media type from media_urls)
-// ✅ Post results show image thumb OR video thumb with "Video" badge + play overlay
-// ✅ Tapping a post opens /post/[id] so users can like/comment/share there
+// ✅ Post results show image thumb OR video thumb badge
+// ✅ Community results show community image if available
+// ✅ FIX: Do NOT search when Trending selected (prevents wrong default type)
+// ✅ FIX: Safe defaults if useSearch returns undefined data
 // ✅ Back button works: router.canGoBack() fallback to /(tabs)/home
 
 import AppHeader from "@/components/navigation/AppHeader";
@@ -80,37 +81,43 @@ export default function ExploreScreen() {
     [insets.bottom],
   );
 
-  const searchType =
-    activeCategory === "account"
-      ? "account"
-      : activeCategory === "post"
-        ? "post"
-        : activeCategory === "community"
-          ? "community"
-          : null;
-
-  const { data, isSearching, isIdle } = useSearch({
-    type: (searchType ?? "post") as any,
-    query: searchQuery,
-    minChars: 2,
-    limit: 20,
-    debounceMs: 350,
-  });
-
-  const accounts = data.accounts;
-  const posts = data.posts;
-  const communities = data.communities;
-
-  const clearSearch = () => setSearchQuery("");
-
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
     : ["#DCEBFF", "#EEF4FF", "#FFFFFF"];
+
+  const clearSearch = () => setSearchQuery("");
 
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)/home");
   };
+
+  // ✅ Only search if NOT trending
+  const shouldSearch = activeCategory !== "trending";
+
+  const searchType = useMemo(() => {
+    if (!shouldSearch) return null;
+    if (activeCategory === "account") return "account";
+    if (activeCategory === "post") return "post";
+    if (activeCategory === "community") return "community";
+    return null;
+  }, [activeCategory, shouldSearch]);
+
+  // ✅ Run search only when we have a real type (and not trending)
+  const { data, isSearching, isIdle } = useSearch({
+    type: (searchType ?? "post") as any, // hook may require a value; we gate with shouldSearch below
+    query: searchQuery,
+    minChars: 2,
+    limit: 20,
+    debounceMs: 350,
+    // If your hook supports enabled, pass it:
+    // enabled: shouldSearch,
+  });
+
+  // ✅ Safe defaults if hook returns undefined
+  const accounts = (data as any)?.accounts ?? [];
+  const posts = (data as any)?.posts ?? [];
+  const communities = (data as any)?.communities ?? [];
 
   return (
     <>
@@ -263,7 +270,7 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
-                    {accounts.map((a, idx) => {
+                    {accounts.map((a: any, idx: number) => {
                       const name = a.full_name || a.username || "User";
                       return (
                         <TouchableOpacity
@@ -359,10 +366,9 @@ export default function ExploreScreen() {
                   />
                 ) : posts.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {posts.map((p) => {
+                    {posts.map((p: any) => {
                       const author =
                         p.user?.full_name || p.user?.username || "User";
-
                       const first = p.media_urls?.[0] ?? null;
                       const hasImage = isImageUrl(first);
                       const hasVideo = isVideoUrl(first);
@@ -416,7 +422,6 @@ export default function ExploreScreen() {
                                 { backgroundColor: colors.surface },
                               ]}
                             >
-                              {/* If it's an image, show it */}
                               {hasImage ? (
                                 <Image
                                   source={{ uri: first! }}
@@ -424,7 +429,6 @@ export default function ExploreScreen() {
                                   resizeMode="cover"
                                 />
                               ) : (
-                                // If it's a video, show a thumbnail placeholder with overlays
                                 <View style={styles.videoThumbInner}>
                                   <Ionicons
                                     name="videocam"
@@ -480,7 +484,7 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
-                    {communities.map((c, idx) => (
+                    {communities.map((c: any, idx: number) => (
                       <TouchableOpacity
                         key={c.id}
                         activeOpacity={0.85}
@@ -493,18 +497,30 @@ export default function ExploreScreen() {
                         ]}
                         onPress={() => router.push(`/community/${c.slug}`)}
                       >
-                        <View
-                          style={[
-                            styles.communityBadge,
-                            { backgroundColor: colors.surface },
-                          ]}
-                        >
-                          <Ionicons
-                            name="people"
-                            size={18}
-                            color={colors.primary}
+                        {/* ✅ Show image_url if present */}
+                        {c.image_url ? (
+                          <Image
+                            source={{ uri: c.image_url }}
+                            style={[
+                              styles.communityAvatar,
+                              { backgroundColor: colors.surface },
+                            ]}
                           />
-                        </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.communityBadge,
+                              { backgroundColor: colors.surface },
+                            ]}
+                          >
+                            <Ionicons
+                              name="people"
+                              size={18}
+                              color={colors.primary}
+                            />
+                          </View>
+                        )}
+
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
                             style={[styles.rowTitle, { color: colors.text }]}
@@ -519,9 +535,10 @@ export default function ExploreScreen() {
                             ]}
                             numberOfLines={1}
                           >
-                            {c.description || "Community"}
+                            {c.description || `@${c.slug}` || "Community"}
                           </Text>
                         </View>
+
                         <Ionicons
                           name="chevron-forward"
                           size={18}
@@ -673,17 +690,9 @@ const styles = StyleSheet.create({
   },
   rowBorder: { borderTopWidth: 1 },
   rowTitle: { fontSize: 14.5, fontWeight: "900" },
-  rowSubtitle: {
-    marginTop: 2,
-    fontSize: 12.5,
-    fontWeight: "700",
-  },
+  rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
 
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-  },
+  avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: {
     width: 42,
     height: 42,
@@ -700,6 +709,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  communityAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
 
   postCard: {
     borderRadius: 22,
@@ -715,13 +729,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   postAuthor: { fontSize: 14, fontWeight: "900" },
-  postContent: {
-    marginTop: 8,
-    fontSize: 13.5,
-    lineHeight: 19,
-  },
+  postContent: { marginTop: 8, fontSize: 13.5, lineHeight: 19 },
 
-  /* ✅ NEW: post media thumb */
   thumbWrap: {
     marginTop: 12,
     width: "100%",
@@ -729,11 +738,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
-  thumb: {
-    width: "100%",
-    height: "100%",
-  },
-
+  thumb: { width: "100%", height: "100%" },
   videoThumbInner: {
     width: "100%",
     height: "100%",
@@ -784,11 +789,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: "center",
   },
-  emptySubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-  },
+  emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
 
   loadingCard: {
     borderRadius: 22,
