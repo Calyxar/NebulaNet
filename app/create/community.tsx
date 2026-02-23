@@ -52,13 +52,13 @@ function randomSuffix(len = 5) {
 }
 
 async function ensureUniqueSlug(base: string) {
-  let slug = base || `community-${randomSuffix(6)}`;
+  const slug = base || `community-${randomSuffix(6)}`;
 
   // Try a few attempts: slug, slug-xxxxx, slug-yyyyy, ...
   for (let i = 0; i < 6; i++) {
     const attempt = i === 0 ? slug : `${slug}-${randomSuffix(5)}`;
 
-    const snapU = await getDocs(
+    const snap = await getDocs(
       query(
         collection(db, "communities"),
         where("slug", "==", attempt),
@@ -66,21 +66,13 @@ async function ensureUniqueSlug(base: string) {
       ),
     );
 
-    if (error) {
-      // if slug column doesn’t exist, we just return attempt (fallback)
-      return attempt;
-    }
-    if (!data) return attempt;
+    if (snap.empty) return attempt;
   }
 
   return `${slug}-${Date.now().toString().slice(-5)}`;
 }
 
 async function uploadCommunityImage(userId: string, uri: string) {
-  // Storage bucket name: "community-images" (create later if you haven't)
-  // If you don't have it yet, this will throw and we gracefully fall back.
-  const bucket = "community-images";
-
   const res = await fetch(uri);
   if (!res.ok) throw new Error("Could not read selected image");
   const blob = await res.blob();

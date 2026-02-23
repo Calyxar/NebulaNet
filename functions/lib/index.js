@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteAccount = void 0;
+exports.deleteCommunity = exports.deleteAccount = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 admin.initializeApp();
@@ -121,4 +121,70 @@ exports.deleteAccount = (0, https_1.onCall)(async (request) => {
         console.error("Delete account failure:", error);
         throw new https_1.HttpsError("internal", (error === null || error === void 0 ? void 0 : error.message) || "Failed to delete account");
     }
+});
+async function deleteCollectionByField(collectionName, field, value) {
+    const snapshot = await db
+        .collection(collectionName)
+        .where(field, "==", value)
+        .get();
+    if (snapshot.empty)
+        return;
+    const batch = db.batch();
+    snapshot.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+}
+exports.deleteCommunity = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "You must be logged in.");
+    }
+    const communityId = (_a = request.data) === null || _a === void 0 ? void 0 : _a.communityId;
+    if (!communityId || typeof communityId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "communityId is required.");
+    }
+    const communityRef = db.collection("communities").doc(communityId);
+    const communitySnap = await communityRef.get();
+    if (!communitySnap.exists) {
+        throw new https_1.HttpsError("not-found", "Community not found.");
+    }
+    const ownerId = (_c = (_b = communitySnap.data()) === null || _b === void 0 ? void 0 : _b.owner_id) !== null && _c !== void 0 ? _c : null;
+    if (!ownerId || ownerId !== request.auth.uid) {
+        throw new https_1.HttpsError("permission-denied", "Only the owner can delete this community.");
+    }
+    const postsSnap = await db
+        .collection("posts")
+        .where("community_id", "==", communityId)
+        .get();
+    const bucket = storage.bucket();
+    await Promise.allSettled(postsSnap.docs.map(async (postDoc) => {
+        const postId = postDoc.id;
+        const postData = postDoc.data();
+        const mediaUrls = Array.isArray(postData.media_urls)
+            ? postData.media_urls.filter((v) => typeof v === "string")
+            : [];
+        await Promise.allSettled(mediaUrls.map(async (url) => {
+            const marker = `/o/`;
+            const idx = url.indexOf(marker);
+            if (idx < 0)
+                return;
+            const encodedPath = url.slice(idx + marker.length).split("?")[0];
+            const objectPath = decodeURIComponent(encodedPath);
+            if (objectPath.startsWith("community/") ||
+                objectPath.startsWith("media/") ||
+                objectPath.startsWith(`posts/${communityId}/`)) {
+                await bucket.file(objectPath).delete({ ignoreNotFound: true });
+            }
+        }));
+        await deleteCollectionByField("comments", "post_id", postId);
+    }));
+    await deleteCollectionByField("community_members", "community_id", communityId);
+    await deleteCollectionByField("community_moderators", "community_id", communityId);
+    await deleteCollectionByField("community_rules", "community_id", communityId);
+    await deleteCollectionByField("posts", "community_id", communityId);
+    await communityRef.delete();
+    await Promise.allSettled([
+        bucket.deleteFiles({ prefix: `community/${communityId}/` }),
+        bucket.deleteFiles({ prefix: `posts/${communityId}/` }),
+    ]);
+    return { success: true, message: "Community deleted successfully." };
 });

@@ -4,7 +4,7 @@ require("dotenv").config();
 
 console.log("🔧 Starting NebulaNet build...");
 console.log(
-  `- Supabase URL: ${process.env.EXPO_PUBLIC_SUPABASE_URL ? "Set" : "Not Set"}`,
+  `- Firebase Project ID: ${process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "Not Set"}`,
 );
 console.log(
   `- App Domain: ${process.env.EXPO_PUBLIC_APP_DOMAIN || "nebulanet.space"}`,

@@ -1,6 +1,7 @@
 // hooks/useProfilePrivacyFlags.ts — FIREBASE ✅
 
 import { db } from "@/lib/firebase";
+import { qk } from "@/lib/queryKeys/social";
 import { useQuery } from "@tanstack/react-query";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -13,7 +14,7 @@ export type ProfilePrivacyFlags = {
 
 export function useProfilePrivacyFlags(profileId?: string) {
   return useQuery({
-    queryKey: ["profile-privacy-flags", profileId],
+    queryKey: qk.social.profilePrivacyFlags(profileId),
     enabled: !!profileId,
     queryFn: async () => {
       const snap = await getDoc(doc(db, "profiles", profileId!));
