@@ -1,5 +1,6 @@
 // lib/queryKeys/invalidateSocial.ts
 import type { QueryClient } from "@tanstack/react-query";
+import { qk } from "./social";
 
 export function invalidateAfterBlock(
   qc: QueryClient,
@@ -7,37 +8,33 @@ export function invalidateAfterBlock(
   targetId?: string,
   targetUsername?: string,
 ) {
-  // Lists
-  qc.invalidateQueries({ queryKey: ["my-followers", myId] });
-  qc.invalidateQueries({ queryKey: ["my-following-with-status", myId] });
-  qc.invalidateQueries({ queryKey: ["requested-followers", myId] });
-  qc.invalidateQueries({ queryKey: ["my-blocks", myId] });
+  // Relationship lists
+  qc.invalidateQueries({ queryKey: qk.myFollowers(myId) });
+  qc.invalidateQueries({ queryKey: qk.myFollowing(myId) });
+  qc.invalidateQueries({ queryKey: qk.requestedFollowers(myId) });
+  qc.invalidateQueries({ queryKey: qk.myBlocks(myId) });
 
-  // Counts + notifications
-  qc.invalidateQueries({ queryKey: ["user-stats", myId] });
-  qc.invalidateQueries({ queryKey: ["notifications"] });
+  // My stats + notifications
+  qc.invalidateQueries({ queryKey: qk.userStats(myId) });
+  qc.invalidateQueries({ queryKey: qk.notifications() });
 
-  // Feed / explore / stories (adjust to your real keys)
-  qc.invalidateQueries({ queryKey: ["feed"] });
-  qc.invalidateQueries({ queryKey: ["home-feed"] });
-  qc.invalidateQueries({ queryKey: ["explore"] });
-  qc.invalidateQueries({ queryKey: ["stories"] });
+  // Feeds / discovery
+  qc.invalidateQueries({ queryKey: qk.feed("home") });
+  qc.invalidateQueries({ queryKey: qk.feed("global") });
+  qc.invalidateQueries({ queryKey: qk.explore() });
+  qc.invalidateQueries({ queryKey: qk.stories() });
 
-  // Profile caches
+  // Target caches
   if (targetId) {
-    qc.invalidateQueries({ queryKey: ["user-stats", targetId] });
-    qc.invalidateQueries({ queryKey: ["user-posts", targetId] });
-    qc.invalidateQueries({ queryKey: ["follow-edge", myId, targetId] });
-    qc.invalidateQueries({ queryKey: ["profile-privacy-flags", targetId] });
+    qc.invalidateQueries({ queryKey: qk.userStats(targetId) });
+    qc.invalidateQueries({ queryKey: qk.userPosts(targetId) });
+    qc.invalidateQueries({ queryKey: qk.followEdge(myId, targetId) });
+    qc.invalidateQueries({ queryKey: qk.profilePrivacyFlags(targetId) });
   }
 
-  // If you cache profile by username, invalidate that exact entry too
   if (targetUsername) {
-    qc.invalidateQueries({ queryKey: ["user-profile", targetUsername] });
+    qc.invalidateQueries({ queryKey: qk.profileByUsername(targetUsername) });
   }
-
-  // Safe fallback (broad)
-  qc.invalidateQueries({ queryKey: ["user-profile"] });
 }
 
 export function invalidateAfterUnfollow(
@@ -46,21 +43,22 @@ export function invalidateAfterUnfollow(
   targetId?: string,
   targetUsername?: string,
 ) {
-  qc.invalidateQueries({ queryKey: ["my-following-with-status", myId] });
-  qc.invalidateQueries({ queryKey: ["my-followers", myId] });
-  qc.invalidateQueries({ queryKey: ["user-stats", myId] });
-  qc.invalidateQueries({ queryKey: ["notifications"] });
+  qc.invalidateQueries({ queryKey: qk.myFollowing(myId) });
+  qc.invalidateQueries({ queryKey: qk.myFollowers(myId) });
+  qc.invalidateQueries({ queryKey: qk.userStats(myId) });
+  qc.invalidateQueries({ queryKey: qk.notifications() });
 
-  qc.invalidateQueries({ queryKey: ["feed"] });
-  qc.invalidateQueries({ queryKey: ["home-feed"] });
+  qc.invalidateQueries({ queryKey: qk.feed("home") });
+  qc.invalidateQueries({ queryKey: qk.feed("following") });
 
   if (targetId) {
-    qc.invalidateQueries({ queryKey: ["follow-edge", myId, targetId] });
-    qc.invalidateQueries({ queryKey: ["user-stats", targetId] });
-    qc.invalidateQueries({ queryKey: ["user-posts", targetId] });
+    qc.invalidateQueries({ queryKey: qk.followEdge(myId, targetId) });
+    qc.invalidateQueries({ queryKey: qk.userStats(targetId) });
+    qc.invalidateQueries({ queryKey: qk.userPosts(targetId) });
   }
+
   if (targetUsername) {
-    qc.invalidateQueries({ queryKey: ["user-profile", targetUsername] });
+    qc.invalidateQueries({ queryKey: qk.profileByUsername(targetUsername) });
   }
 }
 
@@ -70,19 +68,19 @@ export function invalidateAfterApproveDeny(
   followerId?: string,
   followerUsername?: string,
 ) {
-  qc.invalidateQueries({ queryKey: ["requested-followers", myId] });
-  qc.invalidateQueries({ queryKey: ["my-followers", myId] });
-  qc.invalidateQueries({ queryKey: ["my-following-with-status", myId] });
-  qc.invalidateQueries({ queryKey: ["user-stats", myId] });
-  qc.invalidateQueries({ queryKey: ["notifications"] });
+  qc.invalidateQueries({ queryKey: qk.requestedFollowers(myId) });
+  qc.invalidateQueries({ queryKey: qk.myFollowers(myId) });
+  qc.invalidateQueries({ queryKey: qk.myFollowing(myId) });
+  qc.invalidateQueries({ queryKey: qk.userStats(myId) });
+  qc.invalidateQueries({ queryKey: qk.notifications() });
 
-  qc.invalidateQueries({ queryKey: ["feed"] });
-  qc.invalidateQueries({ queryKey: ["home-feed"] });
+  qc.invalidateQueries({ queryKey: qk.feed("home") });
 
   if (followerId) {
-    qc.invalidateQueries({ queryKey: ["follow-edge", followerId, myId] });
+    qc.invalidateQueries({ queryKey: qk.followEdge(followerId, myId) });
   }
+
   if (followerUsername) {
-    qc.invalidateQueries({ queryKey: ["user-profile", followerUsername] });
+    qc.invalidateQueries({ queryKey: qk.profileByUsername(followerUsername) });
   }
 }

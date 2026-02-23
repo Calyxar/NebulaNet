@@ -3,10 +3,10 @@
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import {
-  DEFAULT_PRIVACY_SETTINGS,
-  isPrivacySelect,
-  type PrivacySettings,
-} from "@/lib/queries/privacy";
+    DEFAULT_PRIVACY_SETTINGS,
+    isPrivacySelect,
+    type PrivacySettings,
+} from "@/lib/firestore/privacy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 

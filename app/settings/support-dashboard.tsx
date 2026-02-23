@@ -4,27 +4,27 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { auth, db } from "@/lib/firebase";
 import {
-  adminGetScreenshotSignedUrl,
-  adminGetSupportReports,
-  adminUpdateSupportReportStatus,
-  type SupportReportRow,
-} from "@/lib/queries/adminSupport";
+    adminGetScreenshotSignedUrl,
+    adminGetSupportReports,
+    adminUpdateSupportReportStatus,
+    type SupportReportRow,
+} from "@/lib/firestore/adminSupport";
 import { doc, getDoc } from "firebase/firestore";
 
 async function getCurrentUserProfile() {
