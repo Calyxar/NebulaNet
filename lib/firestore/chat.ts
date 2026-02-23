@@ -1,4 +1,4 @@
-// lib/queries/chat.ts — FIRESTORE ✅ MIGRATED FROM SUPABASE
+// lib/queries/chat.ts — FIRESTORE ✅
 // ✅ Fixed: SupabaseAttachment -> ChatAttachment
 // ✅ Fixed: limit parameter conflict in getMessages -> pageSize
 
