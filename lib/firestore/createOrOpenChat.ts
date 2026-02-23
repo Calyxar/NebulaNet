@@ -1,70 +1,51 @@
-// lib/firestore/createOrOpenChat.ts
-
 import { db } from "@/lib/firebase";
 import {
   addDoc,
   collection,
   doc,
   getDocs,
+  limit,
   query,
   serverTimestamp,
   where,
   writeBatch,
 } from "firebase/firestore";
 
-/**
- * Create or open an existing 1-on-1 chat
- */
+function dmPairKey(a: string, b: string): string {
+  return [a, b].sort().join("__");
+}
+
 export async function createOrOpenChat(
   myId: string,
   otherUserId: string,
 ): Promise<string> {
-  if (!myId || !otherUserId) {
-    throw new Error("Missing user IDs");
-  }
+  if (!myId || !otherUserId) throw new Error("Missing user IDs");
+  if (myId === otherUserId) throw new Error("Cannot DM yourself");
 
-  if (myId === otherUserId) {
-    throw new Error("Cannot DM yourself");
-  }
+  const pairKey = dmPairKey(myId, otherUserId);
 
-  // 🔎 1️⃣ Check existing conversation (1-on-1 only)
-  const conversationsSnap = await getDocs(
-    query(collection(db, "conversations"), where("is_group", "==", false)),
+  const existing = await getDocs(
+    query(
+      collection(db, "conversations"),
+      where("is_group", "==", false),
+      where("dm_pair_key", "==", pairKey),
+      limit(1),
+    ),
   );
 
-  for (const convoDoc of conversationsSnap.docs) {
-    const convoId = convoDoc.id;
-
-    const participantsSnap = await getDocs(
-      query(
-        collection(db, "conversation_participants"),
-        where("conversation_id", "==", convoId),
-      ),
-    );
-
-    const userIds = participantsSnap.docs.map(
-      (doc) => doc.data().user_id as string,
-    );
-
-    if (
-      userIds.length === 2 &&
-      userIds.includes(myId) &&
-      userIds.includes(otherUserId)
-    ) {
-      return convoId; // ✅ Found existing
-    }
+  if (!existing.empty) {
+    return existing.docs[0].id;
   }
 
-  // 🆕 2️⃣ Create new conversation
   const convoRef = await addDoc(collection(db, "conversations"), {
     is_group: false,
+    dm_pair_key: pairKey,
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   });
 
-  const batch = writeBatch(db);
-
   const participantsRef = collection(db, "conversation_participants");
+  const batch = writeBatch(db);
 
   batch.set(doc(participantsRef), {
     conversation_id: convoRef.id,
