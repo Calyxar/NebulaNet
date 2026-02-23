@@ -1,4 +1,4 @@
-// lib/queries/comments.ts — FIRESTORE ✅ MIGRATED FROM SUPABASE
+// lib/queries/comments.ts — FIRESTORE ✅
 
 import { db } from "@/lib/firebase";
 import { getAuth } from "firebase/auth";
