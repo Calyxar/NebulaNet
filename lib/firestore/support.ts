@@ -1,4 +1,4 @@
-// lib/queries/support.ts — FIRESTORE ✅
+// lib/firestore/support.ts — FIRESTORE ✅
 
 import { db } from "@/lib/firebase";
 import Constants from "expo-constants";

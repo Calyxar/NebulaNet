@@ -1,4 +1,4 @@
-// lib/queries/privacy.ts
+// lib/firestore/privacy.ts
 
 export const PRIVACY_OPTIONS = [
   "Everyone",

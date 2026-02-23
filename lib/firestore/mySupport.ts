@@ -1,4 +1,4 @@
-// lib/queries/mySupport.ts — FIRESTORE ✅
+// lib/firestore/mySupport.ts — FIRESTORE ✅
 
 import { db } from "@/lib/firebase";
 import { getAuth } from "firebase/auth";

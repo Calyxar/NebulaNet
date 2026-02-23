@@ -1,4 +1,4 @@
-// lib/queries/adminSupport.ts — FIRESTORE ✅
+// lib/firestore/adminSupport.ts — FIRESTORE ✅
 
 import { db, storage } from "@/lib/firebase";
 import {

@@ -1,4 +1,4 @@
-// lib/queries/supportUpload.ts — FIREBASE STORAGE ✅
+// lib/firestore/supportUpload.ts — FIREBASE STORAGE ✅
 
 import { getStorage, ref, uploadBytes } from "firebase/storage";
 
