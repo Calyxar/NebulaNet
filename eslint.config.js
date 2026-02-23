@@ -7,7 +7,6 @@ module.exports = defineConfig([
   {
     ignores: [
       "dist/*",
-      "supabase/functions/**", // ✅ Deno Edge Functions are not a Node/Expo lint target
     ],
   },
 ]);
