@@ -57,10 +57,12 @@ export default function ChatScreen() {
     userId?: string,
   ): string | null => {
     if (item.avatar_url) return item.avatar_url;
+
     if (!item.is_group && (item.participants?.length ?? 0) >= 2 && userId) {
-      const other = item.participants.find((p) => p.user_id !== userId);
+      const other = (item.participants ?? []).find((p) => p.user_id !== userId);
       return other?.profiles?.avatar_url ?? null;
     }
+
     return null;
   };
 
@@ -69,15 +71,19 @@ export default function ChatScreen() {
     userId?: string,
   ): string => {
     if (item.name) return item.name;
+
     if (!item.is_group && (item.participants?.length ?? 0) >= 2 && userId) {
-      const other = item.participants.find((p) => p.user_id !== userId);
+      const other = (item.participants ?? []).find((p) => p.user_id !== userId);
+
       return (
         other?.profiles?.full_name ||
         other?.profiles?.username ||
         "Unknown User"
       );
     }
+
     if (item.is_group) return `${item.participants?.length ?? 0} members`;
+
     return "Chat";
   };
 
@@ -88,6 +94,7 @@ export default function ChatScreen() {
         translucent
         backgroundColor="transparent"
       />
+
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["left", "right"]}
@@ -104,6 +111,7 @@ export default function ChatScreen() {
               >
                 <Ionicons name="search-outline" size={22} color={colors.text} />
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[
                   styles.addButton,
@@ -166,10 +174,10 @@ export default function ChatScreen() {
                 attachments={item.last_message?.attachments ?? null}
                 mediaType={item.last_message?.media_type ?? null}
                 timestamp={formatTimestamp(item.updated_at)}
-                unreadCount={item.unread_count}
-                isOnline={item.is_online}
-                isTyping={item.is_typing}
-                isPinned={item.is_pinned}
+                unreadCount={item.unread_count ?? 0}
+                isOnline={item.is_online ?? false}
+                isTyping={item.is_typing ?? false}
+                isPinned={item.is_pinned ?? false}
                 avatar={getAvatarUrl(item, user?.id)}
                 onPress={() =>
                   router.push({

@@ -19,7 +19,7 @@ import {
   limit,
   query,
   serverTimestamp,
-  where
+  where,
 } from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
@@ -125,10 +125,21 @@ export default function CreateCommunityScreen() {
         return;
       }
 
-      // data already set above from addDoc
+      // ✅ Create the community document
+      const communityRef = await addDoc(collection(db, "communities"), {
+        slug: s,
+        name: n,
+        description: description.trim() || null,
+        image_url: imageUri || null,
+        is_private: false,
+        owner_id: auth.currentUser!.uid,
+        member_count: 1,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+      const data = { id: communityRef.id, slug: s };
 
       // ✅ Auto-join creator so "My Community" shows it immediately
-      // Best-effort: if table/columns aren't ready yet, don't block creation.
       try {
         await addDoc(collection(db, "community_members"), {
           community_id: data.id,
@@ -141,7 +152,7 @@ export default function CreateCommunityScreen() {
       }
 
       // ✅ Refresh cached community lists so Home updates without restart
-      queryClient.invalidateQueries({ queryKey: ["my-communities", user.id] });
+      queryClient.invalidateQueries({ queryKey: ["my-communities", user.uid] });
       queryClient.invalidateQueries({ queryKey: ["my-communities"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
 
