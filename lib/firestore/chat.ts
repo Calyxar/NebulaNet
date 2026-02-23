@@ -1,37 +1,29 @@
-// lib/firestore/chat.ts — FIRESTORE CHAT ✅ (UPDATED FOR FIREBASE STORAGE ATTACHMENTS)
-// ✅ Uses ChatAttachment (url + storagePath) instead of SupabaseAttachment
-// ✅ Keeps backward-ish compatibility fields: media_url/media_type for UI that expects them
-// ✅ subscribeToMessages ignores initial snapshot
-// ✅ participants included in getConversations/getConversation
-// ✅ unread_count from participants subdoc
-// ✅ last_message stored on conversation doc
+// lib/queries/chat.ts — FIRESTORE ✅ MIGRATED FROM SUPABASE
+// ✅ Fixed: SupabaseAttachment -> ChatAttachment
+// ✅ Fixed: limit parameter conflict in getMessages -> pageSize
 
-import type { ChatAttachment } from "@/components/chat/ChatInput";
-import { auth, db } from "@/lib/firebase";
+import { ChatAttachment } from "@/components/chat/ChatInput";
+import { db } from "@/lib/firebase";
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    limit as fsLimit,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    startAfter,
-    Timestamp,
-    updateDoc,
-    where,
-    writeBatch,
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+  where,
+  writeBatch,
 } from "firebase/firestore";
 
-/* =============================================================================
-   TYPES
-============================================================================= */
+/* -------------------- TYPES -------------------- */
 
-export type ProfileRow = {
+type ProfileRow = {
   id: string;
   username: string;
   full_name: string | null;
@@ -39,112 +31,62 @@ export type ProfileRow = {
   bio: string | null;
 };
 
-export type ChatMessage = {
+type MessageRow = {
   id: string;
   conversation_id: string;
   sender_id: string;
   content: string | null;
-
-  // legacy single media (for older UI)
   media_url: string | null;
   media_type: string | null;
-
-  // ✅ firebase attachments
   attachments?: ChatAttachment[];
-
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
-
-  sender?: ProfileRow | null;
 };
 
-export type ChatConversation = {
+type ConversationRow = {
   id: string;
   name: string | null;
   created_at: string;
   updated_at: string;
-
   last_message_id: string | null;
   is_typing: boolean | null;
-
   is_group?: boolean | null;
   avatar_url?: string | null;
-
   unread_count?: number | null;
-
   is_online?: boolean | null;
   is_pinned?: boolean | null;
+};
 
-  participants?: { user_id: string; profiles?: ProfileRow | null }[];
+export type ChatMessage = MessageRow & {
+  sender?: ProfileRow;
+  attachments?: ChatAttachment[];
+};
+
+export type ChatConversation = ConversationRow & {
+  participants?: {
+    user_id: string;
+    profiles?: ProfileRow;
+  }[];
   last_message?: ChatMessage;
 };
 
-/* =============================================================================
-   HELPERS
-============================================================================= */
-
-const CONVERSATIONS = collection(db, "conversations");
+/* -------------------- HELPERS -------------------- */
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts instanceof Timestamp) return ts.toDate().toISOString();
-  return new Date(ts).toISOString();
+  if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-function normalizeAttachments(d: any): ChatAttachment[] {
-  const atts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
-
-  // Ensure each attachment has url + storagePath (and type/name if possible)
-  return atts
-    .map((a) => {
-      if (!a) return null;
-      return {
-        url: a.url ?? a.downloadURL ?? null,
-        storagePath: a.storagePath ?? a.path ?? null,
-        type: a.type ?? "file",
-        name: a.name ?? "attachment",
-        size: a.size ?? undefined,
-        mimeType: a.mimeType ?? undefined,
-        duration: a.duration ?? undefined,
-      } as ChatAttachment;
-    })
-    .filter((x) => !!x?.url && !!x?.storagePath);
-}
-
-function msgDocToChatMessage(
-  conversationId: string,
-  id: string,
-  d: any,
-): ChatMessage {
-  const atts = normalizeAttachments(d);
-  const first = atts?.[0];
-
-  return {
-    id,
-    conversation_id: conversationId,
-    sender_id: d.sender_id,
-    content: d.content ?? null,
-
-    // keep compatibility fields for UI that expects them
-    media_url: d.media_url ?? first?.url ?? null,
-    media_type: d.media_type ?? first?.type ?? null,
-
-    attachments: atts,
-
-    created_at: tsToIso(d.created_at_ts ?? d.created_at),
-    delivered_at: d.delivered_at_ts ? tsToIso(d.delivered_at_ts) : null,
-    read_at: null,
-    sender: (d.sender ?? null) as ProfileRow | null,
-  };
-}
-
-async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
-  const snap = await getDoc(doc(db, "profiles", uid));
-  if (!snap.exists()) return null;
+async function getProfile(userId: string): Promise<ProfileRow | undefined> {
+  const snap = await getDoc(doc(db, "profiles", userId));
+  if (!snap.exists()) return undefined;
   const d = snap.data() as any;
   return {
-    id: uid,
+    id: snap.id,
     username: d.username ?? "",
     full_name: d.full_name ?? null,
     avatar_url: d.avatar_url ?? null,
@@ -152,159 +94,225 @@ async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
   };
 }
 
-async function getConversationParticipants(
-  conversationId: string,
-): Promise<{ user_id: string; profiles?: ProfileRow | null }[]> {
-  const partsSnap = await getDocs(
-    collection(db, "conversations", conversationId, "participants"),
-  );
-
-  return partsSnap.docs.map((p) => {
-    const pd = p.data() as any;
-    return {
-      user_id: pd.user_id ?? p.id,
-      profiles: (pd.profile ?? null) as ProfileRow | null,
-    };
-  });
+function docToMessage(d: any, id: string): MessageRow {
+  return {
+    id,
+    conversation_id: d.conversation_id,
+    sender_id: d.sender_id,
+    content: d.content ?? null,
+    media_url: d.media_url ?? null,
+    media_type: d.media_type ?? null,
+    attachments: d.attachments ?? [],
+    created_at: tsToIso(d.created_at),
+    delivered_at: d.delivered_at ? tsToIso(d.delivered_at) : null,
+    read_at: d.read_at ? tsToIso(d.read_at) : null,
+  };
 }
 
-/* =============================================================================
-   QUERIES
-============================================================================= */
+function docToConversation(d: any, id: string): ConversationRow {
+  return {
+    id,
+    name: d.name ?? null,
+    created_at: tsToIso(d.created_at),
+    updated_at: tsToIso(d.updated_at),
+    last_message_id: d.last_message_id ?? null,
+    is_typing: d.is_typing ?? false,
+    is_group: d.is_group ?? false,
+    avatar_url: d.avatar_url ?? null,
+    unread_count: d.unread_count ?? 0,
+    is_online: d.is_online ?? false,
+    is_pinned: d.is_pinned ?? false,
+  };
+}
+
+/* -------------------- SUBSCRIPTIONS -------------------- */
+
+export const chatSubscriptions = {
+  subscribeToMessages: (
+    conversationId: string,
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const q = query(
+      collection(db, "messages"),
+      where("conversation_id", "==", conversationId),
+      orderBy("created_at", "desc"),
+      limit(50),
+    );
+
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const msg = { id: change.doc.id, ...change.doc.data() } as any;
+          if (msg.sender_id !== userId) {
+            callback({ new: docToMessage(msg, change.doc.id) });
+          }
+        }
+      });
+    });
+  },
+
+  subscribeToUserConversations: (
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const q = query(
+      collection(db, "conversation_participants"),
+      where("user_id", "==", userId),
+    );
+
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({ type: change.type, data: change.doc.data() });
+      });
+    });
+  },
+
+  subscribeToConversations: (callback: (payload: any) => void) => {
+    const q = collection(db, "conversations");
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({
+          type: change.type,
+          data: { id: change.doc.id, ...change.doc.data() },
+        });
+      });
+    });
+  },
+
+  subscribeToTypingStatus: (
+    conversationId: string,
+    callback: (payload: any) => void,
+  ) => {
+    return onSnapshot(doc(db, "conversations", conversationId), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data() as any;
+        callback({ new: { is_typing: d.is_typing } });
+      }
+    });
+  },
+
+  subscribeToUserParticipants: (
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    const q = query(
+      collection(db, "conversation_participants"),
+      where("user_id", "==", userId),
+    );
+
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        callback({ type: change.type, data: change.doc.data() });
+      });
+    });
+  },
+};
+
+/* -------------------- QUERIES -------------------- */
 
 export const chatQueries = {
   getConversations: async (userId: string) => {
     try {
-      const q1 = query(
-        CONVERSATIONS,
-        where("participant_ids", "array-contains", userId),
-        orderBy("updated_at_ts", "desc"),
+      const partSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("user_id", "==", userId),
+        ),
       );
 
-      const snap = await getDocs(q1);
-      const convs: ChatConversation[] = [];
+      const convIds = partSnap.docs.map(
+        (d) => (d.data() as any).conversation_id as string,
+      );
+      if (!convIds.length) return { data: [], error: null };
 
-      for (const c of snap.docs) {
-        const d = c.data() as any;
+      const conversations: ChatConversation[] = [];
 
-        const partSnap = await getDoc(
-          doc(db, "conversations", c.id, "participants", userId),
+      for (let i = 0; i < convIds.length; i += 10) {
+        const batch = convIds.slice(i, i + 10);
+        const convSnaps = await getDocs(
+          query(
+            collection(db, "conversations"),
+            where("__name__", "in", batch),
+          ),
         );
-        const unread =
-          partSnap.exists() &&
-          typeof (partSnap.data() as any).unread_count === "number"
-            ? (partSnap.data() as any).unread_count
-            : 0;
 
-        const participants = await getConversationParticipants(c.id);
+        for (const convDoc of convSnaps.docs) {
+          const conv = docToConversation(convDoc.data(), convDoc.id);
 
-        convs.push({
-          id: c.id,
-          name: d.name ?? null,
-          created_at: tsToIso(d.created_at_ts ?? d.created_at),
-          updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
+          const pSnap = await getDocs(
+            query(
+              collection(db, "conversation_participants"),
+              where("conversation_id", "==", convDoc.id),
+            ),
+          );
 
-          last_message_id: d.last_message?.id ?? null,
-          last_message: d.last_message
-            ? msgDocToChatMessage(c.id, d.last_message.id, d.last_message)
-            : undefined,
+          const participants = await Promise.all(
+            pSnap.docs.map(async (p) => {
+              const pd = p.data() as any;
+              const profile = await getProfile(pd.user_id);
+              return { user_id: pd.user_id, profiles: profile };
+            }),
+          );
 
-          is_typing: !!d.is_typing,
-          is_group: !!d.is_group,
-          avatar_url: d.avatar_url ?? null,
-          unread_count: unread,
-          is_online: d.is_online ?? null,
-          is_pinned: d.is_pinned ?? null,
+          let last_message: ChatMessage | undefined;
+          if (conv.last_message_id) {
+            const msgSnap = await getDoc(
+              doc(db, "messages", conv.last_message_id),
+            );
+            if (msgSnap.exists()) {
+              last_message = docToMessage(
+                msgSnap.data() as any,
+                msgSnap.id,
+              ) as ChatMessage;
+            }
+          }
 
-          participants,
-        });
+          conversations.push({ ...conv, participants, last_message });
+        }
       }
 
-      return { data: convs, error: null };
+      conversations.sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
+
+      return { data: conversations, error: null };
     } catch (error) {
       console.error("Error fetching conversations:", error);
       return { data: null, error: error as Error };
     }
   },
 
-  getConversation: async (conversationId: string) => {
+  // ✅ Fixed: renamed `limit` param to `pageSize` to avoid conflict with Firestore limit()
+  getMessages: async (
+    conversationId: string,
+    page = 0,
+    pageSize: number = 20,
+  ) => {
     try {
-      const snap = await getDoc(doc(db, "conversations", conversationId));
-      if (!snap.exists()) return { data: null, error: null };
-
-      const d = snap.data() as any;
-      const participants = await getConversationParticipants(conversationId);
-
-      return {
-        data: {
-          id: snap.id,
-          name: d.name ?? null,
-          created_at: tsToIso(d.created_at_ts ?? d.created_at),
-          updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
-
-          last_message_id: d.last_message?.id ?? null,
-          last_message: d.last_message
-            ? msgDocToChatMessage(snap.id, d.last_message.id, d.last_message)
-            : undefined,
-
-          is_typing: !!d.is_typing,
-          is_group: !!d.is_group,
-          avatar_url: d.avatar_url ?? null,
-
-          participants,
-
-          // typing map supported by useTyping() firebase version
-          ...(d.typing ? { typing: d.typing } : {}),
-        } as any,
-        error: null,
-      };
-    } catch (error) {
-      console.error("Error fetching conversation:", error);
-      return { data: null, error: error as Error };
-    }
-  },
-
-  getMessages: async (conversationId: string, page = 0, pageSize = 20) => {
-    try {
-      const msgsCol = collection(
-        db,
-        "conversations",
-        conversationId,
-        "messages",
+      const snap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+          orderBy("created_at", "desc"),
+          limit(pageSize),
+        ),
       );
 
-      let qBase = query(
-        msgsCol,
-        orderBy("created_at_ts", "desc"),
-        fsLimit(pageSize),
+      const msgs: ChatMessage[] = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const msg = docToMessage(data, d.id) as ChatMessage;
+          if (data.sender_id) {
+            msg.sender = await getProfile(data.sender_id);
+          }
+          return msg;
+        }),
       );
 
-      if (page > 0) {
-        let cursorSnap: any = null;
-        let walked = 0;
-
-        while (walked < page) {
-          const snap = await getDocs(qBase);
-          const last = snap.docs[snap.docs.length - 1];
-          if (!last) break;
-          cursorSnap = last;
-          walked += 1;
-
-          qBase = query(
-            msgsCol,
-            orderBy("created_at_ts", "desc"),
-            startAfter(cursorSnap),
-            fsLimit(pageSize),
-          );
-        }
-      }
-
-      const snap = await getDocs(qBase);
-      const messages = snap.docs.map((m) =>
-        msgDocToChatMessage(conversationId, m.id, m.data()),
-      );
-
-      return { data: messages, error: null };
+      const from = page * pageSize;
+      return { data: msgs.slice(from, from + pageSize), error: null };
     } catch (error) {
       console.error("Error fetching messages:", error);
       return { data: null, error: error as Error };
@@ -316,105 +324,65 @@ export const chatQueries = {
     senderId: string,
     content: string,
     attachments?: ChatAttachment[],
+    mediaUrl?: string,
+    mediaType?: "image" | "video" | "audio" | "file",
   ) => {
     try {
-      const nowIso = new Date().toISOString();
-
-      const atts = Array.isArray(attachments) ? attachments : [];
-      const first = atts[0];
-
       const messageData: any = {
         conversation_id: conversationId,
         sender_id: senderId,
         content: content.trim() || null,
-        attachments: atts,
-
-        // compatibility fields
-        media_url: first?.url ?? null,
-        media_type: first?.type ?? null,
-
-        delivered_at_ts: serverTimestamp(),
-        created_at_ts: serverTimestamp(),
-        created_at: nowIso,
+        delivered_at: new Date().toISOString(),
+        read_at: null,
+        created_at: serverTimestamp(),
       };
 
-      const msgsCol = collection(
-        db,
-        "conversations",
-        conversationId,
-        "messages",
-      );
-      const msgRef = await addDoc(msgsCol, messageData);
-
-      const convoRef = doc(db, "conversations", conversationId);
-      const convoSnap = await getDoc(convoRef);
-      if (!convoSnap.exists()) throw new Error("Conversation not found");
-
-      const participantIds: string[] =
-        (convoSnap.data() as any).participant_ids ?? [];
-
-      const batch = writeBatch(db);
-
-      // conversation update (denormalize last_message)
-      const senderSnap = await getProfileSnapshot(senderId);
-
-      batch.update(convoRef, {
-        updated_at_ts: serverTimestamp(),
-        updated_at: nowIso,
-        last_message: {
-          id: msgRef.id,
-          sender_id: senderId,
-          content: messageData.content,
-          attachments: atts,
-          media_url: messageData.media_url,
-          media_type: messageData.media_type,
-          created_at_ts: serverTimestamp(),
-          created_at: nowIso,
-          sender: senderSnap,
-        },
-      });
-
-      // unread++ for others
-      for (const uid of participantIds) {
-        if (uid === senderId) continue;
-
-        const pRef = doc(
-          db,
-          "conversations",
-          conversationId,
-          "participants",
-          uid,
-        );
-        const pSnap = await getDoc(pRef);
-
-        const cur =
-          pSnap.exists() &&
-          typeof (pSnap.data() as any).unread_count === "number"
-            ? (pSnap.data() as any).unread_count
-            : 0;
-
-        batch.set(
-          pRef,
+      if (attachments && attachments.length > 0) {
+        messageData.attachments = attachments;
+        messageData.media_url = attachments[0].url;
+        messageData.media_type = attachments[0].type;
+      } else if (mediaUrl && mediaType) {
+        messageData.media_url = mediaUrl;
+        messageData.media_type = mediaType;
+        messageData.attachments = [
           {
-            user_id: uid,
-            unread_count: cur + 1,
-            joined_at_ts:
-              (pSnap.exists() ? (pSnap.data() as any).joined_at_ts : null) ??
-              serverTimestamp(),
+            id: `media-${Date.now()}`,
+            url: mediaUrl,
+            type: mediaType,
+            name: mediaUrl.split("/").pop(),
           },
-          { merge: true },
-        );
+        ];
       }
 
+      const msgRef = await addDoc(collection(db, "messages"), messageData);
+
+      await updateDoc(doc(db, "conversations", conversationId), {
+        updated_at: serverTimestamp(),
+        last_message_id: msgRef.id,
+      });
+
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+          where("user_id", "!=", senderId),
+        ),
+      );
+
+      const batch = writeBatch(db);
+      pSnap.docs.forEach((p) => {
+        const current = (p.data() as any).unread_count ?? 0;
+        batch.update(p.ref, { unread_count: current + 1 });
+      });
       await batch.commit();
 
-      return {
-        data: {
-          ...msgDocToChatMessage(conversationId, msgRef.id, messageData),
-          sender: senderSnap,
-        } as ChatMessage,
-        error: null,
+      const sender = await getProfile(senderId);
+      const newMsg: ChatMessage = {
+        ...docToMessage({ ...messageData, created_at: new Date() }, msgRef.id),
+        sender,
       };
+
+      return { data: newMsg, error: null };
     } catch (error) {
       console.error("Error sending message:", error);
       return { data: null, error: error as Error };
@@ -429,51 +397,43 @@ export const chatQueries = {
     try {
       if (!participantIds.length) throw new Error("No participants provided");
 
-      const nowIso = new Date().toISOString();
-
-      const convoRef = await addDoc(CONVERSATIONS, {
+      const convRef = await addDoc(collection(db, "conversations"), {
         name: name || null,
         is_group: isGroup,
         avatar_url: null,
+        is_online: false,
         is_typing: false,
         is_pinned: false,
-        is_online: false,
-        participant_ids: participantIds,
-        last_message: null,
-        typing: {},
-
-        created_at_ts: serverTimestamp(),
-        updated_at_ts: serverTimestamp(),
-        created_at: nowIso,
-        updated_at: nowIso,
+        unread_count: 0,
+        last_message_id: null,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
       });
 
       const batch = writeBatch(db);
-      for (const uid of participantIds) {
-        const prof = await getProfileSnapshot(uid);
-        batch.set(doc(db, "conversations", convoRef.id, "participants", uid), {
-          user_id: uid,
+      participantIds.forEach((userId) => {
+        const ref = doc(collection(db, "conversation_participants"));
+        batch.set(ref, {
+          conversation_id: convRef.id,
+          user_id: userId,
           unread_count: 0,
-          joined_at_ts: serverTimestamp(),
-          profile: prof,
+          joined_at: new Date().toISOString(),
         });
-      }
+      });
       await batch.commit();
 
-      const snap = await getDoc(convoRef);
-      const d = snap.data() as any;
+      const convSnap = await getDoc(convRef);
+      const conv = docToConversation(convSnap.data(), convSnap.id);
+
+      const participants = await Promise.all(
+        participantIds.map(async (userId) => ({
+          user_id: userId,
+          profiles: await getProfile(userId),
+        })),
+      );
 
       return {
-        data: {
-          id: snap.id,
-          name: d.name ?? null,
-          created_at: tsToIso(d.created_at_ts ?? d.created_at),
-          updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
-          last_message_id: null,
-          is_typing: false,
-          is_group: !!d.is_group,
-          avatar_url: d.avatar_url ?? null,
-        } as ChatConversation,
+        data: { ...conv, participants } as ChatConversation,
         error: null,
       };
     } catch (error) {
@@ -484,14 +444,30 @@ export const chatQueries = {
 
   markAsRead: async (conversationId: string, userId: string) => {
     try {
-      await updateDoc(
-        doc(db, "conversations", conversationId, "participants", userId),
-        { unread_count: 0 },
+      const snap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+          where("sender_id", "!=", userId),
+        ),
       );
 
-      await updateDoc(doc(db, "conversations", conversationId), {
-        [`read_state.${userId}`]: serverTimestamp(),
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => {
+        if (!(d.data() as any).read_at) {
+          batch.update(d.ref, { read_at: new Date().toISOString() });
+        }
       });
+      await batch.commit();
+
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+          where("user_id", "==", userId),
+        ),
+      );
+      pSnap.docs.forEach((d) => updateDoc(d.ref, { unread_count: 0 }));
 
       return { error: null };
     } catch (error) {
@@ -500,9 +476,74 @@ export const chatQueries = {
     }
   },
 
+  getConversation: async (conversationId: string) => {
+    try {
+      const convSnap = await getDoc(doc(db, "conversations", conversationId));
+      if (!convSnap.exists()) throw new Error("Conversation not found");
+
+      const conv = docToConversation(convSnap.data(), convSnap.id);
+
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+
+      const participants = await Promise.all(
+        pSnap.docs.map(async (p) => {
+          const pd = p.data() as any;
+          return {
+            user_id: pd.user_id,
+            profiles: await getProfile(pd.user_id),
+          };
+        }),
+      );
+
+      let last_message: ChatMessage | undefined;
+      if (conv.last_message_id) {
+        const msgSnap = await getDoc(doc(db, "messages", conv.last_message_id));
+        if (msgSnap.exists()) {
+          last_message = docToMessage(
+            msgSnap.data() as any,
+            msgSnap.id,
+          ) as ChatMessage;
+        }
+      }
+
+      return {
+        data: { ...conv, participants, last_message } as ChatConversation,
+        error: null,
+      };
+    } catch (error) {
+      console.error("Error fetching conversation:", error);
+      return { data: null, error: error as Error };
+    }
+  },
+
   deleteConversation: async (conversationId: string) => {
     try {
-      await deleteDoc(doc(db, "conversations", conversationId));
+      const batch = writeBatch(db);
+
+      const msgSnap = await getDocs(
+        query(
+          collection(db, "messages"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+      msgSnap.docs.forEach((d) => batch.delete(d.ref));
+
+      const pSnap = await getDocs(
+        query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", conversationId),
+        ),
+      );
+      pSnap.docs.forEach((d) => batch.delete(d.ref));
+
+      batch.delete(doc(db, "conversations", conversationId));
+
+      await batch.commit();
       return { error: null };
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -512,19 +553,9 @@ export const chatQueries = {
 
   updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
     try {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error("Not authenticated");
-
       await updateDoc(doc(db, "conversations", conversationId), {
-        // compatibility:
         is_typing: isTyping,
-
-        // preferred:
-        [`typing.${uid}`]: isTyping,
-
-        updated_at_ts: serverTimestamp(),
       });
-
       return { error: null };
     } catch (error) {
       console.error("Error updating typing status:", error);
@@ -533,101 +564,7 @@ export const chatQueries = {
   },
 };
 
-/* =============================================================================
-   SUBSCRIPTIONS
-============================================================================= */
-
-export const chatSubscriptions = {
-  subscribeToMessages: (
-    conversationId: string,
-    userId: string,
-    callback: (payload: any) => void,
-  ) => {
-    const msgsCol = collection(db, "conversations", conversationId, "messages");
-    const q1 = query(msgsCol, orderBy("created_at_ts", "desc"), fsLimit(1));
-
-    let didInit = false;
-
-    const unsub = onSnapshot(q1, (snap) => {
-      const docSnap = snap.docs[0];
-      if (!docSnap) return;
-
-      if (!didInit) {
-        didInit = true;
-        return;
-      }
-
-      const d = docSnap.data() as any;
-      if (d.sender_id === userId) return;
-
-      const msg = msgDocToChatMessage(conversationId, docSnap.id, d);
-      callback({ new: msg });
-    });
-
-    return () => unsub();
-  },
-
-  subscribeToUserConversations: (
-    userId: string,
-    callback: (payload: any) => void,
-  ) => {
-    const q1 = query(
-      CONVERSATIONS,
-      where("participant_ids", "array-contains", userId),
-      orderBy("updated_at_ts", "desc"),
-    );
-
-    const unsub = onSnapshot(q1, (snap) => {
-      callback({
-        type: "conversations",
-        docs: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      });
-    });
-
-    return () => unsub();
-  },
-
-  subscribeToConversations: (callback: (payload: any) => void) => {
-    const q1 = query(
-      CONVERSATIONS,
-      orderBy("updated_at_ts", "desc"),
-      fsLimit(50),
-    );
-    const unsub = onSnapshot(q1, (snap) => {
-      callback({
-        type: "conversations",
-        docs: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      });
-    });
-
-    return () => unsub();
-  },
-
-  subscribeToTypingStatus: (
-    conversationId: string,
-    callback: (payload: any) => void,
-  ) => {
-    const ref = doc(db, "conversations", conversationId);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (!snap.exists()) return;
-      callback({ new: { id: snap.id, ...snap.data() } });
-    });
-    return () => unsub();
-  },
-
-  subscribeToUserParticipants: (
-    userId: string,
-    callback: (payload: any) => void,
-  ) => {
-    const unsub = chatSubscriptions.subscribeToUserConversations(
-      userId,
-      callback,
-    );
-    return () => unsub();
-  },
-};
-
-// Backward-compat exports
+/* -------------------- BACKWARD COMPAT EXPORTS -------------------- */
 export const getConversations = chatQueries.getConversations;
 export const getMessages = chatQueries.getMessages;
 export const sendMessage = chatQueries.sendMessage;

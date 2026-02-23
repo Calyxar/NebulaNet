@@ -36,7 +36,20 @@ import {
 } from "@/lib/firestore/comments";
 
 import { auth, db } from "@/lib/firebase";
-import { doc, increment, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  increment,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+// ✅ Re-export so consumers (e.g. app/post/[id].tsx) can import it from here
+export type { CommentWithAuthor };
 
 /* =============================================================================
    QUERY KEYS
@@ -303,6 +316,105 @@ export function useDeletePost() {
 }
 
 /* =============================================================================
+   LIKE / BOOKMARK (Firestore) — OPTIMISTIC ✅
+============================================================================= */
+
+export function useToggleLike() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { postId: string; isLiked: boolean }) => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error("Not signed in");
+      const ref = doc(db, "posts", vars.postId);
+      if (vars.isLiked) {
+        await updateDoc(ref, { like_count: increment(-1) });
+        const snap = await getDocs(
+          query(
+            collection(db, "post_likes"),
+            where("post_id", "==", vars.postId),
+            where("user_id", "==", uid),
+          ),
+        );
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      } else {
+        await updateDoc(ref, { like_count: increment(1) });
+        await addDoc(collection(db, "post_likes"), {
+          post_id: vars.postId,
+          user_id: uid,
+          created_at: new Date().toISOString(),
+        });
+      }
+      return vars;
+    },
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
+      const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
+      if (prev) {
+        qc.setQueryData<Post>(postKeys.detail(vars.postId), {
+          ...prev,
+          is_liked: !vars.isLiked,
+          like_count: (prev.like_count ?? 0) + (vars.isLiked ? -1 : 1),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
+    },
+  });
+}
+
+export function useToggleBookmark() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { postId: string; isSaved: boolean }) => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error("Not signed in");
+      if (vars.isSaved) {
+        const snap = await getDocs(
+          query(
+            collection(db, "saved_posts"),
+            where("post_id", "==", vars.postId),
+            where("user_id", "==", uid),
+          ),
+        );
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      } else {
+        await addDoc(collection(db, "saved_posts"), {
+          post_id: vars.postId,
+          user_id: uid,
+          saved_at: new Date().toISOString(),
+        });
+      }
+      return vars;
+    },
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
+      const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
+      if (prev) {
+        qc.setQueryData<Post>(postKeys.detail(vars.postId), {
+          ...prev,
+          is_saved: !vars.isSaved,
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+  });
+}
+
+/* =============================================================================
    COMMENTS (Firestore)
 ============================================================================= */
 
@@ -365,10 +477,7 @@ export function useIncrementShareCount() {
   return useMutation({
     mutationFn: async (postId: string) => {
       const ref = doc(db, "posts", postId);
-
-      // ✅ atomic, concurrency-safe
       await updateDoc(ref, { share_count: increment(1) });
-
       return postId;
     },
     onSuccess: (postId) => {

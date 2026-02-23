@@ -2,6 +2,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { connectAuthEmulator, getAuth } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions"; // ✅ ADD THIS
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -19,6 +20,7 @@ export const app =
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app); // ✅ ADD THIS
 
 // 🔥 Connect to emulators only once in dev
 if (__DEV__) {
@@ -28,5 +30,9 @@ if (__DEV__) {
 
   try {
     connectFirestoreEmulator(db, "10.0.2.2", 9091);
+  } catch {}
+
+  try {
+    connectFunctionsEmulator(functions, "10.0.2.2", 5001); // ✅ ADD THIS
   } catch {}
 }

@@ -1,7 +1,7 @@
 // hooks/useDeleteAccount.ts — FIREBASE ✅
 
-import { deleteAccountRequest } from "@/lib/firestore/deleteAccount";
 import { useMutation } from "@tanstack/react-query";
+import { deleteAccountRequest } from "../lib/firestore/deleteAccount";
 
 type Input = { reason: string | null };
 

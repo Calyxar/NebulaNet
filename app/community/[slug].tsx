@@ -152,41 +152,16 @@ export default function CommunityScreen() {
   /* ----------------------------- safe queries ----------------------------- */
 
   const fetchCommunityBySlug = useCallback(async (slugValue: string) => {
-    const fullSelect =
-      "id, slug, name, description, image_url, member_count, created_at, updated_at, is_private, owner_id, banner_url";
-    const minimalSelect =
-      "id, slug, name, description, image_url, member_count, created_at, updated_at";
-
-    const snap1 = await getDocs(
+    const snap = await getDocs(
       query(
         collection(db, "communities"),
         where("slug", "==", slugValue),
         limit(1),
       ),
     );
-    if (!snap1.empty) {
-      const d = snap1.docs[0];
-      return { id: d.id, ...d.data() } as unknown as Community;
-    }
-
-    const msg = attempt1.error?.message ?? "";
-    const looksLikeMissingColumn =
-      msg.includes("does not exist") || msg.includes("column");
-
-    if (looksLikeMissingColumn) {
-      const snap2 = await getDocs(
-        query(
-          collection(db, "communities"),
-          where("slug", "==", slugValue),
-          limit(1),
-        ),
-      );
-      if (snap2.empty) throw new Error("Community not found");
-      const d2 = snap2.docs[0];
-      return { id: d2.id, ...d2.data() } as unknown as Community;
-    }
-
-    throw attempt1.error;
+    if (snap.empty) throw new Error("Community not found");
+    const d = snap.docs[0];
+    return { id: d.id, ...d.data() } as unknown as Community;
   }, []);
 
   // ✅ members: try with joined_at, fallback if missing
@@ -215,27 +190,7 @@ export default function CommunityScreen() {
         };
       }),
     );
-    const withJoinedAt = { data: memberProfiles, error: null };
-
-    if (!withJoinedAt.error) return (withJoinedAt.data ?? []) as Member[];
-
-    const msg = withJoinedAt.error?.message ?? "";
-    const missing =
-      msg.includes("joined_at") &&
-      (msg.includes("does not exist") || msg.includes("column"));
-
-    if (missing) {
-      const withoutJoinedAt = withJoinedAt; // already fetched above
-
-      const rows = (withoutJoinedAt.data ?? []) as any[];
-      return rows.map((r) => ({
-        user_id: r.user_id,
-        joined_at: null,
-        profile: r.profile ?? null,
-      })) as Member[];
-    }
-
-    throw withJoinedAt.error;
+    return memberProfiles as Member[];
   }, []);
 
   /* ----------------------------- load ----------------------------- */
@@ -252,32 +207,28 @@ export default function CommunityScreen() {
       let moderator = false;
       const ownerId = c.owner_id ?? null;
 
-      if (user?.id) {
-        const [{ data: member, error: memErr }, { data: mod, error: modErr }] =
-          await Promise.all([
-            getDocs(
-              query(
-                collection(db, "community_members"),
-                where("community_id", "==", c.id),
-                where("user_id", "==", user.uid),
-                limit(1),
-              ),
+      if (user?.uid) {
+        const [memberSnap, modSnap] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "community_members"),
+              where("community_id", "==", c.id),
+              where("user_id", "==", user.uid),
+              limit(1),
             ),
-            getDocs(
-              query(
-                collection(db, "community_moderators"),
-                where("community_id", "==", c.id),
-                where("user_id", "==", user.uid),
-                limit(1),
-              ),
+          ),
+          getDocs(
+            query(
+              collection(db, "community_moderators"),
+              where("community_id", "==", c.id),
+              where("user_id", "==", user.uid),
+              limit(1),
             ),
-          ]);
+          ),
+        ]);
 
-        if (memErr) console.warn("member check error", memErr);
-        if (modErr) console.warn("mod check error", modErr);
-
-        joined = !!member || (!!ownerId && ownerId === user.id);
-        moderator = !!mod || (!!ownerId && ownerId === user.id);
+        joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
+        moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
       }
 
       setIsJoined(joined);
@@ -287,12 +238,15 @@ export default function CommunityScreen() {
       const isOwner = !!ownerId && ownerId === user?.id;
       const canViewPrivate = !isPrivate || joined || isOwner;
 
-      const [postsRes, rulesRes, membersRes] = await Promise.all([
+      const [postsTyped, rulesTyped, membersTyped] = await Promise.all([
         canViewPrivate
           ? getDocs(
               query(collection(db, "posts"), where("community_id", "==", c.id)),
+            ).then(
+              (snap) =>
+                snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[],
             )
-          : Promise.resolve({ data: [], error: null } as any),
+          : Promise.resolve([] as Post[]),
 
         canViewPrivate
           ? getDocs(
@@ -300,21 +254,16 @@ export default function CommunityScreen() {
                 collection(db, "community_rules"),
                 where("community_id", "==", c.id),
               ),
+            ).then(
+              (snap) =>
+                snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Rule[],
             )
-          : Promise.resolve({ docs: [] } as any),
+          : Promise.resolve([] as Rule[]),
 
         canViewPrivate
-          ? fetchMembersSafe(c.id).then((m) => ({ data: m, error: null }))
-          : Promise.resolve({ data: [], error: null } as any),
+          ? fetchMembersSafe(c.id)
+          : Promise.resolve([] as Member[]),
       ]);
-
-      if (postsRes.error) throw postsRes.error;
-      if (rulesRes.error) throw rulesRes.error;
-      if (membersRes.error) throw membersRes.error;
-
-      const postsTyped = (postsRes.data ?? []) as Post[];
-      const rulesTyped = (rulesRes.data ?? []) as Rule[];
-      const membersTyped = (membersRes.data ?? []) as Member[];
 
       setPosts(postsTyped);
       setRules(rulesTyped);
