@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { qk } from "@/lib/queryKeys/social";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addDoc,
@@ -18,7 +19,7 @@ export function useFollowStatus(targetUserId?: string) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ["follow-status", user?.id, targetUserId],
+    queryKey: qk.social.followStatus(user?.id, targetUserId),
     enabled: !!user?.id && !!targetUserId,
     queryFn: async () => {
       const snap = await getDocs(
@@ -54,20 +55,18 @@ export function useFollowActions(
     },
     onMutate: async () => {
       await qc.cancelQueries({
-        queryKey: ["follow-status", user?.id, targetUserId],
+        queryKey: qk.social.followStatus(user?.id, targetUserId),
       });
-      const prev = qc.getQueryData<FollowStatus>([
-        "follow-status",
-        user?.id,
-        targetUserId,
-      ]);
+      const prev = qc.getQueryData<FollowStatus>(
+        qk.social.followStatus(user?.id, targetUserId),
+      );
       const next: FollowStatus = targetIsPrivate ? "pending" : "accepted";
-      qc.setQueryData(["follow-status", user?.id, targetUserId], next);
+      qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), next);
       if (!targetIsPrivate) {
-        qc.setQueryData(["user-stats", targetUserId], (old: any) =>
+        qc.setQueryData(qk.social.userStats(targetUserId), (old: any) =>
           old ? { ...old, followers: (old.followers ?? 0) + 1 } : old,
         );
-        qc.setQueryData(["user-stats", user?.id], (old: any) =>
+        qc.setQueryData(qk.social.userStats(user?.id), (old: any) =>
           old ? { ...old, following: (old.following ?? 0) + 1 } : old,
         );
       }
@@ -75,15 +74,15 @@ export function useFollowActions(
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev)
-        qc.setQueryData(["follow-status", user?.id, targetUserId], ctx.prev);
+        qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), ctx.prev);
     },
     onSettled: () => {
       qc.invalidateQueries({
-        queryKey: ["follow-status", user?.id, targetUserId],
+        queryKey: qk.social.followStatus(user?.id, targetUserId),
       });
-      qc.invalidateQueries({ queryKey: ["user-stats", user?.id] });
-      qc.invalidateQueries({ queryKey: ["user-stats", targetUserId] });
-      qc.invalidateQueries({ queryKey: ["my-following", user?.id] });
+      qc.invalidateQueries({ queryKey: qk.social.userStats(user?.id) });
+      qc.invalidateQueries({ queryKey: qk.social.userStats(targetUserId) });
+      qc.invalidateQueries({ queryKey: qk.social.myFollowing(user?.id) });
     },
   });
 
@@ -102,21 +101,19 @@ export function useFollowActions(
     },
     onMutate: async () => {
       await qc.cancelQueries({
-        queryKey: ["follow-status", user?.id, targetUserId],
+        queryKey: qk.social.followStatus(user?.id, targetUserId),
       });
-      const prev = qc.getQueryData<FollowStatus>([
-        "follow-status",
-        user?.id,
-        targetUserId,
-      ]);
-      qc.setQueryData(["follow-status", user?.id, targetUserId], "none");
+      const prev = qc.getQueryData<FollowStatus>(
+        qk.social.followStatus(user?.id, targetUserId),
+      );
+      qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), "none");
       if (prev === "accepted") {
-        qc.setQueryData(["user-stats", targetUserId], (old: any) =>
+        qc.setQueryData(qk.social.userStats(targetUserId), (old: any) =>
           old
             ? { ...old, followers: Math.max(0, (old.followers ?? 0) - 1) }
             : old,
         );
-        qc.setQueryData(["user-stats", user?.id], (old: any) =>
+        qc.setQueryData(qk.social.userStats(user?.id), (old: any) =>
           old
             ? { ...old, following: Math.max(0, (old.following ?? 0) - 1) }
             : old,
@@ -126,15 +123,15 @@ export function useFollowActions(
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev)
-        qc.setQueryData(["follow-status", user?.id, targetUserId], ctx.prev);
+        qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), ctx.prev);
     },
     onSettled: () => {
       qc.invalidateQueries({
-        queryKey: ["follow-status", user?.id, targetUserId],
+        queryKey: qk.social.followStatus(user?.id, targetUserId),
       });
-      qc.invalidateQueries({ queryKey: ["user-stats", user?.id] });
-      qc.invalidateQueries({ queryKey: ["user-stats", targetUserId] });
-      qc.invalidateQueries({ queryKey: ["my-following", user?.id] });
+      qc.invalidateQueries({ queryKey: qk.social.userStats(user?.id) });
+      qc.invalidateQueries({ queryKey: qk.social.userStats(targetUserId) });
+      qc.invalidateQueries({ queryKey: qk.social.myFollowing(user?.id) });
     },
   });
 

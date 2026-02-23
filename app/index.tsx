@@ -5,7 +5,7 @@ import { Redirect } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 
 export default function Index() {
-  const { session, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
+  const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
     useAuth();
 
   // Wait for session hydration
@@ -18,7 +18,7 @@ export default function Index() {
   }
 
   // Not signed in -> auth flow
-  if (!session?.user) return <Redirect href="/(auth)/login" />;
+  if (!user?.id) return <Redirect href="/(auth)/login" />;
 
   // Signed in -> WAIT for settings before deciding onboarding
   if (isUserSettingsLoading) {

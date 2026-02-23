@@ -10,6 +10,7 @@
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { deleteCommunityRequest } from "@/lib/firestore/deleteCommunity";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -143,6 +144,7 @@ export default function CommunityScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [deletingCommunity, setDeletingCommunity] = useState(false);
 
   const heroHeight = useMemo(
     () => Math.round(Math.min(200, Math.max(140, width * 0.42))),
@@ -285,7 +287,7 @@ export default function CommunityScreen() {
     } finally {
       setLoading(false);
     }
-  }, [slug, user?.id, fetchCommunityBySlug, fetchMembersSafe]);
+  }, [slug, user?.id, user?.uid, fetchCommunityBySlug, fetchMembersSafe]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -346,7 +348,7 @@ export default function CommunityScreen() {
     } finally {
       setJoining(false);
     }
-  }, [community?.id, user?.id, loadCommunity, bumpMemberCount]);
+  }, [community?.id, user?.id, user?.uid, loadCommunity, bumpMemberCount]);
 
   const leaveCommunity = useCallback(async () => {
     if (!community?.id || !user?.id) return;
@@ -381,9 +383,40 @@ export default function CommunityScreen() {
     community?.owner_id,
     loadCommunity,
     bumpMemberCount,
+    user?.uid,
   ]);
 
   /* ----------------------------- computed ----------------------------- */
+
+
+  const confirmDeleteCommunity = useCallback(() => {
+    if (!community?.id || !community?.slug) return;
+
+    Alert.alert(
+      "Delete community?",
+      "This will permanently remove the community, members, rules, and posts.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingCommunity(true);
+              await deleteCommunityRequest(community.id);
+              Alert.alert("Deleted", "Community deleted successfully.");
+              router.replace("/(tabs)/explore");
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : "Failed to delete community.";
+              Alert.alert("Error", msg);
+            } finally {
+              setDeletingCommunity(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [community?.id, community?.slug]);
 
   const isOwner = useMemo(
     () => !!community?.owner_id && community.owner_id === user?.id,
@@ -693,6 +726,24 @@ export default function CommunityScreen() {
                 >
                   {joining ? "..." : isJoined ? "Joined" : "Join"}
                 </Text>
+              </TouchableOpacity>
+            )}
+
+            {isOwner && (
+              <TouchableOpacity
+                onPress={confirmDeleteCommunity}
+                disabled={deletingCommunity}
+                activeOpacity={0.85}
+                style={[
+                  styles.manageBtn,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={16}
+                  color="#EF4444"
+                />
               </TouchableOpacity>
             )}
 

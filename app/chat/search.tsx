@@ -7,7 +7,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -36,7 +36,9 @@ export default function ChatSearchScreen() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!search.trim()) {
+    const term = search.trim().toLowerCase();
+
+    if (!term) {
       setResults([]);
       return;
     }
@@ -45,22 +47,39 @@ export default function ChatSearchScreen() {
       setLoading(true);
 
       try {
-        const snap = await getDocs(
-          query(
-            collection(db, "profiles"),
-            where("username", ">=", search),
-            where("username", "<=", search + "\uf8ff"),
+        const [byUsername, byFullName] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "profiles"),
+              where("username_lower", ">=", term),
+              where("username_lower", "<=", term + "\uf8ff"),
+              limit(20),
+            ),
           ),
-        );
+          getDocs(
+            query(
+              collection(db, "profiles"),
+              where("full_name_lower", ">=", term),
+              where("full_name_lower", "<=", term + "\uf8ff"),
+              limit(20),
+            ),
+          ),
+        ]);
 
-        const users = snap.docs
-          .map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }))
-          .filter((u) => u.id !== user?.id) as UserProfile[];
+        const dedup = new Map<string, UserProfile>();
 
-        setResults(users);
+        [...byUsername.docs, ...byFullName.docs].forEach((snap) => {
+          if (snap.id === user?.id) return;
+          const d = snap.data() as Partial<UserProfile>;
+          dedup.set(snap.id, {
+            id: snap.id,
+            username: d.username ?? "",
+            full_name: d.full_name ?? null,
+            avatar_url: d.avatar_url ?? null,
+          });
+        });
+
+        setResults(Array.from(dedup.values()));
       } catch (error) {
         console.error("Search error:", error);
       } finally {

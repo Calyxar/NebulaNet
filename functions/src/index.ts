@@ -111,3 +111,96 @@ export const deleteAccount = onCall(async (request) => {
     );
   }
 });
+
+
+async function deleteCollectionByField(
+  collectionName: string,
+  field: string,
+  value: string,
+): Promise<void> {
+  const snapshot = await db
+    .collection(collectionName)
+    .where(field, "==", value)
+    .get();
+
+  if (snapshot.empty) return;
+
+  const batch = db.batch();
+  snapshot.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+export const deleteCommunity = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be logged in.");
+  }
+
+  const communityId = (request.data as { communityId?: string } | undefined)
+    ?.communityId;
+
+  if (!communityId || typeof communityId !== "string") {
+    throw new HttpsError("invalid-argument", "communityId is required.");
+  }
+
+  const communityRef = db.collection("communities").doc(communityId);
+  const communitySnap = await communityRef.get();
+
+  if (!communitySnap.exists) {
+    throw new HttpsError("not-found", "Community not found.");
+  }
+
+  const ownerId = (communitySnap.data()?.owner_id as string | undefined) ?? null;
+  if (!ownerId || ownerId !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Only the owner can delete this community.");
+  }
+
+  const postsSnap = await db
+    .collection("posts")
+    .where("community_id", "==", communityId)
+    .get();
+
+  const bucket = storage.bucket();
+
+  await Promise.allSettled(
+    postsSnap.docs.map(async (postDoc) => {
+      const postId = postDoc.id;
+      const postData = postDoc.data() as { media_urls?: unknown };
+      const mediaUrls = Array.isArray(postData.media_urls)
+        ? postData.media_urls.filter((v): v is string => typeof v === "string")
+        : [];
+
+      await Promise.allSettled(
+        mediaUrls.map(async (url) => {
+          const marker = `/o/`;
+          const idx = url.indexOf(marker);
+          if (idx < 0) return;
+          const encodedPath = url.slice(idx + marker.length).split("?")[0];
+          const objectPath = decodeURIComponent(encodedPath);
+          if (
+            objectPath.startsWith("community/") ||
+            objectPath.startsWith("media/") ||
+            objectPath.startsWith(`posts/${communityId}/`)
+          ) {
+            await bucket.file(objectPath).delete({ ignoreNotFound: true });
+          }
+        }),
+      );
+
+      await deleteCollectionByField("comments", "post_id", postId);
+    }),
+  );
+
+  await deleteCollectionByField("community_members", "community_id", communityId);
+  await deleteCollectionByField("community_moderators", "community_id", communityId);
+  await deleteCollectionByField("community_rules", "community_id", communityId);
+  await deleteCollectionByField("posts", "community_id", communityId);
+
+  await communityRef.delete();
+
+  await Promise.allSettled([
+    bucket.deleteFiles({ prefix: `community/${communityId}/` }),
+    bucket.deleteFiles({ prefix: `posts/${communityId}/` }),
+  ]);
+
+  return { success: true, message: "Community deleted successfully." };
+});

@@ -199,10 +199,6 @@ export default function CreatePostScreen() {
       const fileRef = storageRef(storage, path);
       await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
 
-      if (uploadError) {
-        console.error("Storage upload error:", uploadError);
-        throw new Error("Upload failed. Check storage bucket policy.");
-      }
 
       const publicUrl = await getDownloadURL(fileRef);
       uploadedUrls.push(publicUrl);
@@ -265,7 +261,6 @@ export default function CreatePostScreen() {
         share_count: 0,
       });
 
-      if (error) throw error;
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },
