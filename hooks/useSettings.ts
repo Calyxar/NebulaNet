@@ -1,31 +1,73 @@
-// hooks/useSettings.ts
-import { supabase } from '@/lib/supabase';
-import {
-    LinkedAccount,
-    NotificationSettings,
-    PrivacySettings,
-    SecuritySettings,
-    UserPreferences,
-    UserSettings,
-} from '@/types/settings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
-import { useAuth } from './useAuth';
+// hooks/useSettings.ts — FIREBASE ✅
 
-// Use the same defaults from useAuth for consistency
+import { useAuth } from "@/hooks/useAuth";
+import { db } from "@/lib/firebase";
+import {
+  LinkedAccount,
+  NotificationSettings,
+  PrivacySettings,
+  SecuritySettings,
+  UserPreferences,
+  UserSettings,
+} from "@/types/settings";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  where,
+} from "firebase/firestore";
+import { useCallback } from "react";
+
+type BlockedUserRow = {
+  id: string;
+  blocked_id: string;
+  created_at: string;
+  profiles?: {
+    username?: string | null;
+    full_name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+};
+
+type MutedUserRow = {
+  id: string;
+  muted_id: string;
+  created_at: string;
+  profiles?: {
+    username?: string | null;
+    full_name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+};
+
+function tsToIso(ts: any): string {
+  if (!ts) return new Date().toISOString();
+  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  return new Date(ts).toISOString();
+}
+
 const DEFAULT_PREFERENCES: UserPreferences = {
-  theme: 'system',
-  language: 'en',
-  region: 'US',
+  theme: "system",
+  language: "en",
+  region: "US",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   show_nsfw: false,
   auto_play_media: true,
   reduce_animations: false,
-  font_size: 'medium',
+  font_size: "medium",
   email_notifications: true,
   push_notifications: true,
-  default_sort: 'best',
-  feed_density: 'normal',
+  default_sort: "best",
+  feed_density: "normal",
   show_image_descriptions: true,
   hide_spoilers: true,
   group_similar_posts: true,
@@ -35,12 +77,12 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 };
 
 const DEFAULT_PRIVACY: PrivacySettings = {
-  profile_visibility: 'public',
+  profile_visibility: "public",
   show_online_status: true,
   allow_search_indexing: true,
   allow_tagging: true,
-  who_can_message_me: 'everyone',
-  who_can_comment: 'everyone',
+  who_can_message_me: "everyone",
+  who_can_comment: "everyone",
   hide_likes_count: false,
   hide_followers_count: false,
   hide_from_search: false,
@@ -56,7 +98,7 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   community_updates: false,
   system_notifications: true,
   marketing_emails: false,
-  push_frequency: 'immediate',
+  push_frequency: "immediate",
   weekly_newsletter: false,
   trending_posts: false,
   friend_activity: false,
@@ -81,350 +123,303 @@ export function useSettings() {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
 
-  // Fetch all settings
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ['settings', user?.id],
+  const { data: settings, isLoading } = useQuery<UserSettings>({
+    queryKey: ["settings", user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('preferences, privacy_settings, notification_settings, security_settings, email_verified, two_factor_enabled, last_login')
-        .eq('id', user.id)
-        .single();
-
-      if (error) throw error;
-
-      // Ensure all settings have default values for missing properties
-      const userSettings: UserSettings = {
-        preferences: { ...DEFAULT_PREFERENCES, ...(data.preferences || {}) },
-        privacy: { ...DEFAULT_PRIVACY, ...(data.privacy_settings || {}) },
-        notifications: { ...DEFAULT_NOTIFICATIONS, ...(data.notification_settings || {}) },
+      if (!user) throw new Error("Not authenticated");
+      const snap = await getDoc(doc(db, "profiles", user.uid));
+      const d = snap.exists() ? (snap.data() as any) : {};
+      return {
+        preferences: { ...DEFAULT_PREFERENCES, ...(d.preferences || {}) },
+        privacy: { ...DEFAULT_PRIVACY, ...(d.privacy_settings || {}) },
+        notifications: {
+          ...DEFAULT_NOTIFICATIONS,
+          ...(d.notification_settings || {}),
+        },
         security: {
           ...DEFAULT_SECURITY,
-          ...(data.security_settings || {}),
-          email_verified: data.email_verified || false,
-          two_factor_enabled: data.two_factor_enabled || false,
-          last_login: data.last_login || null,
+          ...(d.security_settings || {}),
+          email_verified: user.emailVerified || false,
+          two_factor_enabled: d.two_factor_enabled || false,
+          last_login: d.last_login || null,
         },
-        linked_accounts: [], // You would fetch this from a separate table
+        linked_accounts: [],
       };
-
-      return userSettings;
     },
+  });
+
+  const updatePreferences = useMutation<void, Error, Partial<UserPreferences>>({
+    mutationFn: async (updates) => {
+      if (!user) throw new Error("Not authenticated");
+      await setDoc(
+        doc(db, "profiles", user.uid),
+        {
+          preferences: {
+            ...(settings?.preferences ?? DEFAULT_PREFERENCES),
+            ...updates,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+  });
+
+  const updatePrivacy = useMutation<void, Error, Partial<PrivacySettings>>({
+    mutationFn: async (updates) => {
+      if (!user) throw new Error("Not authenticated");
+      await setDoc(
+        doc(db, "profiles", user.uid),
+        {
+          privacy_settings: {
+            ...(settings?.privacy ?? DEFAULT_PRIVACY),
+            ...updates,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+  });
+
+  const updateNotifications = useMutation<
+    void,
+    Error,
+    Partial<NotificationSettings>
+  >({
+    mutationFn: async (updates) => {
+      if (!user) throw new Error("Not authenticated");
+      await setDoc(
+        doc(db, "profiles", user.uid),
+        {
+          notification_settings: {
+            ...(settings?.notifications ?? DEFAULT_NOTIFICATIONS),
+            ...updates,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+  });
+
+  const updateSecurity = useMutation<void, Error, Partial<SecuritySettings>>({
+    mutationFn: async (updates) => {
+      if (!user) throw new Error("Not authenticated");
+      await setDoc(
+        doc(db, "profiles", user.uid),
+        {
+          security_settings: {
+            ...(settings?.security ?? DEFAULT_SECURITY),
+            ...updates,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+  });
+
+  const blockUser = useMutation<void, Error, string>({
+    mutationFn: async (targetId) => {
+      if (!user) throw new Error("Not authenticated");
+      await addDoc(collection(db, "blocked_users"), {
+        blocker_id: user.uid,
+        blocked_id: targetId,
+        created_at: serverTimestamp(),
+      });
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.id] }),
+  });
+
+  const unblockUser = useMutation<void, Error, string>({
+    mutationFn: async (targetId) => {
+      if (!user) throw new Error("Not authenticated");
+      const snap = await getDocs(
+        query(
+          collection(db, "blocked_users"),
+          where("blocker_id", "==", user.uid),
+          where("blocked_id", "==", targetId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.id] }),
+  });
+
+  const muteUser = useMutation<void, Error, string>({
+    mutationFn: async (targetId) => {
+      if (!user) throw new Error("Not authenticated");
+      await addDoc(collection(db, "muted_users"), {
+        muter_id: user.uid,
+        muted_id: targetId,
+        created_at: serverTimestamp(),
+      });
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.id] }),
+  });
+
+  const unmuteUser = useMutation<void, Error, string>({
+    mutationFn: async (targetId) => {
+      if (!user) throw new Error("Not authenticated");
+      const snap = await getDocs(
+        query(
+          collection(db, "muted_users"),
+          where("muter_id", "==", user.uid),
+          where("muted_id", "==", targetId),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.id] }),
+  });
+
+  const { data: blockedUsers } = useQuery<BlockedUserRow[]>({
+    queryKey: ["blocked-users", user?.id],
     enabled: !!user,
-  });
-
-  // Update preferences
-  const updatePreferences = useMutation({
-    mutationFn: async (updates: Partial<UserPreferences>) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          preferences: { ...settings?.preferences, ...updates },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', user?.id] });
-    },
-  });
-
-  // Update privacy settings
-  const updatePrivacy = useMutation({
-    mutationFn: async (updates: Partial<PrivacySettings>) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          privacy_settings: { ...settings?.privacy, ...updates },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', user?.id] });
-    },
-  });
-
-  // Update notification settings
-  const updateNotifications = useMutation({
-    mutationFn: async (updates: Partial<NotificationSettings>) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          notification_settings: { ...settings?.notifications, ...updates },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', user?.id] });
-    },
-  });
-
-  // Update security settings
-  const updateSecurity = useMutation({
-    mutationFn: async (updates: Partial<SecuritySettings>) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          security_settings: { ...settings?.security, ...updates },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', user?.id] });
-    },
-  });
-
-  // Block user
-  const blockUser = useMutation({
-    mutationFn: async (userId: string) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('blocked_users')
-        .insert({
-          blocker_id: user.id,
-          blocked_id: userId,
-          created_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['blocked-users', user?.id] });
-    },
-  });
-
-  // Unblock user
-  const unblockUser = useMutation({
-    mutationFn: async (userId: string) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('blocked_users')
-        .delete()
-        .eq('blocker_id', user.id)
-        .eq('blocked_id', userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['blocked-users', user?.id] });
-    },
-  });
-
-  // Mute user
-  const muteUser = useMutation({
-    mutationFn: async (userId: string) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('muted_users')
-        .insert({
-          muter_id: user.id,
-          muted_id: userId,
-          created_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['muted-users', user?.id] });
-    },
-  });
-
-  // Unmute user
-  const unmuteUser = useMutation({
-    mutationFn: async (userId: string) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('muted_users')
-        .delete()
-        .eq('muter_id', user.id)
-        .eq('muted_id', userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['muted-users', user?.id] });
-    },
-  });
-
-  // Get blocked users
-  const { data: blockedUsers } = useQuery({
-    queryKey: ['blocked-users', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      
-      const { data, error } = await supabase
-        .from('blocked_users')
-        .select(`
-          id,
-          blocked_id,
-          created_at,
-          profiles:blocked_id (
-            username,
-            full_name,
-            avatar_url
-          )
-        `)
-        .eq('blocker_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const snap = await getDocs(
+        query(
+          collection(db, "blocked_users"),
+          where("blocker_id", "==", user.uid),
+          orderBy("created_at", "desc"),
+        ),
+      );
+      return snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          blocked_id: data.blocked_id,
+          created_at: tsToIso(data.created_at),
+        };
+      }) as BlockedUserRow[];
     },
-    enabled: !!user,
   });
 
-  // Get muted users
-  const { data: mutedUsers } = useQuery({
-    queryKey: ['muted-users', user?.id],
+  const { data: mutedUsers } = useQuery<MutedUserRow[]>({
+    queryKey: ["muted-users", user?.id],
+    enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
-      
-      const { data, error } = await supabase
-        .from('muted_users')
-        .select(`
-          id,
-          muted_id,
-          created_at,
-          profiles:muted_id (
-            username,
-            full_name,
-            avatar_url
-          )
-        `)
-        .eq('muter_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const snap = await getDocs(
+        query(
+          collection(db, "muted_users"),
+          where("muter_id", "==", user.uid),
+          orderBy("created_at", "desc"),
+        ),
+      );
+      return snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          muted_id: data.muted_id,
+          created_at: tsToIso(data.created_at),
+        };
+      }) as MutedUserRow[];
     },
-    enabled: !!user,
   });
 
-  // Get linked accounts
-  const { data: linkedAccounts } = useQuery({
-    queryKey: ['linked-accounts', user?.id],
+  const { data: linkedAccounts } = useQuery<LinkedAccount[]>({
+    queryKey: ["linked-accounts", user?.id],
+    enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
-      
-      const { data, error } = await supabase
-        .from('linked_accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return (data || []) as LinkedAccount[];
-    },
-    enabled: !!user,
-  });
-
-  // Link new account
-  const linkAccount = useMutation({
-    mutationFn: async (account: Omit<LinkedAccount, 'id' | 'connected_at'>) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('linked_accounts')
-        .insert({
-          user_id: user.id,
-          ...account,
-          connected_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['linked-accounts', user?.id] });
+      const snap = await getDocs(
+        query(
+          collection(db, "linked_accounts"),
+          where("user_id", "==", user.uid),
+          orderBy("created_at", "desc"),
+        ),
+      );
+      return snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as LinkedAccount[];
     },
   });
 
-  // Unlink account
-  const unlinkAccount = useMutation({
-    mutationFn: async (accountId: string) => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('linked_accounts')
-        .delete()
-        .eq('id', accountId)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
+  const linkAccount = useMutation<
+    void,
+    Error,
+    Omit<LinkedAccount, "id" | "connected_at">
+  >({
+    mutationFn: async (account) => {
+      if (!user) throw new Error("Not authenticated");
+      await addDoc(collection(db, "linked_accounts"), {
+        user_id: user.uid,
+        ...account,
+        connected_at: serverTimestamp(),
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['linked-accounts', user?.id] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["linked-accounts", user?.id],
+      }),
   });
 
-  // Clear search history
-  const clearSearchHistory = useMutation({
+  const unlinkAccount = useMutation<void, Error, string>({
+    mutationFn: async (accountId) => {
+      if (!user) throw new Error("Not authenticated");
+      await deleteDoc(doc(db, "linked_accounts", accountId));
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["linked-accounts", user?.id],
+      }),
+  });
+
+  const clearSearchHistory = useMutation<void, Error, void>({
     mutationFn: async () => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('search_history')
-        .delete()
-        .eq('user_id', user.id);
-
-      if (error) throw error;
+      if (!user) throw new Error("Not authenticated");
+      const snap = await getDocs(
+        query(
+          collection(db, "search_history"),
+          where("user_id", "==", user.uid),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['search-history', user?.id] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["search-history", user?.id] }),
   });
 
-  // Clear activity history
-  const clearActivityHistory = useMutation({
+  const clearActivityHistory = useMutation<void, Error, void>({
     mutationFn: async () => {
-      if (!user) throw new Error('Not authenticated');
-      
-      const { error } = await supabase
-        .from('user_activity')
-        .delete()
-        .eq('user_id', user.id);
-
-      if (error) throw error;
+      if (!user) throw new Error("Not authenticated");
+      const snap = await getDocs(
+        query(
+          collection(db, "user_activity"),
+          where("user_id", "==", user.uid),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity-history', user?.id] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["activity-history", user?.id],
+      }),
   });
 
-  // Export user data
   const exportUserData = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error('Not authenticated');
-      
-      // This would typically call a server function to generate and return a data export
-      // For now, we'll return a mock export
+      if (!user) throw new Error("Not authenticated");
       return {
-        profile: profile,
-        settings: settings,
+        profile,
+        settings,
         activity: [],
         posts: [],
         comments: [],
@@ -436,45 +431,44 @@ export function useSettings() {
     },
   });
 
-  // Get user preference helper
-  const getPreference = useCallback((key: keyof UserPreferences) => {
-    return settings?.preferences?.[key] ?? DEFAULT_PREFERENCES[key];
-  }, [settings]);
-
-  // Get privacy setting helper
-  const getPrivacySetting = useCallback((key: keyof PrivacySettings) => {
-    return settings?.privacy?.[key] ?? DEFAULT_PRIVACY[key];
-  }, [settings]);
-
-  // Get notification setting helper
-  const getNotificationSetting = useCallback((key: keyof NotificationSettings) => {
-    return settings?.notifications?.[key] ?? DEFAULT_NOTIFICATIONS[key];
-  }, [settings]);
-
-  // Get security setting helper
-  const getSecuritySetting = useCallback((key: keyof SecuritySettings) => {
-    return settings?.security?.[key] ?? DEFAULT_SECURITY[key];
-  }, [settings]);
-
-  // Check if user is blocked
-  const isUserBlocked = useCallback((userId: string) => {
-    return blockedUsers?.some(blocked => blocked.blocked_id === userId) || false;
-  }, [blockedUsers]);
-
-  // Check if user is muted
-  const isUserMuted = useCallback((userId: string) => {
-    return mutedUsers?.some(muted => muted.muted_id === userId) || false;
-  }, [mutedUsers]);
+  const getPreference = useCallback(
+    (key: keyof UserPreferences) =>
+      settings?.preferences?.[key] ?? DEFAULT_PREFERENCES[key],
+    [settings],
+  );
+  const getPrivacySetting = useCallback(
+    (key: keyof PrivacySettings) =>
+      settings?.privacy?.[key] ?? DEFAULT_PRIVACY[key],
+    [settings],
+  );
+  const getNotificationSetting = useCallback(
+    (key: keyof NotificationSettings) =>
+      settings?.notifications?.[key] ?? DEFAULT_NOTIFICATIONS[key],
+    [settings],
+  );
+  const getSecuritySetting = useCallback(
+    (key: keyof SecuritySettings) =>
+      settings?.security?.[key] ?? DEFAULT_SECURITY[key],
+    [settings],
+  );
+  const isUserBlocked = useCallback(
+    (userId: string) =>
+      blockedUsers?.some((b: BlockedUserRow) => b.blocked_id === userId) ||
+      false,
+    [blockedUsers],
+  );
+  const isUserMuted = useCallback(
+    (userId: string) =>
+      mutedUsers?.some((m: MutedUserRow) => m.muted_id === userId) || false,
+    [mutedUsers],
+  );
 
   return {
-    // State
     settings,
     isLoading,
     blockedUsers,
     mutedUsers,
     linkedAccounts,
-    
-    // Mutations
     updatePreferences,
     updatePrivacy,
     updateNotifications,
@@ -488,16 +482,12 @@ export function useSettings() {
     clearSearchHistory,
     clearActivityHistory,
     exportUserData,
-    
-    // Helper functions
     getPreference,
     getPrivacySetting,
     getNotificationSetting,
     getSecuritySetting,
     isUserBlocked,
     isUserMuted,
-    
-    // Default settings for reference
     defaultPreferences: DEFAULT_PREFERENCES,
     defaultPrivacy: DEFAULT_PRIVACY,
     defaultNotifications: DEFAULT_NOTIFICATIONS,

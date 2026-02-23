@@ -1,13 +1,17 @@
-// hooks/useAuth.ts — COMPLETED + UPDATED ✅
+// hooks/useAuth.ts — FIREBASE VERSION ✅ (COMPLETED + UPDATED)
 
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
 import { useAuth as useProviderAuth } from "@/providers/AuthProvider";
+import { reload } from "firebase/auth";
 
 export const useAuth = () => {
   const ctx = useProviderAuth();
 
-  const isAuthenticated = !!ctx.session?.user;
-  const isEmailVerified = !!ctx.user?.email_confirmed_at;
+  // Firebase: authenticated if user exists
+  const isAuthenticated = !!ctx.user;
+
+  // Firebase: email verification uses emailVerified boolean
+  const isEmailVerified = !!ctx.user?.emailVerified;
 
   const mutateProfile = async () => {
     try {
@@ -17,14 +21,29 @@ export const useAuth = () => {
     }
   };
 
-  const checkSession = async () => ctx.session;
+  const checkSession = async () => {
+    // ✅ Important: refresh user state (emailVerified can change after clicking link)
+    const u = auth.currentUser;
+    if (u) {
+      try {
+        await reload(u);
+      } catch {
+        // ignore reload errors
+      }
+    }
+    return auth.currentUser;
+  };
 
   return {
     // core
     user: ctx.user,
-    session: ctx.session,
+    session: null, // Firebase doesn't use session objects
     profile: ctx.profile,
     userSettings: ctx.userSettings,
+
+    // optional convenience
+    userId: ctx.user?.uid ?? null,
+    email: ctx.user?.email ?? null,
 
     // loading
     isLoading: ctx.isLoading,
@@ -60,8 +79,8 @@ export const useAuth = () => {
     // settings
     updateSettings: ctx.updateSettings,
 
-    // direct client (if you want)
-    supabaseClient: supabase,
+    // direct firebase client (if needed)
+    firebaseAuth: auth,
   };
 };
 

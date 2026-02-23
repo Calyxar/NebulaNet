@@ -1,18 +1,39 @@
-// app/(tabs)/profile.tsx — COMPLETED + UPDATED (theme + dark mode)
+// app/(tabs)/profile.tsx — FIRESTORE ✅ (COMPLETED + UPDATED)
+// ✅ Fixes FirebaseUser.id -> FirebaseUser.uid everywhere
+// ✅ Uses created_at_ts for ordering (matches your posts.ts)
+// ✅ Safe delete w/ optional ownership check
+// ✅ Keeps your UI structure intact (cards/tabs/posts list)
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import { db } from "@/lib/firebase";
 import { shareProfileLink } from "@/lib/shareProfile";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
+import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getCountFromServer,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  Pressable,
   ScrollView,
   Share,
   StatusBar,
@@ -34,7 +55,7 @@ interface UserPost {
   like_count: number;
   comment_count: number;
   share_count: number;
-  created_at: string;
+  created_at: string; // ISO string
 }
 
 interface UserStats {
@@ -45,10 +66,26 @@ interface UserStats {
 
 type ProfileTab = "Activity" | "Post" | "Tagged" | "Media";
 
+function tsToIso(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Timestamp) return v.toDate().toISOString();
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  return new Date().toISOString();
+}
+
 export default function ProfileTabScreen() {
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
+  const { showActionSheetWithOptions } = useActionSheet();
+
   const { colors, isDark } = useTheme();
   const { user, profile, isProfileLoading } = useAuth();
+
+  // ✅ Firebase user id
+  const uid = user?.uid ?? null;
+
   const [activeTab, setActiveTab] = useState<ProfileTab>("Activity");
 
   const profileTabs: ProfileTab[] = useMemo(
@@ -62,60 +99,61 @@ export default function ProfileTabScreen() {
   );
 
   const { data: userPosts = [], isLoading: isLoadingPosts } = useQuery({
-    queryKey: ["user-posts", user?.id],
+    queryKey: ["user-posts", uid],
+    enabled: !!uid,
     queryFn: async () => {
-      if (!user?.id) return [];
+      if (!uid) return [];
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select(
-          `
-          id,
-          title,
-          content,
-          media_urls,
-          like_count,
-          comment_count,
-          share_count,
-          created_at
-        `,
-        )
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      // ✅ posts where user_id == uid, newest first (prefer created_at_ts)
+      const qy = query(
+        collection(db, "posts"),
+        where("user_id", "==", uid),
+        orderBy("created_at_ts", "desc"),
+        limit(50),
+      );
 
-      if (error) throw error;
-      return (data as UserPost[]) || [];
+      const snap = await getDocs(qy);
+
+      return snap.docs.map((d) => {
+        const x: any = d.data();
+        return {
+          id: d.id,
+          title: x.title ?? null,
+          content: x.content ?? "",
+          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+          like_count: Number(x.like_count ?? 0),
+          comment_count: Number(x.comment_count ?? 0),
+          share_count: Number(x.share_count ?? 0),
+          created_at: tsToIso(x.created_at_ts ?? x.created_at),
+        } as UserPost;
+      });
     },
-    enabled: !!user?.id,
   });
 
   const { data: userStats, isLoading: isLoadingStats } = useQuery({
-    queryKey: ["user-stats", user?.id],
+    queryKey: ["user-stats", uid],
+    enabled: !!uid,
     queryFn: async (): Promise<UserStats> => {
-      if (!user?.id) return { posts: 0, followers: 0, following: 0 };
+      if (!uid) return { posts: 0, followers: 0, following: 0 };
 
-      const { count: postsCount } = await supabase
-        .from("posts")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+      const postsAgg = await getCountFromServer(
+        query(collection(db, "posts"), where("user_id", "==", uid)),
+      );
 
-      const { count: followersCount } = await supabase
-        .from("follows")
-        .select("*", { count: "exact", head: true })
-        .eq("following_id", user.id);
+      const followersAgg = await getCountFromServer(
+        query(collection(db, "follows"), where("following_id", "==", uid)),
+      );
 
-      const { count: followingCount } = await supabase
-        .from("follows")
-        .select("*", { count: "exact", head: true })
-        .eq("follower_id", user.id);
+      const followingAgg = await getCountFromServer(
+        query(collection(db, "follows"), where("follower_id", "==", uid)),
+      );
 
       return {
-        posts: postsCount || 0,
-        followers: followersCount || 0,
-        following: followingCount || 0,
+        posts: postsAgg.data().count ?? 0,
+        followers: followersAgg.data().count ?? 0,
+        following: followingAgg.data().count ?? 0,
       };
     },
-    enabled: !!user?.id,
   });
 
   const gradientColors = isDark
@@ -135,7 +173,7 @@ export default function ProfileTabScreen() {
     try {
       await shareProfileLink({
         username: profile?.username,
-        userId: user!.id,
+        userId: profile?.id ?? uid ?? "",
         fullName: profile?.full_name,
       });
     } catch {
@@ -166,12 +204,71 @@ export default function ProfileTabScreen() {
     }
   };
 
+  const deletePost = async (postId: string) => {
+    if (!uid) return;
+
+    Alert.alert("Delete post?", "This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            try {
+              const ref = doc(db, "posts", postId);
+
+              // ✅ Optional ownership check (rules should enforce anyway)
+              const snap = await getDoc(ref);
+              if (!snap.exists()) return;
+
+              const d = snap.data() as any;
+              if (d.user_id !== uid) {
+                Alert.alert(
+                  "Not allowed",
+                  "You can only delete your own posts.",
+                );
+                return;
+              }
+
+              await deleteDoc(ref);
+
+              await queryClient.invalidateQueries({
+                queryKey: ["user-posts", uid],
+              });
+              await queryClient.invalidateQueries({
+                queryKey: ["user-stats", uid],
+              });
+            } catch (e: any) {
+              Alert.alert("Delete failed", e?.message ?? "Unknown error");
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
+  const openPostMenu = (postId: string) => {
+    const options = ["View Post", "Boost Post", "Delete Post", "Cancel"];
+    const cancelButtonIndex = 3;
+    const destructiveButtonIndex = 2;
+
+    showActionSheetWithOptions(
+      { options, cancelButtonIndex, destructiveButtonIndex },
+      (index) => {
+        if (index === 0) router.push(`/post/${postId}` as any);
+        if (index === 1) router.push(`/boost/${postId}` as any);
+        if (index === 2) void deletePost(postId);
+      },
+    );
+  };
+
   const renderPostCard = (post: UserPost) => {
     const img = post.media_urls?.[0];
 
     return (
-      <View
+      <Pressable
         key={post.id}
+        onPress={() => router.push(`/post/${post.id}` as any)}
         style={[
           styles.postCard,
           { backgroundColor: colors.card, shadowOpacity: isDark ? 0.22 : 0.05 },
@@ -209,7 +306,14 @@ export default function ProfileTabScreen() {
             </View>
           </View>
 
-          <TouchableOpacity activeOpacity={0.8}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              openPostMenu(post.id);
+            }}
+            hitSlop={12}
+          >
             <Ionicons
               name="ellipsis-vertical"
               size={18}
@@ -255,7 +359,7 @@ export default function ProfileTabScreen() {
             </Text>
           </View>
         </View>
-      </View>
+      </Pressable>
     );
   };
 
@@ -590,6 +694,7 @@ function EmptyPanel({
   );
 }
 
+// (styles unchanged from your file)
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safe: { flex: 1, backgroundColor: "transparent" },

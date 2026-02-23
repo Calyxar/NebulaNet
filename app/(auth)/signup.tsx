@@ -1,8 +1,8 @@
-// app/(auth)/signup.tsx — COMPLETE UPDATED (provider-only)
+// app/(auth)/signup.tsx — FIREBASE (provider-only) ✅
 // ✅ Uses AuthProvider.signup mutation (email/password)
 // ✅ Uses expo-auth-session for Google -> AuthProvider.googleLogin (idToken)
-// ✅ No router.replace after auth; /(auth)/_layout.tsx Redirect handles it
-// ⚠️ Phone signup UI remains but is not implemented (OTP-based if you ever add it)
+// ✅ For email/password: sends Firebase email verification + signs out (optional but recommended)
+// ✅ /(auth)/_layout.tsx Redirect handles post-auth routing
 
 import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import Constants from "expo-constants";
 import { Link, router } from "expo-router";
+import { sendEmailVerification } from "firebase/auth";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -26,7 +27,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function SignUpScreen() {
-  const { session, isLoading: authLoading, signup, googleLogin } = useAuth();
+  const {
+    user,
+    isLoading: authLoading,
+    signup,
+    googleLogin,
+    signOut,
+  } = useAuth();
 
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
@@ -82,7 +89,7 @@ export default function SignUpScreen() {
     });
 
   const handleSignUp = async () => {
-    if (session?.user) return;
+    if (user) return;
 
     if (activeTab === "email" && !validateEmail(email)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
@@ -149,8 +156,16 @@ export default function SignUpScreen() {
         },
       });
 
-      // Most common: email confirmation required
-      if (res.data?.user && !res.data?.session) {
+      // Firebase returns user on res.user
+      const createdUser = res.user;
+
+      // Send verification email (recommended for most apps)
+      if (createdUser && !createdUser.emailVerified) {
+        await sendEmailVerification(createdUser);
+
+        // Optional: sign them out until they verify (matches your previous flow)
+        await signOut();
+
         Alert.alert(
           "Check your email",
           "We sent you a verification link. Please verify your email, then log in.",
@@ -164,19 +179,25 @@ export default function SignUpScreen() {
         return;
       }
 
-      // If session exists, /(auth)/_layout.tsx will redirect automatically.
+      // If already verified (rare), /(auth)/_layout.tsx will redirect automatically.
     } catch (error: any) {
       const msg = error?.message || "Sign up failed";
+      const lower = msg.toLowerCase();
+
       let title = "Sign Up Failed";
       let body = msg;
 
-      if (msg.toLowerCase().includes("already registered")) {
+      // Firebase common messages
+      if (lower.includes("auth/email-already-in-use")) {
         title = "Account Exists";
         body = "An account with this email already exists. Please log in.";
-      } else if (msg.toLowerCase().includes("invalid email")) {
+      } else if (lower.includes("auth/invalid-email")) {
         title = "Invalid Email";
         body = "Please enter a valid email address.";
-      } else if (msg.toLowerCase().includes("username")) {
+      } else if (lower.includes("auth/weak-password")) {
+        title = "Weak Password";
+        body = "Password must be at least 6 characters (we recommend 8+).";
+      } else if (lower.includes("username")) {
         title = "Username Issue";
         body = msg;
       }
@@ -188,7 +209,7 @@ export default function SignUpScreen() {
   };
 
   const handleGoogleSignUp = async () => {
-    if (session?.user) return;
+    if (user) return;
 
     if (!googleRequest) {
       Alert.alert("Error", "Google auth is not ready yet.");
@@ -211,16 +232,14 @@ export default function SignUpScreen() {
 
       await googleLogin.mutateAsync({
         idToken: id_token,
-        accessToken: access_token ?? null,
+        accessToken: access_token ?? undefined,
       });
 
-      // ✅ /(auth)/_layout.tsx will redirect once session exists
+      // /(auth)/_layout.tsx will redirect once user exists
     } catch (error: any) {
       const msg = error?.message || "Unable to sign up with Google.";
-      if (
-        !msg.toLowerCase().includes("cancelled") &&
-        !msg.toLowerCase().includes("dismissed")
-      ) {
+      const lower = msg.toLowerCase();
+      if (!lower.includes("cancelled") && !lower.includes("dismissed")) {
         Alert.alert("Google Sign Up Failed", msg);
       }
     } finally {
@@ -471,6 +490,7 @@ export default function SignUpScreen() {
   );
 }
 
+// ⬇️ Your styles unchanged
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   keyboardView: { flex: 1 },

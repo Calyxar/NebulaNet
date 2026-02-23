@@ -4,11 +4,23 @@
 // ✅ No hardcoded light colors (uses ThemeProvider colors everywhere)
 
 import { useAuth } from "@/hooks/useAuth";
-import { createOrOpenChat } from "@/hooks/useCreateOrOpenChat";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getCountFromServer,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  where,
+} from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -97,14 +109,24 @@ export default function UserProfileScreen() {
     queryKey: ["user-profile", username],
     enabled: !!username,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,username,full_name,bio,avatar_url,location,is_private")
-        .eq("username", username)
-        .maybeSingle();
-
-      if (error) throw error;
-      return (data as UserProfile | null) ?? null;
+      const snap = await getDocs(
+        query(
+          collection(db, "profiles"),
+          where("username", "==", username),
+          limit(1),
+        ),
+      );
+      if (snap.empty) return null;
+      const d = snap.docs[0].data() as any;
+      return {
+        id: snap.docs[0].id,
+        username: d.username ?? "",
+        full_name: d.full_name ?? null,
+        bio: d.bio ?? null,
+        avatar_url: d.avatar_url ?? null,
+        location: d.location ?? null,
+        is_private: d.is_private ?? false,
+      } as UserProfile;
     },
   });
 
@@ -117,15 +139,20 @@ export default function UserProfileScreen() {
     queryKey: ["follow-edge", user?.id, target?.id],
     enabled: !!user?.id && !!target?.id && !isMe,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select("follower_id,following_id,status")
-        .eq("follower_id", user!.id)
-        .eq("following_id", target!.id)
-        .maybeSingle();
-
-      if (error) throw error;
-      return (data as FollowEdge | null) ?? null;
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", user!.uid),
+          where("following_id", "==", target!.id),
+        ),
+      );
+      if (snap.empty) return null;
+      const d = snap.docs[0].data() as any;
+      return {
+        follower_id: d.follower_id,
+        following_id: d.following_id,
+        status: d.status,
+      } as FollowEdge;
     },
   });
 
@@ -137,16 +164,37 @@ export default function UserProfileScreen() {
     queryKey: ["block-edge", user?.id, target?.id],
     enabled: !!user?.id && !!target?.id && !isMe,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("user_blocks")
-        .select("blocker_id,blocked_id")
-        .or(
-          `and(blocker_id.eq.${user!.id},blocked_id.eq.${target!.id}),and(blocker_id.eq.${target!.id},blocked_id.eq.${user!.id})`,
-        )
-        .maybeSingle();
-
-      if (error) throw error;
-      return (data as BlockEdge | null) ?? null;
+      const [snap1, snap2] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "user_blocks"),
+            where("blocker_id", "==", user!.uid),
+            where("blocked_id", "==", target!.id),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "user_blocks"),
+            where("blocker_id", "==", target!.id),
+            where("blocked_id", "==", user!.uid),
+          ),
+        ),
+      ]);
+      if (!snap1.empty) {
+        const d = snap1.docs[0].data() as any;
+        return {
+          blocker_id: d.blocker_id,
+          blocked_id: d.blocked_id,
+        } as BlockEdge;
+      }
+      if (!snap2.empty) {
+        const d = snap2.docs[0].data() as any;
+        return {
+          blocker_id: d.blocker_id,
+          blocked_id: d.blocked_id,
+        } as BlockEdge;
+      }
+      return null;
     },
   });
 
@@ -167,20 +215,14 @@ export default function UserProfileScreen() {
     enabled: !!target?.id,
     queryFn: async () => {
       if (isMe) return { hide_followers: false, hide_following: false };
-
-      const { data, error } = await supabase.rpc("get_profile_privacy_flags", {
-        owner_id: target!.id,
-      });
-
-      if (error) throw error;
-
-      const first = Array.isArray(data) ? data[0] : null;
-      return (
-        (first as PrivacyFlags | undefined) ?? {
-          hide_followers: false,
-          hide_following: false,
-        }
-      );
+      const snap = await getDoc(doc(db, "profiles", target!.id));
+      if (!snap.exists())
+        return { hide_followers: false, hide_following: false };
+      const d = snap.data() as any;
+      return {
+        hide_followers: !!d.hide_followers,
+        hide_following: !!d.hide_following,
+      } as PrivacyFlags;
     },
   });
 
@@ -194,31 +236,29 @@ export default function UserProfileScreen() {
     queryFn: async (): Promise<UserStats> => {
       const uid = target!.id;
 
-      const [
-        { count: postsCount },
-        { count: followersCount },
-        { count: followingCount },
-      ] = await Promise.all([
-        supabase
-          .from("posts")
-          .select("*", { count: "exact", head: true })
-          .eq("user_id", uid),
-        supabase
-          .from("follows")
-          .select("*", { count: "exact", head: true })
-          .eq("following_id", uid)
-          .eq("status", "accepted"),
-        supabase
-          .from("follows")
-          .select("*", { count: "exact", head: true })
-          .eq("follower_id", uid)
-          .eq("status", "accepted"),
+      const [postsSnap, followersSnap, followingSnap] = await Promise.all([
+        getCountFromServer(
+          query(collection(db, "posts"), where("user_id", "==", uid)),
+        ),
+        getCountFromServer(
+          query(
+            collection(db, "follows"),
+            where("following_id", "==", uid),
+            where("status", "==", "accepted"),
+          ),
+        ),
+        getCountFromServer(
+          query(
+            collection(db, "follows"),
+            where("follower_id", "==", uid),
+            where("status", "==", "accepted"),
+          ),
+        ),
       ]);
-
       return {
-        posts: postsCount || 0,
-        followers: followersCount || 0,
-        following: followingCount || 0,
+        posts: postsSnap.data().count,
+        followers: followersSnap.data().count,
+        following: followingSnap.data().count,
       };
     },
   });
@@ -228,14 +268,10 @@ export default function UserProfileScreen() {
     queryKey: ["user-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("posts")
-        .select("id,content,media_urls,created_at")
-        .eq("user_id", target!.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return (data as PostRow[]) ?? [];
+      const snap = await getDocs(
+        query(collection(db, "posts"), where("user_id", "==", target!.id)),
+      );
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PostRow[];
     },
   });
 
@@ -245,26 +281,33 @@ export default function UserProfileScreen() {
       if (!user?.id || !target?.id) throw new Error("Missing ids");
 
       if (followEdge) {
-        const { error } = await supabase
-          .from("follows")
-          .delete()
-          .eq("follower_id", user.id)
-          .eq("following_id", target.id);
-        if (error) throw error;
+        const snap = await getDocs(
+          query(
+            collection(db, "follows"),
+            where("follower_id", "==", user.uid),
+            where("following_id", "==", target.id),
+          ),
+        );
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
         return { next: null as FollowEdge | null };
       }
 
-      const { data, error } = await supabase
-        .from("follows")
-        .insert({
-          follower_id: user.id,
+      const status: FollowEdge["status"] = target.is_private
+        ? "pending"
+        : "accepted";
+      const ref = await addDoc(collection(db, "follows"), {
+        follower_id: user.uid,
+        following_id: target.id,
+        status,
+        created_at: new Date().toISOString(),
+      });
+      return {
+        next: {
+          follower_id: user.uid,
           following_id: target.id,
-        })
-        .select("follower_id,following_id,status")
-        .single();
-
-      if (error) throw error;
-      return { next: data as FollowEdge };
+          status,
+        } as FollowEdge,
+      };
     },
     onMutate: async () => {
       if (!user?.id || !target?.id) return;
@@ -339,12 +382,11 @@ export default function UserProfileScreen() {
     mutationFn: async () => {
       if (!user?.id || !target?.id) throw new Error("Missing ids");
 
-      const { error } = await supabase.from("user_blocks").insert({
-        blocker_id: user.id,
+      await addDoc(collection(db, "user_blocks"), {
+        blocker_id: user.uid,
         blocked_id: target.id,
+        created_at: new Date().toISOString(),
       });
-
-      if (error) throw error;
       return target.id;
     },
     onSuccess: (targetId) => {
@@ -426,7 +468,10 @@ export default function UserProfileScreen() {
     }
 
     try {
+      // ✅ Firestore: create/open conversation in `conversations` + `participant_ids`
       const conversationId = await createOrOpenChat(user.id, target.id);
+
+      // ✅ go to chat screen
       router.push(`/chat/${conversationId}`);
     } catch (err) {
       console.error(err);
@@ -1042,12 +1087,15 @@ export default function UserProfileScreen() {
             if (!user?.id || !target?.id) return;
             if (!followEdge) return;
 
-            const { error } = await supabase
-              .from("follows")
-              .delete()
-              .eq("follower_id", user.id)
-              .eq("following_id", target.id);
-
+            const snap = await getDocs(
+              query(
+                collection(db, "follows"),
+                where("follower_id", "==", user.uid),
+                where("following_id", "==", target.id),
+              ),
+            );
+            await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+            const error = null;
             if (!error) {
               qc.invalidateQueries({
                 queryKey: ["follow-edge", user.id, target.id],

@@ -1,18 +1,28 @@
-// app/[username]/followers.tsx
+// app/user/[username]/followers.tsx — FIREBASE ✅
+
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  where,
+} from "firebase/firestore";
 import React, { useMemo } from "react";
 import {
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -51,9 +61,7 @@ function Header({ title }: { title: string }) {
       >
         <Ionicons name="arrow-back" size={22} color="#111827" />
       </TouchableOpacity>
-
       <Text style={styles.headerTitle}>{title}</Text>
-
       <View style={styles.headerBtn} />
     </View>
   );
@@ -68,32 +76,48 @@ export default function UserFollowersScreen() {
     queryKey: ["user-profile-lite", username],
     enabled: !!username,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,username,full_name,avatar_url,is_private")
-        .eq("username", username)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as UserProfile | null) ?? null;
+      const snap = await getDocs(
+        query(
+          collection(db, "profiles"),
+          where("username", "==", username),
+          limit(1),
+        ),
+      );
+      if (snap.empty) return null;
+      const d = snap.docs[0].data() as any;
+      return {
+        id: snap.docs[0].id,
+        username: d.username,
+        full_name: d.full_name ?? null,
+        avatar_url: d.avatar_url ?? null,
+        is_private: d.is_private ?? false,
+      } as UserProfile;
     },
   });
 
-  const isMe = useMemo(() => {
-    return !!target?.id && target.id === user?.id;
-  }, [target?.id, user?.id]);
+  const isMe = useMemo(
+    () => !!target?.id && target.id === user?.id,
+    [target?.id, user?.id],
+  );
 
   const { data: edge } = useQuery({
     queryKey: ["follow-edge", user?.id, target?.id],
     enabled: !!user?.id && !!target?.id && !isMe,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select("follower_id,following_id,status")
-        .eq("follower_id", user!.id)
-        .eq("following_id", target!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as FollowEdge | null) ?? null;
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", user!.uid),
+          where("following_id", "==", target!.id),
+        ),
+      );
+      if (snap.empty) return null;
+      const d = snap.docs[0].data() as any;
+      return {
+        follower_id: d.follower_id,
+        following_id: d.following_id,
+        status: d.status,
+      } as FollowEdge;
     },
   });
 
@@ -115,11 +139,28 @@ export default function UserFollowersScreen() {
     queryKey: ["user-followers", target?.id],
     enabled: !!target?.id && canViewProfile,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("get_user_followers", {
-        target_id: target!.id,
-      });
-      if (error) throw error;
-      return (data as UserRow[]) ?? [];
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("following_id", "==", target!.id),
+          where("status", "==", "accepted"),
+        ),
+      );
+      const profiles = await Promise.all(
+        snap.docs.map(async (d) => {
+          const followerId = (d.data() as any).follower_id;
+          const pSnap = await getDoc(doc(db, "profiles", followerId));
+          if (!pSnap.exists()) return null;
+          const pd = pSnap.data() as any;
+          return {
+            id: pSnap.id,
+            username: pd.username ?? "",
+            full_name: pd.full_name ?? null,
+            avatar_url: pd.avatar_url ?? null,
+          } as UserRow;
+        }),
+      );
+      return profiles.filter(Boolean) as UserRow[];
     },
   });
 
@@ -159,7 +200,7 @@ export default function UserFollowersScreen() {
         <View style={styles.empty}>
           <Ionicons name="person-outline" size={56} color="#C5CAE9" />
           <Text style={styles.emptyTitle}>User not found</Text>
-          <Text style={styles.emptyDesc}>This user doesn’t exist.</Text>
+          <Text style={styles.emptyDesc}>This user doesn&apos;t exist.</Text>
         </View>
       </SafeAreaView>
     );
@@ -182,46 +223,38 @@ export default function UserFollowersScreen() {
     );
   }
 
-  // If user hid followers, RPC returns empty list (unless owner).
   const isHiddenByOwner = !isMe && (followers?.length ?? 0) === 0 && !isLoading;
 
-  const renderItem = ({ item }: { item: UserRow }) => {
-    const display = item.full_name || item.username;
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={styles.row}
-        onPress={() => router.push(`/user/${item.username}`)}
-      >
-        {item.avatar_url ? (
-          <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarFallback}>
-            <Text style={styles.avatarFallbackText}>
-              {(item.username?.[0] || "U").toUpperCase()}
-            </Text>
-          </View>
-        )}
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name} numberOfLines={1}>
-            {display}
-          </Text>
-          <Text style={styles.handle} numberOfLines={1}>
-            @{item.username}
+  const renderItem = ({ item }: { item: UserRow }) => (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      style={styles.row}
+      onPress={() => router.push(`/user/${item.username}`)}
+    >
+      {item.avatar_url ? (
+        <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+      ) : (
+        <View style={styles.avatarFallback}>
+          <Text style={styles.avatarFallbackText}>
+            {(item.username?.[0] || "U").toUpperCase()}
           </Text>
         </View>
-
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-      </TouchableOpacity>
-    );
-  };
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.name} numberOfLines={1}>
+          {item.full_name || item.username}
+        </Text>
+        <Text style={styles.handle} numberOfLines={1}>
+          @{item.username}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <Header title="Followers" />
-
       {isLoading ? (
         <View style={{ padding: 16, gap: 10 }}>
           {Array.from({ length: 8 }).map((_, i) => (
@@ -272,7 +305,8 @@ export default function UserFollowersScreen() {
               <Ionicons name="people-outline" size={56} color="#C5CAE9" />
               <Text style={styles.emptyTitle}>No followers</Text>
               <Text style={styles.emptyDesc}>
-                When people follow @{target.username}, they’ll show up here.
+                When people follow @{target.username}, they&apos;ll show up
+                here.
               </Text>
             </View>
           }
@@ -286,7 +320,6 @@ export default function UserFollowersScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
-
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -304,7 +337,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-
   row: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -326,10 +358,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarFallbackText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-
   name: { fontSize: 14, fontWeight: "900", color: "#111827" },
   handle: { fontSize: 12, fontWeight: "800", color: "#6B7280", marginTop: 2 },
-
   empty: {
     paddingTop: 80,
     alignItems: "center",
@@ -350,7 +380,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
-
   lockWrap: {
     flex: 1,
     paddingHorizontal: 18,
@@ -380,6 +409,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
-
   skel: { backgroundColor: "#E5E7EB" },
 });

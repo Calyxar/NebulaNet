@@ -1,119 +1,33 @@
-// hooks/useLikes.ts
-import { postKeys } from "@/hooks/usePosts";
-import type { PaginatedPosts, Post } from "@/lib/queries/posts";
-import { supabase } from "@/lib/supabase";
-import type { InfiniteData } from "@tanstack/react-query";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+// hooks/useLikes.ts — FIREBASE ✅
 
-function updatePostInAllPages(
-  old: InfiniteData<PaginatedPosts> | undefined,
-  postId: string,
-  updater: (p: Post) => Post,
-) {
-  if (!old) return old;
-  return {
-    ...old,
-    pages: old.pages.map((page) => ({
-      ...page,
-      posts: page.posts.map((p) => (p.id === postId ? updater(p) : p)),
-    })),
-  };
-}
+import { postKeys } from "@/hooks/usePosts";
+import { toggleLikePost } from "@/lib/firestore/likes";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export function useLikePost() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (postId: string) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      // check existing like
-      const { data: existing, error: checkError } = await supabase
-        .from("likes")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("post_id", postId)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      if (existing?.id) {
-        // unlike
-        const { error } = await supabase
-          .from("likes")
-          .delete()
-          .eq("id", existing.id);
-        if (error) throw error;
-        return { postId, isLiked: false };
-      }
-
-      // like (include user_id if your table requires it)
-      const { error } = await supabase
-        .from("likes")
-        .insert({ user_id: user.id, post_id: postId });
-
-      if (error) throw error;
-
-      return { postId, isLiked: true };
+      // read current cached state to decide toggle direction
+      const post = qc.getQueryData<any>(postKeys.detail(postId));
+      const isLiked = !!post?.is_liked;
+      await toggleLikePost(postId, isLiked);
+      return { postId, next: !isLiked };
     },
-
-    onMutate: async (postId: string) => {
-      await qc.cancelQueries({ queryKey: postKeys.lists() });
-
-      const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
-        queryKey: postKeys.lists(),
-      });
-
-      // optimistic toggle
-      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
-        { queryKey: postKeys.lists() },
-        (old) =>
-          updatePostInAllPages(old, postId, (p) => {
-            const nextLiked = !Boolean(p.is_liked);
-            const nextCount = Math.max(
-              0,
-              (p.like_count ?? 0) + (nextLiked ? 1 : -1),
-            );
-
-            return {
-              ...p,
-              is_liked: nextLiked,
-              like_count: nextCount,
-            };
-          }),
+    onSuccess: ({ postId, next }) => {
+      // update detail cache
+      qc.setQueryData(postKeys.detail(postId), (old: any) =>
+        old
+          ? {
+              ...old,
+              is_liked: next,
+              like_count: Math.max(0, (old.like_count ?? 0) + (next ? 1 : -1)),
+            }
+          : old,
       );
 
-      return { previous };
-    },
-
-    onError: (_err, _postId, ctx) => {
-      ctx?.previous?.forEach(([key, data]) => {
-        qc.setQueryData(key, data);
-      });
-    },
-
-    onSuccess: ({ postId, isLiked }) => {
-      // reconcile (only adjust count if our optimistic state differs)
-      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
-        { queryKey: postKeys.lists() },
-        (old) =>
-          updatePostInAllPages(old, postId, (p) => {
-            if (Boolean(p.is_liked) === isLiked) return p;
-
-            const nextCount = Math.max(
-              0,
-              (p.like_count ?? 0) + (isLiked ? 1 : -1),
-            );
-
-            return { ...p, is_liked: isLiked, like_count: nextCount };
-          }),
-      );
-    },
-
-    onSettled: () => {
+      // refresh lists
       qc.invalidateQueries({ queryKey: postKeys.lists() });
     },
   });

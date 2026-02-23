@@ -20,11 +20,22 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
+import { db } from "@/lib/firebase";
 import {
   invalidateAfterBlock,
   invalidateAfterUnfollow,
 } from "@/lib/queryKeys/invalidateSocial";
-import { supabase } from "@/lib/supabase";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
 
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -63,26 +74,35 @@ export default function FollowingScreen() {
     queryKey: ["my-following-with-status", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select(
-          `
-          following_id,
-          status,
-          created_at,
-          following:profiles!follows_following_id_fkey (
-            id, username, full_name, avatar_url, is_private
-          )
-        `,
-        )
-        .eq("follower_id", myId!)
-        .in("status", ["accepted", "pending"])
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const mapped: FollowingJoinRow[] = (data as any) ?? [];
-      return mapped.filter((r) => !!r.following);
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", myId!),
+          where("status", "in", ["accepted", "pending"]),
+        ),
+      );
+      const rows = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          const pSnap = await getDoc(doc(db, "profiles", data.following_id));
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            following_id: data.following_id,
+            status: data.status,
+            created_at: data.created_at ?? "",
+            following: p
+              ? {
+                  id: pSnap.id,
+                  username: p.username,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                  is_private: p.is_private ?? false,
+                }
+              : null,
+          } as FollowingJoinRow;
+        }),
+      );
+      return rows.filter((r) => !!r.following);
     },
   });
 
@@ -97,17 +117,16 @@ export default function FollowingScreen() {
     queryKey: ["they-follow-me-set", myId, followingIds.join("|")],
     enabled: !!myId && followingIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("follows")
-        .select("follower_id")
-        .eq("following_id", myId!)
-        .in("follower_id", followingIds)
-        .eq("status", "accepted");
-
-      if (error) throw error;
-
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("following_id", "==", myId!),
+          where("follower_id", "in", followingIds),
+          where("status", "==", "accepted"),
+        ),
+      );
       const set = new Set<string>();
-      (data as any[] | null)?.forEach((r) => set.add(r.follower_id));
+      snap.docs.forEach((d) => set.add((d.data() as any).follower_id));
       return set;
     },
   });
@@ -132,12 +151,14 @@ export default function FollowingScreen() {
   const unfollowMutation = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-      const { error } = await supabase
-        .from("follows")
-        .delete()
-        .eq("follower_id", myId)
-        .eq("following_id", target.id);
-      if (error) throw error;
+      const snap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", myId),
+          where("following_id", "==", target.id),
+        ),
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       return target;
     },
     onSuccess: (target) => {
@@ -152,11 +173,11 @@ export default function FollowingScreen() {
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
 
-      const { error } = await supabase.from("user_blocks").insert({
+      await addDoc(collection(db, "user_blocks"), {
         blocker_id: myId,
         blocked_id: target.id,
+        created_at: serverTimestamp(),
       });
-      if (error) throw error;
 
       return target;
     },

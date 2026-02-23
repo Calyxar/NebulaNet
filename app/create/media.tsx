@@ -1,11 +1,18 @@
 // app/create/media.tsx - DESIGN MATCH + RELIABLE UPLOAD (NebulaNet)
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as VideoThumbnails from "expo-video-thumbnails";
+import { addDoc, collection } from "firebase/firestore";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -136,17 +143,14 @@ export default function CreateMediaScreen() {
         const res = await fetch(item.uri);
         const arrayBuffer = await res.arrayBuffer();
 
-        const { error: uploadError } = await supabase.storage
-          .from("post-media")
-          .upload(path, arrayBuffer, {
-            contentType: mime,
-            upsert: false,
-          });
+        const storage = getStorage();
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
 
         if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage.from("post-media").getPublicUrl(path);
-        uploadedUrls.push(data.publicUrl);
+        const publicUrl = await getDownloadURL(fileRef);
+        uploadedUrls.push(publicUrl);
       } catch (err) {
         console.error("Upload failed:", err);
         throw new Error(
@@ -182,8 +186,8 @@ export default function CreateMediaScreen() {
 
       const nowIso = new Date().toISOString();
 
-      const { error } = await supabase.from("posts").insert({
-        user_id: user.id,
+      await addDoc(collection(db, "posts"), {
+        user_id: auth.currentUser!.uid,
         title,
         content: caption.trim(),
         media_urls: mediaUrls,

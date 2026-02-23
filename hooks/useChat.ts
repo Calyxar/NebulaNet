@@ -1,14 +1,41 @@
-// hooks/useChat.ts
-import { SupabaseAttachment } from "@/components/chat/ChatInput";
+// hooks/useChat.ts — FIRESTORE VERSION ✅ (COMPLETED + UPDATED)
+// ✅ No Supabase types/imports
+// ✅ Accepts Firebase ChatAttachment from ChatInput
+// ✅ Safely converts Firestore Timestamp/string -> ISO when patching from subscriptions
+// ✅ Realtime: conversation list updates + active conversation new messages
+// ✅ markAsRead + optimistic unread reset
+// ✅ Keeps the same public API surface area
+
+import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  ChatConversation,
-  ChatMessage,
+  type ChatConversation,
+  type ChatMessage,
   chatQueries,
   chatSubscriptions,
-} from "@/lib/queries/chat";
+} from "@/lib/firestore/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
+
+function toIsoMaybe(v: any): string | undefined {
+  if (!v) return undefined;
+
+  // Firestore Timestamp
+  if (typeof v === "object" && typeof v.toDate === "function") {
+    try {
+      return v.toDate().toISOString();
+    } catch {
+      return undefined;
+    }
+  }
+
+  // already ISO-ish string or Date
+  try {
+    return new Date(v).toISOString();
+  } catch {
+    return undefined;
+  }
+}
 
 export const useChat = () => {
   const { user } = useAuth();
@@ -18,6 +45,9 @@ export const useChat = () => {
   const [activeConversation, setActiveConversation] = useState<string | null>(
     null,
   );
+
+  // NOTE: you now have useTyping() for UI typing.
+  // Keeping typingUsers here for backwards compatibility with any screens.
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState({
@@ -26,13 +56,46 @@ export const useChat = () => {
     sending: false,
   });
 
-  // ✅ keep latest activeConversation for safe subscription callbacks
   const activeConversationRef = useRef<string | null>(null);
+  const conversationsRef = useRef<ChatConversation[]>([]);
+
   useEffect(() => {
     activeConversationRef.current = activeConversation;
   }, [activeConversation]);
 
-  // Load conversations
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  const patchConversation = useCallback(
+    (id: string, patch: Partial<ChatConversation>) => {
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === id);
+        if (idx === -1) return prev;
+
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+
+        next.sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+        );
+
+        return next;
+      });
+    },
+    [],
+  );
+
+  const getConversation = useCallback(
+    (id: string) => conversationsRef.current.find((c) => c.id === id),
+    [],
+  );
+
+  // ─── Loaders ───────────────────────────────────────────────────────────────
+
   const loadConversations = useCallback(async () => {
     if (!user?.id) return;
 
@@ -40,7 +103,7 @@ export const useChat = () => {
     try {
       const result = await chatQueries.getConversations(user.id);
       if (result.error) throw result.error;
-      setConversations(result.data || []);
+      setConversations(result.data ?? []);
     } catch (error) {
       console.error("Error loading conversations:", error);
       Alert.alert("Error", "Failed to load conversations");
@@ -49,7 +112,6 @@ export const useChat = () => {
     }
   }, [user?.id]);
 
-  // Load messages for a conversation
   const loadMessages = useCallback(
     async (conversationId: string) => {
       if (!conversationId) return;
@@ -58,10 +120,12 @@ export const useChat = () => {
       try {
         const result = await chatQueries.getMessages(conversationId);
         if (result.error) throw result.error;
-        setMessages(result.data || []);
+
+        setMessages(result.data ?? []);
 
         if (user?.id) {
           await chatQueries.markAsRead(conversationId, user.id);
+          patchConversation(conversationId, { unread_count: 0 });
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -70,55 +134,53 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, messages: false }));
       }
     },
-    [user?.id],
+    [user?.id, patchConversation],
   );
 
-  // Send a message with attachments
+  // ─── Actions ───────────────────────────────────────────────────────────────
+
   const sendMessage = useCallback(
     async (
       content: string,
       conversationId: string,
-      attachments?: SupabaseAttachment[],
+      attachments?: ChatAttachment[],
       mediaUrl?: string,
       mediaType?: "image" | "video" | "audio" | "file",
     ) => {
-      if (!user?.id || (!content.trim() && !attachments?.length)) return null;
+      if (!user?.id) return null;
+
+      const hasText = !!content?.trim();
+      const hasAtts = !!attachments?.length;
+      const hasLegacyMedia = !!mediaUrl && !!mediaType;
+
+      if (!hasText && !hasAtts && !hasLegacyMedia) return null;
 
       setLoading((prev) => ({ ...prev, sending: true }));
-
       try {
         const result = await chatQueries.sendMessage(
           conversationId,
           user.id,
           content,
-          attachments,
+          attachments as any, // chat.ts expects SupabaseAttachment shape; ChatAttachment is compatible (url/type/name + extra fields).
           mediaUrl,
           mediaType,
         );
-
         if (result.error) throw result.error;
 
         if (result.data) {
-          // prevent duplicates if subscription also fires
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === result.data!.id);
             return exists ? prev : [result.data!, ...prev];
           });
 
-          setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === conversationId
-                ? {
-                    ...conv,
-                    updated_at: new Date().toISOString(),
-                    last_message: result.data,
-                  }
-                : conv,
-            ),
-          );
+          patchConversation(conversationId, {
+            updated_at: result.data.created_at,
+            last_message: result.data,
+            last_message_id: result.data.id,
+          });
         }
 
-        return result.data;
+        return result.data ?? null;
       } catch (error) {
         console.error("Error sending message:", error);
         Alert.alert("Error", "Failed to send message");
@@ -127,10 +189,10 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, sending: false }));
       }
     },
-    [user?.id],
+    [user?.id, patchConversation],
   );
 
-  // Update typing status
+  // Keeping for compatibility; ChatInput uses useTyping() now.
   const updateTypingStatus = useCallback(
     async (conversationId: string, isTyping: boolean) => {
       if (!conversationId || !user?.id) return;
@@ -143,10 +205,9 @@ export const useChat = () => {
     [user?.id],
   );
 
-  // Create a new conversation
   const createConversation = useCallback(
     async (participantIds: string[], name?: string, isGroup = false) => {
-      if (participantIds.length === 0) return null;
+      if (!participantIds.length) return null;
 
       try {
         const result = await chatQueries.createConversation(
@@ -156,8 +217,12 @@ export const useChat = () => {
         );
         if (result.error) throw result.error;
 
-        if (result.data) await loadConversations();
-        return result.data;
+        if (result.data) {
+          await loadConversations();
+          return result.data;
+        }
+
+        return null;
       } catch (error) {
         console.error("Error creating conversation:", error);
         Alert.alert("Error", "Failed to create conversation");
@@ -167,124 +232,123 @@ export const useChat = () => {
     [loadConversations],
   );
 
-  // Get conversation by ID
-  const getConversation = useCallback(
-    (id: string) => conversations.find((c) => c.id === id),
-    [conversations],
-  );
-
-  // Set active conversation
   const selectConversation = useCallback(
     (conversationId: string | null) => {
       setActiveConversation(conversationId);
 
       if (conversationId) {
-        // ✅ If conversation list isn't loaded, load it (supports direct /chat/[id])
-        if (!conversations.length) {
-          loadConversations();
-        }
+        if (!conversationsRef.current.length) loadConversations();
         loadMessages(conversationId);
       } else {
         setMessages([]);
         setTypingUsers(new Set());
       }
     },
-    [conversations.length, loadConversations, loadMessages],
+    [loadConversations, loadMessages],
   );
 
-  // Subscribe to conversation updates
+  // ─── Subscriptions ─────────────────────────────────────────────────────────
+
+  // Conversation list realtime: patch known; reload if new
   useEffect(() => {
     if (!user?.id) return;
 
-    const unsubscribe = chatSubscriptions.subscribeToUserConversations(
+    const unsub = chatSubscriptions.subscribeToUserConversations(
       user.id,
-      async () => {
-        await loadConversations();
-      },
-    );
-
-    return () => unsubscribe();
-  }, [user?.id, loadConversations]);
-
-  // Subscribe to user's conversation participants
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const unsubscribe = chatSubscriptions.subscribeToUserParticipants(
-      user.id,
-      () => {
-        loadConversations();
-      },
-    );
-
-    return () => unsubscribe();
-  }, [user?.id, loadConversations]);
-
-  // Subscribe to messages + typing for active conversation
-  useEffect(() => {
-    if (!activeConversation || !user?.id) return;
-
-    const unsubscribeMessages = chatSubscriptions.subscribeToMessages(
-      activeConversation,
-      user.id,
-      async (payload: any) => {
-        const newMessage = payload.new;
-
-        // safety: ignore messages for stale conversation
-        if (activeConversationRef.current !== activeConversation) return;
-
-        // ignore own message
-        if (newMessage.sender_id === user.id) return;
-
-        setMessages((prev) => {
-          const exists = prev.some((msg) => msg.id === newMessage.id);
-          return exists ? prev : [newMessage, ...prev];
-        });
-
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === activeConversation
-              ? {
-                  ...conv,
-                  updated_at: newMessage.created_at,
-                  last_message: newMessage,
-                }
-              : conv,
-          ),
-        );
-
-        await chatQueries.markAsRead(activeConversation, user.id);
-      },
-    );
-
-    const unsubscribeTyping = chatSubscriptions.subscribeToTypingStatus(
-      activeConversation,
-      (payload: any) => {
-        if (payload.new.is_typing) {
-          const conversation = getConversation(activeConversation);
-          const typingParticipant = conversation?.participants?.find(
-            (p: { user_id: string }) => p.user_id !== user.id,
+      async (payload) => {
+        const docs: any[] = payload?.docs ?? [];
+        for (const changed of docs) {
+          const known = conversationsRef.current.some(
+            (c) => c.id === changed.id,
           );
-          if (typingParticipant) {
-            setTypingUsers((prev) =>
-              new Set(prev).add(typingParticipant.user_id)
-            );
+
+          if (!known) {
+            await loadConversations();
+            return;
           }
-        } else {
-          setTypingUsers((prev) => {
-            const next = new Set(prev);
-            next.clear();
-            return next;
+
+          // Convert timestamps safely
+          const updatedAt =
+            toIsoMaybe(changed.updated_at_ts) ??
+            toIsoMaybe(changed.updated_at) ??
+            undefined;
+
+          // last_message is denormalized on conversation doc
+          const lm = changed.last_message as any | null;
+
+          patchConversation(changed.id, {
+            ...(updatedAt ? { updated_at: updatedAt } : {}),
+            is_typing: !!changed.is_typing,
+            last_message_id: lm?.id ?? null,
+            // We do NOT rebuild last_message here (shape mismatches are common);
+            // it will be correct when you open the conversation or when send/receive fires.
           });
         }
       },
     );
 
+    return unsub;
+  }, [user?.id, loadConversations, patchConversation]);
+
+  // Active conversation: new messages realtime
+  useEffect(() => {
+    if (!activeConversation || !user?.id) return;
+
+    const unsubMessages = chatSubscriptions.subscribeToMessages(
+      activeConversation,
+      user.id,
+      async (payload) => {
+        const newMessage = payload?.new as ChatMessage | undefined;
+        if (!newMessage) return;
+
+        // ignore if user navigated away
+        if (activeConversationRef.current !== activeConversation) return;
+
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === newMessage.id);
+          return exists ? prev : [newMessage, ...prev];
+        });
+
+        patchConversation(activeConversation, {
+          updated_at: newMessage.created_at,
+          last_message: newMessage,
+          last_message_id: newMessage.id,
+        });
+
+        // If we are viewing this thread, mark as read immediately
+        if (user.id) {
+          await chatQueries.markAsRead(activeConversation, user.id);
+          patchConversation(activeConversation, { unread_count: 0 });
+        }
+      },
+    );
+
+    // OPTIONAL: typing here (you already have useTyping() per screen)
+    const unsubTyping = chatSubscriptions.subscribeToTypingStatus(
+      activeConversation,
+      (payload) => {
+        const d = payload?.new;
+        const typingMap = (d?.typing ?? undefined) as
+          | Record<string, boolean>
+          | undefined;
+
+        if (typingMap && user?.id) {
+          const next = new Set<string>();
+          for (const [uid, val] of Object.entries(typingMap)) {
+            if (uid !== user.id && val) next.add(uid);
+          }
+          setTypingUsers(next);
+        } else {
+          setTypingUsers(new Set());
+        }
+      },
+    );
+
     return () => {
-      unsubscribeMessages();
-      unsubscribeTyping();
+      unsubMessages?.();
+      unsubTyping?.();
     };
-  }, [activeConversation, user?.id, getConversation]);
+  }, [activeConversation, user?.id, patchConversation]);
 
   // Initial load
   useEffect(() => {
@@ -300,11 +364,12 @@ export const useChat = () => {
 
     loadConversations,
     loadMessages,
-    sendMessage,
-    updateTypingStatus,
-    createConversation,
-    selectConversation,
 
+    sendMessage,
+    updateTypingStatus, // kept for compatibility
+    createConversation,
+
+    selectConversation,
     getConversation,
   };
 };

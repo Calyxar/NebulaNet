@@ -1,10 +1,29 @@
-// hooks/useUnreadNotificationsCount.ts
+// hooks/useUnreadNotificationsCount.ts — FIREBASE ✅
+
 import { useAuth } from "@/hooks/useAuth";
+import { auth, db } from "@/lib/firebase";
 import {
-  getUnreadNotificationsCount,
-  subscribeToNotifications,
-} from "@/lib/supabase";
+  collection,
+  getDocs,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
+
+async function getUnreadNotificationsCount(): Promise<number> {
+  const user = auth.currentUser;
+  if (!user) return 0;
+
+  const snap = await getDocs(
+    query(
+      collection(db, "notifications"),
+      where("receiver_id", "==", user.uid),
+      where("read", "==", false),
+    ),
+  );
+  return snap.size;
+}
 
 export function useUnreadNotificationsCount() {
   const { user } = useAuth();
@@ -17,31 +36,31 @@ export function useUnreadNotificationsCount() {
     }
 
     let alive = true;
-    let cleanup: undefined | (() => void);
 
     const refresh = async () => {
       try {
         const next = await getUnreadNotificationsCount();
-        if (!alive) return;
-        setCount(next);
-      } catch {
-        // keep last known count; don't crash UI
-      }
+        if (alive) setCount(next);
+      } catch {}
     };
 
-    (async () => {
-      await refresh();
+    // Initial fetch
+    refresh();
 
-      // Subscribe AFTER initial fetch
-      cleanup = subscribeToNotifications(user.id, () => {
-        // fire and forget; refresh handles its own guards
-        refresh();
-      });
-    })();
+    // Real-time subscription (replaces subscribeToNotifications)
+    const q = query(
+      collection(db, "notifications"),
+      where("receiver_id", "==", user.uid),
+      where("read", "==", false),
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      if (alive) setCount(snap.size);
+    });
 
     return () => {
       alive = false;
-      cleanup?.();
+      unsub();
     };
   }, [user?.id]);
 

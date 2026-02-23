@@ -1,5 +1,11 @@
+// components/chat/ChatInput.tsx — FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
+// ✅ Replaces Supabase Storage uploads with Firebase Storage uploads
+// ✅ Keeps attachment preview/emoji/voice recording UI the same
+// ✅ Keeps the same "surface area": onSendMessage(message, attachments?)
+// ✅ Attachments now include: url (downloadURL) + storagePath (Firebase path)
+
 import { useTyping } from "@/hooks/useTyping";
-import { supabase } from "@/lib/supabase";
+import { uploadChatFile } from "@/lib/firestore/storage";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
@@ -27,22 +33,27 @@ import {
 import { v4 as uuidv4 } from "uuid";
 
 interface ChatInputProps {
-  onSendMessage: (message: string, attachments?: SupabaseAttachment[]) => void;
+  onSendMessage: (message: string, attachments?: ChatAttachment[]) => void;
   placeholder?: string;
   disabled?: boolean;
   conversationId?: string;
   userId?: string;
 }
 
-export interface SupabaseAttachment {
+/**
+ * ✅ Neutral attachment shape (works for Firebase)
+ * - url is a Firebase downloadURL
+ * - storagePath is where the file lives in Firebase Storage
+ */
+export interface ChatAttachment {
   url: string;
   type: "image" | "video" | "audio" | "file";
   name: string;
   size?: number;
   mimeType?: string;
   duration?: number;
-  bucket: string;
-  path: string;
+
+  storagePath: string;
 }
 
 interface LocalAttachment {
@@ -82,7 +93,7 @@ const commonEmojis: Emoji[] = [
   { emoji: "🎯", name: "Bullseye" },
 ];
 
-const BUCKETS = {
+const STORAGE_FOLDERS = {
   CHAT_MEDIA: "chat-media",
   VOICE_MESSAGES: "voice-messages",
   DOCUMENTS: "documents",
@@ -97,7 +108,7 @@ export default function ChatInput({
 }: ChatInputProps) {
   const { colors } = useTheme();
 
-  // Typing broadcasts (2) ✅
+  // Typing broadcasts ✅
   const { setTyping } = useTyping(conversationId, userId);
   const typingIdleTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -155,7 +166,6 @@ export default function ChatInput({
   const bumpTyping = async (text: string) => {
     if (!conversationId || !userId) return;
 
-    // user typed something
     if (text.trim().length > 0) {
       await setTyping(true);
       if (typingIdleTimer.current) clearTimeout(typingIdleTimer.current);
@@ -169,101 +179,90 @@ export default function ChatInput({
     }
   };
 
-  const handleSend = async () => {
-    if ((message.trim() || localAttachments.length > 0) && !isUploading) {
-      try {
-        setIsUploading(true);
-
-        // stop typing once message is sending
-        await setTyping(false);
-        if (typingIdleTimer.current) {
-          clearTimeout(typingIdleTimer.current);
-          typingIdleTimer.current = null;
-        }
-
-        const supabaseAttachments: SupabaseAttachment[] = [];
-
-        if (localAttachments.length > 0) {
-          for (const attachment of localAttachments) {
-            const uploadedAttachment = await uploadToSupabase(attachment);
-            if (uploadedAttachment)
-              supabaseAttachments.push(uploadedAttachment);
-          }
-        }
-
-        onSendMessage(
-          message.trim(),
-          supabaseAttachments.length > 0 ? supabaseAttachments : undefined,
-        );
-
-        setMessage("");
-        setLocalAttachments([]);
-        Keyboard.dismiss();
-      } catch (error) {
-        console.error("Error sending message:", error);
-        Alert.alert("Error", "Failed to send message. Please try again.");
-      } finally {
-        setIsUploading(false);
-      }
-    }
-  };
-
-  const uploadToSupabase = async (
+  const uploadToFirebaseStorage = async (
     attachment: LocalAttachment,
-  ): Promise<SupabaseAttachment | null> => {
+  ): Promise<ChatAttachment | null> => {
     try {
       const fileId = uuidv4();
-      let bucket = BUCKETS.CHAT_MEDIA;
-      let fileExtension = "jpg";
+
+      let folder = STORAGE_FOLDERS.CHAT_MEDIA;
+      let ext = "jpg";
 
       if (attachment.type === "audio") {
-        bucket = BUCKETS.VOICE_MESSAGES;
-        fileExtension = "m4a";
+        folder = STORAGE_FOLDERS.VOICE_MESSAGES;
+        ext = "m4a";
       } else if (attachment.type === "file") {
-        bucket = BUCKETS.DOCUMENTS;
+        folder = STORAGE_FOLDERS.DOCUMENTS;
         const parts = attachment.name.split(".");
-        fileExtension = parts.length > 1 ? parts[parts.length - 1] : "bin";
+        ext = parts.length > 1 ? parts[parts.length - 1] : "bin";
       } else if (attachment.type === "video") {
-        fileExtension = "mp4";
+        ext = "mp4";
       }
 
-      const fileName = `${fileId}.${fileExtension}`;
-      const filePath = `${userId || "anonymous"}/${conversationId || "direct"}/${fileName}`;
+      const fileName = `${fileId}.${ext}`;
 
-      const fileInfo = await FileSystem.getInfoAsync(attachment.uri);
-      if (!fileInfo.exists) throw new Error("File does not exist");
+      const safeUid = userId || "anonymous";
+      const safeConvo = conversationId || "direct";
+      const storagePath = `${folder}/${safeUid}/${safeConvo}/${fileName}`;
 
-      // Small/simple: always upload blob (works reliably across RN)
-      const response = await fetch(attachment.uri);
-      const fileBlob = await response.blob();
-
-      const { error } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, fileBlob, {
-          contentType: attachment.mimeType || "application/octet-stream",
-          upsert: true,
-        });
-
-      if (error) throw error;
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      const { downloadURL } = await uploadChatFile({
+        uri: attachment.uri,
+        storagePath,
+        contentType: attachment.mimeType || "application/octet-stream",
+      });
 
       return {
-        url: publicUrl,
+        url: downloadURL,
         type: attachment.type,
         name: attachment.name,
         size: attachment.size,
         mimeType: attachment.mimeType,
         duration: attachment.duration,
-        bucket,
-        path: filePath,
+        storagePath,
       };
     } catch (error) {
-      console.error("Error uploading to Supabase:", error);
+      console.error("Firebase upload failed:", error);
       Alert.alert("Upload Failed", `Failed to upload ${attachment.name}.`);
       return null;
+    }
+  };
+
+  const handleSend = async () => {
+    if ((!message.trim() && localAttachments.length === 0) || isUploading)
+      return;
+
+    try {
+      setIsUploading(true);
+
+      // stop typing once message is sending
+      await setTyping(false);
+      if (typingIdleTimer.current) {
+        clearTimeout(typingIdleTimer.current);
+        typingIdleTimer.current = null;
+      }
+
+      const chatAttachments: ChatAttachment[] = [];
+
+      if (localAttachments.length > 0) {
+        for (const attachment of localAttachments) {
+          const uploaded = await uploadToFirebaseStorage(attachment);
+          if (uploaded) chatAttachments.push(uploaded);
+        }
+      }
+
+      onSendMessage(
+        message.trim(),
+        chatAttachments.length > 0 ? chatAttachments : undefined,
+      );
+
+      setMessage("");
+      setLocalAttachments([]);
+      Keyboard.dismiss();
+    } catch (error) {
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message. Please try again.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -442,7 +441,7 @@ export default function ChatInput({
 
   const removeAttachment = (index: number) => {
     const attachment = localAttachments[index];
-    if (attachment.uri) {
+    if (attachment?.uri) {
       FileSystem.deleteAsync(attachment.uri).catch(console.warn);
     }
     setLocalAttachments((prev) => prev.filter((_, i) => i !== index));

@@ -1,8 +1,9 @@
-// app/_layout.tsx — COMPLETED + UPDATED (stable provider order + themed status bar)
+// app/_layout.tsx — UPDATED (adds ActionSheetProvider for cross-platform post menus)
 
 import { startInactivityWatcher } from "@/lib/inactivity";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
+import { ActionSheetProvider } from "@expo/react-native-action-sheet";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -63,23 +64,25 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <QueryClientProvider client={queryClient}>
-          {/* ✅ AuthProvider must wrap ThemeProvider (ThemeProvider needs user/settings) */}
-          <AuthProvider>
-            <ThemeProvider>
-              <ThemedStatusBar />
+        <ActionSheetProvider>
+          <QueryClientProvider client={queryClient}>
+            {/* ✅ AuthProvider must wrap ThemeProvider (ThemeProvider needs user/settings) */}
+            <AuthProvider>
+              <ThemeProvider>
+                <ThemedStatusBar />
 
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="boost/[postId]" />
-                <Stack.Screen name="settings" />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-            </ThemeProvider>
-          </AuthProvider>
-        </QueryClientProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="boost/[postId]" />
+                  <Stack.Screen name="settings" />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+              </ThemeProvider>
+            </AuthProvider>
+          </QueryClientProvider>
+        </ActionSheetProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

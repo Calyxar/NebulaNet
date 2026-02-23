@@ -1,6 +1,8 @@
-import { supabase } from "@/lib/supabase";
+// lib/queries/supportUpload.ts — FIREBASE STORAGE ✅
 
-const BUCKET = "support-screenshots";
+import { getStorage, ref, uploadBytes } from "firebase/storage";
+
+const storage = getStorage();
 
 export async function uploadSupportScreenshot(params: {
   uri: string;
@@ -9,20 +11,14 @@ export async function uploadSupportScreenshot(params: {
 }) {
   const { uri, userId, reportId } = params;
 
-  // Keep it simple: jpg path; you can detect mime if you want
-  const path = `${userId}/support/${reportId}.jpg`;
+  const path = `support-screenshots/${userId}/support/${reportId}.jpg`;
 
   const resp = await fetch(uri);
   const blob = await resp.blob();
 
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, blob, {
-      upsert: true,
-      contentType: "image/jpeg",
-    });
+  await uploadBytes(ref(storage, path), blob, {
+    contentType: "image/jpeg",
+  });
 
-  if (uploadError) throw uploadError;
-
-  return { bucket: BUCKET, path };
+  return { bucket: "support-screenshots", path };
 }

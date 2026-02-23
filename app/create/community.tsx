@@ -1,22 +1,37 @@
 // app/create/community.tsx — ✅ FULL Create Community (UI + upload + create + auto-join + route)
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import {
+  addDoc,
+  collection,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -43,11 +58,13 @@ async function ensureUniqueSlug(base: string) {
   for (let i = 0; i < 6; i++) {
     const attempt = i === 0 ? slug : `${slug}-${randomSuffix(5)}`;
 
-    const { data, error } = await supabase
-      .from("communities")
-      .select("id")
-      .eq("slug", attempt)
-      .maybeSingle();
+    const snapU = await getDocs(
+      query(
+        collection(db, "communities"),
+        where("slug", "==", attempt),
+        limit(1),
+      ),
+    );
 
     if (error) {
       // if slug column doesn’t exist, we just return attempt (fallback)
@@ -78,19 +95,12 @@ async function uploadCommunityImage(userId: string, uri: string) {
 
   const objectPath = `community/${userId}/${Date.now()}-${randomSuffix(8)}.${ext}`;
 
-  const { error: upErr } = await supabase.storage
-    .from(bucket)
-    .upload(objectPath, blob, {
-      upsert: false,
-      contentType: blob.type || undefined,
-    });
-
-  if (upErr) throw upErr;
-
-  const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
-  if (!data?.publicUrl) throw new Error("Could not get public URL for image");
-
-  return data.publicUrl;
+  const storage = getStorage();
+  const fileRef = storageRef(storage, objectPath);
+  await uploadBytes(fileRef, blob, { contentType: blob.type || undefined });
+  const publicUrl = await getDownloadURL(fileRef);
+  if (!publicUrl) throw new Error("Could not get download URL for image");
+  return publicUrl;
 }
 
 export default function CreateCommunityScreen() {
@@ -177,12 +187,17 @@ export default function CreateCommunityScreen() {
       payload.owner_id = user.id;
 
       // Insert community
-      const { data: created, error: cErr } = await supabase
-        .from("communities")
-        .insert(payload)
-        .select("id, slug")
-        .single();
-
+      let created: { id: string; slug: string } | null = null;
+      let cErr: any = null;
+      try {
+        const ref = await addDoc(collection(db, "communities"), {
+          ...payload,
+          created_at: serverTimestamp(),
+        });
+        created = { id: ref.id, slug: payload.slug };
+      } catch (e) {
+        cErr = e;
+      }
       if (cErr) {
         // If error due to missing columns, retry with minimal payload
         const msg = cErr.message || "";
@@ -198,28 +213,21 @@ export default function CreateCommunityScreen() {
             member_count: 1,
           };
 
-          const retry = await supabase
-            .from("communities")
-            .insert(minimal)
-            .select("id, slug")
-            .single();
-
-          if (retry.error) throw retry.error;
-          if (!retry.data) throw new Error("Failed to create community");
-          // continue using retry.data
-          const commId = retry.data.id as string;
-          const commSlug = retry.data.slug as string;
-
-          // auto join (best effort)
-          await supabase.from("community_members").insert({
-            community_id: commId,
-            user_id: user.id,
+          const retryRef = await addDoc(collection(db, "communities"), {
+            ...minimal,
+            created_at: serverTimestamp(),
           });
-
-          // auto moderator (best effort)
-          await supabase.from("community_moderators").insert({
+          const commId = retryRef.id;
+          const commSlug = minimal.slug as string;
+          await addDoc(collection(db, "community_members"), {
             community_id: commId,
-            user_id: user.id,
+            user_id: auth.currentUser!.uid,
+            joined_at: serverTimestamp(),
+          });
+          await addDoc(collection(db, "community_moderators"), {
+            community_id: commId,
+            user_id: auth.currentUser!.uid,
+            created_at: serverTimestamp(),
           });
 
           Alert.alert("Success", "Community created!", [
@@ -237,16 +245,15 @@ export default function CreateCommunityScreen() {
       if (!created?.id || !created?.slug)
         throw new Error("Failed to create community");
 
-      // Auto-join creator (best effort)
-      await supabase.from("community_members").insert({
+      await addDoc(collection(db, "community_members"), {
         community_id: created.id,
-        user_id: user.id,
+        user_id: auth.currentUser!.uid,
+        joined_at: serverTimestamp(),
       });
-
-      // Auto-moderator creator (best effort)
-      await supabase.from("community_moderators").insert({
+      await addDoc(collection(db, "community_moderators"), {
         community_id: created.id,
-        user_id: user.id,
+        user_id: auth.currentUser!.uid,
+        created_at: serverTimestamp(),
       });
 
       Alert.alert("Success", "Community created!", [

@@ -1,9 +1,10 @@
 // app/settings/deactivate.tsx
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { useState } from "react";
 import {
   Alert,
@@ -28,12 +29,10 @@ export default function DeactivateAccountScreen() {
     const email = user?.email || "";
     if (!email) throw new Error("Missing email");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) throw new Error("Incorrect password. Please try again.");
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error("Not signed in");
+    const credential = EmailAuthProvider.credential(email, password);
+    await reauthenticateWithCredential(currentUser, credential);
   };
 
   const handleDeactivate = () => {

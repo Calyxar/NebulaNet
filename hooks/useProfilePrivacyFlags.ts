@@ -1,5 +1,8 @@
-import { supabase } from "@/lib/supabase";
+// hooks/useProfilePrivacyFlags.ts — FIREBASE ✅
+
+import { db } from "@/lib/firebase";
 import { useQuery } from "@tanstack/react-query";
+import { doc, getDoc } from "firebase/firestore";
 
 export type ProfilePrivacyFlags = {
   id: string;
@@ -13,14 +16,15 @@ export function useProfilePrivacyFlags(profileId?: string) {
     queryKey: ["profile-privacy-flags", profileId],
     enabled: !!profileId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,is_private,hide_followers,hide_following")
-        .eq("id", profileId!)
-        .single();
-
-      if (error) throw error;
-      return data as ProfilePrivacyFlags;
+      const snap = await getDoc(doc(db, "profiles", profileId!));
+      if (!snap.exists()) throw new Error("Profile not found");
+      const d = snap.data() as any;
+      return {
+        id: snap.id,
+        is_private: d.is_private ?? false,
+        hide_followers: d.hide_followers ?? false,
+        hide_following: d.hide_following ?? false,
+      } as ProfilePrivacyFlags;
     },
   });
 }

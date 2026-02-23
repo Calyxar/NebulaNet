@@ -1,9 +1,5 @@
-// app/(auth)/onboarding.tsx — COMPLETED + UPDATED ✅
-// Fixes included:
-// ✅ No POP_TO_TOP warning (no dismissAll / popToTop)
-// ✅ Redirect only when logged in + completed
-// ✅ Prevents double-tap Skip/Continue
-// ✅ Skip + Continue both consistent + safe
+// app/(auth)/onboarding.tsx — FIREBASE ✅
+// ✅ Fix: Firebase user uses uid (not id)
 
 import { useAuth } from "@/hooks/useAuth";
 import { router } from "expo-router";
@@ -62,12 +58,10 @@ export default function OnboardingScreen() {
 
   // ✅ If already completed, exit onboarding safely (only when logged in)
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.uid) return;
     if (!hasCompletedOnboarding) return;
-
     router.replace("/(tabs)/home");
-     
-  }, [user?.id, hasCompletedOnboarding]);
+  }, [user?.uid, hasCompletedOnboarding]);
 
   const toggleInterest = (interestId: string) => {
     if (isLoading) return;
@@ -81,17 +75,12 @@ export default function OnboardingScreen() {
   };
 
   const requireAuthOrSendToLogin = () => {
-    if (user?.id) return true;
+    if (user?.uid) return true;
 
     Alert.alert(
       "Authentication Required",
       "Please sign in or sign up to continue.",
-      [
-        {
-          text: "OK",
-          onPress: () => router.replace("/(auth)/login"),
-        },
-      ],
+      [{ text: "OK", onPress: () => router.replace("/(auth)/login") }],
     );
 
     return false;
@@ -105,10 +94,9 @@ export default function OnboardingScreen() {
 
     setIsLoading(true);
     try {
-      await markOnboardingCompleted([]); // mark complete, no interests
+      await markOnboardingCompleted([]);
     } catch (e) {
       console.error("Onboarding skip error:", e);
-      // still proceed so user isn't stuck
     } finally {
       setIsLoading(false);
       goHome();
@@ -119,10 +107,7 @@ export default function OnboardingScreen() {
     if (isLoading) return;
 
     if (selectedCount === 0) {
-      Alert.alert(
-        "Select Interests",
-        "Please select at least one interest to continue.",
-      );
+      Alert.alert("Select Interests", "Please select at least one interest.");
       return;
     }
 
@@ -148,7 +133,6 @@ export default function OnboardingScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
         <View
           style={[
             styles.header,
@@ -172,7 +156,6 @@ export default function OnboardingScreen() {
           </Text>
         </View>
 
-        {/* Progress */}
         <View
           style={[
             styles.progressContainer,
@@ -188,7 +171,6 @@ export default function OnboardingScreen() {
           </View>
         </View>
 
-        {/* Interests Grid */}
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -228,7 +210,6 @@ export default function OnboardingScreen() {
           </View>
         </ScrollView>
 
-        {/* Continue */}
         <View style={styles.footer}>
           <TouchableOpacity
             style={[

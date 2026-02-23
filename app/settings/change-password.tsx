@@ -1,8 +1,14 @@
 // app/settings/change-password.tsx
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+  updatePassword,
+} from "firebase/auth";
 import { useState } from "react";
 import {
   Alert,
@@ -71,25 +77,19 @@ export default function ChangePasswordScreen() {
 
     try {
       // First, verify current password by signing in
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || "",
-        password: formData.currentPassword,
-      });
-
-      if (signInError) {
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) throw new Error("Not signed in");
+      const credential = EmailAuthProvider.credential(
+        currentUser.email,
+        formData.currentPassword,
+      );
+      try {
+        await reauthenticateWithCredential(currentUser, credential);
+      } catch {
         Alert.alert("Error", "Current password is incorrect");
         return;
       }
-
-      // Update to new password using Supabase
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: formData.newPassword,
-      });
-
-      if (updateError) {
-        Alert.alert("Error", updateError.message || "Failed to update password");
-        return;
-      }
+      await updatePassword(currentUser, formData.newPassword);
 
       // Clear form
       setFormData({
@@ -118,14 +118,7 @@ export default function ChangePasswordScreen() {
           text: "Send Reset Link",
           onPress: async () => {
             try {
-              const { error } = await supabase.auth.resetPasswordForEmail(
-                user?.email || "",
-                {
-                  redirectTo: `${process.env.EXPO_PUBLIC_APP_URL}/reset-password`,
-                },
-              );
-
-              if (error) throw error;
+              await sendPasswordResetEmail(auth, user?.email || "");
 
               Alert.alert(
                 "Reset Link Sent",

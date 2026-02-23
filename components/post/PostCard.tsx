@@ -1,4 +1,4 @@
-// components/post/PostCard.tsx
+// components/post/PostCard.tsx — UPDATED (tap-to-open + ActionSheet + Android-safe menu)
 import Avatar from "@/components/user/Avatar";
 import {
   copyLink,
@@ -6,16 +6,19 @@ import {
   shareToChat,
   shareWithOptions,
 } from "@/lib/share";
+import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-
-type AlertAction = {
-  text: string;
-  onPress?: () => void;
-  style?: "default" | "cancel" | "destructive";
-};
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type AlertButton,
+} from "react-native";
 
 interface PostCardProps {
   id: string;
@@ -50,36 +53,39 @@ interface PostCardProps {
 
   /**
    * Optional: allow parent to ADD actions (not replace).
-   * Return extra Alert actions to append.
+   * Return extra Alert-like buttons to append.
    */
-  getMoreActions?: () => AlertAction[];
+  getMoreActions?: () => AlertButton[];
 
   /* analytics */
   onVisible?: () => void;
 }
 
-export default function PostCard({
-  id,
-  title,
-  content,
-  author,
-  community,
-  timestamp,
-  likes,
-  comments,
-  shares,
-  saves,
-  isLiked,
-  isSaved,
-  media,
-  viewCount,
-  onLikePress,
-  onCommentPress,
-  onSharePress,
-  onSavePress,
-  getMoreActions,
-  onVisible,
-}: PostCardProps) {
+export default function PostCard(props: PostCardProps) {
+  const {
+    id,
+    title,
+    content,
+    author,
+    community,
+    timestamp,
+    likes,
+    comments,
+    shares,
+    saves,
+    isLiked,
+    isSaved,
+    media,
+    viewCount,
+    onLikePress,
+    onSharePress,
+    onSavePress,
+    getMoreActions,
+    onVisible,
+  } = props;
+
+  const { showActionSheetWithOptions } = useActionSheet();
+
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -92,6 +98,10 @@ export default function PostCard({
     }
   }, [onVisible]);
 
+  const openPost = () => {
+    router.push(`/post/${id}` as any);
+  };
+
   const handleLike = async () => {
     await onLikePress?.();
   };
@@ -102,7 +112,6 @@ export default function PostCard({
 
   const handleShare = async () => {
     if (isSharing) return;
-
     setIsSharing(true);
     try {
       await shareWithOptions({ id, title, content, author });
@@ -116,7 +125,6 @@ export default function PostCard({
 
   const handleShareToChat = async () => {
     if (isSharing) return;
-
     setIsSharing(true);
     try {
       await shareToChat({ id, title, content, author });
@@ -132,44 +140,66 @@ export default function PostCard({
     router.push(`/boost/${id}` as any);
   };
 
+  const handleCopyLink = async () => {
+    const link = generatePostLink(id);
+    await copyLink(link, "Post link");
+    await onSharePress?.();
+  };
+
+  const handleReport = () => {
+    Alert.alert("Report", "Reporting will be available soon.");
+  };
+
   const handleMoreOptions = () => {
-    const base: AlertAction[] = [
+    const baseButtons: AlertButton[] = [
+      { text: "View Post", onPress: openPost },
       { text: "Boost Post", onPress: handleBoost },
-      { text: "Share to Chat", onPress: handleShareToChat },
-      {
-        text: "Copy Link",
-        onPress: async () => {
-          const link = generatePostLink(id);
-          await copyLink(link, "Post link");
-          await onSharePress?.();
-        },
-      },
-      {
-        text: "Report Post",
-        style: "destructive",
-        onPress: () =>
-          Alert.alert("Report", "Reporting will be available soon."),
-      },
+      { text: "Share to Chat", onPress: () => void handleShareToChat() },
+      { text: "Copy Link", onPress: () => void handleCopyLink() },
+      { text: "Report Post", style: "destructive", onPress: handleReport },
     ];
 
-    const extra = getMoreActions?.() ?? [];
+    const extraButtons = getMoreActions?.() ?? [];
 
-    Alert.alert("More Options", undefined, [
-      ...base,
-      ...extra,
-      { text: "Cancel", style: "cancel" },
-    ]);
+    // Convert to ActionSheet options
+    const allButtons = [...baseButtons, ...extraButtons];
+
+    const options = [...allButtons.map((b) => b.text ?? "Option"), "Cancel"];
+
+    const cancelButtonIndex = options.length - 1;
+
+    // pick the FIRST destructive we find
+    const destructiveIndex = allButtons.findIndex(
+      (b) => b.style === "destructive",
+    );
+    const destructiveButtonIndex =
+      destructiveIndex >= 0 ? destructiveIndex : undefined;
+
+    showActionSheetWithOptions(
+      { options, cancelButtonIndex, destructiveButtonIndex },
+      (selectedIndex) => {
+        if (selectedIndex == null) return;
+        if (selectedIndex === cancelButtonIndex) return;
+
+        const btn = allButtons[selectedIndex];
+        btn?.onPress?.();
+      },
+    );
   };
 
   const displayContent =
     expanded || content.length <= 150 ? content : `${content.slice(0, 150)}…`;
 
   return (
-    <View style={styles.container}>
+    <Pressable onPress={openPost} style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Link href={`/user/${author.username}`} asChild>
-          <TouchableOpacity style={styles.authorInfo}>
+          <TouchableOpacity
+            style={styles.authorInfo}
+            onPress={(e) => e.stopPropagation?.()}
+            activeOpacity={0.85}
+          >
             <Avatar size={40} name={author.name} image={author.avatar} />
             <View style={styles.authorDetails}>
               <Text style={styles.authorName}>{author.name}</Text>
@@ -184,8 +214,13 @@ export default function PostCard({
         <View style={styles.headerRight}>
           <Text style={styles.timestamp}>{timestamp}</Text>
           <TouchableOpacity
-            onPress={handleMoreOptions}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              handleMoreOptions();
+            }}
             style={styles.moreButton}
+            hitSlop={12}
+            activeOpacity={0.8}
           >
             <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
           </TouchableOpacity>
@@ -201,7 +236,10 @@ export default function PostCard({
           {content.length > 150 && (
             <Text
               style={styles.readMore}
-              onPress={() => setExpanded(!expanded)}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                setExpanded((v) => !v);
+              }}
             >
               {expanded ? " Show less" : " Read more"}
             </Text>
@@ -242,9 +280,12 @@ export default function PostCard({
           onPress={handleLike}
         />
 
-        <Link href={`/post/${id}`} asChild>
-          <Action icon="chatbubble-outline" label="Comment" />
-        </Link>
+        {/* Comment still goes to post detail */}
+        <Action
+          icon="chatbubble-outline"
+          label="Comment"
+          onPress={() => openPost()}
+        />
 
         <Action
           icon={isSharing ? "sync" : "arrow-redo-outline"}
@@ -260,7 +301,7 @@ export default function PostCard({
           onPress={handleSave}
         />
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -291,20 +332,22 @@ function Action({
   color = "#666",
   disabled,
   onPress,
-  children,
 }: {
   icon: any;
   label: string;
   color?: string;
   disabled?: boolean;
   onPress?: () => void;
-  children?: React.ReactNode;
 }) {
-  const content = (
+  return (
     <TouchableOpacity
       style={styles.actionButton}
-      onPress={onPress}
+      onPress={(e) => {
+        e.stopPropagation?.();
+        onPress?.();
+      }}
       disabled={disabled}
+      activeOpacity={0.85}
     >
       <Ionicons name={icon} size={22} color={color} />
       <Text style={[styles.actionText, color !== "#666" && { color }]}>
@@ -312,8 +355,6 @@ function Action({
       </Text>
     </TouchableOpacity>
   );
-
-  return children ? children : content;
 }
 
 const styles = StyleSheet.create({

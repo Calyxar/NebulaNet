@@ -14,12 +14,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+  updatePassword,
+} from "firebase/auth";
 
 type PasswordForm = { current: string; next: string; confirm: string };
-
-const emailVerified = (user: { email_confirmed_at?: string | null } | null) =>
-  !!user?.email_confirmed_at;
 
 export default function SecurityScreen() {
   const { user } = useAuth();
@@ -54,25 +57,22 @@ export default function SecurityScreen() {
       return;
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: user?.email || "",
-      password: passwordData.current,
-    });
-
-    if (signInError) {
-      Alert.alert("Error", "Current password incorrect");
-      return;
-    }
-
     setIsUpdatingPassword(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: passwordData.next,
-      });
-      if (updateError) {
-        Alert.alert("Error", updateError.message ?? "Failed to update password");
+      const currentUser = auth.currentUser;
+      if (!currentUser?.email) throw new Error("Not signed in");
+      const credential = EmailAuthProvider.credential(
+        currentUser.email,
+        passwordData.current,
+      );
+      try {
+        await reauthenticateWithCredential(currentUser, credential);
+      } catch {
+        Alert.alert("Error", "Current password incorrect");
+        setIsUpdatingPassword(false);
         return;
       }
+      await updatePassword(currentUser, passwordData.next);
       setShowPasswordForm(false);
       setPasswordData({ current: "", next: "", confirm: "" });
       Alert.alert("Success", "Password updated");
@@ -93,14 +93,14 @@ export default function SecurityScreen() {
             if (!email?.trim()) return;
             setIsResettingPassword(true);
             try {
-              const { error } = await supabase.auth.resetPasswordForEmail(
-                email.trim(),
-                { redirectTo: undefined },
-              );
-              if (error) {
-                Alert.alert("Error", error.message ?? "Failed to send reset email");
-              } else {
+              try {
+                await sendPasswordResetEmail(auth, email.trim());
                 Alert.alert("Success", "Check your email for the reset link");
+              } catch (e: any) {
+                Alert.alert(
+                  "Error",
+                  e?.message ?? "Failed to send reset email",
+                );
               }
             } finally {
               setIsResettingPassword(false);
@@ -151,18 +151,24 @@ export default function SecurityScreen() {
               <View style={styles.rowIcon}>
                 <Ionicons
                   name={
-                    emailVerified(user)
+                    (auth.currentUser?.emailVerified ?? false)
                       ? "checkmark-circle"
                       : "warning-outline"
                   }
                   size={18}
-                  color={emailVerified(user) ? "#16A34A" : "#F59E0B"}
+                  color={
+                    (auth.currentUser?.emailVerified ?? false)
+                      ? "#16A34A"
+                      : "#F59E0B"
+                  }
                 />
               </View>
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle}>Email Verification</Text>
                 <Text style={styles.rowDesc}>
-                  {emailVerified(user) ? "Verified" : "Unverified"}
+                  {(auth.currentUser?.emailVerified ?? false)
+                    ? "Verified"
+                    : "Unverified"}
                 </Text>
               </View>
             </View>

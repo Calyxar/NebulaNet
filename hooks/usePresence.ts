@@ -1,6 +1,7 @@
-// hooks/usePresence.ts — UPDATED (no implicit any, safe types)
+// hooks/usePresence.ts — FIREBASE ✅
 
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
@@ -9,30 +10,21 @@ export type PresenceStatus = "online" | "offline" | "away";
 export function usePresence(userId?: string) {
   useEffect(() => {
     if (!userId) return;
-
     let mounted = true;
 
     const setStatus = async (status: PresenceStatus) => {
       if (!mounted) return;
-
-      // expects: user_presence(user_id uuid primary key, status text, last_seen timestamptz)
-      await supabase.from("user_presence").upsert(
-        {
-          user_id: userId,
-          status,
-          last_seen: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
+      await setDoc(
+        doc(db, "user_presence", userId),
+        { user_id: userId, status, last_seen: serverTimestamp() },
+        { merge: true },
       );
     };
 
-    // initial
     setStatus("online").catch(() => {});
 
-    // app foreground/background
     const onAppStateChange = (state: AppStateStatus) => {
-      const next: PresenceStatus = state === "active" ? "online" : "away";
-      setStatus(next).catch(() => {});
+      setStatus(state === "active" ? "online" : "away").catch(() => {});
     };
 
     const sub = AppState.addEventListener("change", onAppStateChange);
@@ -40,8 +32,6 @@ export function usePresence(userId?: string) {
     return () => {
       mounted = false;
       sub.remove();
-
-      // best-effort offline
       setStatus("offline").catch(() => {});
     };
   }, [userId]);

@@ -1,0 +1,53 @@
+[debug] [2026-02-21T03:21:21.478Z] [Firebase Plugin] Activating Firebase extension.
+[debug] [2026-02-23T00:21:38.569Z] [Firebase Plugin] Activating Firebase extension.
+[info] [Firebase Plugin] Checked firebase-tools, is up to date!
+[debug] [2026-02-23T00:21:48.061Z] [Firebase Plugin] requireAuthWrapper
+[debug] [2026-02-23T00:21:48.061Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-23T00:21:48.062Z] > authorizing via signed-in user (alyssajbaker04@gmail.com)
+[debug] [2026-02-23T00:21:48.063Z] Checked if tokens are valid: false, expires at: 1771606889803
+[debug] [2026-02-23T00:21:48.064Z] Checked if tokens are valid: false, expires at: 1771606889803
+[debug] [2026-02-23T00:21:48.064Z] > refreshing access token with scopes: []
+[debug] [2026-02-23T00:21:48.065Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-02-23T00:21:48.065Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-02-23T00:21:48.071Z] [Firebase Plugin] VSCode notification server listening on port 40001
+[debug] [2026-02-23T00:21:49.067Z] Object "/functions" in "firebase.json" has unknown property: {"additionalProperty":"root"}
+[debug] [2026-02-23T00:21:49.067Z] Object "/functions" in "firebase.json" is missing required property: {"missingProperty":"remoteSource"}
+[debug] [2026-02-23T00:21:49.067Z] Field "/functions" in "firebase.json" is possibly invalid: must be array
+[debug] [2026-02-23T00:21:49.067Z] Field "/functions" in "firebase.json" is possibly invalid: must match a schema in anyOf
+[info] [Firebase Plugin] Starting Data Connect toolkit (version 3.1.1) on port 50001
+[info] i  dataconnect: downloading dataconnect-emulator-3.1.1.exe... {"metadata":{"emulator":{"name":"dataconnect"},"message":"downloading dataconnect-emulator-3.1.1.exe..."}}
+[debug] [2026-02-23T00:21:49.071Z] >>> [apiv2][query] GET https://storage.googleapis.com/firemat-preview-drop/emulator/dataconnect-emulator-windows-amd64-v3.1.1 
+[debug] [2026-02-23T00:21:49.476Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-02-23T00:21:49.476Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-02-23T00:21:49.490Z] [Firebase Plugin] User found:  alyssajbaker04@gmail.com
+[info] [Firebase Plugin] (Core:Project) New user detected, fetching projects
+[debug] [2026-02-23T00:21:49.491Z] Checked if tokens are valid: true, expires at: 1771809708476
+[debug] [2026-02-23T00:21:49.491Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=1000
+[debug] [2026-02-23T00:21:49.629Z] <<< [apiv2][status] GET https://storage.googleapis.com/firemat-preview-drop/emulator/dataconnect-emulator-windows-amd64-v3.1.1 200
+[debug] [2026-02-23T00:21:49.629Z] <<< [apiv2][body] GET https://storage.googleapis.com/firemat-preview-drop/emulator/dataconnect-emulator-windows-amd64-v3.1.1 [stream]
+[debug] [2026-02-23T00:21:50.257Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2026-02-23T00:21:50.257Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] i  dataconnect: Removing outdated emulator files: dataconnect-emulator-2.6.3.exe {"metadata":{"emulator":{"name":"dataconnect"},"message":"Removing outdated emulator files: dataconnect-emulator-2.6.3.exe"}}
+[debug] [2026-02-23T00:21:54.911Z] 'fdc build' failed with error: Unable to build your Data Connect schema and connectors (exit code 1): E0222 18:21:54.907805   26944 cmd.go:43] Error loading data connect config: could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"'fdc build' failed with error: Unable to build your Data Connect schema and connectors (exit code 1): E0222 18:21:54.907805   26944 cmd.go:43] Error loading data connect config: could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[debug] [2026-02-23T00:21:54.912Z] Ignoring unsupported arg: auto_download {"metadata":{"emulator":{"name":"dataconnect"},"message":"Ignoring unsupported arg: auto_download"}}
+[debug] [2026-02-23T00:21:54.912Z] Ignoring unsupported arg: port {"metadata":{"emulator":{"name":"dataconnect"},"message":"Ignoring unsupported arg: port"}}
+[debug] [2026-02-23T00:21:54.912Z] Starting Data Connect Emulator with command {"binary":"C:\\Users\\Alyssa Baker\\.cache\\firebase\\emulators\\dataconnect-emulator-3.1.1.exe","args":["--logtostderr","-v=2","dev","--listen=localhost:50001","--config_dir=c:\\NebulaNet\\dataconnect","--enable_output_schema_extensions=true","--enable_output_generated_sdk=true"],"optionalArgs":["listen","config_dir","enable_output_schema_extensions","enable_output_generated_sdk"],"joinArgs":true,"shell":false,"port":9399} {"metadata":{"emulator":{"name":"dataconnect"},"message":"Starting Data Connect Emulator with command {\"binary\":\"C:\\\\Users\\\\Alyssa Baker\\\\.cache\\\\firebase\\\\emulators\\\\dataconnect-emulator-3.1.1.exe\",\"args\":[\"--logtostderr\",\"-v=2\",\"dev\",\"--listen=localhost:50001\",\"--config_dir=c:\\\\NebulaNet\\\\dataconnect\",\"--enable_output_schema_extensions=true\",\"--enable_output_generated_sdk=true\"],\"optionalArgs\":[\"listen\",\"config_dir\",\"enable_output_schema_extensions\",\"enable_output_generated_sdk\"],\"joinArgs\":true,\"shell\":false,\"port\":9399}"}}
+[info] i  dataconnect: Data Connect Emulator logging to dataconnect-debug.log {"metadata":{"emulator":{"name":"dataconnect"},"message":"Data Connect Emulator logging to \u001b[1mdataconnect-debug.log\u001b[22m"}}
+[debug] [2026-02-23T00:21:54.936Z] E0222 18:21:54.929817   22604 dev.go:83] Failed to load initial config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+E0222 18:21:54.930347   22604 watch.go:116] watchAllDir unable to walk dir `c:\NebulaNet\dataconnect`: CreateFile c:\NebulaNet\dataconnect: The system cannot find the file specified.
+I0222 18:21:54.936612   22604 dev.go:104] Listening on address (HTTP + gRPC): 127.0.0.1:50001
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:21:54.929817   22604 dev.go:83] Failed to load initial config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\nE0222 18:21:54.930347   22604 watch.go:116] watchAllDir unable to walk dir `c:\\NebulaNet\\dataconnect`: CreateFile c:\\NebulaNet\\dataconnect: The system cannot find the file specified.\nI0222 18:21:54.936612   22604 dev.go:104] Listening on address (HTTP + gRPC): 127.0.0.1:50001\n"}}
+[error] [Firebase Plugin] error:  {}
+[debug] [2026-02-23T00:22:04.930Z] E0222 18:22:04.930516   22604 watch.go:40] Failed to load config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:22:04.930516   22604 watch.go:40] Failed to load config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[debug] [2026-02-23T00:22:14.931Z] E0222 18:22:14.930720   22604 watch.go:40] Failed to load config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:22:14.930720   22604 watch.go:40] Failed to load config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[debug] [2026-02-23T00:22:24.930Z] E0222 18:22:24.930673   22604 watch.go:40] Failed to load config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:22:24.930673   22604 watch.go:40] Failed to load config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[debug] [2026-02-23T00:22:34.930Z] E0222 18:22:34.930624   22604 watch.go:40] Failed to load config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:22:34.930624   22604 watch.go:40] Failed to load config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[debug] [2026-02-23T00:22:44.930Z] E0222 18:22:44.930652   22604 watch.go:40] Failed to load config from "c:\\NebulaNet\\dataconnect": could not find dataconnect.yaml in `c:\NebulaNet\dataconnect`
+ {"metadata":{"emulator":{"name":"dataconnect"},"message":"E0222 18:22:44.930652   22604 watch.go:40] Failed to load config from \"c:\\\\NebulaNet\\\\dataconnect\": could not find dataconnect.yaml in `c:\\NebulaNet\\dataconnect`\n"}}
+[info] [Firebase Plugin] Stopping Data Connect toolkit
+[warn] !  Data Connect Emulator has exited upon receiving signal: SIGINT 

@@ -1,15 +1,28 @@
-// providers/AuthProvider.tsx — COMPLETED + UPDATED ✅
-// Fixes:
-// ✅ No "language column" error: only write safe columns + preferences JSON
-// ✅ No duplicate key error: upsert with onConflict: "user_id"
-// ✅ Better typing + safer guards
+// providers/AuthProvider.tsx — FIREBASE ✅ (DROP-IN STYLE)
+// Replaces Supabase with Firebase Auth + Firestore
+// ✅ Sends email verification on signup
+// ✅ Optional: block email/password login if not verified
+// ✅ Works with emulator wiring in lib/firebase.ts
 
-import { supabase } from "@/lib/supabase";
-import type {
-  AuthChangeEvent,
-  Session,
-  User as SupabaseUser,
-} from "@supabase/supabase-js";
+import { auth, db } from "@/lib/firebase";
+import type { User as FirebaseUserBase } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
+
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  type Timestamp,
+} from "firebase/firestore";
 
 import {
   useMutation,
@@ -20,12 +33,17 @@ import {
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+
+// ✅ Extend FirebaseUser to add `id` as alias for `uid`
+// This fixes all `user.id` references across the app
+export type FirebaseUser = FirebaseUserBase & { id: string };
 
 /* =========================================================
    TYPES
@@ -58,12 +76,10 @@ export type UserSettingsRow = {
 
   theme_preference: ThemePreference | null;
 
-  // ✅ SAFE: preferences JSON (works even if table doesn't have individual locale columns)
   preferences?: Preferences | null;
 
   updated_at: string | null;
 
-  // ❗ Keep these optional in type if you want, but DO NOT send them to DB
   language?: string | null;
   region?: string | null;
   localized_content?: boolean | null;
@@ -77,15 +93,14 @@ type LoginVars = { email: string; password: string };
 type SignupVars = { email: string; password: string; userData?: any };
 type GoogleVars = { idToken: string; accessToken?: string };
 
-type LoginResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
-type SignupResult = Awaited<ReturnType<typeof supabase.auth.signUp>>;
-type GoogleLoginResult = Awaited<
-  ReturnType<typeof supabase.auth.signInWithIdToken>
->;
+// Firebase mutation result types
+type LoginResult = Awaited<ReturnType<typeof signInWithEmailAndPassword>>;
+type SignupResult = Awaited<ReturnType<typeof createUserWithEmailAndPassword>>;
+type GoogleLoginResult = Awaited<ReturnType<typeof signInWithCredential>>;
 
 interface AuthContextType {
-  user: SupabaseUser | null;
-  session: Session | null;
+  user: FirebaseUser | null;
+  session: null; // keep compatibility
   profile: Profile | null;
   userSettings: UserSettingsRow | null;
 
@@ -118,8 +133,32 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const NO_ROWS = "PGRST116";
-const isNoRowsError = (err: any) => err?.code === NO_ROWS;
+/* =========================================================
+   CONFIG
+========================================================= */
+
+// Toggle if you want to block email/password login until email verified
+const REQUIRE_EMAIL_VERIFICATION = false;
+
+/* =========================================================
+   HELPERS: Firestore paths
+========================================================= */
+
+const profileDocRef = (uid: string) => doc(db, "profiles", uid);
+const settingsDocRef = (uid: string) => doc(db, "user_settings", uid);
+const interestsDocRef = (uid: string) => doc(db, "user_interests", uid);
+
+function tsToIso(value: any): string | null {
+  // Supports Firestore Timestamp, ISO string, null/undefined
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  const maybeTs = value as Timestamp;
+  // Firestore Timestamp has toDate()
+  if (typeof (maybeTs as any)?.toDate === "function") {
+    return maybeTs.toDate().toISOString();
+  }
+  return null;
+}
 
 /* =========================================================
    PROVIDER
@@ -128,45 +167,30 @@ const isNoRowsError = (err: any) => err?.code === NO_ROWS;
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
 
-  const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   /* ============================
-     SESSION HYDRATION
+     AUTH STATE (Firebase)
   ============================ */
 
   useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const res = await supabase.auth.getSession();
-      if (cancelled) return;
-
-      const s = res.data?.session ?? null;
-      setSession(s);
-      setUser(s?.user ?? null);
+    const unsub = onAuthStateChanged(auth, (u) => {
+      // ✅ Attach `id` as alias for `uid` so user.id works everywhere
+      if (u) {
+        (u as any).id = u.uid;
+      }
+      setUser((u as FirebaseUser) ?? null);
       setHydrated(true);
-    })();
-
-    const { data } = supabase.auth.onAuthStateChange(
-      (_: AuthChangeEvent, s: Session | null) => {
-        setSession(s ?? null);
-        setUser(s?.user ?? null);
-        setHydrated(true);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-      data.subscription.unsubscribe();
-    };
+    });
+    return unsub;
   }, []);
 
-  const userId = user?.id;
+  const userId = user?.uid;
 
   /* ============================
-     PROFILE
+     PROFILE (Firestore)
+     profiles/{uid}
   ============================ */
 
   const { data: profile, isLoading: isProfileLoading } =
@@ -174,19 +198,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryKey: ["profile", userId],
       enabled: !!userId && hydrated,
       queryFn: async () => {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId!)
-          .maybeSingle();
+        if (!userId) return null;
 
-        if (error && !isNoRowsError(error)) return null;
-        return (data as Profile) ?? null;
+        const snap = await getDoc(profileDocRef(userId));
+        if (!snap.exists()) return null;
+
+        const d = snap.data() as any;
+
+        const createdAt =
+          d.created_at ?? tsToIso(d.created_at_ts) ?? new Date().toISOString();
+
+        const updatedAt =
+          d.updated_at ?? tsToIso(d.updated_at_ts) ?? new Date().toISOString();
+
+        return {
+          id: userId,
+          username: d.username ?? "",
+          full_name: d.full_name ?? null,
+          avatar_url: d.avatar_url ?? null,
+          bio: d.bio ?? null,
+          location: d.location ?? null,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        };
       },
     });
 
   /* ============================
-     USER SETTINGS
+     USER SETTINGS (Firestore)
+     user_settings/{uid}
   ============================ */
 
   const { data: userSettings, isLoading: isUserSettingsLoading } =
@@ -194,14 +234,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryKey: ["user-settings", userId],
       enabled: !!userId && hydrated,
       queryFn: async () => {
-        const { data, error } = await supabase
-          .from("user_settings")
-          .select("*")
-          .eq("user_id", userId!)
-          .maybeSingle();
+        if (!userId) return null;
 
-        if (error && !isNoRowsError(error)) return null;
-        return (data as UserSettingsRow) ?? null;
+        const snap = await getDoc(settingsDocRef(userId));
+        if (!snap.exists()) return null;
+
+        const d = snap.data() as any;
+
+        return {
+          user_id: userId,
+          onboarding_completed: d.onboarding_completed ?? null,
+          onboarding_completed_at:
+            d.onboarding_completed_at ?? tsToIso(d.onboarding_completed_at_ts),
+          theme_preference: d.theme_preference ?? null,
+          preferences: d.preferences ?? null,
+          updated_at: d.updated_at ?? tsToIso(d.updated_at_ts),
+        };
       },
     });
 
@@ -209,145 +257,273 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const themePreference = userSettings?.theme_preference ?? null;
 
   /* ============================
-     AUTH MUTATIONS
+     AUTH MUTATIONS (Firebase)
   ============================ */
 
   const login = useMutation<LoginResult, Error, LoginVars>({
     mutationFn: async ({ email, password }) => {
-      const res = await supabase.auth.signInWithPassword({ email, password });
-      if (res.error) throw new Error(res.error.message);
+      const res = await signInWithEmailAndPassword(auth, email, password);
+
+      if (REQUIRE_EMAIL_VERIFICATION && !res.user.emailVerified) {
+        // Optional enforcement
+        await firebaseSignOut(auth);
+        throw new Error("Email not verified. Please verify your email first.");
+      }
+
       return res;
     },
   });
 
   const signup = useMutation<SignupResult, Error, SignupVars>({
     mutationFn: async ({ email, password, userData }) => {
-      const res = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: userData },
-      });
-      if (res.error) throw new Error(res.error.message);
+      const res = await createUserWithEmailAndPassword(auth, email, password);
+
+      const uid = res.user.uid;
+      const nowIso = new Date().toISOString();
+
+      // ✅ Send verification email
+      try {
+        await sendEmailVerification(res.user);
+      } catch (e) {
+        // Don’t fail signup if email sending hiccups
+        console.warn("sendEmailVerification failed:", e);
+      }
+
+      // Create initial profile doc
+      await setDoc(
+        profileDocRef(uid),
+        {
+          id: uid,
+          username: userData?.username ?? "",
+          full_name: userData?.full_name ?? null,
+          avatar_url: userData?.avatar_url ?? null,
+          bio: userData?.bio ?? null,
+          location: userData?.location ?? null,
+          created_at: nowIso,
+          updated_at: nowIso,
+          created_at_ts: serverTimestamp(),
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      // Create default settings doc
+      await setDoc(
+        settingsDocRef(uid),
+        {
+          user_id: uid,
+          onboarding_completed: false,
+          onboarding_completed_at: null,
+          theme_preference: null,
+          preferences: userData?.preferences ?? null,
+          updated_at: nowIso,
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      qc.invalidateQueries({ queryKey: ["profile", uid] });
+      qc.invalidateQueries({ queryKey: ["user-settings", uid] });
+
       return res;
     },
   });
 
   const googleLogin = useMutation<GoogleLoginResult, Error, GoogleVars>({
     mutationFn: async ({ idToken, accessToken }) => {
-      const res = await supabase.auth.signInWithIdToken({
-        provider: "google",
-        token: idToken,
-        access_token: accessToken ?? undefined,
-      });
-      if (res.error) throw new Error(res.error.message);
+      const cred = GoogleAuthProvider.credential(idToken, accessToken);
+      const res = await signInWithCredential(auth, cred);
+
+      const uid = res.user.uid;
+      const nowIso = new Date().toISOString();
+
+      await setDoc(
+        profileDocRef(uid),
+        {
+          id: uid,
+          username: "",
+          full_name: res.user.displayName ?? null,
+          avatar_url: res.user.photoURL ?? null,
+          created_at: nowIso,
+          updated_at: nowIso,
+          created_at_ts: serverTimestamp(),
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      await setDoc(
+        settingsDocRef(uid),
+        {
+          user_id: uid,
+          onboarding_completed: false,
+          onboarding_completed_at: null,
+          theme_preference: null,
+          preferences: null,
+          updated_at: nowIso,
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      qc.invalidateQueries({ queryKey: ["profile", uid] });
+      qc.invalidateQueries({ queryKey: ["user-settings", uid] });
+
       return res;
     },
   });
 
   /* ============================
-     SETTINGS UPDATE ✅ FIXED
+     SETTINGS UPDATE (Firestore)
   ============================ */
 
-  const updateSettings = async (
-    settings: Partial<UserSettingsRow>,
-  ): Promise<UserSettingsRow> => {
-    if (!userId) throw new Error("Not authenticated");
+  const updateSettings = useCallback(
+    async (settings: Partial<UserSettingsRow>): Promise<UserSettingsRow> => {
+      if (!userId) throw new Error("Not authenticated");
 
-    // ✅ ONLY send columns we are confident exist.
-    // (language/region/localized_content are NOT sent; those live in preferences JSON)
-    const safe: Partial<UserSettingsRow> = {};
+      const safe: any = {};
 
-    if (typeof settings.onboarding_completed === "boolean") {
-      safe.onboarding_completed = settings.onboarding_completed;
-    }
-    if (
-      typeof settings.onboarding_completed_at === "string" ||
-      settings.onboarding_completed_at === null
-    ) {
-      safe.onboarding_completed_at = settings.onboarding_completed_at;
-    }
-    if (
-      typeof settings.theme_preference === "string" ||
-      settings.theme_preference === null
-    ) {
-      safe.theme_preference = settings.theme_preference;
-    }
+      if (typeof settings.onboarding_completed === "boolean") {
+        safe.onboarding_completed = settings.onboarding_completed;
+      }
+      if (
+        typeof settings.onboarding_completed_at === "string" ||
+        settings.onboarding_completed_at === null
+      ) {
+        safe.onboarding_completed_at = settings.onboarding_completed_at;
+      }
+      if (
+        typeof settings.theme_preference === "string" ||
+        settings.theme_preference === null
+      ) {
+        safe.theme_preference = settings.theme_preference;
+      }
+      if (settings.preferences !== undefined) {
+        safe.preferences = settings.preferences ?? null;
+      }
 
-    // ✅ preferences JSON is safe
-    if (settings.preferences !== undefined) {
-      safe.preferences = settings.preferences ?? null;
-    }
+      const nowIso = new Date().toISOString();
+      safe.user_id = userId;
+      safe.updated_at = nowIso;
+      safe.updated_at_ts = serverTimestamp();
 
-    const payload = {
-      user_id: userId,
-      ...safe,
-      updated_at: new Date().toISOString(),
-    };
+      await setDoc(settingsDocRef(userId), safe, { merge: true });
 
-    const { data, error } = await supabase
-      .from("user_settings")
-      .upsert(payload, { onConflict: "user_id" }) // ✅ prevents duplicate constraint error
-      .select("*")
-      .single();
+      const snap = await getDoc(settingsDocRef(userId));
+      const d = snap.exists() ? (snap.data() as any) : {};
 
-    if (error) throw new Error(error.message);
+      const normalized: UserSettingsRow = {
+        user_id: userId,
+        onboarding_completed: d.onboarding_completed ?? null,
+        onboarding_completed_at: d.onboarding_completed_at ?? null,
+        theme_preference: d.theme_preference ?? null,
+        preferences: d.preferences ?? null,
+        updated_at: d.updated_at ?? null,
+      };
 
-    qc.setQueryData(["user-settings", userId], data);
-    return data as UserSettingsRow;
-  };
+      qc.setQueryData(["user-settings", userId], normalized);
+      return normalized;
+    },
+    [userId, qc],
+  );
 
   /* ============================
-     ONBOARDING ✅ safe
+     ONBOARDING
   ============================ */
 
-  const markOnboardingCompleted = async (interests: string[] = []) => {
-    if (!userId) throw new Error("Not authenticated");
+  const markOnboardingCompleted = useCallback(
+    async (interests: string[] = []) => {
+      if (!userId) throw new Error("Not authenticated");
 
-    await updateSettings({
-      onboarding_completed: true,
-      onboarding_completed_at: new Date().toISOString(),
-    });
+      await updateSettings({
+        onboarding_completed: true,
+        onboarding_completed_at: new Date().toISOString(),
+      });
 
-    // Optional interests insert (ok to ignore duplicates later when you add SQL)
-    if (interests.length > 0) {
-      const { error } = await supabase.from("user_interests").insert(
-        interests.map((i) => ({
-          user_id: userId,
-          interest: i,
-        })),
-      );
+      if (interests.length > 0) {
+        await setDoc(
+          interestsDocRef(userId),
+          {
+            user_id: userId,
+            interests,
+            updated_at_ts: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
 
-      // don’t block onboarding if interests table has constraints for now
-      if (error) console.warn("user_interests insert warning:", error);
-    }
-
-    return true;
-  };
+      return true;
+    },
+    [userId, updateSettings],
+  );
 
   /* ============================
      THEME
   ============================ */
 
-  const setThemePreference = async (pref: ThemePreference) => {
-    await updateSettings({ theme_preference: pref });
-  };
+  const setThemePreference = useCallback(
+    async (pref: ThemePreference) => {
+      await updateSettings({ theme_preference: pref });
+    },
+    [updateSettings],
+  );
+
+  /* ============================
+     PROFILE UPDATE (Firestore)
+  ============================ */
+
+  const updateProfile = useMutation<Profile, Error, UpdateProfileInput>({
+    mutationFn: async (input) => {
+      if (!userId) throw new Error("Not authenticated");
+
+      const nowIso = new Date().toISOString();
+
+      await setDoc(
+        profileDocRef(userId),
+        {
+          ...input,
+          id: userId,
+          updated_at: nowIso,
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      const snap = await getDoc(profileDocRef(userId));
+      if (!snap.exists()) throw new Error("Profile not found after update");
+
+      const d = snap.data() as any;
+
+      const normalized: Profile = {
+        id: userId,
+        username: d.username ?? "",
+        full_name: d.full_name ?? null,
+        avatar_url: d.avatar_url ?? null,
+        bio: d.bio ?? null,
+        location: d.location ?? null,
+        created_at: d.created_at ?? nowIso,
+        updated_at: d.updated_at ?? nowIso,
+      };
+
+      qc.setQueryData(["profile", userId], normalized);
+      return normalized;
+    },
+  });
+
+  const refreshProfile = useCallback(async () => {
+    if (!userId) return null;
+    await qc.invalidateQueries({ queryKey: ["profile", userId] });
+    return profile ?? null;
+  }, [userId, qc, profile]);
 
   /* ============================
      SIGN OUT
   ============================ */
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = useCallback(async () => {
+    await firebaseSignOut(auth);
     qc.clear();
-  };
-
-  /* ============================
-     STUBS (you can fill later)
-  ============================ */
-
-  const updateProfile = {} as any;
-
-  const refreshProfile = async () => profile ?? null;
+  }, [qc]);
 
   /* ============================
      PROVIDER VALUE
@@ -356,7 +532,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextType>(
     () => ({
       user,
-      session,
+      session: null,
       profile: profile ?? null,
       userSettings: userSettings ?? null,
 
@@ -386,17 +562,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       user,
-      session,
       profile,
       userSettings,
       hydrated,
       isProfileLoading,
       isUserSettingsLoading,
       hasCompletedOnboarding,
+      markOnboardingCompleted,
       themePreference,
+      setThemePreference,
       login,
       signup,
       googleLogin,
+      updateProfile,
+      signOut,
+      refreshProfile,
+      updateSettings,
     ],
   );
 

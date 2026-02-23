@@ -1,9 +1,17 @@
+// components/chat/ChatList.tsx — FIRESTORE + FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
+// ✅ Uses ChatAttachment shape (url + storagePath)
+// ✅ Fixes date grouping (timestamp is display-only; grouping uses createdAtIso)
+// ✅ Keeps backward compatibility with mediaUrl/mediaType
+// ✅ Adds basic open behavior for file/video urls
+
+import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Image,
+  Linking,
   RefreshControl,
   StyleSheet,
   Text,
@@ -11,16 +19,28 @@ import {
   View,
 } from "react-native";
 
-// Export the Message interface
 export interface Message {
   id: string;
   content: string;
   sender: "me" | "other";
+
+  /**
+   * Display-only time string (ex: "02:14 PM") — what you currently pass.
+   */
   timestamp: string;
+
+  /**
+   * ✅ REQUIRED for date headers + sorting
+   * Pass msg.created_at (ISO) from Firestore here.
+   */
+  createdAtIso: string;
+
   status?: "sent" | "delivered" | "read";
   mediaUrl?: string;
   mediaType?: "image" | "video" | "audio" | "file";
-  attachments?: any[];
+
+  // ✅ Firebase attachments
+  attachments?: ChatAttachment[];
 }
 
 interface ChatListProps {
@@ -51,26 +71,57 @@ export default function ChatList({
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > 0 && flatListRef.current) {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      }, 80);
+      return () => clearTimeout(t);
     }
   }, [messages]);
 
-  // Group messages by date
-  const groupMessagesByDate = () => {
-    const groups: { [date: string]: Message[] } = {};
+  const openUrl = async (url?: string) => {
+    if (!url) return;
+    try {
+      const can = await Linking.canOpenURL(url);
+      if (can) await Linking.openURL(url);
+    } catch {
+      // ignore
+    }
+  };
 
-    messages.forEach((message) => {
-      const date = new Date(message.timestamp).toLocaleDateString();
-      if (!groups[date]) {
-        groups[date] = [];
-      }
-      groups[date].push(message);
-    });
+  // ✅ Group messages by DATE using createdAtIso (NOT the display timestamp)
+  const grouped = useMemo(() => {
+    const groups: Record<string, Message[]> = {};
+    for (const m of messages) {
+      const d = new Date(m.createdAtIso);
+      const key = isNaN(d.getTime()) ? "Unknown Date" : d.toLocaleDateString();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    }
+
+    // Within each date: sort ascending by time for nicer reading
+    for (const k of Object.keys(groups)) {
+      groups[k].sort(
+        (a, b) =>
+          new Date(a.createdAtIso).getTime() -
+          new Date(b.createdAtIso).getTime(),
+      );
+    }
 
     return groups;
-  };
+  }, [messages]);
+
+  const dates = useMemo(() => {
+    const keys = Object.keys(grouped);
+    // Sort date groups ascending
+    keys.sort((a, b) => {
+      if (a === "Unknown Date") return 1;
+      if (b === "Unknown Date") return -1;
+      const da = new Date(a);
+      const db = new Date(b);
+      return da.getTime() - db.getTime();
+    });
+    return keys;
+  }, [grouped]);
 
   const renderDateHeader = (date: string) => (
     <View style={styles.dateHeader}>
@@ -98,7 +149,6 @@ export default function ChatList({
 
   const renderFooter = () => {
     if (!isLoading) return null;
-
     return (
       <View style={styles.footer}>
         <ActivityIndicator size="small" color="#007AFF" />
@@ -108,8 +158,8 @@ export default function ChatList({
 
   const renderMessageItem = ({ item }: { item: Message }) => {
     const isMe = item.sender === "me";
-    const hasAttachments = item.attachments && item.attachments.length > 0;
-    const hasMedia = item.mediaUrl && item.mediaType;
+    const hasAttachments = !!item.attachments?.length;
+    const hasMedia = !!item.mediaUrl && !!item.mediaType;
 
     return (
       <View
@@ -118,30 +168,31 @@ export default function ChatList({
           isMe ? styles.myMessage : styles.otherMessage,
         ]}
       >
-        {/* Show attachments if any */}
+        {/* ✅ Attachments (Firebase) */}
         {hasAttachments && (
           <View style={styles.attachmentsContainer}>
             {item.attachments!.map((attachment, index) => (
               <AttachmentPreview
-                key={index}
+                key={`${item.id}-att-${index}`}
                 attachment={attachment}
                 isMe={isMe}
+                onOpen={() => openUrl(attachment.url)}
               />
             ))}
           </View>
         )}
 
-        {/* Show single media if exists (for backward compatibility) */}
+        {/* Backward-compatible single media */}
         {hasMedia && !hasAttachments && (
           <MediaPreview
             mediaUrl={item.mediaUrl!}
             mediaType={item.mediaType!}
             isMe={isMe}
+            onOpen={() => openUrl(item.mediaUrl)}
           />
         )}
 
-        {/* Show message content */}
-        {item.content && (
+        {!!item.content && (
           <Text
             style={[
               styles.messageText,
@@ -161,6 +212,7 @@ export default function ChatList({
           >
             {item.timestamp}
           </Text>
+
           {isMe && item.status && (
             <Ionicons
               name={
@@ -186,18 +238,19 @@ export default function ChatList({
     );
   };
 
-  const groupedMessages = groupMessagesByDate();
-  const dates = Object.keys(groupedMessages);
-
+  // ────────────────────────────────────────────────────────────────────────────
+  // With date headers
+  // ────────────────────────────────────────────────────────────────────────────
   if (showDateHeaders && dates.length > 0) {
     return (
       <FlatList
         ref={flatListRef}
         data={dates}
+        keyExtractor={(date) => date}
         renderItem={({ item: date }) => (
           <View>
             {renderDateHeader(date)}
-            {groupedMessages[date].map((message) => (
+            {grouped[date].map((message) => (
               <TouchableOpacity
                 key={message.id}
                 onPress={() => onMessagePress?.(message)}
@@ -209,7 +262,6 @@ export default function ChatList({
             ))}
           </View>
         )}
-        keyExtractor={(date) => date}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -230,6 +282,9 @@ export default function ChatList({
     );
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Flat list (no date headers)
+  // ────────────────────────────────────────────────────────────────────────────
   return (
     <FlatList
       ref={flatListRef}
@@ -264,44 +319,58 @@ export default function ChatList({
   );
 }
 
-// Attachment Preview Component
+// ─────────────────────────────────────────────────────────────────────────────
+// Attachment Preview (Firebase)
+// ─────────────────────────────────────────────────────────────────────────────
 const AttachmentPreview = ({
   attachment,
   isMe,
+  onOpen,
 }: {
-  attachment: any;
+  attachment: ChatAttachment;
   isMe: boolean;
+  onOpen: () => void;
 }) => {
-  const getFileName = (url: string) => {
-    const parts = url.split("/");
-    return decodeURIComponent(parts[parts.length - 1]);
-  };
-
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 B";
+    if (!bytes) return "";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   if (attachment.type === "image") {
     return (
-      <Image source={{ uri: attachment.url }} style={styles.attachmentImage} />
+      <TouchableOpacity activeOpacity={0.85} onPress={onOpen}>
+        <Image
+          source={{ uri: attachment.url }}
+          style={styles.attachmentImage}
+        />
+      </TouchableOpacity>
     );
-  } else if (attachment.type === "video") {
+  }
+
+  if (attachment.type === "video") {
     return (
-      <TouchableOpacity style={styles.videoAttachment}>
-        <Ionicons name="videocam" size={24} color="#fff" />
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onOpen}
+        style={styles.videoAttachment}
+      >
+        <Ionicons name="play-circle" size={48} color="#FFFFFF" />
         <View style={styles.videoOverlay} />
-        {attachment.duration && (
+        {!!attachment.duration && (
           <Text style={styles.videoDuration}>{attachment.duration}</Text>
         )}
       </TouchableOpacity>
     );
-  } else if (attachment.type === "audio") {
+  }
+
+  if (attachment.type === "audio") {
     return (
-      <View
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onOpen}
         style={[
           styles.audioAttachment,
           isMe ? styles.myAudioAttachment : styles.otherAudioAttachment,
@@ -320,7 +389,7 @@ const AttachmentPreview = ({
         >
           Voice message
         </Text>
-        {attachment.duration && (
+        {!!attachment.duration && (
           <Text
             style={[
               styles.audioDuration,
@@ -330,70 +399,90 @@ const AttachmentPreview = ({
             {attachment.duration}
           </Text>
         )}
-      </View>
-    );
-  } else {
-    // File attachment
-    return (
-      <TouchableOpacity
-        style={[
-          styles.fileAttachment,
-          isMe ? styles.myFileAttachment : styles.otherFileAttachment,
-        ]}
-      >
-        <Ionicons
-          name="document-text"
-          size={24}
-          color={isMe ? "#FFFFFF" : "#007AFF"}
-        />
-        <View style={styles.fileInfo}>
-          <Text
-            style={[
-              styles.fileName,
-              isMe ? styles.myFileName : styles.otherFileName,
-            ]}
-            numberOfLines={1}
-          >
-            {attachment.name || getFileName(attachment.url)}
-          </Text>
-          {attachment.size && (
-            <Text
-              style={[
-                styles.fileSize,
-                isMe ? styles.myFileSize : styles.otherFileSize,
-              ]}
-            >
-              {formatFileSize(attachment.size)}
-            </Text>
-          )}
-        </View>
       </TouchableOpacity>
     );
   }
+
+  // file
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={onOpen}
+      style={[
+        styles.fileAttachment,
+        isMe ? styles.myFileAttachment : styles.otherFileAttachment,
+      ]}
+    >
+      <Ionicons
+        name="document-text"
+        size={24}
+        color={isMe ? "#FFFFFF" : "#007AFF"}
+      />
+      <View style={styles.fileInfo}>
+        <Text
+          style={[
+            styles.fileName,
+            isMe ? styles.myFileName : styles.otherFileName,
+          ]}
+          numberOfLines={1}
+        >
+          {attachment.name || "File"}
+        </Text>
+        {!!attachment.size && (
+          <Text
+            style={[
+              styles.fileSize,
+              isMe ? styles.myFileSize : styles.otherFileSize,
+            ]}
+          >
+            {formatFileSize(attachment.size)}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
 };
 
-// Media Preview Component (for backward compatibility)
+// ─────────────────────────────────────────────────────────────────────────────
+// Media Preview (legacy)
+// ─────────────────────────────────────────────────────────────────────────────
 const MediaPreview = ({
   mediaUrl,
   mediaType,
   isMe,
+  onOpen,
 }: {
   mediaUrl: string;
   mediaType: string;
   isMe: boolean;
+  onOpen: () => void;
 }) => {
   if (mediaType === "image") {
-    return <Image source={{ uri: mediaUrl }} style={styles.mediaImage} />;
-  } else if (mediaType === "video") {
     return (
-      <TouchableOpacity style={styles.mediaVideo}>
+      <TouchableOpacity activeOpacity={0.85} onPress={onOpen}>
+        <Image source={{ uri: mediaUrl }} style={styles.mediaImage} />
+      </TouchableOpacity>
+    );
+  }
+
+  if (mediaType === "video") {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onOpen}
+        style={styles.mediaVideo}
+      >
         <Ionicons name="play-circle" size={48} color="#FFFFFF" />
         <View style={styles.mediaOverlay} />
       </TouchableOpacity>
     );
-  } else if (mediaType === "audio") {
+  }
+
+  if (mediaType === "audio") {
     return (
-      <View
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onOpen}
         style={[
           styles.mediaAudio,
           isMe ? styles.myMediaAudio : styles.otherMediaAudio,
@@ -412,9 +501,10 @@ const MediaPreview = ({
         >
           Voice message
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
+
   return null;
 };
 
@@ -465,15 +555,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.7,
   },
-  myTimestamp: {
-    color: "#666",
-  },
-  otherTimestamp: {
-    color: "#666",
-  },
-  statusIcon: {
-    marginLeft: 4,
-  },
+  myTimestamp: { color: "#666" },
+  otherTimestamp: { color: "#666" },
+  statusIcon: { marginLeft: 4 },
+
   dateHeader: {
     alignItems: "center",
     marginVertical: 16,
@@ -486,6 +571,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
@@ -505,14 +591,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 40,
   },
+
   footer: {
     paddingVertical: 20,
     alignItems: "center",
   },
-  // Attachment styles
-  attachmentsContainer: {
-    marginBottom: 8,
-  },
+
+  // Attachments
+  attachmentsContainer: { marginBottom: 8 },
   attachmentImage: {
     width: 200,
     height: 150,
@@ -531,7 +617,7 @@ const styles = StyleSheet.create({
   },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    backgroundColor: "rgba(0,0,0,0.3)",
     borderRadius: 12,
   },
   videoDuration: {
@@ -540,11 +626,12 @@ const styles = StyleSheet.create({
     right: 8,
     color: "#fff",
     fontSize: 12,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
+
   audioAttachment: {
     flexDirection: "row",
     alignItems: "center",
@@ -553,33 +640,15 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 4,
   },
-  myAudioAttachment: {
-    backgroundColor: "#7C3AED",
-  },
-  otherAudioAttachment: {
-    backgroundColor: "#F3F4F6",
-  },
-  audioText: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginLeft: 8,
-  },
-  myAudioText: {
-    color: "#FFFFFF",
-  },
-  otherAudioText: {
-    color: "#007AFF",
-  },
-  audioDuration: {
-    fontSize: 12,
-    marginLeft: 8,
-  },
-  myAudioDuration: {
-    color: "rgba(255, 255, 255, 0.7)",
-  },
-  otherAudioDuration: {
-    color: "#666",
-  },
+  myAudioAttachment: { backgroundColor: "#7C3AED" },
+  otherAudioAttachment: { backgroundColor: "#F3F4F6" },
+  audioText: { fontSize: 14, fontWeight: "500", marginLeft: 8 },
+  myAudioText: { color: "#FFFFFF" },
+  otherAudioText: { color: "#007AFF" },
+  audioDuration: { fontSize: 12, marginLeft: 8 },
+  myAudioDuration: { color: "rgba(255,255,255,0.7)" },
+  otherAudioDuration: { color: "#666" },
+
   fileAttachment: {
     flexDirection: "row",
     alignItems: "center",
@@ -587,37 +656,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 4,
   },
-  myFileAttachment: {
-    backgroundColor: "#7C3AED",
-  },
-  otherFileAttachment: {
-    backgroundColor: "#F3F4F6",
-  },
-  fileInfo: {
-    marginLeft: 8,
-    flex: 1,
-  },
-  fileName: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  myFileName: {
-    color: "#FFFFFF",
-  },
-  otherFileName: {
-    color: "#333",
-  },
-  fileSize: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  myFileSize: {
-    color: "rgba(255, 255, 255, 0.7)",
-  },
-  otherFileSize: {
-    color: "#666",
-  },
-  // Media styles (for backward compatibility)
+  myFileAttachment: { backgroundColor: "#7C3AED" },
+  otherFileAttachment: { backgroundColor: "#F3F4F6" },
+  fileInfo: { marginLeft: 8, flex: 1 },
+  fileName: { fontSize: 14, fontWeight: "500" },
+  myFileName: { color: "#FFFFFF" },
+  otherFileName: { color: "#333" },
+  fileSize: { fontSize: 12, marginTop: 2 },
+  myFileSize: { color: "rgba(255,255,255,0.7)" },
+  otherFileSize: { color: "#666" },
+
+  // Legacy media
   mediaImage: {
     width: 200,
     height: 150,
@@ -642,26 +691,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 8,
   },
-  myMediaAudio: {
-    backgroundColor: "#7C3AED",
-  },
-  otherMediaAudio: {
-    backgroundColor: "#F3F4F6",
-  },
-  mediaAudioText: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginLeft: 8,
-  },
-  myMediaAudioText: {
-    color: "#FFFFFF",
-  },
-  otherMediaAudioText: {
-    color: "#007AFF",
-  },
+  myMediaAudio: { backgroundColor: "#7C3AED" },
+  otherMediaAudio: { backgroundColor: "#F3F4F6" },
+  mediaAudioText: { fontSize: 14, fontWeight: "500", marginLeft: 8 },
+  myMediaAudioText: { color: "#FFFFFF" },
+  otherMediaAudioText: { color: "#007AFF" },
   mediaOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    backgroundColor: "rgba(0,0,0,0.3)",
     borderRadius: 12,
   },
 });

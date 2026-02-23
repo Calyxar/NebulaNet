@@ -19,8 +19,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
+import { signOut } from "firebase/auth";
 import {
   closeSettings,
   pushSettings,
@@ -251,7 +252,7 @@ export default function SettingsIndexScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await supabase.auth.signOut();
+            await signOut(auth);
             replaceSettings("index");
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to sign out");

@@ -3,10 +3,17 @@
 // ✅ FIXES ImagePicker.MediaType TS error by supporting BOTH old + new APIs
 
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import { addDoc, collection } from "firebase/firestore";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -188,20 +195,17 @@ export default function CreatePostScreen() {
       const res = await fetch(item.uri);
       const arrayBuffer = await res.arrayBuffer();
 
-      const { error: uploadError } = await supabase.storage
-        .from("post-media")
-        .upload(path, arrayBuffer, {
-          contentType: mime,
-          upsert: false,
-        });
+      const storage = getStorage();
+      const fileRef = storageRef(storage, path);
+      await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
 
       if (uploadError) {
         console.error("Storage upload error:", uploadError);
         throw new Error("Upload failed. Check storage bucket policy.");
       }
 
-      const { data } = supabase.storage.from("post-media").getPublicUrl(path);
-      uploadedUrls.push(data.publicUrl);
+      const publicUrl = await getDownloadURL(fileRef);
+      uploadedUrls.push(publicUrl);
     }
 
     return uploadedUrls;
@@ -241,8 +245,8 @@ export default function CreatePostScreen() {
     try {
       const media_urls = await uploadPostMedia();
 
-      const { error } = await supabase.from("posts").insert({
-        user_id: user.id,
+      await addDoc(collection(db, "posts"), {
+        user_id: auth.currentUser!.uid,
 
         // NOTE: if your posts table doesn't have "title", this will error.
         // Remove it OR add a title column in SQL.

@@ -4,27 +4,35 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { auth, db } from "@/lib/firebase";
 import {
-    adminGetScreenshotSignedUrl,
-    adminGetSupportReports,
-    adminUpdateSupportReportStatus,
-    type SupportReportRow,
+  adminGetScreenshotSignedUrl,
+  adminGetSupportReports,
+  adminUpdateSupportReportStatus,
+  type SupportReportRow,
 } from "@/lib/queries/adminSupport";
-import { getCurrentUserProfile } from "@/lib/supabase";
+import { doc, getDoc } from "firebase/firestore";
+
+async function getCurrentUserProfile() {
+  const user = auth.currentUser;
+  if (!user) return null;
+  const snap = await getDoc(doc(db, "profiles", user.uid));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
 
 // ✅ Simple admin gating: set YOUR user id(s) here
 const ADMIN_USER_IDS = new Set<string>([

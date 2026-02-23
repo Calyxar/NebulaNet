@@ -1,0 +1,282 @@
+<!doctype html>
+<html>
+  <head>
+    <title>NebulaNet - Account Action</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Arial;
+        margin: 0;
+        background: #f3f4ff;
+      }
+      .wrap {
+        max-width: 520px;
+        margin: 48px auto;
+        padding: 20px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 22px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      p {
+        margin: 0 0 14px;
+        color: #556;
+        line-height: 1.4;
+      }
+      .msg {
+        margin-top: 10px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #f6f7fb;
+        color: #334;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+      }
+      input {
+        width: 100%;
+        padding: 14px 14px;
+        border: 1px solid #e5e7ef;
+        border-radius: 12px;
+        font-size: 16px;
+      }
+      button {
+        width: 100%;
+        margin-top: 12px;
+        padding: 14px 16px;
+        border: 0;
+        border-radius: 14px;
+        background: #7c3aed;
+        color: #fff;
+        font-weight: 700;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: #7c3aed;
+        border: 1px solid #7c3aed;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .hide {
+        display: none;
+      }
+      .small {
+        font-size: 13px;
+        color: #778;
+        margin-top: 10px;
+      }
+      a {
+        color: #7c3aed;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1 id="title">Processing…</h1>
+        <p id="subtitle">Please keep this tab open.</p>
+
+        <div id="message" class="msg">Reading action link…</div>
+
+        <!-- Reset password UI -->
+        <form id="resetForm" class="hide">
+          <div class="row">
+            <input
+              id="newPassword"
+              type="password"
+              placeholder="New password"
+              required
+            />
+          </div>
+          <div class="row" style="margin-top: 10px">
+            <input
+              id="confirmPassword"
+              type="password"
+              placeholder="Confirm new password"
+              required
+            />
+          </div>
+          <button id="resetBtn" type="submit">Reset password</button>
+          <div class="small" id="resetHint"></div>
+        </form>
+
+        <!-- Continue -->
+        <div id="continueWrap" class="hide" style="margin-top: 14px">
+          <button id="openAppBtn" class="secondary" type="button">
+            Open NebulaNet
+          </button>
+          <div class="small">
+            If the button doesn’t work, copy/paste this link:
+            <span id="continueLinkText"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Firebase v9+ modular via ESM -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+      import {
+        getAuth,
+        applyActionCode,
+        verifyPasswordResetCode,
+        confirmPasswordReset,
+      } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+      // --- helpers ---
+      const $ = (id) => document.getElementById(id);
+      const qp = (k) => new URLSearchParams(window.location.search).get(k);
+
+      const mode = qp("mode"); // resetPassword | verifyEmail | recoverEmail
+      const oobCode = qp("oobCode"); // one-time code
+      const continueUrl = qp("continueUrl") || ""; // optional
+      const lang = qp("lang") || "en";
+
+      // Minimal config is allowed for these flows (apiKey is sufficient). :contentReference[oaicite:1]{index=1}
+      const firebaseConfig = {
+        apiKey: qp("apiKey") || "YOUR_FIREBASE_WEB_API_KEY",
+        authDomain: "YOUR_PROJECT.firebaseapp.com",
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+
+      function showContinue(url) {
+        if (!url) return;
+        $("continueWrap").classList.remove("hide");
+        $("continueLinkText").innerHTML = ` <a href="${url}">${url}</a>`;
+        $("openAppBtn").onclick = () => {
+          // Attempt to open app (custom scheme or https universal link)
+          window.location.href = url;
+        };
+      }
+
+      function setStatus(title, subtitle, msg) {
+        $("title").textContent = title;
+        $("subtitle").textContent = subtitle || "";
+        $("message").textContent = msg || "";
+      }
+
+      async function handleVerifyEmail() {
+        setStatus(
+          "Verifying email…",
+          "One moment.",
+          "Applying verification code…",
+        );
+        try {
+          await applyActionCode(auth, oobCode);
+          setStatus(
+            "Email verified ✅",
+            "You can return to the app.",
+            "Success.",
+          );
+          showContinue(continueUrl || "nebulanet://auth/login");
+        } catch (e) {
+          setStatus(
+            "Verification failed",
+            "This link may be expired.",
+            e?.message || "Unknown error",
+          );
+        }
+      }
+
+      async function handleResetPassword() {
+        setStatus(
+          "Reset your password",
+          "Choose a new password below.",
+          "Validating reset link…",
+        );
+        try {
+          const email = await verifyPasswordResetCode(auth, oobCode);
+          $("resetHint").textContent = email
+            ? `Resetting password for: ${email}`
+            : "";
+          $("resetForm").classList.remove("hide");
+          $("message").textContent = "Enter a new password.";
+        } catch (e) {
+          setStatus(
+            "Reset link invalid",
+            "Request a new reset email from the app.",
+            e?.message || "Unknown error",
+          );
+          showContinue(continueUrl || "nebulanet://auth/forgot-password");
+          return;
+        }
+
+        $("resetForm").addEventListener("submit", async (evt) => {
+          evt.preventDefault();
+          const pw = $("newPassword").value;
+          const pw2 = $("confirmPassword").value;
+
+          if (pw.length < 8) {
+            $("message").textContent =
+              "Password must be at least 8 characters.";
+            return;
+          }
+          if (pw !== pw2) {
+            $("message").textContent = "Passwords do not match.";
+            return;
+          }
+
+          $("resetBtn").disabled = true;
+          $("message").textContent = "Updating password…";
+
+          try {
+            await confirmPasswordReset(auth, oobCode, pw);
+            setStatus(
+              "Password reset ✅",
+              "You can now sign in with your new password.",
+              "All set.",
+            );
+            $("resetForm").classList.add("hide");
+            showContinue(continueUrl || "nebulanet://auth/login");
+          } catch (e) {
+            $("resetBtn").disabled = false;
+            $("message").textContent =
+              e?.message || "Failed to reset password.";
+          }
+        });
+      }
+
+      // --- entry ---
+      if (!mode || !oobCode) {
+        setStatus(
+          "Invalid link",
+          "Missing required parameters.",
+          "Please request a new email from the app.",
+        );
+      } else if (mode === "verifyEmail") {
+        handleVerifyEmail();
+      } else if (mode === "resetPassword") {
+        handleResetPassword();
+      } else {
+        setStatus(
+          "Unsupported action",
+          `Mode: ${mode}`,
+          "This page supports verifyEmail + resetPassword.",
+        );
+        showContinue(continueUrl || "nebulanet://auth/login");
+      }
+    </script>
+  </body>
+</html>

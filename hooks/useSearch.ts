@@ -1,14 +1,19 @@
-// hooks/useSearch.ts — FINAL (accounts / posts / communities + visibility + post_type + debounce fixed)
+// hooks/useSearch.ts — FIREBASE ✅
 
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
 import { useQuery } from "@tanstack/react-query";
+import {
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 
 export type SearchType = "account" | "post" | "community";
-
-/* =========================================================
-   TYPES
-========================================================= */
 
 export type SearchAccount = {
   id: string;
@@ -16,7 +21,6 @@ export type SearchAccount = {
   full_name: string | null;
   avatar_url: string | null;
 };
-
 export type SearchPost = {
   id: string;
   content: string | null;
@@ -26,7 +30,6 @@ export type SearchPost = {
   comment_count: number | null;
   share_count: number | null;
   visibility: "public" | "followers" | "private";
-  post_type?: string | null; // ✅ FIXED (was missing before)
   user: {
     id: string;
     username: string | null;
@@ -34,13 +37,13 @@ export type SearchPost = {
     avatar_url: string | null;
   } | null;
 };
-
 export type SearchCommunity = {
   id: string;
   name: string;
   slug: string;
   description: string | null;
-  avatar_url: string | null;
+  image_url?: string | null;
+  avatar_url?: string | null;
 };
 
 export type UseSearchParams = {
@@ -50,7 +53,6 @@ export type UseSearchParams = {
   minChars?: number;
   debounceMs?: number;
 };
-
 type UseSearchReturn = {
   query: string;
   debouncedQuery: string;
@@ -65,102 +67,114 @@ type UseSearchReturn = {
   refetch: () => void;
 };
 
-/* =========================================================
-   DEBOUNCE
-========================================================= */
+function tsToIso(ts: any): string {
+  if (!ts) return new Date().toISOString();
+  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  return new Date(ts).toISOString();
+}
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
-
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-
-    return () => clearTimeout(timeout);
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
   }, [value, delayMs]);
-
   return debounced;
 }
 
-/* =========================================================
-   SUPABASE SEARCH QUERIES
-========================================================= */
-
-async function searchAccounts(q: string, limit: number) {
-  const like = `%${q}%`;
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, username, full_name, avatar_url")
-    .or(`username.ilike.${like},full_name.ilike.${like}`)
-    .limit(limit);
-
-  if (error) throw error;
-  return (data ?? []) as SearchAccount[];
-}
-
-async function searchPosts(q: string, limit: number) {
-  const like = `%${q}%`;
-
-  const { data, error } = await supabase
-    .from("posts")
-    .select(
-      `
-      id,
-      content,
-      created_at,
-      media_urls,
-      like_count,
-      comment_count,
-      share_count,
-      visibility,
-      post_type,
-      user:profiles!posts_user_id_fkey (
-        id,
-        username,
-        full_name,
-        avatar_url
-      )
-      `,
+// Firestore doesn't support ilike — we fetch and filter client-side for small collections
+async function searchAccounts(
+  q: string,
+  lim: number,
+): Promise<SearchAccount[]> {
+  const lower = q.toLowerCase();
+  const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter(
+      (p: any) =>
+        p.username?.toLowerCase().includes(lower) ||
+        p.full_name?.toLowerCase().includes(lower),
     )
-    .ilike("content", like)
-    .eq("visibility", "public") // ✅ IMPORTANT (prevents RLS issues)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-  return (data ?? []) as SearchPost[];
+    .slice(0, lim)
+    .map((p: any) => ({
+      id: p.id,
+      username: p.username ?? null,
+      full_name: p.full_name ?? null,
+      avatar_url: p.avatar_url ?? null,
+    }));
 }
 
-async function searchCommunities(q: string, limit: number) {
-  const like = `%${q}%`;
-
-  const { data, error } = await supabase
-    .from("communities")
-    .select("id, name, slug, description, avatar_url")
-    .or(`name.ilike.${like},description.ilike.${like}`)
-    .limit(limit);
-
-  if (error) throw error;
-  return (data ?? []) as SearchCommunity[];
+async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
+  const lower = q.toLowerCase();
+  const snap = await getDocs(
+    query(
+      collection(db, "posts"),
+      where("visibility", "==", "public"),
+      where("is_visible", "==", true),
+      orderBy("created_at", "desc"),
+      limit(200),
+    ),
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter((p: any) => p.content?.toLowerCase().includes(lower))
+    .slice(0, lim)
+    .map((p: any) => ({
+      id: p.id,
+      content: p.content ?? null,
+      created_at: tsToIso(p.created_at),
+      media_urls: p.media_urls ?? null,
+      like_count: p.like_count ?? null,
+      comment_count: p.comment_count ?? null,
+      share_count: p.share_count ?? null,
+      visibility: p.visibility ?? "public",
+      user: null,
+    }));
 }
 
-/* =========================================================
-   MAIN HOOK
-========================================================= */
+async function searchCommunities(
+  q: string,
+  lim: number,
+): Promise<SearchCommunity[]> {
+  const lower = q.toLowerCase();
+  const snap = await getDocs(
+    query(collection(db, "communities"), orderBy("name"), limit(200)),
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter(
+      (c: any) =>
+        c.name?.toLowerCase().includes(lower) ||
+        c.slug?.toLowerCase().includes(lower) ||
+        c.description?.toLowerCase().includes(lower),
+    )
+    .slice(0, lim)
+    .map((c: any) => ({
+      id: c.id,
+      name: c.name ?? "",
+      slug: c.slug ?? "",
+      description: c.description ?? null,
+      image_url: c.image_url ?? null,
+      avatar_url: c.avatar_url ?? null,
+    }));
+}
 
 export function useSearch(params: UseSearchParams): UseSearchReturn {
-  const { type, query, limit = 20, minChars = 2, debounceMs = 350 } = params;
-
-  const trimmed = (query ?? "").trim();
+  const {
+    type,
+    query: rawQuery,
+    limit: lim = 20,
+    minChars = 2,
+    debounceMs = 350,
+  } = params;
+  const trimmed = (rawQuery ?? "").trim();
   const debouncedQuery = useDebouncedValue(trimmed, debounceMs);
-
   const enabled = debouncedQuery.length >= minChars;
 
   const queryKey = useMemo(
-    () => ["search", type, debouncedQuery, limit] as const,
-    [type, debouncedQuery, limit],
+    () => ["search", type, debouncedQuery, lim] as const,
+    [type, debouncedQuery, lim],
   );
 
   const q = useQuery({
@@ -168,26 +182,25 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     enabled,
     staleTime: 30_000,
     queryFn: async () => {
-      if (type === "account") {
-        const accounts = await searchAccounts(debouncedQuery, limit);
-        return { accounts, posts: [], communities: [] };
-      }
-
-      if (type === "post") {
-        const posts = await searchPosts(debouncedQuery, limit);
-        return { accounts: [], posts, communities: [] };
-      }
-
-      const communities = await searchCommunities(debouncedQuery, limit);
-      return { accounts: [], posts: [], communities };
+      if (type === "account")
+        return {
+          accounts: await searchAccounts(debouncedQuery, lim),
+          posts: [],
+          communities: [],
+        };
+      if (type === "post")
+        return {
+          accounts: [],
+          posts: await searchPosts(debouncedQuery, lim),
+          communities: [],
+        };
+      return {
+        accounts: [],
+        posts: [],
+        communities: await searchCommunities(debouncedQuery, lim),
+      };
     },
   });
-
-  const data = q.data ?? {
-    accounts: [],
-    posts: [],
-    communities: [],
-  };
 
   return {
     query: trimmed,
@@ -195,9 +208,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     isSearching: q.isFetching,
     isIdle: !enabled,
     error: (q.error as Error) ?? null,
-    data,
-    refetch: () => {
-      void q.refetch();
-    },
+    data: q.data ?? { accounts: [], posts: [], communities: [] },
+    refetch: () => void q.refetch(),
   };
 }

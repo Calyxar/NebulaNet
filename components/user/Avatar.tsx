@@ -1,31 +1,15 @@
-import { supabase } from "@/lib/supabase";
+// components/user/Avatar.tsx — FIREBASE ✅
+
+import { getDownloadURL, getStorage, ref } from "firebase/storage";
 import React, { useEffect, useMemo, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
 interface AvatarProps {
   size: number;
   name: string;
-
-  /**
-   * Can be:
-   * - full URL (https://...)
-   * - local file URI (file://...)
-   * - storage key/path (ex: "userId/123.jpg" or "avatars/userId/123.jpg")
-   */
   image?: string;
-
   online?: boolean;
-
-  /**
-   * If your bucket name differs, change this default.
-   * This must match supabase.storage.from("<bucket>")
-   */
   bucket?: string;
-
-  /**
-   * If your app stores "avatars/<userId>/<file>.jpg" as the key,
-   * set stripPrefix="avatars/" so we can sign correctly.
-   */
   stripPrefix?: string;
 }
 
@@ -48,14 +32,16 @@ export default function Avatar({
   const [resolvedUri, setResolvedUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const initials = useMemo(() => {
-    return name
-      .split(" ")
-      .map((w) => w.charAt(0))
-      .join("")
-      .toUpperCase()
-      .substring(0, 2);
-  }, [name]);
+  const initials = useMemo(
+    () =>
+      name
+        .split(" ")
+        .map((w) => w.charAt(0))
+        .join("")
+        .toUpperCase()
+        .substring(0, 2),
+    [name],
+  );
 
   const color = useMemo(() => {
     const colors = [
@@ -76,65 +62,51 @@ export default function Avatar({
     return colors[hash % colors.length];
   }, [name]);
 
-  // resolve `image` into something displayable:
-  // - direct url -> use it (cache-busted)
-  // - local file -> use it
-  // - storage key -> signed url
   useEffect(() => {
     let isMounted = true;
+    setFailed(false);
 
     const run = async () => {
-      setFailed(false);
-
       if (!image) {
         setResolvedUri(null);
         return;
       }
 
-      // local preview (picked image)
+      // Local file preview (e.g. just picked from camera roll)
       if (isLocalFile(image)) {
         setResolvedUri(image);
         return;
       }
 
-      // already a full URL (public)
+      // Already a full public/download URL — use directly with cache-bust
       if (isProbablyUrl(image)) {
-        // cache-bust so new avatars show immediately
         const join = image.includes("?") ? "&" : "?";
-        setResolvedUri(`${image}${join}t=${Date.now()}`);
+        if (isMounted) setResolvedUri(`${image}${join}t=${Date.now()}`);
         return;
       }
 
-      // Otherwise treat as a storage key
-      // If stored with "avatars/..." prefix, strip it
-      const key = image.startsWith(stripPrefix)
-        ? image.slice(stripPrefix.length)
-        : image;
-
+      // Storage path — fetch Firebase download URL
       try {
-        const { data, error } = await supabase.storage
-          .from(bucket)
-          .createSignedUrl(key, 60 * 60); // 1 hour
-
-        if (error) throw error;
-
+        const storage = getStorage();
+        const key = image.startsWith(stripPrefix)
+          ? image.slice(stripPrefix.length)
+          : image;
+        // Full path in Firebase Storage: e.g. "avatars/userId/file.jpg"
+        const fullPath = image.startsWith(stripPrefix)
+          ? image
+          : `${bucket}/${key}`;
+        const url = await getDownloadURL(ref(storage, fullPath));
         if (isMounted) {
-          const signed = data?.signedUrl ?? null;
-          if (signed) {
-            const join = signed.includes("?") ? "&" : "?";
-            setResolvedUri(`${signed}${join}t=${Date.now()}`);
-          } else {
-            setResolvedUri(null);
-          }
+          const join = url.includes("?") ? "&" : "?";
+          setResolvedUri(`${url}${join}t=${Date.now()}`);
         }
       } catch (e) {
-        console.log("Avatar signed URL error:", e);
+        console.log("Avatar download URL error:", e);
         if (isMounted) setResolvedUri(null);
       }
     };
 
     run();
-
     return () => {
       isMounted = false;
     };
@@ -171,7 +143,6 @@ export default function Avatar({
           </Text>
         </View>
       )}
-
       {online && (
         <View
           style={[
@@ -190,20 +161,10 @@ export default function Avatar({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    position: "relative",
-  },
-  avatar: {
-    overflow: "hidden",
-  },
-  initialsAvatar: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  initials: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
+  container: { position: "relative" },
+  avatar: { overflow: "hidden" },
+  initialsAvatar: { justifyContent: "center", alignItems: "center" },
+  initials: { color: "#fff", fontWeight: "bold" },
   onlineIndicator: {
     position: "absolute",
     bottom: 0,

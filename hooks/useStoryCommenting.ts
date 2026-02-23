@@ -1,5 +1,15 @@
-// hooks/useStoryCommenting.ts
-import { createStoryComment } from "@/lib/supabase";
+// hooks/useStoryCommenting.ts — FIREBASE ✅
+
+import { auth, db } from "@/lib/firebase";
+import {
+  addDoc,
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 
@@ -7,6 +17,37 @@ interface UseStoryCommentingProps {
   storyId?: string;
   onCommentSuccess?: () => void;
   onCommentError?: (error: Error) => void;
+}
+
+async function createStoryComment(storyId: string, content: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+
+  const ref = await addDoc(collection(db, "story_comments"), {
+    story_id: storyId,
+    user_id: user.uid,
+    content: content.trim(),
+    created_at: serverTimestamp(),
+  });
+
+  return {
+    id: ref.id,
+    story_id: storyId,
+    user_id: user.uid,
+    content: content.trim(),
+    created_at: new Date().toISOString(),
+  };
+}
+
+async function getStoryComments(storyId: string) {
+  const snap = await getDocs(
+    query(
+      collection(db, "story_comments"),
+      where("story_id", "==", storyId),
+      orderBy("created_at", "desc"),
+    ),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 export function useStoryCommenting({
@@ -25,7 +66,6 @@ export function useStoryCommenting({
         Alert.alert("Error", "No story selected");
         return false;
       }
-
       if (!content.trim()) {
         Alert.alert("Error", "Comment cannot be empty");
         return false;
@@ -33,25 +73,14 @@ export function useStoryCommenting({
 
       setIsCommenting(true);
       try {
-        // Create the comment in your backend
         const newComment = await createStoryComment(targetId, content);
-
-        // Update local state
         setComments((prev) => [newComment, ...prev]);
-
-        // Call success callback
         onCommentSuccess?.();
-
         return true;
       } catch (error: any) {
         console.error("Error submitting story comment:", error);
-
-        // Show error to user
         Alert.alert("Error", error.message || "Failed to post comment");
-
-        // Call error callback
         onCommentError?.(error);
-
         return false;
       } finally {
         setIsCommenting(false);
@@ -67,12 +96,8 @@ export function useStoryCommenting({
 
       setIsLoadingComments(true);
       try {
-        // Fetch comments from your backend
-        // const fetchedComments = await getStoryComments(targetId);
-        // setComments(fetchedComments);
-
-        // For now, just set empty array
-        setComments([]);
+        const fetched = await getStoryComments(targetId);
+        setComments(fetched);
       } catch (error) {
         console.error("Error loading story comments:", error);
       } finally {
@@ -83,9 +108,8 @@ export function useStoryCommenting({
   );
 
   const addQuickReaction = useCallback(
-    async (reaction: string, targetStoryId?: string) => {
-      return await submitComment(reaction, targetStoryId);
-    },
+    async (reaction: string, targetStoryId?: string) =>
+      submitComment(reaction, targetStoryId),
     [submitComment],
   );
 

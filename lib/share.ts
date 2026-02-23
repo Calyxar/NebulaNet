@@ -1,17 +1,12 @@
-// lib/share.ts
+// lib/share.ts — FIRESTORE COMPLETE ✅
+
+import { db } from "@/lib/firebase";
 import * as Clipboard from "expo-clipboard";
+import { doc, increment, updateDoc } from "firebase/firestore";
 import { Alert, Platform, Share as RNShare } from "react-native";
-import { supabase } from "./supabase";
 
-// Remove these imports if they don't exist in supabase.ts
-// import {
-//     generateCommunityLink,
-//     generatePostLink,
-//     generateUserLink,
-//     incrementShareCount,
-// } from "./supabase";
+/* -------------------- LINK GENERATORS -------------------- */
 
-// Instead, define them locally:
 export const generatePostLink = (postId: string): string => {
   return `https://nebulanet.space/post/${postId}`;
 };
@@ -24,23 +19,13 @@ export const generateCommunityLink = (slug: string): string => {
   return `https://nebulanet.space/community/${slug}`;
 };
 
+/* -------------------- FIRESTORE SHARE COUNT -------------------- */
+
 const incrementShareCount = async (postId: string): Promise<void> => {
   try {
-    const { data, error: fetchError } = await supabase
-      .from("posts")
-      .select("share_count")
-      .eq("id", postId)
-      .single();
-
-    if (fetchError || data == null) return;
-
-    const next = (data.share_count ?? 0) + 1;
-    const { error: updateError } = await supabase
-      .from("posts")
-      .update({ share_count: next })
-      .eq("id", postId);
-
-    if (updateError) throw updateError;
+    await updateDoc(doc(db, "posts", postId), {
+      share_count: increment(1),
+    });
   } catch (error) {
     console.error("Error incrementing share count:", error);
   }
@@ -52,7 +37,8 @@ interface ShareOptions {
   url?: string;
 }
 
-// Main share function
+/* -------------------- BASE SHARE FUNCTION -------------------- */
+
 export async function shareContent(options: ShareOptions) {
   try {
     const result = await RNShare.share({
@@ -68,7 +54,8 @@ export async function shareContent(options: ShareOptions) {
   }
 }
 
-// Share a post
+/* -------------------- SHARE POST -------------------- */
+
 export async function sharePost(postData: {
   id: string;
   title?: string;
@@ -78,15 +65,19 @@ export async function sharePost(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-    const message = `${postData.author.name}: ${postData.title || postData.content.substring(0, 100)}...\n\n${postData.community ? `Posted in ${postData.community.name}` : ""}`;
+
+    const message = `${postData.author.name}: ${
+      postData.title || postData.content.substring(0, 100)
+    }...\n\n${
+      postData.community ? `Posted in ${postData.community.name}` : ""
+    }`;
 
     const result = await shareContent({
       title: `Post by ${postData.author.name} | NebulaNet`,
-      message: message,
+      message,
       url: postLink,
     });
 
-    // Increment share count in database
     if (result.action === RNShare.sharedAction) {
       await incrementShareCount(postData.id);
     }
@@ -98,7 +89,8 @@ export async function sharePost(postData: {
   }
 }
 
-// Share to chat (copies link to clipboard with message)
+/* -------------------- SHARE TO CHAT -------------------- */
+
 export async function shareToChat(postData: {
   id: string;
   title?: string;
@@ -107,7 +99,10 @@ export async function shareToChat(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-    const message = `Check out this post by ${postData.author.name}:\n${postData.title || postData.content.substring(0, 100)}...\n\n${postLink}`;
+
+    const message = `Check out this post by ${
+      postData.author.name
+    }:\n${postData.title || postData.content.substring(0, 100)}...\n\n${postLink}`;
 
     await Clipboard.setStringAsync(message);
 
@@ -117,7 +112,6 @@ export async function shareToChat(postData: {
       [{ text: "OK" }],
     );
 
-    // Increment share count
     await incrementShareCount(postData.id);
 
     return true;
@@ -128,7 +122,8 @@ export async function shareToChat(postData: {
   }
 }
 
-// Copy link to clipboard
+/* -------------------- COPY LINK -------------------- */
+
 export async function copyLink(url: string, entityName: string = "Link") {
   try {
     await Clipboard.setStringAsync(url);
@@ -147,7 +142,8 @@ export async function copyLink(url: string, entityName: string = "Link") {
   }
 }
 
-// Share user profile
+/* -------------------- SHARE PROFILE -------------------- */
+
 export async function shareProfile(userData: {
   username: string;
   name: string;
@@ -155,11 +151,14 @@ export async function shareProfile(userData: {
 }) {
   try {
     const profileLink = generateUserLink(userData.username);
-    const message = `Check out ${userData.name}'s profile on NebulaNet:\n${userData.bio ? userData.bio.substring(0, 100) + "..." : ""}`;
+
+    const message = `Check out ${userData.name}'s profile on NebulaNet:\n${
+      userData.bio ? userData.bio.substring(0, 100) + "..." : ""
+    }`;
 
     return await shareContent({
       title: `${userData.name} | NebulaNet`,
-      message: message,
+      message,
       url: profileLink,
     });
   } catch (error) {
@@ -168,7 +167,8 @@ export async function shareProfile(userData: {
   }
 }
 
-// Share community
+/* -------------------- SHARE COMMUNITY -------------------- */
+
 export async function shareCommunity(communityData: {
   slug: string;
   name: string;
@@ -176,11 +176,16 @@ export async function shareCommunity(communityData: {
 }) {
   try {
     const communityLink = generateCommunityLink(communityData.slug);
-    const message = `Join ${communityData.name} on NebulaNet:\n${communityData.description ? communityData.description.substring(0, 100) + "..." : ""}`;
+
+    const message = `Join ${communityData.name} on NebulaNet:\n${
+      communityData.description
+        ? communityData.description.substring(0, 100) + "..."
+        : ""
+    }`;
 
     return await shareContent({
       title: `${communityData.name} | NebulaNet`,
-      message: message,
+      message,
       url: communityLink,
     });
   } catch (error) {
@@ -189,7 +194,8 @@ export async function shareCommunity(communityData: {
   }
 }
 
-// Share via system share sheet with more options
+/* -------------------- SHARE WITH OPTIONS -------------------- */
+
 export async function shareWithOptions(postData: {
   id: string;
   title?: string;
@@ -198,13 +204,14 @@ export async function shareWithOptions(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-    const message = `${postData.author.name}: ${postData.title || postData.content.substring(0, 100)}...`;
+    const message = `${postData.author.name}: ${
+      postData.title || postData.content.substring(0, 100)
+    }...`;
 
     if (Platform.OS === "ios") {
-      // On iOS, use the system share sheet
       const result = await RNShare.share({
         message: `${message}\n\n${postLink}`,
-        url: postLink, // iOS will show app icons for URLs
+        url: postLink,
       });
 
       if (result.action === RNShare.sharedAction) {
@@ -213,7 +220,6 @@ export async function shareWithOptions(postData: {
 
       return result;
     } else {
-      // On Android, provide more options
       const action = await new Promise<string>((resolve) => {
         Alert.alert("Share Post", "How would you like to share?", [
           { text: "Share to Chat", onPress: () => resolve("chat") },
@@ -231,8 +237,7 @@ export async function shareWithOptions(postData: {
           await incrementShareCount(postData.id);
           return { action: "copied" };
         case "share":
-          const result = await sharePost(postData);
-          return result;
+          return await sharePost(postData);
         default:
           return { action: "cancelled" };
       }
@@ -243,12 +248,12 @@ export async function shareWithOptions(postData: {
   }
 }
 
-// Check if URL is a NebulaNet link
+/* -------------------- LINK HELPERS -------------------- */
+
 export function isNebulaNetLink(url: string): boolean {
   return url.includes("nebulanet.space") || url.includes("nebulanet://");
 }
 
-// Parse NebulaNet link
 export function parseNebulaNetLink(url: string): {
   type: "post" | "user" | "community" | "unknown";
   id: string;
@@ -257,7 +262,6 @@ export function parseNebulaNetLink(url: string): {
     const urlObj = new URL(url);
 
     if (url.includes("nebulanet://")) {
-      // Deep link
       const path = url.replace("nebulanet://", "");
       const [type, id] = path.split("/");
       return { type: type as any, id };
@@ -265,6 +269,7 @@ export function parseNebulaNetLink(url: string): {
 
     if (url.includes("nebulanet.space")) {
       const path = urlObj.pathname;
+
       if (path.startsWith("/post/")) {
         return { type: "post", id: path.replace("/post/", "") };
       } else if (path.startsWith("/user/")) {

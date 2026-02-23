@@ -1,7 +1,21 @@
-// app/(auth)/_layout.tsx
-import { Stack } from "expo-router";
+// app/(auth)/_layout.tsx — FIREBASE ✅
+// ✅ Redirects away from auth screens when user is logged in
+// ✅ Uses Firebase user from your provider (not Supabase session)
+
+import { useAuth } from "@/providers/AuthProvider";
+import { Redirect, Stack } from "expo-router";
 
 export default function AuthLayout() {
+  const { user, isLoading } = useAuth();
+
+  // Wait for auth hydration
+  if (isLoading) return null;
+
+  // If logged in, kick them out of /(auth) routes
+  if (user) {
+    return <Redirect href="/(tabs)/home" />;
+  }
+
   return (
     <Stack
       screenOptions={{ headerShown: false, animation: "slide_from_right" }}

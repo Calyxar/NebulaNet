@@ -1,17 +1,24 @@
+// components/chat/ConversationItem.tsx — FIREBASE ✅
+// Renamed SupabaseAttachment → ChatAttachment
+
+import type { ChatAttachment } from "@/components/chat/ChatInput";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { useMemo } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export type ConversationItemProps = {
   id: string;
   name: string;
   lastMessage: string;
+  attachments?: ChatAttachment[] | null;
+  mediaType?: string | null;
   timestamp: string;
   unreadCount: number;
   isOnline: boolean;
   isTyping: boolean;
   isPinned: boolean;
-  avatar?: string | null; // Updated to accept null
+  avatar?: string | null;
   onPress: () => void;
   onLongPress?: () => void;
 };
@@ -19,6 +26,8 @@ export type ConversationItemProps = {
 export default function ConversationItem({
   name,
   lastMessage,
+  attachments,
+  mediaType,
   timestamp,
   unreadCount,
   isOnline,
@@ -28,18 +37,34 @@ export default function ConversationItem({
   onPress,
   onLongPress,
 }: ConversationItemProps) {
-  const getInitials = (name: string) => {
-    return name
+  const { colors } = useTheme() as { colors: any };
+
+  const getInitials = (n: string) =>
+    n
       .split(" ")
       .map((part) => part[0])
       .join("")
       .toUpperCase()
       .slice(0, 2);
-  };
+
+  const preview = useMemo(() => {
+    if (isTyping) return "Typing...";
+    const hasText = lastMessage && lastMessage.trim().length > 0;
+    const atts = attachments?.length ? attachments : null;
+    const t = (mediaType ?? atts?.[0]?.type ?? "").toLowerCase();
+    if (!hasText) {
+      if (t === "image") return "📷 Photo";
+      if (t === "video") return "🎥 Video";
+      if (t === "audio") return "🎤 Voice message";
+      if (t === "file") return `📎 ${atts?.[0]?.name ?? "Attachment"}`;
+      if (atts) return "📎 Attachment";
+    }
+    return lastMessage || "No messages yet";
+  }, [attachments, mediaType, lastMessage, isTyping]);
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.7}
@@ -48,47 +73,70 @@ export default function ConversationItem({
         {avatar ? (
           <Image source={{ uri: avatar }} style={styles.avatar} />
         ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarText}>{getInitials(name)}</Text>
+          <View
+            style={[
+              styles.avatarPlaceholder,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <Text style={[styles.avatarText, { color: colors.textSecondary }]}>
+              {getInitials(name)}
+            </Text>
           </View>
         )}
-        {isOnline && <View style={styles.onlineIndicator} />}
+        {isOnline && (
+          <View
+            style={[styles.onlineIndicator, { borderColor: colors.background }]}
+          />
+        )}
       </View>
 
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.name} numberOfLines={1}>
-            {name}
+          <View style={styles.nameRow}>
+            <Text
+              style={[styles.name, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {name}
+            </Text>
             {isPinned && (
               <Ionicons
                 name="pin"
                 size={12}
-                color="#666"
+                color={colors.textTertiary ?? colors.textSecondary}
                 style={styles.pinIcon}
               />
             )}
+          </View>
+          <Text
+            style={[
+              styles.timestamp,
+              { color: colors.textTertiary ?? colors.textSecondary },
+            ]}
+          >
+            {timestamp}
           </Text>
-          <Text style={styles.timestamp}>{timestamp}</Text>
         </View>
 
         <View style={styles.messageContainer}>
-          {isTyping ? (
-            <View style={styles.typingContainer}>
-              <Text style={styles.typingText}>Typing...</Text>
-              <View style={styles.typingDots}>
-                <View style={styles.typingDot} />
-                <View style={[styles.typingDot, styles.typingDotMiddle]} />
-                <View style={styles.typingDot} />
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.message} numberOfLines={1}>
-              {lastMessage}
-            </Text>
-          )}
-
+          <Text
+            style={[
+              styles.message,
+              {
+                color: isTyping ? colors.primary : colors.textSecondary,
+                fontStyle: isTyping ? "italic" : "normal",
+                fontWeight: unreadCount > 0 ? "600" : "400",
+              },
+            ]}
+            numberOfLines={1}
+          >
+            {preview}
+          </Text>
           {unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
+            <View
+              style={[styles.unreadBadge, { backgroundColor: colors.primary }]}
+            >
               <Text style={styles.unreadCount}>
                 {unreadCount > 99 ? "99+" : unreadCount}
               </Text>
@@ -106,30 +154,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#fff",
   },
-  avatarContainer: {
-    position: "relative",
-    marginRight: 12,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
+  avatarContainer: { position: "relative", marginRight: 12 },
+  avatar: { width: 56, height: 56, borderRadius: 28 },
   avatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#f0f0f0",
     justifyContent: "center",
     alignItems: "center",
   },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#666",
-  },
+  avatarText: { fontSize: 20, fontWeight: "bold" },
   onlineIndicator: {
     position: "absolute",
     bottom: 0,
@@ -139,66 +174,25 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: "#4CAF50",
     borderWidth: 2,
-    borderColor: "#fff",
   },
-  content: {
-    flex: 1,
-  },
+  content: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 4,
   },
-  name: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    flex: 1,
-  },
-  pinIcon: {
-    marginLeft: 4,
-  },
-  timestamp: {
-    fontSize: 12,
-    color: "#666",
-  },
+  nameRow: { flexDirection: "row", alignItems: "center", flex: 1, gap: 4 },
+  name: { fontSize: 16, fontWeight: "600", flexShrink: 1 },
+  pinIcon: { marginLeft: 2 },
+  timestamp: { fontSize: 12 },
   messageContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  message: {
-    fontSize: 14,
-    color: "#666",
-    flex: 1,
-  },
-  typingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  typingText: {
-    fontSize: 14,
-    color: "#007AFF",
-    fontStyle: "italic",
-    marginRight: 8,
-  },
-  typingDots: {
-    flexDirection: "row",
-  },
-  typingDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#007AFF",
-    marginHorizontal: 1,
-  },
-  typingDotMiddle: {
-    opacity: 0.6,
-  },
+  message: { fontSize: 14, flex: 1 },
   unreadBadge: {
-    backgroundColor: "#007AFF",
     borderRadius: 10,
     minWidth: 20,
     height: 20,
