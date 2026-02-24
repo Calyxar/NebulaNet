@@ -147,8 +147,6 @@ export default function CreateMediaScreen() {
         const fileRef = storageRef(storage, path);
         await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
 
-        if (uploadError) throw uploadError;
-
         const publicUrl = await getDownloadURL(fileRef);
         uploadedUrls.push(publicUrl);
       } catch (err) {
@@ -199,7 +197,6 @@ export default function CreateMediaScreen() {
         updated_at: nowIso,
       });
 
-      if (error) throw error;
 
       Alert.alert("Success", "Media shared successfully!", [
         { text: "OK", onPress: () => router.back() },

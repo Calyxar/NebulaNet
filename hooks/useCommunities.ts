@@ -1,7 +1,7 @@
 // hooks/useCommunities.ts — ✅ UPDATED (user-aware key)
 
 import { useAuth } from "@/hooks/useAuth";
-import { fetchMyCommunities, type Community } from "@/lib/queries/communities";
+import { fetchMyCommunities, type Community } from "@/lib/firestore/communities";
 import { useQuery } from "@tanstack/react-query";
 
 export function useCommunities() {
