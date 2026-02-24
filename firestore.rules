@@ -1,9 +1,197 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Dev rule: only signed-in users can read/write
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && uid() == userId;
+    }
+
+    function docExists(path) {
+      return exists(path);
+    }
+
+    function getCommunity(communityId) {
+      return get(/databases/$(database)/documents/communities/$(communityId)).data;
+    }
+
+    function isCommunityOwner(communityId) {
+      return signedIn()
+        && docExists(/databases/$(database)/documents/communities/$(communityId))
+        && getCommunity(communityId).owner_id == uid();
+    }
+
+    function isCommunityMember(communityId) {
+      return signedIn()
+        && docExists(/databases/$(database)/documents/community_members/$(communityId + "_" + uid()));
+    }
+
+    function isCommunityModerator(communityId) {
+      return signedIn()
+        && docExists(/databases/$(database)/documents/community_moderators/$(communityId + "_" + uid()));
+    }
+
+    function canViewCommunityContent(communityId) {
+      let c = getCommunity(communityId);
+      return c.is_private != true || isCommunityOwner(communityId) || isCommunityMember(communityId) || isCommunityModerator(communityId);
+    }
+
+    function isConversationParticipant(conversationId) {
+      return signedIn()
+        && docExists(/databases/$(database)/documents/conversation_participants/$(conversationId + "_" + uid()));
+    }
+
+    match /profiles/{userId} {
+      allow read: if true;
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId);
+      allow delete: if isSelf(userId);
+    }
+
+    match /communities/{communityId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.owner_id == uid();
+
+      allow update: if signedIn()
+        && (
+          resource.data.owner_id == uid()
+          || isCommunityModerator(communityId)
+        );
+
+      allow delete: if signedIn()
+        && resource.data.owner_id == uid();
+    }
+
+    match /community_members/{memberId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid();
+
+      allow delete: if signedIn()
+        && resource.data.user_id == uid();
+
+      allow update: if false;
+    }
+
+    match /community_moderators/{modId} {
+      allow read: if signedIn();
+
+      allow create, delete: if signedIn()
+        && isCommunityOwner(request.resource.data.community_id);
+
+      allow update: if false;
+    }
+
+    match /community_rules/{ruleId} {
+      allow read: if true;
+
+      allow create, update, delete: if signedIn()
+        && (
+          isCommunityOwner(request.resource.data.community_id)
+          || isCommunityModerator(request.resource.data.community_id)
+        );
+    }
+
+    match /posts/{postId} {
+      allow read: if resource.data.community_id == null
+        || canViewCommunityContent(resource.data.community_id);
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && (
+          request.resource.data.community_id == null
+          || canViewCommunityContent(request.resource.data.community_id)
+        );
+
+      allow update: if signedIn()
+        && (
+          resource.data.user_id == uid()
+          || (resource.data.community_id != null && (isCommunityOwner(resource.data.community_id) || isCommunityModerator(resource.data.community_id)))
+        );
+
+      allow delete: if signedIn()
+        && (
+          resource.data.user_id == uid()
+          || (resource.data.community_id != null && (isCommunityOwner(resource.data.community_id) || isCommunityModerator(resource.data.community_id)))
+        );
+    }
+
+    match /comments/{commentId} {
+      allow read: if resource.data.post_id != null;
+
+      allow create: if signedIn()
+        && request.resource.data.author_id == uid();
+
+      allow update: if signedIn() && resource.data.author_id == uid();
+      allow delete: if signedIn()
+        && (
+          resource.data.author_id == uid()
+          || (resource.data.community_id != null && (isCommunityOwner(resource.data.community_id) || isCommunityModerator(resource.data.community_id)))
+        );
+    }
+
+    match /stories/{storyId} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow update, delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if isConversationParticipant(conversationId);
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /conversation_participants/{participantId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid();
+
+      allow delete: if signedIn()
+        && resource.data.user_id == uid();
+
+      allow update: if false;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn()
+        && isConversationParticipant(resource.data.conversation_id);
+
+      allow create: if signedIn()
+        && request.resource.data.sender_id == uid()
+        && isConversationParticipant(request.resource.data.conversation_id);
+
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.sender_id == uid();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.user_id == uid();
+      allow create: if signedIn();
+      allow update: if signedIn() && resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    match /support_reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow read: if signedIn() && resource.data.user_id == uid();
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }
