@@ -1,14 +1,8 @@
-// app/community/[slug].tsx — COMPLETED + UPDATED ✅
-// ✅ FIXED HEADER: uses SafeArea top + AppHeader so it doesn't overlap status bar/notch
-// ✅ Dark mode via ThemeProvider
-// ✅ joined_at missing -> safe fallback query + ordering
-// ✅ Owner/mod controls (Manage button)
-// ✅ Join/Leave button styled
-// ✅ Media grid UI (image/video thumbs)
-// ✅ Feed post tap -> /post/[id]
+// app/community/[slug].tsx
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
+import { useDeleteCommunity } from "@/hooks/useDeleteCommunity";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,8 +37,6 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-
-/* ----------------------------- types ----------------------------- */
 
 type ProfileMini = {
   username: string | null;
@@ -96,8 +88,6 @@ type MediaGridItem = {
   type: "image" | "video";
 };
 
-/* ----------------------------- helpers ----------------------------- */
-
 const isVideoUrl = (url: string) => /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(url);
 
 const formatTimeAgo = (iso: string) => {
@@ -119,14 +109,14 @@ function safeFirstLetter(name: string) {
   return (s[0] ?? "U").toUpperCase();
 }
 
-/* ----------------------------- screen ----------------------------- */
-
 export default function CommunityScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { colors, isDark } = useTheme();
+
+  const del = useDeleteCommunity();
 
   const [community, setCommunity] = useState<Community | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -149,8 +139,6 @@ export default function CommunityScreen() {
     [width],
   );
 
-  /* ----------------------------- safe queries ----------------------------- */
-
   const fetchCommunityBySlug = useCallback(async (slugValue: string) => {
     const snap = await getDocs(
       query(
@@ -164,7 +152,6 @@ export default function CommunityScreen() {
     return { id: d.id, ...d.data() } as unknown as Community;
   }, []);
 
-  // ✅ members: try with joined_at, fallback if missing
   const fetchMembersSafe = useCallback(async (communityId: string) => {
     const membersSnap = await getDocs(
       query(
@@ -172,48 +159,51 @@ export default function CommunityScreen() {
         where("community_id", "==", communityId),
       ),
     );
-    const memberProfiles = await Promise.all(
+
+    const rows = await Promise.all(
       membersSnap.docs.map(async (d) => {
         const data = d.data() as any;
         const pSnap = await getDoc(doc(db, "profiles", data.user_id));
         const p = pSnap.exists() ? (pSnap.data() as any) : null;
+
         return {
-          user_id: data.user_id,
+          user_id: String(data.user_id),
           joined_at: data.joined_at ?? null,
           profile: p
             ? {
-                username: p.username,
+                username: p.username ?? null,
                 full_name: p.full_name ?? null,
                 avatar_url: p.avatar_url ?? null,
               }
             : null,
-        };
+        } as Member;
       }),
     );
-    return memberProfiles as Member[];
-  }, []);
 
-  /* ----------------------------- load ----------------------------- */
+    return rows;
+  }, []);
 
   const loadCommunity = useCallback(async () => {
     if (!slug) return;
 
     setLoading(true);
     try {
-      const c = await fetchCommunityBySlug(slug);
+      const c = await fetchCommunityBySlug(String(slug));
       setCommunity(c);
+
+      const ownerId = c.owner_id ?? null;
+      const myUid = user?.uid ?? null;
 
       let joined = false;
       let moderator = false;
-      const ownerId = c.owner_id ?? null;
 
-      if (user?.uid) {
+      if (myUid) {
         const [memberSnap, modSnap] = await Promise.all([
           getDocs(
             query(
               collection(db, "community_members"),
               where("community_id", "==", c.id),
-              where("user_id", "==", user.uid),
+              where("user_id", "==", myUid),
               limit(1),
             ),
           ),
@@ -221,21 +211,21 @@ export default function CommunityScreen() {
             query(
               collection(db, "community_moderators"),
               where("community_id", "==", c.id),
-              where("user_id", "==", user.uid),
+              where("user_id", "==", myUid),
               limit(1),
             ),
           ),
         ]);
 
-        joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
-        moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
+        joined = !memberSnap.empty || (!!ownerId && ownerId === myUid);
+        moderator = !modSnap.empty || (!!ownerId && ownerId === myUid);
       }
 
       setIsJoined(joined);
       setIsModerator(moderator);
 
       const isPrivate = normalizeBool(c.is_private);
-      const isOwner = !!ownerId && ownerId === user?.id;
+      const isOwner = !!ownerId && !!myUid && ownerId === myUid;
       const canViewPrivate = !isPrivate || joined || isOwner;
 
       const [postsTyped, rulesTyped, membersTyped] = await Promise.all([
@@ -244,7 +234,10 @@ export default function CommunityScreen() {
               query(collection(db, "posts"), where("community_id", "==", c.id)),
             ).then(
               (snap) =>
-                snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[],
+                snap.docs.map((d) => ({
+                  id: d.id,
+                  ...d.data(),
+                })) as unknown as Post[],
             )
           : Promise.resolve([] as Post[]),
 
@@ -272,6 +265,7 @@ export default function CommunityScreen() {
       const grid: MediaGridItem[] = [];
       postsTyped.forEach((p) => {
         (p.media_urls ?? []).forEach((url) => {
+          if (!url) return;
           grid.push({
             postId: p.id,
             url,
@@ -282,10 +276,11 @@ export default function CommunityScreen() {
       setMedia(grid);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load community");
+      setCommunity(null);
     } finally {
       setLoading(false);
     }
-  }, [slug, user?.id, fetchCommunityBySlug, fetchMembersSafe]);
+  }, [slug, user?.uid, fetchCommunityBySlug, fetchMembersSafe]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -300,11 +295,10 @@ export default function CommunityScreen() {
     void loadCommunity();
   }, [loadCommunity]);
 
-  /* ----------------------------- join/leave ----------------------------- */
-
   const bumpMemberCount = useCallback(
     async (delta: number) => {
       if (!community?.id) return;
+
       try {
         const current =
           typeof community.member_count === "number"
@@ -316,16 +310,16 @@ export default function CommunityScreen() {
           member_count: next,
         });
         setCommunity((prev) => (prev ? { ...prev, member_count: next } : prev));
-      } catch {
-        // ignore
-      }
+      } catch {}
     },
     [community?.id, community?.member_count],
   );
 
   const joinCommunity = useCallback(async () => {
     if (!community?.id) return;
-    if (!user?.id) {
+
+    const myUid = user?.uid ?? null;
+    if (!myUid) {
       Alert.alert("Sign in required", "Log in to join communities.");
       return;
     }
@@ -334,7 +328,7 @@ export default function CommunityScreen() {
     try {
       await addDoc(collection(db, "community_members"), {
         community_id: community.id,
-        user_id: user.uid,
+        user_id: myUid,
         joined_at: serverTimestamp(),
       });
 
@@ -346,12 +340,15 @@ export default function CommunityScreen() {
     } finally {
       setJoining(false);
     }
-  }, [community?.id, user?.id, loadCommunity, bumpMemberCount]);
+  }, [community?.id, user?.uid, bumpMemberCount, loadCommunity]);
 
   const leaveCommunity = useCallback(async () => {
-    if (!community?.id || !user?.id) return;
+    if (!community?.id) return;
 
-    if (community.owner_id && community.owner_id === user.id) {
+    const myUid = user?.uid ?? null;
+    if (!myUid) return;
+
+    if (community.owner_id && community.owner_id === myUid) {
       Alert.alert("Owner", "You can’t leave a community you own.");
       return;
     }
@@ -362,9 +359,10 @@ export default function CommunityScreen() {
         query(
           collection(db, "community_members"),
           where("community_id", "==", community.id),
-          where("user_id", "==", user.uid),
+          where("user_id", "==", myUid),
         ),
       );
+
       await Promise.all(leaveSnap.docs.map((d) => deleteDoc(d.ref)));
 
       setIsJoined(false);
@@ -377,18 +375,16 @@ export default function CommunityScreen() {
     }
   }, [
     community?.id,
-    user?.id,
     community?.owner_id,
-    loadCommunity,
+    user?.uid,
     bumpMemberCount,
+    loadCommunity,
   ]);
 
-  /* ----------------------------- computed ----------------------------- */
-
-  const isOwner = useMemo(
-    () => !!community?.owner_id && community.owner_id === user?.id,
-    [community?.owner_id, user?.id],
-  );
+  const isOwner = useMemo(() => {
+    const myUid = user?.uid ?? null;
+    return !!community?.owner_id && !!myUid && community.owner_id === myUid;
+  }, [community?.owner_id, user?.uid]);
 
   const canManage = isOwner || isModerator;
 
@@ -396,10 +392,12 @@ export default function CommunityScreen() {
     if (!community) return false;
     const isPrivate = normalizeBool(community.is_private);
     if (!isPrivate) return false;
-    if (!user?.id) return true;
+
+    const myUid = user?.uid ?? null;
+    if (!myUid) return true;
     if (isOwner) return false;
     return !isJoined;
-  }, [community, user?.id, isOwner, isJoined]);
+  }, [community, user?.uid, isOwner, isJoined]);
 
   const memberCountLabel = useMemo(() => {
     const n =
@@ -413,7 +411,29 @@ export default function CommunityScreen() {
     return "";
   }, [community?.member_count, members.length]);
 
-  /* ----------------------------- renderers ----------------------------- */
+  const confirmDeleteCommunity = useCallback(() => {
+    if (!community?.id || !community?.slug) return;
+
+    Alert.alert(
+      "Delete community?",
+      "This permanently deletes the community and its posts/members.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: del.isPending ? "Deleting..." : "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await del.mutateAsync({ communityId: community.id });
+              router.replace("/(tabs)/explore");
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to delete community.");
+            }
+          },
+        },
+      ],
+    );
+  }, [community?.id, community?.slug, del]);
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -462,7 +482,7 @@ export default function CommunityScreen() {
                   {name}
                 </Text>
                 <Text style={[styles.time, { color: colors.textTertiary }]}>
-                  {formatTimeAgo(item.created_at)}
+                  {item.created_at ? formatTimeAgo(item.created_at) : ""}
                 </Text>
               </View>
             </View>
@@ -540,8 +560,6 @@ export default function CommunityScreen() {
     [gridSide, colors.surface],
   );
 
-  /* ----------------------------- UI ----------------------------- */
-
   if (loading) {
     return (
       <SafeAreaView
@@ -575,7 +593,6 @@ export default function CommunityScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={["top", "left", "right"]}
     >
-      {/* ✅ FIXED HEADER */}
       <AppHeader
         backgroundColor={colors.background}
         leftWide={
@@ -714,6 +731,24 @@ export default function CommunityScreen() {
                 />
               </TouchableOpacity>
             )}
+
+            {isOwner && (
+              <TouchableOpacity
+                onPress={confirmDeleteCommunity}
+                disabled={del.isPending}
+                activeOpacity={0.85}
+                style={[
+                  styles.manageBtn,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={16}
+                  color={del.isPending ? colors.textTertiary : "#ff3b30"}
+                />
+              </TouchableOpacity>
+            )}
           </View>
         }
       />
@@ -784,7 +819,6 @@ export default function CommunityScreen() {
         </View>
       ) : (
         <>
-          {/* Tabs */}
           <View
             style={[
               styles.tabsWrap,
