@@ -1,5 +1,5 @@
 // app/create/story.tsx - COMPLETED (Private bucket ready + Android content:// safe)
-import { createStory, uploadStoryMedia } from "@/lib/queries/stories";
+import { createStory, uploadStoryMedia } from "@/lib/firestore/stories";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";

@@ -174,9 +174,7 @@ export default function CreatePostScreen() {
   };
 
   /**
-   * Upload media to Supabase Storage and return public URL string[]
-   * Bucket: post-media
-   * Path: media/<userId>/<timestamp-random>.<ext>
+   * Upload media to Firebase Storage and return public URL string[].
    */
   const uploadPostMedia = async (): Promise<string[]> => {
     if (!user) throw new Error("Not logged in");
@@ -198,11 +196,6 @@ export default function CreatePostScreen() {
       const storage = getStorage();
       const fileRef = storageRef(storage, path);
       await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
-
-      if (uploadError) {
-        console.error("Storage upload error:", uploadError);
-        throw new Error("Upload failed. Check storage bucket policy.");
-      }
 
       const publicUrl = await getDownloadURL(fileRef);
       uploadedUrls.push(publicUrl);
@@ -264,8 +257,6 @@ export default function CreatePostScreen() {
         comment_count: 0,
         share_count: 0,
       });
-
-      if (error) throw error;
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },

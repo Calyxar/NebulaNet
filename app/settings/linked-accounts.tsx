@@ -73,7 +73,7 @@ export default function LinkedAccountsScreen() {
     {
       id: "1",
       provider: "google",
-      email: user?.email,
+      email: user?.email ?? undefined,
       connectedAt: new Date().toISOString(),
     },
   ]);
