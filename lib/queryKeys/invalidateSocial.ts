@@ -19,8 +19,8 @@ export function invalidateAfterBlock(
   qc.invalidateQueries({ queryKey: qk.notifications() });
 
   // Feeds / discovery
-  qc.invalidateQueries({ queryKey: qk.feed("home") });
-  qc.invalidateQueries({ queryKey: qk.feed("global") });
+  qc.invalidateQueries({ queryKey: qk.feed({ scope: "home" }) });
+  qc.invalidateQueries({ queryKey: qk.feed({ scope: "global" }) });
   qc.invalidateQueries({ queryKey: qk.explore() });
   qc.invalidateQueries({ queryKey: qk.stories() });
 
@@ -48,8 +48,8 @@ export function invalidateAfterUnfollow(
   qc.invalidateQueries({ queryKey: qk.userStats(myId) });
   qc.invalidateQueries({ queryKey: qk.notifications() });
 
-  qc.invalidateQueries({ queryKey: qk.feed("home") });
-  qc.invalidateQueries({ queryKey: qk.feed("following") });
+  qc.invalidateQueries({ queryKey: qk.feed({ scope: "home" }) });
+  qc.invalidateQueries({ queryKey: qk.feed({ scope: "following" }) });
 
   if (targetId) {
     qc.invalidateQueries({ queryKey: qk.followEdge(myId, targetId) });
@@ -74,7 +74,7 @@ export function invalidateAfterApproveDeny(
   qc.invalidateQueries({ queryKey: qk.userStats(myId) });
   qc.invalidateQueries({ queryKey: qk.notifications() });
 
-  qc.invalidateQueries({ queryKey: qk.feed("home") });
+  qc.invalidateQueries({ queryKey: qk.feed({ scope: "home" }) });
 
   if (followerId) {
     qc.invalidateQueries({ queryKey: qk.followEdge(followerId, myId) });

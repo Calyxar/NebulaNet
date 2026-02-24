@@ -4,7 +4,7 @@ import {
     fetchStoryById,
     markStorySeen,
     type StoryRow,
-} from "@/lib/queries/stories";
+} from "@/lib/firestore/stories";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export const storyKeys = {
