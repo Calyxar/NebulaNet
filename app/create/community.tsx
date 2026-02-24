@@ -66,11 +66,7 @@ async function ensureUniqueSlug(base: string) {
       ),
     );
 
-    if (error) {
-      // if slug column doesn’t exist, we just return attempt (fallback)
-      return attempt;
-    }
-    if (!data) return attempt;
+    if (snapU.empty) return attempt;
   }
 
   return `${slug}-${Date.now().toString().slice(-5)}`;

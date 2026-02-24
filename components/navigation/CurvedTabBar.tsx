@@ -224,8 +224,7 @@ export default function CurvedTabBar({
             badge !== undefined &&
             badge !== null &&
             badge !== 0 &&
-            badge !== "" &&
-            badge !== false;
+            badge !== "";
 
           return (
             <TouchableOpacity
