@@ -1,24 +1,50 @@
 # NebulaNet
 
-A mobile-first social media app built with **Expo (React Native)** using **file-based routing** (expo-router).  
-Focused on a clean UX, scalable app structure, and modern social features.
+NebulaNet is a mobile-first social media application built with **Expo (React Native)** and **TypeScript**, designed with scalable architecture and secure user authentication.
 
-## Features (in progress)
-- Auth flow (login / signup / reset)
-- Tab navigation (Home, Explore, Create, Notifications, Profile)
-- Feed rendering + interactions (like / bookmark / share)
-- Notifications with unread badge
-- Media upload flow (images/video/doc support planned)
+The project focuses on clean UX, structured navigation, and a cloud-backed backend using Firebase services.
 
-## Tech Stack
+---
+
+## 🚀 Core Features
+
+- Secure authentication flow (login / signup / password reset)
+- Role-based user logic
+- Structured tab navigation (Home, Explore, Create, Notifications, Profile)
+- Feed rendering with interactions (like / bookmark / share)
+- Notification system with unread indicators
+- Cloud-based media storage support
+- Scalable Firestore database architecture
+
+---
+
+## 🧱 Tech Stack
+
 - Expo + React Native
 - TypeScript
-- expo-router
-- Supabase (planned / in progress) *(update if different)*
+- expo-router (file-based routing)
+- Firebase Authentication
+- Firebase Firestore
+- Firebase Storage
 
-## Getting Started
+---
+
+## 🏗 Architecture Highlights
+
+- Role-based access logic
+- Modular screen structure using file-based routing
+- Cloud-backed database with structured collections
+- Scalable navigation system
+- Separation of UI and backend logic
+
+---
+
+## 🛠 Getting Started
 
 ### 1) Install dependencies
+
 ```bash
 npm install
+```
 
+npm install
