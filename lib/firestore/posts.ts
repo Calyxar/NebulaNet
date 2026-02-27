@@ -6,6 +6,7 @@
 // ✅ newest / popular / trending
 // ✅ returns is_liked / is_saved / is_owned for current user
 // ✅ cursor pagination for infinite feed
+// ✅ hashtags[] stored on each post + array-contains filter + indexing
 //
 // IMPORTANT FIXES:
 // ✅ Firestore "in" supports max 10 values (not 30) → chunked + limited
@@ -15,6 +16,7 @@
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth, db, storage } from "@/lib/firebase";
+import { extractHashtags, indexHashtags } from "@/lib/firestore/hashtags";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import {
   Timestamp,
@@ -69,6 +71,9 @@ export interface Post {
   post_type?: PostType | null;
   is_visible?: boolean | null;
 
+  // ✅ Stored hashtags extracted from content
+  hashtags?: string[];
+
   like_count: number;
   comment_count: number;
   share_count: number;
@@ -96,6 +101,9 @@ export interface PostFilters {
 
   visibility?: PostVisibility;
   sortBy?: "newest" | "popular" | "trending";
+
+  // ✅ Filter posts by hashtag (array-contains)
+  hashtag?: string;
 
   cursor?: {
     lastDocId?: string;
@@ -176,7 +184,6 @@ function normalizePostType(p: { post_type?: any; media_urls?: any }): PostType {
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts instanceof Timestamp) return ts.toDate().toISOString();
-  // serverTimestamp fields may come back as object-like; Date() will handle string/number best
   const d = new Date(ts);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
@@ -195,6 +202,7 @@ function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
     community_id: d.community_id ?? null,
     post_type: normalizePostType(d),
     is_visible: typeof d.is_visible === "boolean" ? d.is_visible : true,
+    hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
     like_count: typeof d.like_count === "number" ? d.like_count : 0,
     comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
     share_count: typeof d.share_count === "number" ? d.share_count : 0,
@@ -224,12 +232,10 @@ async function resolveUserIdFromUsername(
 
   const u = raw.toLowerCase();
 
-  // Prefer username_lc (if you store it)
   let q = query(PROFILES, where("username_lc", "==", u), fsLimit(1));
   let snap = await getDocs(q);
   if (!snap.empty) return snap.docs[0].id;
 
-  // Fallback to username (if you store original-cased usernames)
   q = query(PROFILES, where("username", "==", raw), fsLimit(1));
   snap = await getDocs(q);
   return snap.docs[0]?.id ?? null;
@@ -333,7 +339,6 @@ async function uploadMediaForPost(
       });
     } catch (e) {
       const bytes = await uriToBytesLegacy(item.uri);
-      // contentType not strictly required; you can add mapping if you want
       await uploadBytes(storageRef, bytes as any);
     }
 
@@ -402,6 +407,7 @@ export async function getPosts(
     userId,
     visibility,
     sortBy = "newest",
+    hashtag,
     cursor = null,
   } = filters;
 
@@ -418,13 +424,24 @@ export async function getPosts(
 
   const wheres: any[] = [where("is_visible", "==", true)];
 
-  // ✅ Firestore "in" max 10 — take first 10 (UI can pass more, but query can’t)
+  // ✅ Firestore "in" max 10 — take first 10
   if (resolvedCommunityIds.length) {
     wheres.push(where("community_id", "in", resolvedCommunityIds.slice(0, 10)));
   }
 
   if (resolvedUserId) wheres.push(where("user_id", "==", resolvedUserId));
   if (visibility) wheres.push(where("visibility", "==", visibility));
+
+  // ✅ Hashtag filter — uses Firestore array-contains
+  if (hashtag) {
+    wheres.push(
+      where(
+        "hashtags",
+        "array-contains",
+        hashtag.toLowerCase().replace(/^#/, ""),
+      ),
+    );
+  }
 
   // trending = last 7 days + likes desc
   const extra: any[] = [];
@@ -442,7 +459,6 @@ export async function getPosts(
 
   let qBase = query(POSTS, ...wheres, ...extra);
 
-  // Cursor paging uses lastDoc snapshot
   if (cursor?.lastDocId) {
     const lastSnap = await getDoc(doc(db, "posts", cursor.lastDocId));
     if (lastSnap.exists()) qBase = query(qBase, startAfter(lastSnap));
@@ -561,6 +577,10 @@ export async function createPost(
     ? await getCommunitySnapshot(postData.community_id)
     : null;
 
+  // ✅ Extract hashtags from title + content
+  const allText = [postData.title ?? "", postData.content].join(" ");
+  const hashtags = extractHashtags(allText);
+
   const now = new Date().toISOString();
 
   const refDoc = await addDoc(POSTS, {
@@ -572,6 +592,7 @@ export async function createPost(
     media_urls: urls,
     post_type,
     is_visible: true,
+    hashtags, // ✅ stored for array-contains queries
 
     like_count: 0,
     comment_count: 0,
@@ -585,6 +606,13 @@ export async function createPost(
     created_at_ts: serverTimestamp(),
     updated_at_ts: serverTimestamp(),
   });
+
+  // ✅ Index hashtags in the hashtags collection (fire-and-forget, non-blocking)
+  if (hashtags.length) {
+    indexHashtags(hashtags).catch((e) =>
+      console.warn("indexHashtags failed:", e),
+    );
+  }
 
   const createdSnap = await getDoc(refDoc);
   if (!createdSnap.exists()) return null;
@@ -616,7 +644,6 @@ export async function updatePost(
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
 
-  // update community snapshot if changed
   let communitySnap: CommunityRow | null | undefined = undefined;
   if (patch.community_id !== undefined) {
     communitySnap = patch.community_id
@@ -624,10 +651,25 @@ export async function updatePost(
       : null;
   }
 
+  // ✅ Re-extract hashtags if content changed
+  let hashtagPatch: { hashtags?: string[] } = {};
+  if (patch.content != null) {
+    const allText = [patch.title ?? d.title ?? "", patch.content].join(" ");
+    const hashtags = extractHashtags(allText);
+    hashtagPatch = { hashtags };
+
+    if (hashtags.length) {
+      indexHashtags(hashtags).catch((e) =>
+        console.warn("indexHashtags failed:", e),
+      );
+    }
+  }
+
   const now = new Date().toISOString();
 
   await updateDoc(refDoc, {
     ...patch,
+    ...hashtagPatch,
     ...(communitySnap !== undefined ? { community: communitySnap } : {}),
     updated_at: now,
     updated_at_ts: serverTimestamp(),

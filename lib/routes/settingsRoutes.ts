@@ -1,4 +1,4 @@
-// app/settings/routes.ts — COMPLETED + UPDATED
+// lib/routes/settingsRoutes.ts
 import { router } from "expo-router";
 
 export const SETTINGS_ROUTES = {
@@ -30,16 +30,10 @@ export function replaceSettings(key: SettingsRouteKey) {
   router.replace(SETTINGS_ROUTES[key] as any);
 }
 
-/**
- * ✅ CLOSE SETTINGS FOR REAL:
- * Always "replace" out of settings to avoid looping inside the settings stack.
- */
 export function closeSettings(returnTo?: string) {
-  if (returnTo && typeof returnTo === "string" && returnTo.length) {
+  if (returnTo && typeof returnTo === "string" && returnTo.length > 0) {
     router.replace(returnTo as any);
     return;
   }
-
-  // default: go back to profile tab
   router.replace("/(tabs)/profile" as any);
 }

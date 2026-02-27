@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { usePersistedState } from "@/hooks/usePersistedState";
-import { closeSettings, pushSettings } from "./routes";
+import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
 
 type RowItem = {
   title: string;

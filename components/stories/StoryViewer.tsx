@@ -1,4 +1,5 @@
-// components/stories/StoryViewer.tsx
+// components/stories/StoryViewer.tsx — UPDATED (tappable hashtags in captions + text stories)
+import HashtagText from "@/components/post/HashtagText";
 import { Ionicons } from "@expo/vector-icons";
 import { ResizeMode, Video } from "expo-av";
 import { getDownloadURL, getStorage, ref } from "firebase/storage";
@@ -22,9 +23,8 @@ interface Story {
   avatar_url?: string;
   full_name?: string;
 
-  // Your old fields:
   story_content?: string;
-  story_image?: string; // now can be URL OR storage path
+  story_image?: string; // URL OR storage path
   story_type?: "text" | "image" | "video";
   created_at?: string;
 }
@@ -43,8 +43,6 @@ function isHttpUrl(value?: string) {
   return /^https?:\/\//i.test(value);
 }
 
-// Firebase Storage: get download URL from a storage path
-// If the value is already an https:// URL (from getDownloadURL), use it directly.
 async function getSignedStoryUrl(path: string) {
   const storage = getStorage();
   const storageRef = ref(storage, path);
@@ -65,7 +63,6 @@ export default function StoryViewer({
   const [comments, setComments] = useState<any[]>([]);
   const [_isLoadingComments] = useState(false);
 
-  // Signed media handling
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -74,7 +71,6 @@ export default function StoryViewer({
 
   const resolvedType = useMemo<"text" | "image" | "video">(() => {
     if (story.story_type) return story.story_type;
-    // Fallback guess based on extension if provided
     const v = storyMediaRaw?.toLowerCase() ?? "";
     if (v.endsWith(".mp4") || v.endsWith(".mov") || v.includes("video"))
       return "video";
@@ -87,20 +83,14 @@ export default function StoryViewer({
 
     const run = async () => {
       setMediaError(null);
-
-      // No media => text story
       if (!storyMediaRaw) {
         setMediaUrl(null);
         return;
       }
-
-      // Already a public URL => use directly
       if (isHttpUrl(storyMediaRaw)) {
         setMediaUrl(storyMediaRaw);
         return;
       }
-
-      // Otherwise treat as storage path (private bucket)
       setMediaLoading(true);
       try {
         const signed = await getSignedStoryUrl(storyMediaRaw);
@@ -116,68 +106,57 @@ export default function StoryViewer({
     };
 
     run();
-
     return () => {
       cancelled = true;
     };
   }, [storyMediaRaw]);
 
-  // Format timestamp
   const formatTime = (dateString?: string) => {
     if (!dateString) return "";
     const date = new Date(dateString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / 3600000);
-
     if (diffHours < 1) return `${Math.floor(diffMs / 60000)}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // Handle comment submission
   const handleSendComment = async () => {
     if (!commentText.trim() || isSending) return;
-
     setIsSending(true);
     try {
       const success = await onComment(commentText);
       if (success) {
         const text = commentText;
         setCommentText("");
-
-        const newComment = {
-          id: Date.now().toString(),
-          content: text,
-          created_at: new Date().toISOString(),
-          profiles: {
-            username: "You",
-            full_name: "You",
-            avatar_url: null,
+        setComments((prev) => [
+          {
+            id: Date.now().toString(),
+            content: text,
+            created_at: new Date().toISOString(),
+            profiles: { username: "You", full_name: "You", avatar_url: null },
           },
-        };
-        setComments((prev) => [newComment, ...prev]);
+          ...prev,
+        ]);
       }
     } finally {
       setIsSending(false);
     }
   };
 
-  // Quick reactions
   const handleQuickReaction = async (emoji: string) => {
     try {
       await onComment(emoji);
-      const newComment = {
-        id: Date.now().toString(),
-        content: emoji,
-        created_at: new Date().toISOString(),
-        profiles: {
-          username: "You",
-          full_name: "You",
-          avatar_url: null,
+      setComments((prev) => [
+        {
+          id: Date.now().toString(),
+          content: emoji,
+          created_at: new Date().toISOString(),
+          profiles: { username: "You", full_name: "You", avatar_url: null },
         },
-      };
-      setComments((prev) => [newComment, ...prev]);
+        ...prev,
+      ]);
     } catch (error) {
       console.error("Error sending reaction:", error);
     }
@@ -225,7 +204,6 @@ export default function StoryViewer({
               color="#fff"
             />
           </TouchableOpacity>
-
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
             <Ionicons name="close" size={28} color="#fff" />
           </TouchableOpacity>
@@ -234,7 +212,6 @@ export default function StoryViewer({
 
       {/* Story Content */}
       <View style={styles.content}>
-        {/* Loading overlay for signed URL generation */}
         {mediaLoading && (
           <View style={styles.mediaOverlay}>
             <Ionicons name="cloud-download-outline" size={22} color="#fff" />
@@ -242,22 +219,17 @@ export default function StoryViewer({
           </View>
         )}
 
-        {/* Error overlay */}
         {!!mediaError && (
           <View style={styles.mediaOverlay}>
             <Ionicons name="warning-outline" size={22} color="#fff" />
             <Text style={styles.mediaOverlayText}>{mediaError}</Text>
-
             <TouchableOpacity
               style={styles.retryButton}
               onPress={() => {
-                // Force a refresh by re-running effect: set to null then restore
                 const raw = story.story_image ?? null;
                 setMediaError(null);
                 setMediaUrl(null);
                 setTimeout(() => {
-                  // If the raw is a storage path, effect will sign again.
-                  // If it’s a URL, it will set immediately.
                   setMediaUrl(isHttpUrl(raw ?? "") ? raw : null);
                 }, 0);
               }}
@@ -300,18 +272,30 @@ export default function StoryViewer({
             </View>
           )
         ) : (
+          // ✅ Text story: render hashtags as tappable links
           <View
             style={[styles.textStoryContainer, { backgroundColor: "#000" }]}
           >
-            <Text style={styles.storyText}>
-              {story.story_content || "No story content"}
-            </Text>
+            {story.story_content ? (
+              <HashtagText
+                text={story.story_content}
+                style={styles.storyText}
+                hashtagStyle={styles.storyHashtag}
+              />
+            ) : (
+              <Text style={styles.storyText}>No story content</Text>
+            )}
           </View>
         )}
 
+        {/* ✅ Caption overlay: render hashtags as tappable links */}
         {showCaptionOverlay && (
           <View style={styles.captionContainer}>
-            <Text style={styles.caption}>{story.story_content}</Text>
+            <HashtagText
+              text={story.story_content!}
+              style={styles.caption}
+              hashtagStyle={styles.captionHashtag}
+            />
           </View>
         )}
       </View>
@@ -322,7 +306,6 @@ export default function StoryViewer({
         onPress={onPrev}
         activeOpacity={0.7}
       />
-
       <TouchableOpacity
         style={[styles.navArea, styles.navAreaRight]}
         onPress={onNext}
@@ -447,6 +430,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 32,
   },
+  // ✅ Hashtag style inside text stories (bright so it's visible on dark bg)
+  storyHashtag: {
+    color: "#60CDFF",
+    fontWeight: "800",
+  },
 
   captionContainer: {
     position: "absolute",
@@ -458,6 +446,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   caption: { color: "#fff", fontSize: 16, textAlign: "center", lineHeight: 22 },
+  // ✅ Hashtag style inside captions
+  captionHashtag: {
+    color: "#60CDFF",
+    fontWeight: "700",
+  },
 
   navArea: {
     position: "absolute",
@@ -525,7 +518,6 @@ const styles = StyleSheet.create({
   },
   quickReactionText: { fontSize: 20 },
 
-  // overlays
   mediaOverlay: {
     position: "absolute",
     top: 80,

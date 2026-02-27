@@ -20,14 +20,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
-import { useTheme } from "@/providers/ThemeProvider";
-import { signOut } from "firebase/auth";
 import {
   closeSettings,
   pushSettings,
   replaceSettings,
   type SettingsRouteKey,
-} from "./routes";
+} from "@/lib/routes/settingsRoutes";
+import { useTheme } from "@/providers/ThemeProvider";
+import { signOut } from "firebase/auth";
 
 type SettingsRow = {
   title: string;

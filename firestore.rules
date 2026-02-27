@@ -1,123 +1,428 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    /* ================= HELPERS ================= */
+
     function signedIn() {
       return request.auth != null;
     }
 
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function profilePath(userId) {
+      return /databases/$(database)/documents/profiles/$(userId);
+    }
+
+    function hasProfile(userId) {
+      return exists(profilePath(userId));
+    }
+
+    function userDoc() {
+      return get(profilePath(uid()));
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && hasProfile(uid())
+        && userDoc().data.role == "admin";
+    }
+
+    function isSuspended() {
+      return signedIn()
+        && hasProfile(uid())
+        && userDoc().data.is_suspended == true;
+    }
+
     function isSelf(userId) {
-      return signedIn() && request.auth.uid == userId;
+      return signedIn() && uid() == userId;
     }
 
-    function communityDoc(communityId) {
-      return get(/databases/$(database)/documents/communities/$(communityId));
+    function isPrivate(userId) {
+      return hasProfile(userId)
+        && get(profilePath(userId)).data.is_private == true;
     }
 
-    function isCommunityOwner(communityId) {
-      return signedIn() && communityDoc(communityId).data.owner_id == request.auth.uid;
+    function followDocId(targetUserId) {
+      return uid() + "_" + targetUserId;
     }
 
+    function isFollowing(targetUserId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/follows/$(followDocId(targetUserId)));
+    }
+
+    function participantDocPath(conversationId, userId) {
+      return /databases/$(database)/documents/conversation_participants/$(conversationId + "_" + userId);
+    }
+
+    function isParticipant(conversationId) {
+      return signedIn() && exists(participantDocPath(conversationId, uid()));
+    }
+
+    function isPostOwnerFromData(postData) {
+      return signedIn() && postData.user_id == uid();
+    }
+
+    function isCountOnlyUpdate() {
+      // Only allow updating these fields during interaction count bumps
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        "like_count",
+        "save_count",
+        "share_count",
+        "updated_at",
+        "updated_at_ts"
+      ]);
+    }
+
+    function isNonNegativeInt(v) {
+      return v is int && v >= 0;
+    }
+
+    function countDeltaOk(fieldName) {
+      // allow +/- 1 changes only (or unchanged), and keep non-negative
+      let before = resource.data[fieldName];
+      let after  = request.resource.data[fieldName];
+
+      // default missing -> 0
+      let b = (before is int) ? before : 0;
+      let a = (after  is int) ? after  : 0;
+
+      return isNonNegativeInt(a)
+        && (a == b || a == b + 1 || a == b - 1);
+    }
+
+    /* ================= PROFILES ================= */
 
     match /profiles/{userId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isSelf(userId);
+      allow read: if (!isPrivate(userId)) || isSelf(userId) || isAdmin();
+
+      allow create: if isSelf(userId) && !isSuspended();
+
+      allow update: if isSelf(userId) && !isSuspended();
+
+      allow delete: if isSelf(userId) || isAdmin();
     }
+
+    /* ================= USER SETTINGS ================= */
 
     match /user_settings/{userId} {
-      allow read, write: if isSelf(userId);
+      allow read: if isSelf(userId) || isAdmin();
+      allow create: if isSelf(userId) && !isSuspended();
+      allow update: if isSelf(userId) && !isSuspended();
+      allow delete: if isAdmin(); // change to false if you want never-delete
     }
+
+    /* ================= USER INTERESTS ================= */
 
     match /user_interests/{userId} {
-      allow read, write: if isSelf(userId);
+      allow read: if isSelf(userId) || isAdmin();
+      allow create, update: if isSelf(userId) && !isSuspended();
+      allow delete: if isAdmin();
     }
 
-    match /conversations/{conversationId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if signedIn();
-      allow delete: if false;
+    /* ================= POSTS ================= */
+
+    match /posts/{postId} {
+
+      function ownerId() {
+        return resource.data.user_id;
+      }
+
+      function isOwner() {
+        return signedIn() && ownerId() == uid();
+      }
+
+      function isVisible() {
+        return resource.data.visibility == "public"
+          || (resource.data.visibility == "followers" && isFollowing(ownerId()))
+          || isOwner()
+          || isAdmin();
+      }
+
+      allow read: if signedIn() && isVisible();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && !isSuspended();
+
+      // Owner/admin can edit anything (you already had this)
+      allow update, delete: if (isOwner() && !isSuspended()) || isAdmin();
+
+      // ✅ Option A: allow NON-OWNER count-only updates (like/save/share)
+      // Safe because:
+      // - only those fields can change
+      // - only +/-1 changes
+      // - cannot go negative
+      allow update: if signedIn()
+        && !isSuspended()
+        && !isOwner()
+        && !isAdmin()
+        && isCountOnlyUpdate()
+        && countDeltaOk("like_count")
+        && countDeltaOk("save_count")
+        && countDeltaOk("share_count");
     }
 
-    match /conversation_participants/{participantId} {
+    /* ================= COMMENTS ================= */
+
+    match /comments/{commentId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow delete: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.author_id == uid()
+        && !isSuspended();
+
+      allow update, delete: if (signedIn() && resource.data.author_id == uid() && !isSuspended()) || isAdmin();
+    }
+
+    /* ================= FOLLOWS ================= */
+
+    match /follows/{followId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.id == (request.resource.data.follower_id + "_" + request.resource.data.following_id)
+        && request.resource.data.follower_id == uid()
+        && request.resource.data.following_id is string
+        && request.resource.data.following_id.size() > 0
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && resource.data.follower_id == uid();
+
       allow update: if false;
     }
 
-    match /messages/{messageId} {
+    /* ================= BLOCKS ================= */
+
+    match /user_blocks/{id} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.sender_id == request.auth.uid;
-      allow update: if signedIn() && resource.data.sender_id == request.auth.uid;
-      allow delete: if signedIn() && resource.data.sender_id == request.auth.uid;
+
+      allow create: if signedIn()
+        && request.resource.data.blocker_id == uid()
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && resource.data.blocker_id == uid();
+
+      allow update: if false;
     }
+
+    /* ================= COMMUNITIES ================= */
 
     match /communities/{communityId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.owner_id == request.auth.uid;
-      allow update: if isCommunityOwner(communityId);
-      allow delete: if false;
+
+      allow create: if signedIn()
+        && request.resource.data.owner_id == uid()
+        && !isSuspended();
+
+      allow update: if (signedIn()
+        && resource.data.owner_id == uid()
+        && !isSuspended()) || isAdmin();
+
+      allow delete: if isAdmin(); // keep strict (or change if you want owners delete)
     }
 
     match /community_members/{memberId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update: if false;
+
+      // member doc should include: community_id, user_id
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.data.community_id is string
+        && request.resource.id == (request.resource.data.community_id + "_" + uid())
+        && !isSuspended();
+
+      // user can leave, owner/admin can remove
       allow delete: if signedIn() && (
-        resource.data.user_id == request.auth.uid ||
-        isCommunityOwner(resource.data.community_id)
+        resource.data.user_id == uid()
+        || (exists(/databases/$(database)/documents/communities/$(resource.data.community_id))
+            && get(/databases/$(database)/documents/communities/$(resource.data.community_id)).data.owner_id == uid())
+        || isAdmin()
       );
+
+      allow update: if false;
     }
 
     match /community_moderators/{docId} {
       allow read: if signedIn();
-      allow write: if signedIn() && isCommunityOwner(request.resource.data.community_id);
-      allow delete: if signedIn() && isCommunityOwner(resource.data.community_id);
+
+      // doc should include: community_id, user_id (moderator)
+      allow create, delete: if signedIn()
+        && request.resource.data.community_id is string
+        && exists(/databases/$(database)/documents/communities/$(request.resource.data.community_id))
+        && get(/databases/$(database)/documents/communities/$(request.resource.data.community_id)).data.owner_id == uid()
+        && !isSuspended();
+
+      allow update: if false;
     }
 
     match /community_rules/{ruleId} {
       allow read: if signedIn();
-      allow create, update: if signedIn() && isCommunityOwner(request.resource.data.community_id);
-      allow delete: if signedIn() && isCommunityOwner(resource.data.community_id);
+
+      allow create, update, delete: if signedIn()
+        && request.resource.data.community_id is string
+        && exists(/databases/$(database)/documents/communities/$(request.resource.data.community_id))
+        && get(/databases/$(database)/documents/communities/$(request.resource.data.community_id)).data.owner_id == uid()
+        && !isSuspended();
     }
 
-    match /posts/{postId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update, delete: if signedIn() && resource.data.user_id == request.auth.uid;
+    /* ================= CONVERSATIONS ================= */
+
+    match /conversations/{conversationId} {
+      // Only participants can read the conversation doc
+      allow read: if signedIn() && isParticipant(conversationId);
+
+      // Allow create if signed in (your client will create participants separately)
+      allow create: if signedIn() && !isSuspended();
+
+      // Allow update only if participant (e.g. last_message_at), or admin
+      allow update: if (signedIn() && isParticipant(conversationId) && !isSuspended()) || isAdmin();
+
+      allow delete: if false;
     }
 
-    match /comments/{commentId} {
+    match /conversation_participants/{id} {
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow update, delete: if signedIn() && resource.data.author_id == request.auth.uid;
-    }
 
-    match /follows/{followId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.follower_id == request.auth.uid;
-      allow delete: if signedIn() && resource.data.follower_id == request.auth.uid;
+      // Enforce participant doc id: "{conversationId}_{userId}"
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.id == (request.resource.data.conversation_id + "_" + uid())
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
+
       allow update: if false;
     }
+
+    /* ================= MESSAGES ================= */
+
+    match /messages/{messageId} {
+      allow read: if signedIn()
+        && isParticipant(resource.data.conversation_id);
+
+      allow create: if signedIn()
+        && request.resource.data.sender_id == uid()
+        && isParticipant(request.resource.data.conversation_id)
+        && !isSuspended();
+
+      allow update: if signedIn()
+        && resource.data.sender_id == uid()
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && (resource.data.sender_id == uid() || isAdmin());
+    }
+
+    /* ================= NOTIFICATIONS ================= */
 
     match /notifications/{id} {
-      allow read: if signedIn() && (
-        resource.data.receiver_id == request.auth.uid ||
-        resource.data.user_id == request.auth.uid
-      );
-      allow create: if signedIn();
-      allow update, delete: if signedIn() && (
-        resource.data.receiver_id == request.auth.uid ||
-        resource.data.user_id == request.auth.uid
-      );
+      allow read: if signedIn()
+        && resource.data.receiver_id == uid();
+
+      allow create: if signedIn()
+        && request.resource.data.receiver_id is string
+        && request.resource.data.receiver_id.size() > 0
+        && !isSuspended();
+
+      allow update, delete: if signedIn()
+        && resource.data.receiver_id == uid();
     }
 
-    match /user_blocks/{id} {
+    /* ================= STORIES ================= */
+
+    match /stories/{storyId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.blocker_id == request.auth.uid;
-      allow delete: if signedIn() && resource.data.blocker_id == request.auth.uid;
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && !isSuspended();
+
+      allow update, delete: if (signedIn()
+        && resource.data.user_id == uid()
+        && !isSuspended()) || isAdmin();
+    }
+
+    match /stories_seen/{id} {
+      allow read: if signedIn();
+
+      // enforce id: "{storyId}_{userId}"
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.id == (request.resource.data.story_id + "_" + uid())
+        && !isSuspended();
+
+      allow delete: if isAdmin();
       allow update: if false;
     }
+
+    /* ================= SUPPORT REPORTS ================= */
+
+    match /support_reports/{reportId} {
+      // user can read their own reports; admin can read all
+      allow read: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && !isSuspended();
+
+      // Let user edit their own report only if you want (usually false)
+      // Admin can update status fields
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    /* ================= INTERACTIONS (LIKES/SAVES/SHARES) ================= */
+
+    match /post_likes/{id} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.id == (request.resource.data.post_id + "_" + uid())
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && resource.data.user_id == uid();
+
+      allow update: if false;
+    }
+
+    match /post_saves/{id} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.id == (request.resource.data.post_id + "_" + uid())
+        && !isSuspended();
+
+      allow delete: if signedIn()
+        && resource.data.user_id == uid();
+
+      allow update: if false;
+    }
+
+    match /post_shares/{id} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.user_id == uid()
+        && request.resource.id == (request.resource.data.post_id + "_" + uid())
+        && !isSuspended();
+
+      allow delete: if isAdmin(); // usually no deletes
+      allow update: if false;
+    }
+
+    /* ================= DEFAULT DENY ================= */
 
     match /{document=**} {
       allow read, write: if false;

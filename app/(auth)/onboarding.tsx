@@ -1,8 +1,13 @@
-// app/(auth)/onboarding.tsx — FIREBASE ✅
-// ✅ Fix: Firebase user uses uid (not id)
+// app/(auth)/onboarding.tsx — COMPLETED + UPDATED ✅
+// ✅ Uses AuthProvider: completeOnboarding() + skipOnboarding()
+// ✅ Saves interests to /user_interests/{uid}
+// ✅ Works with your Firestore rules
+// ✅ Fixes old missing function names: markOnboardingCompleted -> completeOnboarding/skipOnboarding
 
 import { useAuth } from "@/hooks/useAuth";
+import { db } from "@/lib/firebase";
 import { router } from "expo-router";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -39,11 +44,34 @@ const INTERESTS = [
   { id: "sports", name: "Sports", emoji: "🏀" },
 ];
 
+const nowIso = () => new Date().toISOString();
+
+async function saveUserInterests(uid: string, interests: string[]) {
+  // Firestore rules: match /user_interests/{userId} allow read,write if isSelf(userId)
+  await setDoc(
+    doc(db, "user_interests", uid),
+    {
+      user_id: uid,
+      interests,
+      updated_at: nowIso(),
+      updated_at_ts: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
 export default function OnboardingScreen() {
-  const { user, hasCompletedOnboarding, markOnboardingCompleted } = useAuth();
+  const {
+    user,
+    hasCompletedOnboarding,
+    completeOnboarding,
+    skipOnboarding,
+    isLoading,
+    isUserSettingsLoading,
+  } = useAuth();
 
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const maxSelections = 20;
   const selectedCount = selectedInterests.length;
@@ -56,15 +84,16 @@ export default function OnboardingScreen() {
   const { height: SCREEN_HEIGHT } = useWindowDimensions();
   const isShort = SCREEN_HEIGHT < 700;
 
-  // ✅ If already completed, exit onboarding safely (only when logged in)
+  // ✅ If already completed (or skipped), leave onboarding safely
   useEffect(() => {
     if (!user?.uid) return;
+    if (isLoading || isUserSettingsLoading) return;
     if (!hasCompletedOnboarding) return;
     router.replace("/(tabs)/home");
-  }, [user?.uid, hasCompletedOnboarding]);
+  }, [user?.uid, isLoading, isUserSettingsLoading, hasCompletedOnboarding]);
 
   const toggleInterest = (interestId: string) => {
-    if (isLoading) return;
+    if (saving) return;
 
     setSelectedInterests((prev) => {
       if (prev.includes(interestId))
@@ -89,22 +118,26 @@ export default function OnboardingScreen() {
   const goHome = () => router.replace("/(tabs)/home");
 
   const handleSkip = async () => {
-    if (isLoading) return;
+    if (saving) return;
     if (!requireAuthOrSendToLogin()) return;
 
-    setIsLoading(true);
+    setSaving(true);
     try {
-      await markOnboardingCompleted([]);
-    } catch (e) {
-      console.error("Onboarding skip error:", e);
-    } finally {
-      setIsLoading(false);
+      // optional: store empty interests (or omit entirely)
+      await saveUserInterests(user!.uid, []);
+      await skipOnboarding(); // ✅ sets onboarding_skipped=true
       goHome();
+    } catch (e: any) {
+      console.error("Onboarding skip error:", e);
+      Alert.alert("Error", e?.message || "Failed to skip onboarding.");
+      goHome();
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleContinue = async () => {
-    if (isLoading) return;
+    if (saving) return;
 
     if (selectedCount === 0) {
       Alert.alert("Select Interests", "Please select at least one interest.");
@@ -113,21 +146,25 @@ export default function OnboardingScreen() {
 
     if (!requireAuthOrSendToLogin()) return;
 
-    setIsLoading(true);
+    setSaving(true);
     try {
-      await markOnboardingCompleted(selectedInterests);
+      await saveUserInterests(user!.uid, selectedInterests);
+      await completeOnboarding(); // ✅ sets onboarding_completed=true
       goHome();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Onboarding error:", error);
       Alert.alert(
         "Error",
-        "Failed to save your preferences. You can update them later in settings.",
+        error?.message ||
+          "Failed to save your preferences. You can update them later in settings.",
         [{ text: "Go to Home", onPress: goHome }],
       );
     } finally {
-      setIsLoading(false);
+      setSaving(false);
     }
   };
+
+  const busy = saving || isLoading || isUserSettingsLoading;
 
   return (
     <>
@@ -144,10 +181,10 @@ export default function OnboardingScreen() {
 
             <TouchableOpacity
               onPress={handleSkip}
-              disabled={isLoading}
+              disabled={busy}
               activeOpacity={0.8}
             >
-              <Text style={styles.skipText}>{isLoading ? "..." : "Skip"}</Text>
+              <Text style={styles.skipText}>{busy ? "..." : "Skip"}</Text>
             </TouchableOpacity>
           </View>
 
@@ -193,7 +230,7 @@ export default function OnboardingScreen() {
                   ]}
                   onPress={() => toggleInterest(interest.id)}
                   activeOpacity={0.7}
-                  disabled={isLoading}
+                  disabled={busy}
                 >
                   <Text style={styles.interestEmoji}>{interest.emoji}</Text>
                   <Text
@@ -214,15 +251,14 @@ export default function OnboardingScreen() {
           <TouchableOpacity
             style={[
               styles.continueButton,
-              (selectedCount === 0 || isLoading) &&
-                styles.continueButtonDisabled,
+              (selectedCount === 0 || busy) && styles.continueButtonDisabled,
             ]}
             onPress={handleContinue}
-            disabled={selectedCount === 0 || isLoading}
+            disabled={selectedCount === 0 || busy}
             activeOpacity={0.9}
           >
             <Text style={styles.continueButtonText}>
-              {isLoading ? "Loading..." : "Continue"}
+              {busy ? "Loading..." : "Continue"}
             </Text>
           </TouchableOpacity>
         </View>

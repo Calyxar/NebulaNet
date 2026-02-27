@@ -1,36 +1,39 @@
-// providers/AuthProvider.tsx — FIREBASE ✅ (DROP-IN STYLE)
-// Replaces Supabase with Firebase Auth + Firestore
-// ✅ Sends email verification on signup
-// ✅ Optional: block email/password login if not verified
-// ✅ Works with emulator wiring in lib/firebase.ts
+// providers/AuthProvider.tsx — FIREBASE ✅ (COMPLETED + UPDATED)
+// ✅ Adds: updateSettings, deactivateAccount, deleteAccount
+// ✅ Keeps: profile + user_settings hydration, onboarding, theme preference, updateProfile
+// ✅ Delete is best-effort: deletes core docs + creates a deletion request record (for future admin cleanup)
+// ✅ Deactivate: marks profile as deactivated and signs user out
 
 import { auth, db } from "@/lib/firebase";
-import type { User as FirebaseUserBase } from "firebase/auth";
-import {
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  sendEmailVerification,
-  signInWithCredential,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
-
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  type Timestamp,
-} from "firebase/firestore";
-
 import {
   useMutation,
   useQuery,
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
-
+import type { User as FirebaseUserBase } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  deleteUser,
+  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithCredential,
+  signInWithEmailAndPassword
+} from "firebase/auth";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -41,157 +44,162 @@ import React, {
   type ReactNode,
 } from "react";
 
-// ✅ Extend FirebaseUser to add `id` as alias for `uid`
-// This fixes all `user.id` references across the app
 export type FirebaseUser = FirebaseUserBase & { id: string };
-
-/* =========================================================
-   TYPES
-========================================================= */
-
-export type Preferences = {
-  language?: string;
-  region?: string;
-  localized_content?: boolean;
-};
+export type ThemePreference = "light" | "dark" | "system";
 
 export interface Profile {
   id: string;
   username: string;
+  username_lc: string;
   full_name: string | null;
   avatar_url?: string | null;
   bio?: string | null;
   location?: string | null;
+
+  // admin/mod flags
+  role?: "user" | "admin";
+  is_suspended?: boolean;
+
+  // user-driven deactivation (NOT admin suspension)
+  is_deactivated?: boolean;
+  deactivated_at?: string | null;
+
   created_at: string;
   updated_at: string;
 }
 
-export type ThemePreference = "light" | "dark" | "system";
-
-export type UserSettingsRow = {
+export interface UserSettings {
   user_id: string;
-
   onboarding_completed: boolean | null;
   onboarding_completed_at: string | null;
-
   theme_preference: ThemePreference | null;
 
-  preferences?: Preferences | null;
-
-  updated_at: string | null;
-
+  // optional fields used by settings screens (safe to add)
   language?: string | null;
   region?: string | null;
-  localized_content?: boolean | null;
-};
 
-type UpdateProfileInput = Partial<
-  Pick<Profile, "username" | "full_name" | "avatar_url" | "bio" | "location">
->;
-
-type LoginVars = { email: string; password: string };
-type SignupVars = { email: string; password: string; userData?: any };
-type GoogleVars = { idToken: string; accessToken?: string };
-
-// Firebase mutation result types
-type LoginResult = Awaited<ReturnType<typeof signInWithEmailAndPassword>>;
-type SignupResult = Awaited<ReturnType<typeof createUserWithEmailAndPassword>>;
-type GoogleLoginResult = Awaited<ReturnType<typeof signInWithCredential>>;
+  updated_at: string | null;
+}
 
 interface AuthContextType {
   user: FirebaseUser | null;
-  session: null; // keep compatibility
   profile: Profile | null;
-  userSettings: UserSettingsRow | null;
+  userSettings: UserSettings | null;
 
   isLoading: boolean;
   isProfileLoading: boolean;
   isUserSettingsLoading: boolean;
 
   hasCompletedOnboarding: boolean;
-  markOnboardingCompleted: (interests?: string[]) => Promise<boolean>;
 
   themePreference: ThemePreference | null;
   setThemePreference: (pref: ThemePreference) => Promise<void>;
 
-  login: UseMutationResult<LoginResult, Error, LoginVars>;
-  signup: UseMutationResult<SignupResult, Error, SignupVars>;
-  googleLogin: UseMutationResult<GoogleLoginResult, Error, GoogleVars>;
+  updateProfile: UseMutationResult<void, Error, Partial<Profile>>;
 
-  updateProfile: UseMutationResult<Profile, Error, UpdateProfileInput>;
+  login: UseMutationResult<any, Error, { email: string; password: string }>;
+  signup: UseMutationResult<any, Error, { email: string; password: string }>;
+  googleLogin: UseMutationResult<
+    any,
+    Error,
+    { idToken: string; accessToken?: string }
+  >;
+
+  // ✅ requested
+  updateSettings: (
+    updates: Partial<UserSettings> & Record<string, any>,
+  ) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+  skipOnboarding: () => Promise<void>;
+  deactivateAccount: () => Promise<void>;
+  deleteAccount: (opts?: {
+    // optional: if you later add a "confirm password" UI
+    reauth?: { idToken?: string; accessToken?: string };
+  }) => Promise<void>;
 
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<Profile | null>;
-
-  updateSettings: (
-    settings: Partial<UserSettingsRow>,
-  ) => Promise<UserSettingsRow>;
-
-  deactivateAccount: (reason?: string) => Promise<void>;
-  deleteAccount: (reason?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/* =========================================================
-   CONFIG
-========================================================= */
+const profileRef = (uid: string) => doc(db, "profiles", uid);
+const settingsRef = (uid: string) => doc(db, "user_settings", uid);
 
-// Toggle if you want to block email/password login until email verified
+const nowIso = () => new Date().toISOString();
+
+// If you want to force verified emails, set true.
+// (Leaving false keeps your current behavior.)
 const REQUIRE_EMAIL_VERIFICATION = false;
-
-/* =========================================================
-   HELPERS: Firestore paths
-========================================================= */
-
-const profileDocRef = (uid: string) => doc(db, "profiles", uid);
-const settingsDocRef = (uid: string) => doc(db, "user_settings", uid);
-const interestsDocRef = (uid: string) => doc(db, "user_interests", uid);
-
-function tsToIso(value: any): string | null {
-  // Supports Firestore Timestamp, ISO string, null/undefined
-  if (!value) return null;
-  if (typeof value === "string") return value;
-  const maybeTs = value as Timestamp;
-  // Firestore Timestamp has toDate()
-  if (typeof (maybeTs as any)?.toDate === "function") {
-    return maybeTs.toDate().toISOString();
-  }
-  return null;
-}
-
-/* =========================================================
-   PROVIDER
-========================================================= */
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
-  /* ============================
-     AUTH STATE (Firebase)
-  ============================ */
-
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      // ✅ Attach `id` as alias for `uid` so user.id works everywhere
-      if (u) {
-        (u as any).id = u.uid;
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      try {
+        if (u) {
+          if (REQUIRE_EMAIL_VERIFICATION && !u.emailVerified) {
+            await firebaseSignOut(auth);
+            setUser(null);
+            setHydrated(true);
+            return;
+          }
+
+          (u as any).id = u.uid;
+
+          // Ensure profile exists
+          const pSnap = await getDoc(profileRef(u.uid));
+          if (!pSnap.exists()) {
+            const t = nowIso();
+            const baseUsername = u.email?.split("@")[0] ?? "user";
+
+            await setDoc(profileRef(u.uid), {
+              id: u.uid,
+              username: baseUsername,
+              username_lc: baseUsername.toLowerCase(),
+              full_name: u.displayName ?? null,
+              avatar_url: u.photoURL ?? null,
+              bio: null,
+              location: null,
+              role: "user",
+              is_suspended: false,
+              is_deactivated: false,
+              deactivated_at: null,
+              created_at: t,
+              updated_at: t,
+              created_at_ts: serverTimestamp(),
+              updated_at_ts: serverTimestamp(),
+            });
+          }
+
+          // Ensure settings exists
+          const sSnap = await getDoc(settingsRef(u.uid));
+          if (!sSnap.exists()) {
+            await setDoc(settingsRef(u.uid), {
+              user_id: u.uid,
+              onboarding_completed: false,
+              onboarding_completed_at: null,
+              theme_preference: null,
+              language: null,
+              region: null,
+              updated_at: nowIso(),
+              updated_at_ts: serverTimestamp(),
+            });
+          }
+        }
+
+        setUser((u as FirebaseUser) ?? null);
+      } finally {
+        setHydrated(true);
       }
-      setUser((u as FirebaseUser) ?? null);
-      setHydrated(true);
     });
+
     return unsub;
   }, []);
 
-  const userId = user?.uid;
-
-  /* ============================
-     PROFILE (Firestore)
-     profiles/{uid}
-  ============================ */
+  const userId = user?.uid ?? null;
 
   const { data: profile, isLoading: isProfileLoading } =
     useQuery<Profile | null>({
@@ -199,267 +207,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       enabled: !!userId && hydrated,
       queryFn: async () => {
         if (!userId) return null;
-
-        const snap = await getDoc(profileDocRef(userId));
-        if (!snap.exists()) return null;
-
-        const d = snap.data() as any;
-
-        const createdAt =
-          d.created_at ?? tsToIso(d.created_at_ts) ?? new Date().toISOString();
-
-        const updatedAt =
-          d.updated_at ?? tsToIso(d.updated_at_ts) ?? new Date().toISOString();
-
-        return {
-          id: userId,
-          username: d.username ?? "",
-          full_name: d.full_name ?? null,
-          avatar_url: d.avatar_url ?? null,
-          bio: d.bio ?? null,
-          location: d.location ?? null,
-          created_at: createdAt,
-          updated_at: updatedAt,
-        };
+        const snap = await getDoc(profileRef(userId));
+        return snap.exists() ? (snap.data() as Profile) : null;
       },
     });
 
-  /* ============================
-     USER SETTINGS (Firestore)
-     user_settings/{uid}
-  ============================ */
-
   const { data: userSettings, isLoading: isUserSettingsLoading } =
-    useQuery<UserSettingsRow | null>({
+    useQuery<UserSettings | null>({
       queryKey: ["user-settings", userId],
       enabled: !!userId && hydrated,
       queryFn: async () => {
         if (!userId) return null;
-
-        const snap = await getDoc(settingsDocRef(userId));
-        if (!snap.exists()) return null;
-
-        const d = snap.data() as any;
-
-        return {
-          user_id: userId,
-          onboarding_completed: d.onboarding_completed ?? null,
-          onboarding_completed_at:
-            d.onboarding_completed_at ?? tsToIso(d.onboarding_completed_at_ts),
-          theme_preference: d.theme_preference ?? null,
-          preferences: d.preferences ?? null,
-          updated_at: d.updated_at ?? tsToIso(d.updated_at_ts),
-        };
+        const snap = await getDoc(settingsRef(userId));
+        return snap.exists() ? (snap.data() as UserSettings) : null;
       },
     });
 
   const hasCompletedOnboarding = !!userSettings?.onboarding_completed;
   const themePreference = userSettings?.theme_preference ?? null;
 
-  /* ============================
-     AUTH MUTATIONS (Firebase)
-  ============================ */
-
-  const login = useMutation<LoginResult, Error, LoginVars>({
-    mutationFn: async ({ email, password }) => {
-      const res = await signInWithEmailAndPassword(auth, email, password);
-
-      if (REQUIRE_EMAIL_VERIFICATION && !res.user.emailVerified) {
-        // Optional enforcement
-        await firebaseSignOut(auth);
-        throw new Error("Email not verified. Please verify your email first.");
-      }
-
-      return res;
-    },
-  });
-
-  const signup = useMutation<SignupResult, Error, SignupVars>({
-    mutationFn: async ({ email, password, userData }) => {
-      const res = await createUserWithEmailAndPassword(auth, email, password);
-
-      const uid = res.user.uid;
-      const nowIso = new Date().toISOString();
-
-      // ✅ Send verification email
-      try {
-        await sendEmailVerification(res.user);
-      } catch (e) {
-        // Don’t fail signup if email sending hiccups
-        console.warn("sendEmailVerification failed:", e);
-      }
-
-      // Create initial profile doc
-      await setDoc(
-        profileDocRef(uid),
-        {
-          id: uid,
-          username: userData?.username ?? "",
-          full_name: userData?.full_name ?? null,
-          avatar_url: userData?.avatar_url ?? null,
-          bio: userData?.bio ?? null,
-          location: userData?.location ?? null,
-          created_at: nowIso,
-          updated_at: nowIso,
-          created_at_ts: serverTimestamp(),
-          updated_at_ts: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      // Create default settings doc
-      await setDoc(
-        settingsDocRef(uid),
-        {
-          user_id: uid,
-          onboarding_completed: false,
-          onboarding_completed_at: null,
-          theme_preference: null,
-          preferences: userData?.preferences ?? null,
-          updated_at: nowIso,
-          updated_at_ts: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      qc.invalidateQueries({ queryKey: ["profile", uid] });
-      qc.invalidateQueries({ queryKey: ["user-settings", uid] });
-
-      return res;
-    },
-  });
-
-  const googleLogin = useMutation<GoogleLoginResult, Error, GoogleVars>({
-    mutationFn: async ({ idToken, accessToken }) => {
-      const cred = GoogleAuthProvider.credential(idToken, accessToken);
-      const res = await signInWithCredential(auth, cred);
-
-      const uid = res.user.uid;
-      const nowIso = new Date().toISOString();
-
-      await setDoc(
-        profileDocRef(uid),
-        {
-          id: uid,
-          username: "",
-          full_name: res.user.displayName ?? null,
-          avatar_url: res.user.photoURL ?? null,
-          created_at: nowIso,
-          updated_at: nowIso,
-          created_at_ts: serverTimestamp(),
-          updated_at_ts: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      await setDoc(
-        settingsDocRef(uid),
-        {
-          user_id: uid,
-          onboarding_completed: false,
-          onboarding_completed_at: null,
-          theme_preference: null,
-          preferences: null,
-          updated_at: nowIso,
-          updated_at_ts: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      qc.invalidateQueries({ queryKey: ["profile", uid] });
-      qc.invalidateQueries({ queryKey: ["user-settings", uid] });
-
-      return res;
-    },
-  });
-
-  /* ============================
-     SETTINGS UPDATE (Firestore)
-  ============================ */
-
-  const updateSettings = useCallback(
-    async (settings: Partial<UserSettingsRow>): Promise<UserSettingsRow> => {
+  const updateProfile = useMutation<void, Error, Partial<Profile>>({
+    mutationFn: async (updates) => {
       if (!userId) throw new Error("Not authenticated");
 
-      const safe: any = {};
+      // username uniqueness
+      if (updates.username) {
+        const usernameLc = updates.username.toLowerCase();
 
-      if (typeof settings.onboarding_completed === "boolean") {
-        safe.onboarding_completed = settings.onboarding_completed;
-      }
-      if (
-        typeof settings.onboarding_completed_at === "string" ||
-        settings.onboarding_completed_at === null
-      ) {
-        safe.onboarding_completed_at = settings.onboarding_completed_at;
-      }
-      if (
-        typeof settings.theme_preference === "string" ||
-        settings.theme_preference === null
-      ) {
-        safe.theme_preference = settings.theme_preference;
-      }
-      if (settings.preferences !== undefined) {
-        safe.preferences = settings.preferences ?? null;
+        const qy = query(
+          collection(db, "profiles"),
+          where("username_lc", "==", usernameLc),
+        );
+        const snap = await getDocs(qy);
+        snap.forEach((d) => {
+          if (d.id !== userId) {
+            throw new Error("This username is already taken");
+          }
+        });
+
+        updates.username_lc = usernameLc;
       }
 
-      const nowIso = new Date().toISOString();
-      safe.user_id = userId;
-      safe.updated_at = nowIso;
-      safe.updated_at_ts = serverTimestamp();
+      await updateDoc(profileRef(userId), {
+        ...updates,
+        updated_at: nowIso(),
+        updated_at_ts: serverTimestamp(),
+      });
+    },
+    onSuccess: async () => {
+      if (userId) await qc.invalidateQueries({ queryKey: ["profile", userId] });
+    },
+  });
 
-      await setDoc(settingsDocRef(userId), safe, { merge: true });
-
-      const snap = await getDoc(settingsDocRef(userId));
-      const d = snap.exists() ? (snap.data() as any) : {};
-
-      const normalized: UserSettingsRow = {
-        user_id: userId,
-        onboarding_completed: d.onboarding_completed ?? null,
-        onboarding_completed_at: d.onboarding_completed_at ?? null,
-        theme_preference: d.theme_preference ?? null,
-        preferences: d.preferences ?? null,
-        updated_at: d.updated_at ?? null,
-      };
-
-      qc.setQueryData(["user-settings", userId], normalized);
-      return normalized;
+  const updateSettings = useCallback(
+    async (updates: Partial<UserSettings> & Record<string, any>) => {
+      if (!userId) throw new Error("Not authenticated");
+      await setDoc(
+        settingsRef(userId),
+        {
+          ...updates,
+          user_id: userId,
+          updated_at: nowIso(),
+          updated_at_ts: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      await qc.invalidateQueries({ queryKey: ["user-settings", userId] });
     },
     [userId, qc],
   );
-
-  /* ============================
-     ONBOARDING
-  ============================ */
-
-  const markOnboardingCompleted = useCallback(
-    async (interests: string[] = []) => {
-      if (!userId) throw new Error("Not authenticated");
-
-      await updateSettings({
-        onboarding_completed: true,
-        onboarding_completed_at: new Date().toISOString(),
-      });
-
-      if (interests.length > 0) {
-        await setDoc(
-          interestsDocRef(userId),
-          {
-            user_id: userId,
-            interests,
-            updated_at_ts: serverTimestamp(),
-          },
-          { merge: true },
-        );
-      }
-
-      return true;
-    },
-    [userId, updateSettings],
-  );
-
-  /* ============================
-     THEME
-  ============================ */
 
   const setThemePreference = useCallback(
     async (pref: ThemePreference) => {
@@ -468,71 +284,127 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [updateSettings],
   );
 
-  /* ============================
-     PROFILE UPDATE (Firestore)
-  ============================ */
+  const completeOnboarding = useCallback(async () => {
+    await updateSettings({
+      onboarding_completed: true,
+      onboarding_completed_at: nowIso(),
+    });
+  }, [updateSettings]);
 
-  const updateProfile = useMutation<Profile, Error, UpdateProfileInput>({
-    mutationFn: async (input) => {
-      if (!userId) throw new Error("Not authenticated");
+  const skipOnboarding = useCallback(async () => {
+    // "skip" still marks completed; interests saving can happen elsewhere
+    await updateSettings({
+      onboarding_completed: true,
+      onboarding_completed_at: nowIso(),
+    });
+  }, [updateSettings]);
 
-      const nowIso = new Date().toISOString();
+  const deactivateAccount = useCallback(async () => {
+    if (!userId) throw new Error("Not authenticated");
 
-      await setDoc(
-        profileDocRef(userId),
-        {
-          ...input,
-          id: userId,
-          updated_at: nowIso,
-          updated_at_ts: serverTimestamp(),
-        },
-        { merge: true },
-      );
+    // Mark deactivated (you can hide content in UI; rules can also later enforce)
+    await updateDoc(profileRef(userId), {
+      is_deactivated: true,
+      deactivated_at: nowIso(),
+      updated_at: nowIso(),
+      updated_at_ts: serverTimestamp(),
+    });
 
-      const snap = await getDoc(profileDocRef(userId));
-      if (!snap.exists()) throw new Error("Profile not found after update");
+    await firebaseSignOut(auth);
+    qc.clear();
+  }, [userId, qc]);
 
-      const d = snap.data() as any;
+  const deleteAccountFn = useCallback(
+    async (_opts?: { reauth?: { idToken?: string; accessToken?: string } }) => {
+      const u = auth.currentUser;
+      if (!u || !userId) throw new Error("Not authenticated");
 
-      const normalized: Profile = {
-        id: userId,
-        username: d.username ?? "",
-        full_name: d.full_name ?? null,
-        avatar_url: d.avatar_url ?? null,
-        bio: d.bio ?? null,
-        location: d.location ?? null,
-        created_at: d.created_at ?? nowIso,
-        updated_at: d.updated_at ?? nowIso,
-      };
+      // 1) Best-effort: create a deletion request record (for later server cleanup)
+      // (This helps you clean up posts/media later with a Cloud Function.)
+      try {
+        await setDoc(
+          doc(db, "account_deletion_requests", userId),
+          {
+            user_id: userId,
+            created_at: nowIso(),
+            created_at_ts: serverTimestamp(),
+            status: "requested",
+          },
+          { merge: true },
+        );
+      } catch {}
 
-      qc.setQueryData(["profile", userId], normalized);
-      return normalized;
+      // 2) Delete the user's *own* key docs (rules allow self delete for profiles; settings delete is false in your rules)
+      // If your Firestore rules deny deleting user_settings, we fall back to marking it.
+      try {
+        await deleteDoc(profileRef(userId));
+      } catch {}
+
+      try {
+        // your current rules earlier had delete false for user_settings; so we try update instead
+        await setDoc(
+          settingsRef(userId),
+          {
+            deleted_at: nowIso(),
+            updated_at: nowIso(),
+            updated_at_ts: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch {}
+
+      // 3) Finally delete the Auth user (may require recent login)
+      try {
+        await deleteUser(u);
+      } catch (e: any) {
+        // If requires-recent-login, the UI should prompt reauth.
+        // We throw a clean message so your screen can show it.
+        const msg = String(e?.code || e?.message || "");
+        if (msg.includes("requires-recent-login")) {
+          throw new Error("Please re-authenticate, then try again.");
+        }
+        throw e;
+      } finally {
+        // clear local
+        try {
+          await firebaseSignOut(auth);
+        } catch {}
+        qc.clear();
+      }
+    },
+    [userId, qc],
+  );
+
+  const login = useMutation({
+    mutationFn: ({ email, password }: any) =>
+      signInWithEmailAndPassword(auth, email, password),
+  });
+
+  const signup = useMutation({
+    mutationFn: async ({ email, password }: any) => {
+      const res = await createUserWithEmailAndPassword(auth, email, password);
+      try {
+        await sendEmailVerification(res.user);
+      } catch {}
+      return res;
     },
   });
 
-  const refreshProfile = useCallback(async () => {
-    if (!userId) return null;
-    await qc.invalidateQueries({ queryKey: ["profile", userId] });
-    return profile ?? null;
-  }, [userId, qc, profile]);
-
-  /* ============================
-     SIGN OUT
-  ============================ */
+  const googleLogin = useMutation({
+    mutationFn: ({ idToken, accessToken }: any) => {
+      const cred = GoogleAuthProvider.credential(idToken, accessToken);
+      return signInWithCredential(auth, cred);
+    },
+  });
 
   const signOut = useCallback(async () => {
     await firebaseSignOut(auth);
     qc.clear();
   }, [qc]);
 
-  /* ============================
-     PROVIDER VALUE
-  ============================ */
-
   const value = useMemo<AuthContextType>(
     () => ({
       user,
-      session: null,
       profile: profile ?? null,
       userSettings: userSettings ?? null,
 
@@ -541,24 +413,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isUserSettingsLoading,
 
       hasCompletedOnboarding,
-      markOnboardingCompleted,
 
       themePreference,
       setThemePreference,
+
+      updateProfile,
 
       login,
       signup,
       googleLogin,
 
-      updateProfile,
+      updateSettings,
+      completeOnboarding,
+      skipOnboarding,
+      deactivateAccount,
+      deleteAccount: deleteAccountFn,
 
       signOut,
-      refreshProfile,
-
-      updateSettings,
-
-      deactivateAccount: async () => {},
-      deleteAccount: async () => {},
     }),
     [
       user,
@@ -568,25 +439,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isProfileLoading,
       isUserSettingsLoading,
       hasCompletedOnboarding,
-      markOnboardingCompleted,
       themePreference,
       setThemePreference,
+      updateProfile,
       login,
       signup,
       googleLogin,
-      updateProfile,
-      signOut,
-      refreshProfile,
       updateSettings,
+      completeOnboarding,
+      skipOnboarding,
+      deactivateAccount,
+      deleteAccountFn,
+      signOut,
     ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
-/* =========================================================
-   HOOK
-========================================================= */
 
 export function useAuth() {
   const ctx = useContext(AuthContext);

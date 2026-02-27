@@ -1,8 +1,8 @@
-// app/(auth)/signup.tsx — FIREBASE (provider-only) ✅
+// app/(auth)/signup.tsx — FIREBASE (provider-only) ✅ (COMPLETED + UPDATED)
 // ✅ Uses AuthProvider.signup mutation (email/password)
 // ✅ Uses expo-auth-session for Google -> AuthProvider.googleLogin (idToken)
-// ✅ For email/password: sends Firebase email verification + signs out (optional but recommended)
-// ✅ /(auth)/_layout.tsx Redirect handles post-auth routing
+// ✅ After signup: updates profile fields via AuthProvider.updateProfile
+// ✅ Sends Firebase email verification + signs out (optional but recommended)
 
 import { useAuth } from "@/providers/AuthProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,6 +33,7 @@ export default function SignUpScreen() {
     signup,
     googleLogin,
     signOut,
+    updateProfile,
   } = useAuth();
 
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
@@ -73,7 +74,7 @@ export default function SignUpScreen() {
     [],
   );
 
-  const [googleRequest, _googleResponse, googlePromptAsync] =
+  const [googleRequest, googleResponse, googlePromptAsync] =
     Google.useAuthRequest({
       clientId:
         Constants.expoConfig?.extra?.googleWebClientId ||
@@ -101,7 +102,6 @@ export default function SignUpScreen() {
         Alert.alert("Invalid Phone", "Please enter a valid phone number");
         return;
       }
-
       Alert.alert(
         "Not supported yet",
         "Phone signup isn't wired up yet. Use email signup for now.",
@@ -112,58 +112,62 @@ export default function SignUpScreen() {
     const uname = username.trim().toLowerCase();
     const name = fullName.trim();
 
-    if (!uname) {
-      Alert.alert("Error", "Please enter a username");
-      return;
-    }
-
+    if (!uname) return Alert.alert("Error", "Please enter a username");
     if (!validateUsername(uname)) {
-      Alert.alert(
+      return Alert.alert(
         "Invalid Username",
         "Username must be 3-20 characters and contain only letters, numbers, and underscores.",
       );
-      return;
     }
 
-    if (!name) {
-      Alert.alert("Error", "Please enter your full name");
-      return;
-    }
-
-    if (!password) {
-      Alert.alert("Error", "Please enter a password");
-      return;
-    }
-
+    if (!name) return Alert.alert("Error", "Please enter your full name");
+    if (!password) return Alert.alert("Error", "Please enter a password");
     if (!validatePassword(password)) {
-      Alert.alert("Weak Password", "Password must be at least 8 characters.");
-      return;
+      return Alert.alert(
+        "Weak Password",
+        "Password must be at least 8 characters.",
+      );
     }
-
     if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
-      return;
+      return Alert.alert("Error", "Passwords do not match");
     }
 
     setIsSubmitting(true);
     try {
+      // ✅ provider expects ONLY { email, password }
       const res = await signup.mutateAsync({
         email: email.trim().toLowerCase(),
         password,
-        userData: {
-          username: uname,
-          full_name: name,
-        },
       });
 
-      // Firebase returns user on res.user
       const createdUser = res.user;
 
-      // Send verification email (recommended for most apps)
+      // ✅ set profile fields AFTER account exists
+      // (AuthProvider creates profile doc on auth change, but this is safe with merge updateDoc)
+      try {
+        await updateProfile.mutateAsync({
+          username: uname,
+          full_name: name,
+        });
+      } catch (e: any) {
+        // if username is taken, surface it cleanly
+        const m = (e?.message || "").toLowerCase();
+        if (m.includes("username") || m.includes("taken")) {
+          Alert.alert(
+            "Username Issue",
+            e?.message || "Username is not available.",
+          );
+          // Optional: you could also signOut here if you want to force them to retry
+          // await signOut();
+          // return;
+        }
+      }
+
+      // Send verification email
       if (createdUser && !createdUser.emailVerified) {
         await sendEmailVerification(createdUser);
 
-        // Optional: sign them out until they verify (matches your previous flow)
+        // Optional: sign them out until they verify
         await signOut();
 
         Alert.alert(
@@ -179,7 +183,7 @@ export default function SignUpScreen() {
         return;
       }
 
-      // If already verified (rare), /(auth)/_layout.tsx will redirect automatically.
+      // If verified, your auth layout can redirect
     } catch (error: any) {
       const msg = error?.message || "Sign up failed";
       const lower = msg.toLowerCase();
@@ -187,7 +191,6 @@ export default function SignUpScreen() {
       let title = "Sign Up Failed";
       let body = msg;
 
-      // Firebase common messages
       if (lower.includes("auth/email-already-in-use")) {
         title = "Account Exists";
         body = "An account with this email already exists. Please log in.";
@@ -197,9 +200,6 @@ export default function SignUpScreen() {
       } else if (lower.includes("auth/weak-password")) {
         title = "Weak Password";
         body = "Password must be at least 6 characters (we recommend 8+).";
-      } else if (lower.includes("username")) {
-        title = "Username Issue";
-        body = msg;
       }
 
       Alert.alert(title, body);
@@ -219,6 +219,9 @@ export default function SignUpScreen() {
     setIsSubmitting(true);
     try {
       const result = await googlePromptAsync();
+      // using googleResponse avoids eslint unused if you ever need it:
+      void googleResponse;
+
       if (result.type !== "success") return;
 
       const { id_token, access_token } = result.params as any;
@@ -235,7 +238,7 @@ export default function SignUpScreen() {
         accessToken: access_token ?? undefined,
       });
 
-      // /(auth)/_layout.tsx will redirect once user exists
+      // redirect happens in your layout once user exists
     } catch (error: any) {
       const msg = error?.message || "Unable to sign up with Google.";
       const lower = msg.toLowerCase();
@@ -262,7 +265,6 @@ export default function SignUpScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
             <View style={styles.header}>
               <Text style={styles.title}>Create Your Account</Text>
               <Text style={styles.subtitle}>
@@ -270,7 +272,6 @@ export default function SignUpScreen() {
               </Text>
             </View>
 
-            {/* Tab Selector */}
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[styles.tab, activeTab === "email" && styles.activeTab]}
@@ -303,7 +304,6 @@ export default function SignUpScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Full Name */}
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
@@ -316,7 +316,6 @@ export default function SignUpScreen() {
               />
             </View>
 
-            {/* Username */}
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
@@ -330,7 +329,6 @@ export default function SignUpScreen() {
               />
             </View>
 
-            {/* Email/Phone */}
             {activeTab === "email" ? (
               <View style={styles.inputContainer}>
                 <TextInput
@@ -363,7 +361,6 @@ export default function SignUpScreen() {
               </View>
             )}
 
-            {/* Password */}
             <View style={styles.passwordContainer}>
               <View style={styles.inputWrapper}>
                 <Ionicons
@@ -396,7 +393,6 @@ export default function SignUpScreen() {
               </View>
             </View>
 
-            {/* Confirm Password */}
             <View style={styles.passwordContainer}>
               <View style={styles.inputWrapper}>
                 <Ionicons
@@ -431,7 +427,6 @@ export default function SignUpScreen() {
               </View>
             </View>
 
-            {/* Sign Up Button */}
             <TouchableOpacity
               style={styles.signupButton}
               onPress={handleSignUp}
@@ -443,14 +438,12 @@ export default function SignUpScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* OR Divider */}
             <View style={styles.orContainer}>
               <View style={styles.orLine} />
               <Text style={styles.orText}>or</Text>
               <View style={styles.orLine} />
             </View>
 
-            {/* Social Buttons */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
                 style={styles.socialButton}
@@ -469,7 +462,6 @@ export default function SignUpScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Login Link */}
             <View style={styles.loginContainer}>
               <Text style={styles.loginText}>Already have an account? </Text>
               <Link href="/(auth)/login" style={styles.loginLink}>
@@ -477,7 +469,6 @@ export default function SignUpScreen() {
               </Link>
             </View>
 
-            {/* Terms */}
             <Text style={styles.termsText}>
               By signing up, you agree to our{" "}
               <Text style={styles.termsLink}>Terms of Service</Text> and{" "}
@@ -490,7 +481,7 @@ export default function SignUpScreen() {
   );
 }
 
-// ⬇️ Your styles unchanged
+// styles unchanged
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   keyboardView: { flex: 1 },
