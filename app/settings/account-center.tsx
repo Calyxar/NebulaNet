@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
-import { closeSettings, pushSettings } from "./routes";
+import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
 
 type RowItem = {
   title: string;

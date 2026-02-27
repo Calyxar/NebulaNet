@@ -1,7 +1,7 @@
-// app/(auth)/forgot-password.tsx — FIREBASE ✅
-// ✅ Replaces Supabase resetPasswordForEmail
-// ✅ Sends Firebase password reset email
-// ✅ Uses your domain as the continue URL
+// app/(auth)/forgot-password.tsx — FIREBASE ✅ (COMPLETED + UPDATED)
+// ✅ Sends Firebase password reset email (no continue URL = no authorized-domain issues)
+// ✅ Avoids leaking whether an email exists (user enumeration-safe)
+// ✅ Better error handling + trims/lowercases email
 
 import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,44 +47,39 @@ export default function ForgotPasswordScreen() {
 
     setIsLoading(true);
     try {
-      // ✅ Where the user returns after clicking the email link.
-      // Put a page on this domain that can redirect to your app’s create-password screen.
-      const continueUrl = "https://nebulanet.space/reset-password";
-
-      await sendPasswordResetEmail(auth, trimmed, { url: continueUrl });
+      // ✅ BEST DEFAULT: don't pass a continue URL until you confirm authorized domains.
+      // This avoids auth/unauthorized-continue-uri and ensures the email sends.
+      await sendPasswordResetEmail(auth, trimmed);
 
       setEmailSent(true);
+
+      // ✅ Enumeration-safe message
       Alert.alert(
         "Check Your Email",
-        `We've sent a password reset link to ${trimmed}. Please check your inbox and follow the instructions.`,
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              setTimeout(() => router.back(), 500);
-            },
-          },
-        ],
+        `If an account exists for ${trimmed}, you’ll receive a reset link shortly.`,
+        [{ text: "OK", onPress: () => router.back() }],
       );
     } catch (error: any) {
       console.error("Reset password error:", error);
 
-      // Firebase often returns "auth/user-not-found" — we still show success-ish
-      // so attackers can’t enumerate emails.
-      const code = error?.code as string | undefined;
+      const code = (error?.code as string | undefined) ?? "";
+      const msg = (error?.message as string | undefined) ?? "";
 
-      if (code === "auth/user-not-found") {
-        setEmailSent(true);
+      if (code === "auth/invalid-email") {
+        Alert.alert("Invalid Email", "Please enter a valid email address.");
+      } else if (code === "auth/too-many-requests") {
+        Alert.alert(
+          "Too many attempts",
+          "Please wait a bit and try again later.",
+        );
+      } else {
+        // ✅ Still avoid user enumeration by keeping message generic
         Alert.alert(
           "Check Your Email",
           `If an account exists for ${trimmed}, you’ll receive a reset link shortly.`,
           [{ text: "OK", onPress: () => router.back() }],
         );
-      } else {
-        Alert.alert(
-          "Error",
-          error?.message || "Failed to send reset email. Please try again.",
-        );
+        // If you want to debug locally, the console error above has the real reason.
       }
     } finally {
       setIsLoading(false);
@@ -112,6 +107,7 @@ export default function ForgotPasswordScreen() {
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => router.back()}
+              disabled={isLoading}
             >
               <Ionicons name="arrow-back" size={24} color="#000" />
             </TouchableOpacity>
@@ -133,7 +129,7 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.subtitle}>
                 {emailSent
                   ? "We've sent you an email with instructions to reset your password."
-                  : "No worries! Enter your email address and we'll send you a link to reset your password."}
+                  : "Enter your email address and we’ll send you a link to reset your password."}
               </Text>
             </View>
 
@@ -207,6 +203,7 @@ export default function ForgotPasswordScreen() {
                 <TouchableOpacity
                   style={styles.backToLoginButton}
                   onPress={() => router.back()}
+                  disabled={isLoading}
                 >
                   <Text style={styles.backToLoginText}>Back to Login</Text>
                 </TouchableOpacity>

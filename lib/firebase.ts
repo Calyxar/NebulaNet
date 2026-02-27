@@ -1,8 +1,15 @@
-// lib/firebase.ts
+// lib/firebase.ts — FIREBASE (Expo/React Native) ✅ (COMPLETED + UPDATED)
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { connectAuthEmulator, getAuth } from "firebase/auth";
-import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
-import { connectFunctionsEmulator, getFunctions } from "firebase/functions"; // ✅ ADD THIS
+import {
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
+  type Auth,
+} from "firebase/auth"; // ✅ fixed
+import { getFirestore } from "firebase/firestore";
+import { getFunctions } from "firebase/functions";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -17,22 +24,18 @@ const firebaseConfig = {
 export const app =
   getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
+let authInstance: Auth;
+
+try {
+  authInstance = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+} catch {
+  authInstance = getAuth(app);
+}
+
+export const auth = authInstance;
+
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-export const functions = getFunctions(app); // ✅ ADD THIS
-
-// 🔥 Connect to emulators only once in dev
-if (__DEV__) {
-  try {
-    connectAuthEmulator(auth, "http://10.0.2.2:9099");
-  } catch {}
-
-  try {
-    connectFirestoreEmulator(db, "10.0.2.2", 9091);
-  } catch {}
-
-  try {
-    connectFunctionsEmulator(functions, "10.0.2.2", 5001); // ✅ ADD THIS
-  } catch {}
-}
+export const functions = getFunctions(app);

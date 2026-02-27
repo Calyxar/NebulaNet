@@ -166,8 +166,8 @@ export default function ProfileTabScreen() {
     return `${num}`;
   };
 
-  const handleEditProfile = () => router.push("../profile/edit");
-  const handleSettings = () => router.push("../settings");
+  const handleEditProfile = () => router.push("/profile/edit");
+  const handleSettings = () => router.push("/settings");
 
   const handleShareProfile = async () => {
     try {

@@ -1,19 +1,15 @@
 // app/create/post.tsx — COMPLETED + UPDATED ✅
 // ✅ uses visibility + media_urls (no is_public)
 // ✅ FIXES ImagePicker.MediaType TS error by supporting BOTH old + new APIs
+// ✅ Uses createPost() from lib/firestore/posts — hashtags auto-extracted + indexed
+// ✅ Live hashtag chip preview while typing
 
 import { useAuth } from "@/hooks/useAuth";
-import { auth, db } from "@/lib/firebase";
+import { extractHashtags } from "@/lib/firestore/hashtags";
+import { createPost } from "@/lib/firestore/posts";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { addDoc, collection } from "firebase/firestore";
-import {
-  getDownloadURL,
-  getStorage,
-  ref as storageRef,
-  uploadBytes,
-} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -32,7 +28,7 @@ type MediaType = "image" | "video";
 type Visibility = "public" | "followers" | "private";
 
 interface LocalMediaItem {
-  uri: string; // local file:// URI
+  uri: string;
   type: MediaType;
 }
 
@@ -47,11 +43,8 @@ export default function CreatePostScreen() {
 
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
-
-  // IMPORTANT: this should be a community_id (uuid) when you wire it
-  const [selectedCommunityId] = useState<string>(""); // wire later
+  const [selectedCommunityId] = useState<string>("");
   const [visibility, setVisibility] = useState<Visibility>("public");
-
   const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
   const [isPosting, setIsPosting] = useState(false);
 
@@ -59,6 +52,11 @@ export default function CreatePostScreen() {
     () => title.trim().length > 0 && !isPosting,
     [title, isPosting],
   );
+
+  // ✅ Live hashtag detection from title + body
+  const detectedHashtags = useMemo(() => {
+    return extractHashtags([title, bodyText].join(" "));
+  }, [title, bodyText]);
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -86,56 +84,45 @@ export default function CreatePostScreen() {
 
   const pickImages = async () => {
     if (!(await ensureLibraryPermission())) return;
-
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: PickerMedia.Images, // ✅ compatible
+      mediaTypes: PickerMedia.Images,
       allowsMultipleSelection: true,
       selectionLimit: 10,
       quality: 0.9,
     });
-
     if (result.canceled || !result.assets?.length) return;
-
     const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
       type: "image" as const,
     }));
-
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
   };
 
   const pickVideos = async () => {
     if (!(await ensureLibraryPermission())) return;
-
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: PickerMedia.Videos, // ✅ compatible
+      mediaTypes: PickerMedia.Videos,
       allowsMultipleSelection: true,
       selectionLimit: 5,
       quality: 1,
       videoMaxDuration: 60,
     });
-
     if (result.canceled || !result.assets?.length) return;
-
     const picked: LocalMediaItem[] = result.assets.map((a) => ({
       uri: a.uri,
       type: "video" as const,
     }));
-
     setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
   };
 
   const recordVideo = async () => {
     if (!(await ensureCameraPermission())) return;
-
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: PickerMedia.Videos, // ✅ compatible
+      mediaTypes: PickerMedia.Videos,
       videoMaxDuration: 60,
       quality: 1,
     });
-
     if (result.canceled || !result.assets?.length) return;
-
     setMediaItems((prev) =>
       [...prev, { uri: result.assets[0].uri, type: "video" as const }].slice(
         0,
@@ -146,65 +133,6 @@ export default function CreatePostScreen() {
 
   const removeMedia = (index: number) => {
     setMediaItems((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const getFileInfo = (uri: string, type: MediaType) => {
-    const cleanUri = uri.split("?")[0];
-    const extRaw = cleanUri.split(".").pop()?.toLowerCase();
-
-    const ext =
-      extRaw && extRaw.length <= 5 ? extRaw : type === "video" ? "mp4" : "jpg";
-
-    const mime =
-      type === "video"
-        ? ext === "mov"
-          ? "video/quicktime"
-          : ext === "avi"
-            ? "video/x-msvideo"
-            : "video/mp4"
-        : ext === "png"
-          ? "image/png"
-          : ext === "webp"
-            ? "image/webp"
-            : ext === "gif"
-              ? "image/gif"
-              : "image/jpeg";
-
-    return { ext, mime };
-  };
-
-  /**
-   * Upload media to Supabase Storage and return public URL string[]
-   * Bucket: post-media
-   * Path: media/<userId>/<timestamp-random>.<ext>
-   */
-  const uploadPostMedia = async (): Promise<string[]> => {
-    if (!user) throw new Error("Not logged in");
-    if (mediaItems.length === 0) return [];
-
-    const uploadedUrls: string[] = [];
-
-    for (const item of mediaItems) {
-      const { ext, mime } = getFileInfo(item.uri, item.type);
-
-      const fileName = `${user.id}/${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}.${ext}`;
-      const path = `media/${fileName}`;
-
-      const res = await fetch(item.uri);
-      const arrayBuffer = await res.arrayBuffer();
-
-      const storage = getStorage();
-      const fileRef = storageRef(storage, path);
-      await uploadBytes(fileRef, arrayBuffer, { contentType: mime });
-
-
-      const publicUrl = await getDownloadURL(fileRef);
-      uploadedUrls.push(publicUrl);
-    }
-
-    return uploadedUrls;
   };
 
   const toggleVisibility = () => {
@@ -239,28 +167,15 @@ export default function CreatePostScreen() {
 
     setIsPosting(true);
     try {
-      const media_urls = await uploadPostMedia();
-
-      await addDoc(collection(db, "posts"), {
-        user_id: auth.currentUser!.uid,
-
-        // NOTE: if your posts table doesn't have "title", this will error.
-        // Remove it OR add a title column in SQL.
+      // ✅ Use createPost() — it handles media upload, hashtag extraction,
+      //    hashtag indexing, and writing the correct Firestore document shape.
+      await createPost({
         title: title.trim(),
-
         content: bodyText.trim(),
-
-        media_urls,
-
-        community_id: selectedCommunityId || null,
-
+        media: mediaItems.map((m) => ({ uri: m.uri, type: m.type })) as any,
+        community_id: selectedCommunityId || undefined,
         visibility,
-
-        like_count: 0,
-        comment_count: 0,
-        share_count: 0,
       });
-
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },
@@ -308,7 +223,7 @@ export default function CreatePostScreen() {
 
             <TextInput
               style={styles.bodyInput}
-              placeholder="Body Text (Optional)"
+              placeholder="Body Text (Optional) — use #hashtags to tag your post"
               placeholderTextColor="#B0B0B0"
               value={bodyText}
               onChangeText={setBodyText}
@@ -316,10 +231,20 @@ export default function CreatePostScreen() {
               textAlignVertical="top"
             />
 
+            {/* ✅ Live hashtag chip preview */}
+            {detectedHashtags.length > 0 && (
+              <View style={styles.hashtagPreview}>
+                {detectedHashtags.map((tag) => (
+                  <View key={tag} style={styles.hashtagChip}>
+                    <Text style={styles.hashtagChipText}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {mediaItems.length > 0 && (
               <View style={styles.previewWrap}>
                 <Text style={styles.previewLabel}>Attachments</Text>
-
                 <View style={styles.grid}>
                   {mediaItems.map((m, idx) => (
                     <View key={`${m.uri}-${idx}`} style={styles.gridItemWrap}>
@@ -428,7 +353,6 @@ export default function CreatePostScreen() {
   );
 }
 
-// styles unchanged (kept exactly as you had them)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
   header: {
@@ -469,8 +393,30 @@ const styles = StyleSheet.create({
     color: "#666",
     minHeight: 100,
     paddingVertical: 8,
+    marginBottom: 8,
+  },
+
+  // ✅ Hashtag preview chips
+  hashtagPreview: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
     marginBottom: 12,
   },
+  hashtagChip: {
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+  },
+  hashtagChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4F46E5",
+  },
+
   previewWrap: {
     marginTop: 6,
     marginBottom: 12,

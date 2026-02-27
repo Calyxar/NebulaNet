@@ -1,7 +1,12 @@
-import MediaUpload, { MediaItem } from '@/components/media/MediaUpload';
-import MediaGallery from '@/components/post/MediaGallery'; // Fixed import path
-import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+// components/post/EnhancedCreatePostForm.tsx — UPDATED ✅
+// ✅ Live hashtag chip preview while user types title / content
+// ✅ Hashtags extracted from both title + content fields
+
+import MediaUpload, { MediaItem } from "@/components/media/MediaUpload";
+import MediaGallery from "@/components/post/MediaGallery";
+import { extractHashtags } from "@/lib/firestore/hashtags";
+import { Ionicons } from "@expo/vector-icons";
+import React, { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +17,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
+} from "react-native";
 
 interface Community {
   id: string;
@@ -41,8 +46,8 @@ interface EnhancedCreatePostFormProps {
 }
 
 export default function EnhancedCreatePostForm({
-  initialTitle = '',
-  initialContent = '',
+  initialTitle = "",
+  initialContent = "",
   initialMedia = [],
   selectedCommunity: initialCommunity = null,
   isPublic: initialIsPublic = true,
@@ -55,13 +60,20 @@ export default function EnhancedCreatePostForm({
   const [title, setTitle] = useState(initialTitle);
   const [content, setContent] = useState(initialContent);
   const [media, setMedia] = useState<MediaItem[]>(initialMedia);
-  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(initialCommunity);
+  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(
+    initialCommunity,
+  );
   const [isPublic, setIsPublic] = useState(initialIsPublic);
   const [boostPost, setBoostPost] = useState(initialBoostPost);
   const [showCommunityPicker, setShowCommunityPicker] = useState(false);
-  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
   const [showPoll, setShowPoll] = useState(false);
   const [pollDays, setPollDays] = useState(1);
+
+  // ✅ Live hashtag detection from title + content
+  const detectedHashtags = useMemo(() => {
+    return extractHashtags([title, content].join(" "));
+  }, [title, content]);
 
   const handleSubmit = () => {
     onSubmit({
@@ -78,7 +90,7 @@ export default function EnhancedCreatePostForm({
 
   const addPollOption = () => {
     if (pollOptions.length < 6) {
-      setPollOptions([...pollOptions, '']);
+      setPollOptions([...pollOptions, ""]);
     }
   };
 
@@ -96,15 +108,17 @@ export default function EnhancedCreatePostForm({
     setPollOptions(newOptions);
   };
 
-  // Convert MediaItem[] to string[] for MediaGallery
-  const mediaUris = media.map(item => item.uri);
+  const mediaUris = media.map((item) => item.uri);
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.container}
     >
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Title Input */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Title *</Text>
@@ -124,7 +138,7 @@ export default function EnhancedCreatePostForm({
           <Text style={styles.label}>Content</Text>
           <TextInput
             style={styles.contentInput}
-            placeholder="Share your thoughts, ideas, or experiences..."
+            placeholder="Share your thoughts — use #hashtags to tag your post"
             value={content}
             onChangeText={setContent}
             multiline
@@ -134,6 +148,23 @@ export default function EnhancedCreatePostForm({
             editable={!isLoading}
           />
           <Text style={styles.charCount}>{content.length}/5000</Text>
+
+          {/* ✅ Live hashtag chip preview */}
+          {detectedHashtags.length > 0 && (
+            <View style={styles.hashtagPreview}>
+              <Text style={styles.hashtagPreviewLabel}>
+                <Ionicons name="pricetag-outline" size={12} color="#6366F1" />{" "}
+                Hashtags detected:
+              </Text>
+              <View style={styles.hashtagChips}>
+                {detectedHashtags.map((tag) => (
+                  <View key={tag} style={styles.hashtagChip}>
+                    <Text style={styles.hashtagChipText}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Media Upload */}
@@ -142,7 +173,7 @@ export default function EnhancedCreatePostForm({
           onMediaChange={setMedia}
           maxFiles={10}
           maxSize={100}
-          allowedTypes={['image', 'video', 'audio', 'document', 'gif']}
+          allowedTypes={["image", "video", "audio", "document", "gif"]}
           disabled={isLoading}
         />
 
@@ -167,7 +198,7 @@ export default function EnhancedCreatePostForm({
         {showPoll && (
           <View style={styles.pollSection}>
             <Text style={styles.sectionTitle}>Create Poll</Text>
-            
+
             {pollOptions.map((option, index) => (
               <View key={index} style={styles.pollOption}>
                 <TextInput
@@ -213,11 +244,13 @@ export default function EnhancedCreatePostForm({
                     onPress={() => setPollDays(days)}
                     disabled={isLoading}
                   >
-                    <Text style={[
-                      styles.durationButtonText,
-                      pollDays === days && styles.durationButtonTextActive,
-                    ]}>
-                      {days} day{days > 1 ? 's' : ''}
+                    <Text
+                      style={[
+                        styles.durationButtonText,
+                        pollDays === days && styles.durationButtonTextActive,
+                      ]}
+                    >
+                      {days} day{days > 1 ? "s" : ""}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -234,16 +267,26 @@ export default function EnhancedCreatePostForm({
             onPress={() => setShowCommunityPicker(!showCommunityPicker)}
             disabled={isLoading}
           >
-            <Text style={selectedCommunity ? styles.communitySelected : styles.communityPlaceholder}>
-              {selectedCommunity ? selectedCommunity.name : 'Select a community'}
+            <Text
+              style={
+                selectedCommunity
+                  ? styles.communitySelected
+                  : styles.communityPlaceholder
+              }
+            >
+              {selectedCommunity
+                ? selectedCommunity.name
+                : "Select a community"}
             </Text>
             <Ionicons name="chevron-down" size={20} color="#666" />
           </TouchableOpacity>
 
           {selectedCommunity && (
             <View style={styles.selectedCommunity}>
-              <Text style={styles.selectedCommunityText}>{selectedCommunity.name}</Text>
-              <TouchableOpacity 
+              <Text style={styles.selectedCommunityText}>
+                {selectedCommunity.name}
+              </Text>
+              <TouchableOpacity
                 onPress={() => setSelectedCommunity(null)}
                 disabled={isLoading}
               >
@@ -266,24 +309,22 @@ export default function EnhancedCreatePostForm({
               value={isPublic}
               onValueChange={setIsPublic}
               disabled={isLoading}
-              trackColor={{ false: '#e1e1e1', true: '#007AFF' }}
-              thumbColor={isPublic ? '#fff' : '#fff'}
+              trackColor={{ false: "#e1e1e1", true: "#007AFF" }}
+              thumbColor={isPublic ? "#fff" : "#fff"}
             />
           </View>
 
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
               <Text style={styles.settingLabel}>Boost Post</Text>
-              <Text style={styles.settingDescription}>
-                Reach more people
-              </Text>
+              <Text style={styles.settingDescription}>Reach more people</Text>
             </View>
             <Switch
               value={boostPost}
               onValueChange={setBoostPost}
               disabled={isLoading}
-              trackColor={{ false: '#e1e1e1', true: '#007AFF' }}
-              thumbColor={boostPost ? '#fff' : '#fff'}
+              trackColor={{ false: "#e1e1e1", true: "#007AFF" }}
+              thumbColor={boostPost ? "#fff" : "#fff"}
             />
           </View>
 
@@ -298,7 +339,7 @@ export default function EnhancedCreatePostForm({
               value={true}
               onValueChange={() => {}}
               disabled={isLoading}
-              trackColor={{ false: '#e1e1e1', true: '#007AFF' }}
+              trackColor={{ false: "#e1e1e1", true: "#007AFF" }}
               thumbColor="#fff"
             />
           </View>
@@ -338,7 +379,7 @@ export default function EnhancedCreatePostForm({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   scrollView: {
     flex: 1,
@@ -349,170 +390,206 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
-    color: '#333',
+    color: "#333",
   },
   titleInput: {
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: "#e1e1e1",
     borderRadius: 12,
     padding: 16,
     fontSize: 18,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   contentInput: {
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: "#e1e1e1",
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
     minHeight: 120,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
+    marginBottom: 8,
   },
   charCount: {
     fontSize: 12,
-    color: '#999',
-    textAlign: 'right',
+    color: "#999",
+    textAlign: "right",
     marginTop: 4,
   },
+
+  // ✅ Hashtag preview
+  hashtagPreview: {
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: "#EEF2FF",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+  },
+  hashtagPreviewLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6366F1",
+    marginBottom: 6,
+  },
+  hashtagChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  hashtagChip: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+  },
+  hashtagChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4F46E5",
+  },
+
   mediaPreviewSection: {
     marginBottom: 20,
   },
   pollToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#f0f8ff',
+    backgroundColor: "#f0f8ff",
     borderRadius: 12,
     marginBottom: 16,
   },
   pollToggleText: {
     fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: "#007AFF",
+    fontWeight: "500",
     marginLeft: 8,
   },
   pollSection: {
-    backgroundColor: '#f9f9f9',
+    backgroundColor: "#f9f9f9",
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 16,
-    color: '#333',
+    color: "#333",
   },
   pollOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 12,
   },
   pollInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: "#e1e1e1",
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   removePollOption: {
     marginLeft: 8,
     padding: 4,
   },
   addPollOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   addPollOptionText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: "#007AFF",
+    fontWeight: "500",
     marginLeft: 8,
   },
   pollDuration: {
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e1e1e1',
+    borderTopColor: "#e1e1e1",
   },
   pollDurationLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 12,
-    color: '#333',
+    color: "#333",
   },
   pollDurationButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   durationButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginRight: 8,
     marginBottom: 8,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     borderRadius: 20,
   },
   durationButtonActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#007AFF",
   },
   durationButtonText: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
   },
   durationButtonTextActive: {
-    color: '#fff',
-    fontWeight: '600',
+    color: "#fff",
+    fontWeight: "600",
   },
   communitySelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: "#e1e1e1",
     borderRadius: 12,
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   communityPlaceholder: {
     fontSize: 16,
-    color: '#999',
+    color: "#999",
   },
   communitySelected: {
     fontSize: 16,
-    color: '#333',
+    color: "#333",
   },
   selectedCommunity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f0f8ff',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#f0f8ff",
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
   },
   selectedCommunityText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
+    color: "#007AFF",
+    fontWeight: "500",
   },
   settingGroup: {
-    backgroundColor: '#f9f9f9',
+    backgroundColor: "#f9f9f9",
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
   },
   settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 12,
   },
   settingInfo: {
@@ -521,45 +598,45 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 4,
-    color: '#333',
+    color: "#333",
   },
   settingDescription: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
   },
   footer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#e1e1e1',
-    backgroundColor: '#fff',
+    borderTopColor: "#e1e1e1",
+    backgroundColor: "#fff",
   },
   button: {
     flex: 1,
     paddingVertical: 16,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   cancelButton: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     marginRight: 12,
   },
   cancelButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   submitButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#007AFF",
   },
   submitButtonDisabled: {
     opacity: 0.5,
   },
   submitButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: "600",
+    color: "#fff",
   },
 });

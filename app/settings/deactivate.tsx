@@ -1,4 +1,5 @@
-// app/settings/deactivate.tsx
+// app/settings/deactivate.tsx — FIREBASE ✅ (COMPLETED + UPDATED)
+
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
@@ -31,6 +32,7 @@ export default function DeactivateAccountScreen() {
 
     const currentUser = auth.currentUser;
     if (!currentUser) throw new Error("Not signed in");
+
     const credential = EmailAuthProvider.credential(email, password);
     await reauthenticateWithCredential(currentUser, credential);
   };
@@ -48,7 +50,10 @@ export default function DeactivateAccountScreen() {
             setIsLoading(true);
             try {
               await verifyPassword();
-              await deactivateAccount(reason);
+
+              // ✅ Provider expects no args
+              await deactivateAccount();
+
               Alert.alert("Done", "Your account has been deactivated.");
               router.back();
             } catch (error: any) {
@@ -78,7 +83,10 @@ export default function DeactivateAccountScreen() {
             setIsLoading(true);
             try {
               await verifyPassword();
-              await deleteAccount(deleteReason);
+
+              // ✅ Provider expects no args (or optional {reauth})
+              await deleteAccount();
+
               Alert.alert(
                 "Scheduled",
                 "Your account is scheduled for deletion. You can cancel by logging in within 30 days.",

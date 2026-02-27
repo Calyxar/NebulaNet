@@ -1,5 +1,3 @@
-// lib/firestore/storage.ts — FIREBASE STORAGE ✅
-
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as VideoThumbnails from "expo-video-thumbnails";
@@ -34,10 +32,6 @@ export interface UploadResult {
   size?: number;
 }
 
-/* =========================================================
-   HELPERS
-========================================================= */
-
 function generatePath(folder: string, ext: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
@@ -47,9 +41,47 @@ function generatePath(folder: string, ext: string) {
   return `${folder}/${user.uid}/${timestamp}-${random}.${ext}`;
 }
 
+function guessExtFromUri(uri: string) {
+  const cleaned = uri.split("?")[0].split("#")[0];
+  const ext = cleaned.split(".").pop()?.toLowerCase();
+  if (!ext || ext.length > 6) return "bin";
+  return ext;
+}
+
+function guessContentType(type: "image" | "video" | "file", ext: string) {
+  if (type === "image") {
+    if (ext === "png") return "image/png";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "webp") return "image/webp";
+    if (ext === "heic") return "image/heic";
+    if (ext === "gif") return "image/gif";
+    return "image/jpeg";
+  }
+
+  if (type === "video") {
+    if (ext === "mp4") return "video/mp4";
+    if (ext === "mov") return "video/quicktime";
+    if (ext === "m4v") return "video/x-m4v";
+    if (ext === "webm") return "video/webm";
+    return "video/mp4";
+  }
+
+  return undefined;
+}
+
+/**
+ * RN/Expo-safe: convert file/content URI -> Blob via XHR
+ * Fixes: "Creating blobs from ArrayBuffer/ArrayBufferView are not supported"
+ */
 async function uriToBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  return await response.blob();
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onerror = () => reject(new Error("Failed to read file"));
+    xhr.onload = () => resolve(xhr.response);
+    xhr.responseType = "blob";
+    xhr.open("GET", uri, true);
+    xhr.send(null);
+  });
 }
 
 async function compressImage(
@@ -82,10 +114,6 @@ async function generateVideoThumbnail(uri: string) {
   return thumbUri;
 }
 
-/* =========================================================
-   MAIN UPLOAD
-========================================================= */
-
 export async function uploadFile(
   uri: string,
   folder: string,
@@ -106,13 +134,22 @@ export async function uploadFile(
       uploadUri = await compressImage(uri, options);
     }
 
-    const ext = uri.split(".").pop() || "bin";
+    const ext = guessExtFromUri(uploadUri);
     const storagePath = generatePath(folder, ext);
-
     const storageRef = ref(storage, storagePath);
+
     const blob = await uriToBlob(uploadUri);
 
-    await uploadBytes(storageRef, blob);
+    try {
+      const contentType = guessContentType(type, ext);
+      await uploadBytes(
+        storageRef,
+        blob,
+        contentType ? { contentType } : undefined,
+      );
+    } finally {
+      (blob as any)?.close?.();
+    }
 
     const downloadURL = await getDownloadURL(storageRef);
 
@@ -121,11 +158,15 @@ export async function uploadFile(
     if (options.generateThumbnails && type === "video") {
       const thumbUri = await generateVideoThumbnail(uri);
       const thumbPath = generatePath("thumbnails", "jpg");
-
       const thumbRef = ref(storage, thumbPath);
-      const thumbBlob = await uriToBlob(thumbUri);
 
-      await uploadBytes(thumbRef, thumbBlob);
+      const thumbBlob = await uriToBlob(thumbUri);
+      try {
+        await uploadBytes(thumbRef, thumbBlob, { contentType: "image/jpeg" });
+      } finally {
+        (thumbBlob as any)?.close?.();
+      }
+
       thumbnailUrl = await getDownloadURL(thumbRef);
     }
 
@@ -140,14 +181,10 @@ export async function uploadFile(
     console.error("Firebase upload failed:", error);
     return {
       success: false,
-      error: error.message || "Upload failed",
+      error: error?.message || "Upload failed",
     };
   }
 }
-
-/* =========================================================
-   CHAT FILE UPLOAD (used by ChatInput.tsx)
-========================================================= */
 
 export async function uploadChatFile(params: {
   uri: string;
@@ -155,17 +192,17 @@ export async function uploadChatFile(params: {
   contentType: string;
 }): Promise<{ downloadURL: string }> {
   const storageRef = ref(storage, params.storagePath);
-  const blob = await uriToBlob(params.uri);
 
-  await uploadBytes(storageRef, blob, { contentType: params.contentType });
+  const blob = await uriToBlob(params.uri);
+  try {
+    await uploadBytes(storageRef, blob, { contentType: params.contentType });
+  } finally {
+    (blob as any)?.close?.();
+  }
 
   const downloadURL = await getDownloadURL(storageRef);
   return { downloadURL };
 }
-
-/* =========================================================
-   DELETE
-========================================================= */
 
 export async function deleteFile(storagePath: string) {
   const storageRef = ref(storage, storagePath);

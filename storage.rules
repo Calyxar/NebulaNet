@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // ✅ Cross-service helpers (Firestore) — SAFE for new users
+    function profilePath() {
+      return /databases/(default)/documents/profiles/$(uid());
+    }
+
+    function hasProfile() {
+      return signedIn() && firestore.exists(profilePath());
+    }
+
+    function profileDoc() {
+      // Only call get() if it exists (prevents rule-eval failure)
+      return firestore.get(profilePath());
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && hasProfile()
+        && profileDoc().data.role == "admin";
+    }
+
+    function isSuspended() {
+      return signedIn()
+        && hasProfile()
+        && profileDoc().data.is_suspended == true;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && uid() == userId;
+    }
+
+    function sizeOk() {
+      return request.resource.size < 50 * 1024 * 1024;
+    }
+
+    function contentTypeOk() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('video/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType.matches('application/octet-stream');
+    }
+
+    /* ---- folder/uid/... (matches lib/firestore/storage.ts) ---- */
+    match /{folder}/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+
+      allow write: if isSelf(userId)
+        && !isSuspended()
+        && sizeOk()
+        && contentTypeOk();
+    }
+
+    /* ---- support screenshots (private) ---- */
+    match /support-screenshots/{userId}/{allPaths=**} {
+      allow read: if isSelf(userId) || isAdmin();
+
+      allow write: if isSelf(userId)
+        && !isSuspended()
+        && sizeOk()
+        && contentTypeOk();
+    }
+
+    match /support_screenshots/{userId}/{allPaths=**} {
+      allow read: if isSelf(userId) || isAdmin();
+
+      allow write: if isSelf(userId)
+        && !isSuspended()
+        && sizeOk()
+        && contentTypeOk();
+    }
+
+    match /support/{userId}/{allPaths=**} {
+      allow read: if isSelf(userId) || isAdmin();
+
+      allow write: if isSelf(userId)
+        && !isSuspended()
+        && sizeOk()
+        && contentTypeOk();
+    }
+
+    /* ---- uid/... (matches app/profile/edit.tsx today) ---- */
+    match /{userId}/{allPaths=**} {
+      allow read: if signedIn();
+
+      allow write: if isSelf(userId)
+        && !isSuspended()
+        && sizeOk()
+        && contentTypeOk();
+    }
+
+    /* ---- default deny ---- */
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

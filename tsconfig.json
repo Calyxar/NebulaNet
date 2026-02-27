@@ -4,33 +4,16 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@components/*": [
-        "./components/*"
-      ],
-      "@providers/*": [
-        "./providers/*"
-      ],
-      "@hooks/*": [
-        "./hooks/*"
-      ],
-      "@lib/*": [
-        "./lib/*"
-      ],
-      "@constants/*": [
-        "./constants/*"
-      ],
-      "@types/*": [
-        "./types/*"
-      ],
-      "@utils/*": [
-        "./utils/*"
-      ],
-      "@assets/*": [
-        "./assets/*"
-      ]
+      "@/*": ["./*"],
+      "@components/*": ["./components/*"],
+      "@providers/*": ["./providers/*"],
+      "@hooks/*": ["./hooks/*"],
+      "@lib/*": ["./lib/*"],
+      "@constants/*": ["./constants/*"],
+      "@types/*": ["./types/*"],
+      "@utils/*": ["./utils/*"],
+      "@assets/*": ["./assets/*"],
+      "@firebase/auth": ["./node_modules/@firebase/auth/dist/index.rn.d.ts"] // ✅ add this
     }
   },
   "include": [

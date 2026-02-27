@@ -1,21 +1,32 @@
-// app/(tabs)/explore.tsx — COMPLETED + UPDATED ✅
+// app/(tabs)/explore.tsx — UPDATED ✅
 // ✅ Theme + dark mode support
 // ✅ Post results show image thumb OR video thumb badge
 // ✅ Community results show community image if available
 // ✅ FIX: Do NOT search when Trending selected (prevents wrong default type)
 // ✅ FIX: Safe defaults if useSearch returns undefined data
 // ✅ Back button works: router.canGoBack() fallback to /(tabs)/home
+// ✅ Trending tab shows real hashtags from Firestore
+// ✅ Hashtag tab: search by hashtag, click to open /hashtag/[tag]
+// ✅ All loading states replaced with skeleton components
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import {
+  HashtagRowSkeleton,
+  PostSearchSkeleton,
+  SearchRowSkeleton,
+} from "@/components/Skeleton";
 import { useSearch } from "@/hooks/useSearch";
+import {
+  getTrendingHashtags,
+  type TrendingHashtag,
+} from "@/lib/firestore/hashtags";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   ScrollView,
   StatusBar,
@@ -30,7 +41,12 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-type ExploreCategory = "trending" | "account" | "post" | "community";
+type ExploreCategory =
+  | "trending"
+  | "account"
+  | "post"
+  | "community"
+  | "hashtag";
 
 /* =========================
    MEDIA TYPE HELPERS
@@ -61,6 +77,43 @@ const isImageUrl = (url?: string | null) => {
   );
 };
 
+/* =========================
+   SKELETON WRAPPERS
+========================= */
+
+function SkeletonCard({
+  count,
+  children,
+}: {
+  count: number;
+  children: React.ReactNode;
+}) {
+  // children is the skeleton row component
+  return (
+    <View style={skeletonCard.wrap}>
+      {Array(count)
+        .fill(null)
+        .map((_, i) => (
+          <View key={i} style={i !== 0 ? skeletonCard.border : undefined}>
+            {children}
+          </View>
+        ))}
+    </View>
+  );
+}
+
+const skeletonCard = StyleSheet.create({
+  wrap: {
+    borderRadius: 22,
+    overflow: "hidden",
+    backgroundColor: "transparent",
+  },
+  border: {
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
+});
+
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -69,11 +122,18 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
+  // ✅ Trending hashtags state
+  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
+    [],
+  );
+  const [trendingLoading, setTrendingLoading] = useState(true);
+
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
     { key: "account", label: "Account" },
     { key: "post", label: "Post" },
     { key: "community", label: "Community" },
+    { key: "hashtag", label: "Hashtag" },
   ];
 
   const bottomPad = useMemo(
@@ -92,8 +152,18 @@ export default function ExploreScreen() {
     else router.replace("/(tabs)/home");
   };
 
+  // ✅ Load trending hashtags once on mount
+  useEffect(() => {
+    setTrendingLoading(true);
+    getTrendingHashtags(15)
+      .then(setTrendingHashtags)
+      .catch((e) => console.warn("getTrendingHashtags failed:", e))
+      .finally(() => setTrendingLoading(false));
+  }, []);
+
   // ✅ Only search if NOT trending
-  const shouldSearch = activeCategory !== "trending";
+  const shouldSearch =
+    activeCategory !== "trending" && activeCategory !== "hashtag";
 
   const searchType = useMemo(() => {
     if (!shouldSearch) return null;
@@ -103,21 +173,24 @@ export default function ExploreScreen() {
     return null;
   }, [activeCategory, shouldSearch]);
 
-  // ✅ Run search only when we have a real type (and not trending)
   const { data, isSearching, isIdle } = useSearch({
-    type: (searchType ?? "post") as any, // hook may require a value; we gate with shouldSearch below
+    type: (searchType ?? "post") as any,
     query: searchQuery,
     minChars: 2,
     limit: 20,
     debounceMs: 350,
-    // If your hook supports enabled, pass it:
-    // enabled: shouldSearch,
   });
 
-  // ✅ Safe defaults if hook returns undefined
   const accounts = (data as any)?.accounts ?? [];
   const posts = (data as any)?.posts ?? [];
   const communities = (data as any)?.communities ?? [];
+
+  // ✅ Hashtag search: filter local trending list while typing
+  const hashtagResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase().replace(/^#/, "");
+    if (!q) return trendingHashtags; // show all trending when empty
+    return trendingHashtags.filter((h) => h.tag.includes(q));
+  }, [searchQuery, trendingHashtags]);
 
   return (
     <>
@@ -169,7 +242,11 @@ export default function ExploreScreen() {
                   <TextInput
                     value={searchQuery}
                     onChangeText={setSearchQuery}
-                    placeholder="Search..."
+                    placeholder={
+                      activeCategory === "hashtag"
+                        ? "Search hashtags…"
+                        : "Search…"
+                    }
                     placeholderTextColor={colors.textTertiary}
                     style={[styles.searchInput, { color: colors.text }]}
                     returnKeyType="search"
@@ -198,40 +275,48 @@ export default function ExploreScreen() {
             }
           />
 
-          <View
-            style={[
-              styles.segmentWrap,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.22 : 0.05,
-              },
-            ]}
+          {/* Category segments */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.segmentScroll}
+            contentContainerStyle={styles.segmentScrollContent}
           >
-            {categories.map((c) => {
-              const isActive = activeCategory === c.key;
-              return (
-                <TouchableOpacity
-                  key={c.key}
-                  onPress={() => setActiveCategory(c.key)}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.segmentItem,
-                    isActive && { backgroundColor: colors.primary },
-                  ]}
-                >
-                  <Text
+            <View
+              style={[
+                styles.segmentWrap,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.22 : 0.05,
+                },
+              ]}
+            >
+              {categories.map((c) => {
+                const isActive = activeCategory === c.key;
+                return (
+                  <TouchableOpacity
+                    key={c.key}
+                    onPress={() => setActiveCategory(c.key)}
+                    activeOpacity={0.85}
                     style={[
-                      styles.segmentText,
-                      { color: colors.textTertiary },
-                      isActive && { color: "#FFFFFF" },
+                      styles.segmentItem,
+                      isActive && { backgroundColor: colors.primary },
                     ]}
                   >
-                    {c.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        { color: colors.textTertiary },
+                        isActive && { color: "#FFFFFF" },
+                      ]}
+                    >
+                      {c.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -240,19 +325,151 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
+            {/* ===== TRENDING ===== */}
             {activeCategory === "trending" && (
-              <EmptyState
-                colors={colors}
-                icon="trending-up-outline"
-                title="Trending will appear soon"
-                subtitle="As people post and use hashtags, we’ll show what’s trending here."
-              />
+              <>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  Trending Hashtags
+                </Text>
+
+                {trendingLoading ? (
+                  // ✅ Skeleton for trending hashtags
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(8)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <HashtagRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
+                ) : trendingHashtags.length > 0 ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {trendingHashtags.map((h, idx) => (
+                      <TouchableOpacity
+                        key={h.tag}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.row,
+                          idx !== 0 && [
+                            styles.rowBorder,
+                            { borderTopColor: colors.border },
+                          ],
+                        ]}
+                        onPress={() => router.push(`/hashtag/${h.tag}` as any)}
+                      >
+                        {/* Hashtag badge */}
+                        <View
+                          style={[
+                            styles.hashtagBadge,
+                            { backgroundColor: colors.primary + "18" },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.hashtagSymbol,
+                              { color: colors.primary },
+                            ]}
+                          >
+                            #
+                          </Text>
+                        </View>
+
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            style={[styles.rowTitle, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {h.tag}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.rowSubtitle,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            {h.post_count.toLocaleString()}{" "}
+                            {h.post_count === 1 ? "post" : "posts"}
+                          </Text>
+                        </View>
+
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textTertiary}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <EmptyState
+                    colors={colors}
+                    icon="trending-up-outline"
+                    title="No trending hashtags yet"
+                    subtitle="As people post with #hashtags, they'll appear here."
+                  />
+                )}
+              </>
             )}
 
+            {/* ===== ACCOUNT ===== */}
             {activeCategory === "account" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard colors={colors} />
+                  // ✅ Skeleton for account search
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(5)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <SearchRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
                 ) : isIdle ? (
                   <EmptyState
                     colors={colors}
@@ -353,10 +570,18 @@ export default function ExploreScreen() {
               </>
             )}
 
+            {/* ===== POST ===== */}
             {activeCategory === "post" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard colors={colors} />
+                  // ✅ Skeleton for post search
+                  <View style={{ gap: 10 }}>
+                    {Array(4)
+                      .fill(null)
+                      .map((_, i) => (
+                        <PostSearchSkeleton key={i} />
+                      ))}
+                  </View>
                 ) : isIdle ? (
                   <EmptyState
                     colors={colors}
@@ -436,7 +661,6 @@ export default function ExploreScreen() {
                                     color="#fff"
                                   />
                                   <Text style={styles.videoLabel}>Video</Text>
-
                                   <View style={styles.playCircle}>
                                     <Ionicons
                                       name="play"
@@ -463,10 +687,38 @@ export default function ExploreScreen() {
               </>
             )}
 
+            {/* ===== COMMUNITY ===== */}
             {activeCategory === "community" && (
               <>
                 {isSearching && !isIdle ? (
-                  <LoadingCard colors={colors} />
+                  // ✅ Skeleton for community search
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(4)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <SearchRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
                 ) : isIdle ? (
                   <EmptyState
                     colors={colors}
@@ -497,7 +749,6 @@ export default function ExploreScreen() {
                         ]}
                         onPress={() => router.push(`/community/${c.slug}`)}
                       >
-                        {/* ✅ Show image_url if present */}
                         {c.image_url ? (
                           <Image
                             source={{ uri: c.image_url }}
@@ -557,21 +808,121 @@ export default function ExploreScreen() {
                 )}
               </>
             )}
+
+            {/* ===== HASHTAG ===== */}
+            {activeCategory === "hashtag" && (
+              <>
+                {trendingLoading ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(6)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <HashtagRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
+                ) : hashtagResults.length > 0 ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {hashtagResults.map((h, idx) => (
+                      <TouchableOpacity
+                        key={h.tag}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.row,
+                          idx !== 0 && [
+                            styles.rowBorder,
+                            { borderTopColor: colors.border },
+                          ],
+                        ]}
+                        onPress={() => router.push(`/hashtag/${h.tag}` as any)}
+                      >
+                        <View
+                          style={[
+                            styles.hashtagBadge,
+                            { backgroundColor: colors.primary + "18" },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.hashtagSymbol,
+                              { color: colors.primary },
+                            ]}
+                          >
+                            #
+                          </Text>
+                        </View>
+
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            style={[styles.rowTitle, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {h.tag}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.rowSubtitle,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            {h.post_count.toLocaleString()}{" "}
+                            {h.post_count === 1 ? "post" : "posts"}
+                          </Text>
+                        </View>
+
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textTertiary}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <EmptyState
+                    colors={colors}
+                    icon="pricetag-outline"
+                    title="No hashtags found"
+                    subtitle={
+                      searchQuery.trim()
+                        ? `No results for #${searchQuery.replace(/^#/, "")}`
+                        : "Hashtags will appear here as people post."
+                    }
+                  />
+                )}
+              </>
+            )}
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
-  );
-}
-
-function LoadingCard({ colors }: { colors: any }) {
-  return (
-    <View style={[styles.loadingCard, { backgroundColor: colors.card }]}>
-      <ActivityIndicator size="small" color={colors.primary} />
-      <Text style={[styles.loadingText, { color: colors.textTertiary }]}>
-        Searching…
-      </Text>
-    </View>
   );
 }
 
@@ -651,8 +1002,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  segmentScroll: { marginHorizontal: 18, marginBottom: 0 },
+  segmentScrollContent: { paddingBottom: 0 },
   segmentWrap: {
-    marginHorizontal: 18,
     borderRadius: 22,
     padding: 6,
     flexDirection: "row",
@@ -663,13 +1015,20 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   segmentItem: {
-    flex: 1,
+    paddingHorizontal: 14,
     height: 36,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   segmentText: { fontSize: 13, fontWeight: "700" },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
 
   content: { paddingHorizontal: 18, paddingTop: 14 },
 
@@ -709,11 +1068,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  communityAvatar: {
+  communityAvatar: { width: 42, height: 42, borderRadius: 21 },
+
+  hashtagBadge: {
     width: 42,
     height: 42,
     borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  hashtagSymbol: { fontSize: 22, fontWeight: "900" },
 
   postCard: {
     borderRadius: 22,
@@ -790,19 +1154,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
-
-  loadingCard: {
-    borderRadius: 22,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  loadingText: { fontSize: 13, fontWeight: "800" },
 });

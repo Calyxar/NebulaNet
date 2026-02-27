@@ -1,4 +1,4 @@
-// hooks/useAuth.ts — FIREBASE VERSION ✅ (COMPLETED + UPDATED)
+// hooks/useAuth.ts — FIREBASE ✅ (UPDATED to match AuthProvider)
 
 import { auth } from "@/lib/firebase";
 import { useAuth as useProviderAuth } from "@/providers/AuthProvider";
@@ -7,29 +7,15 @@ import { reload } from "firebase/auth";
 export const useAuth = () => {
   const ctx = useProviderAuth();
 
-  // Firebase: authenticated if user exists
   const isAuthenticated = !!ctx.user;
-
-  // Firebase: email verification uses emailVerified boolean
   const isEmailVerified = !!ctx.user?.emailVerified;
 
-  const mutateProfile = async () => {
-    try {
-      return await ctx.refreshProfile();
-    } catch {
-      return null;
-    }
-  };
-
   const checkSession = async () => {
-    // ✅ Important: refresh user state (emailVerified can change after clicking link)
     const u = auth.currentUser;
     if (u) {
       try {
         await reload(u);
-      } catch {
-        // ignore reload errors
-      }
+      } catch {}
     }
     return auth.currentUser;
   };
@@ -37,11 +23,11 @@ export const useAuth = () => {
   return {
     // core
     user: ctx.user,
-    session: null, // Firebase doesn't use session objects
+    session: null,
     profile: ctx.profile,
     userSettings: ctx.userSettings,
 
-    // optional convenience
+    // convenience
     userId: ctx.user?.uid ?? null,
     email: ctx.user?.email ?? null,
 
@@ -62,24 +48,21 @@ export const useAuth = () => {
 
     signOut: ctx.signOut,
     checkSession,
-    mutateProfile,
 
     // onboarding
     hasCompletedOnboarding: ctx.hasCompletedOnboarding,
-    markOnboardingCompleted: ctx.markOnboardingCompleted,
+    completeOnboarding: ctx.completeOnboarding,
+    skipOnboarding: ctx.skipOnboarding,
 
     // theme
     themePreference: ctx.themePreference,
     setThemePreference: ctx.setThemePreference,
 
-    // account management
+    // ✅ settings + account management (fixes your TS errors)
+    updateSettings: ctx.updateSettings,
     deactivateAccount: ctx.deactivateAccount,
     deleteAccount: ctx.deleteAccount,
 
-    // settings
-    updateSettings: ctx.updateSettings,
-
-    // direct firebase client (if needed)
     firebaseAuth: auth,
   };
 };

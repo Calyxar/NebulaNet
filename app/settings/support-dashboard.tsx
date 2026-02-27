@@ -1,4 +1,5 @@
-// app/settings/support-dashboard.tsx
+// app/settings/support-dashboard.tsx — UPDATED (admin gating via profile.role)
+
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -20,24 +21,33 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { auth, db } from "@/lib/firebase";
 import {
-  adminGetScreenshotSignedUrl,
+  adminGetScreenshotUrl,
   adminGetSupportReports,
   adminUpdateSupportReportStatus,
   type SupportReportRow,
 } from "@/lib/queries/adminSupport";
 import { doc, getDoc } from "firebase/firestore";
 
-async function getCurrentUserProfile() {
-  const user = auth.currentUser;
-  if (!user) return null;
-  const snap = await getDoc(doc(db, "profiles", user.uid));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-}
+type ProfileAdminFlag = {
+  id: string;
+  role?: string | null;
+  is_suspended?: boolean | null;
+};
 
-// ✅ Simple admin gating: set YOUR user id(s) here
-const ADMIN_USER_IDS = new Set<string>([
-  // "063ba9d2-228d-454f-b987-05e4fd2d8242", // example
-]);
+async function getMyProfile(): Promise<ProfileAdminFlag | null> {
+  const u = auth.currentUser;
+  if (!u) return null;
+
+  const snap = await getDoc(doc(db, "profiles", u.uid));
+  if (!snap.exists()) return { id: u.uid };
+
+  const d = snap.data() as any;
+  return {
+    id: snap.id,
+    role: d.role ?? null,
+    is_suspended: d.is_suspended ?? null,
+  };
+}
 
 export default function SupportDashboardScreen() {
   const [loading, setLoading] = useState(true);
@@ -62,9 +72,8 @@ export default function SupportDashboardScreen() {
   const load = async () => {
     setLoading(true);
     try {
-      // ✅ Gate access here
-      const me = await getCurrentUserProfile();
-      const admin = !!me?.id && ADMIN_USER_IDS.has(me.id);
+      const me = await getMyProfile();
+      const admin = me?.role === "admin";
       setIsAdmin(admin);
 
       if (!admin) {
@@ -72,7 +81,7 @@ export default function SupportDashboardScreen() {
         return;
       }
 
-      const data = await adminGetSupportReports();
+      const data = await adminGetSupportReports({ pageSize: 50 });
       setReports(data);
     } catch (e: any) {
       console.error("Support dashboard load error:", e);
@@ -83,7 +92,19 @@ export default function SupportDashboardScreen() {
   };
 
   useEffect(() => {
-    load();
+    let alive = true;
+
+    (async () => {
+      try {
+        await load();
+      } finally {
+        if (!alive) return;
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const onRefresh = async () => {
@@ -102,7 +123,6 @@ export default function SupportDashboardScreen() {
       const status = (r.status || "open") as "open" | "resolved";
 
       if (statusFilter !== "all" && status !== statusFilter) return false;
-
       if (!q) return true;
 
       const name =
@@ -136,10 +156,10 @@ export default function SupportDashboardScreen() {
     setImgUrl(null);
 
     try {
-      const url = await adminGetScreenshotSignedUrl(
-        report.screenshot_bucket,
-        report.screenshot_path,
-      );
+      const url = await adminGetScreenshotUrl(report.screenshot_path);
+      if (!url) {
+        throw new Error("Screenshot URL is null or undefined");
+      }
       setImgUrl(url);
     } catch (e: any) {
       console.error("Signed url error:", e);
@@ -156,6 +176,7 @@ export default function SupportDashboardScreen() {
         report.id,
         resolved ? "resolved" : "open",
       );
+
       setReports((prev) =>
         prev.map((r) =>
           r.id === report.id
@@ -163,6 +184,7 @@ export default function SupportDashboardScreen() {
             : r,
         ),
       );
+
       if (selected?.id === report.id) {
         setSelected((s) =>
           s ? { ...s, status: resolved ? "resolved" : "open" } : s,
@@ -181,11 +203,8 @@ export default function SupportDashboardScreen() {
       (r.profile?.id ? r.profile.id.slice(0, 8) : "Unknown");
 
     const handle = r.profile?.username ? `@${r.profile.username}` : "";
-
     return { displayName, handle };
   };
-
-  // ---------- UI ----------
 
   return (
     <LinearGradient
@@ -218,10 +237,7 @@ export default function SupportDashboardScreen() {
           <View style={styles.deniedCard}>
             <Ionicons name="lock-closed" size={22} color="#111827" />
             <Text style={styles.deniedTitle}>Admin only</Text>
-            <Text style={styles.deniedText}>
-              This dashboard is restricted. If you’re staff, add your user ID to{" "}
-              <Text style={styles.mono}>ADMIN_USER_IDS</Text>.
-            </Text>
+            <Text style={styles.deniedText}>This dashboard is restricted.</Text>
           </View>
         ) : (
           <>
@@ -688,9 +704,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "#EEF2FF",
   },
-  statusResolved: {
-    backgroundColor: "#D1FAE5",
-  },
+  statusResolved: { backgroundColor: "#D1FAE5" },
   statusText: { fontSize: 12, fontWeight: "800", color: "#111827" },
 
   emptyState: {
@@ -714,9 +728,7 @@ const styles = StyleSheet.create({
   },
   deniedTitle: { fontWeight: "900", color: "#111827", fontSize: 14 },
   deniedText: { color: "#6B7280", lineHeight: 18 },
-  mono: { fontFamily: "monospace", color: "#111827" },
 
-  // Details modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(17,24,39,0.35)",
@@ -794,7 +806,6 @@ const styles = StyleSheet.create({
   detailChipLabel: { fontSize: 11, color: "#6B7280", fontWeight: "800" },
   detailChipValue: { marginTop: 6, color: "#111827", fontWeight: "800" },
 
-  // Screenshot modal
   imgBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)" },
   imgHeader: {
     paddingTop: 50,

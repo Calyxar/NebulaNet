@@ -1,4 +1,5 @@
-// components/post/PostCard.tsx — UPDATED (tap-to-open + ActionSheet + Android-safe menu)
+// components/post/PostCard.tsx — UPDATED (tap-to-open + ActionSheet + Android-safe menu + tappable hashtags)
+import HashtagText from "@/components/post/HashtagText";
 import Avatar from "@/components/user/Avatar";
 import {
   copyLink,
@@ -160,15 +161,9 @@ export default function PostCard(props: PostCardProps) {
     ];
 
     const extraButtons = getMoreActions?.() ?? [];
-
-    // Convert to ActionSheet options
     const allButtons = [...baseButtons, ...extraButtons];
-
     const options = [...allButtons.map((b) => b.text ?? "Option"), "Cancel"];
-
     const cancelButtonIndex = options.length - 1;
-
-    // pick the FIRST destructive we find
     const destructiveIndex = allButtons.findIndex(
       (b) => b.style === "destructive",
     );
@@ -180,15 +175,15 @@ export default function PostCard(props: PostCardProps) {
       (selectedIndex) => {
         if (selectedIndex == null) return;
         if (selectedIndex === cancelButtonIndex) return;
-
         const btn = allButtons[selectedIndex];
         btn?.onPress?.();
       },
     );
   };
 
+  const isTruncated = content.length > 150;
   const displayContent =
-    expanded || content.length <= 150 ? content : `${content.slice(0, 150)}…`;
+    expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
   return (
     <Pressable onPress={openPost} style={styles.container}>
@@ -231,20 +226,24 @@ export default function PostCard(props: PostCardProps) {
       <View style={styles.content}>
         {title && <Text style={styles.title}>{title}</Text>}
 
-        <Text style={styles.text}>
-          {displayContent}
-          {content.length > 150 && (
-            <Text
-              style={styles.readMore}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                setExpanded((v) => !v);
-              }}
-            >
-              {expanded ? " Show less" : " Read more"}
-            </Text>
-          )}
-        </Text>
+        {/* ✅ HashtagText renders #tags as tappable links */}
+        <HashtagText
+          text={displayContent}
+          style={styles.text}
+          onPress={openPost}
+        />
+
+        {isTruncated && (
+          <Text
+            style={styles.readMore}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              setExpanded((v) => !v);
+            }}
+          >
+            {expanded ? " Show less" : " Read more"}
+          </Text>
+        )}
 
         {media && media.length > 0 && (
           <View style={styles.mediaContainer}>
@@ -279,21 +278,17 @@ export default function PostCard(props: PostCardProps) {
           color={isLiked ? "#ff375f" : "#666"}
           onPress={handleLike}
         />
-
-        {/* Comment still goes to post detail */}
         <Action
           icon="chatbubble-outline"
           label="Comment"
           onPress={() => openPost()}
         />
-
         <Action
           icon={isSharing ? "sync" : "arrow-redo-outline"}
           label="Share"
           disabled={isSharing}
           onPress={handleShare}
         />
-
         <Action
           icon={isSaved ? "bookmark" : "bookmark-outline"}
           label="Save"
@@ -382,7 +377,7 @@ const styles = StyleSheet.create({
   content: { marginBottom: 12 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   text: { fontSize: 16, lineHeight: 22 },
-  readMore: { fontWeight: "500" },
+  readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, color: "#666", marginBottom: 8 },
   mediaContainer: { marginTop: 12 },
   mediaPreview: {

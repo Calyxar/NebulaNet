@@ -4,9 +4,9 @@ import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { closeSettings } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useLocalSearchParams } from "expo-router";
-import { closeSettings } from "./routes";
 
 type ThemeOption = "system" | "light" | "dark";
 

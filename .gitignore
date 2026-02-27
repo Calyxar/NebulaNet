@@ -21,10 +21,18 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Account Service Key
+serviceAccountKey.json
+
 # debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+firebase-debug.log*
+
+# Firebase noise
+.firebase/
+
 
 # macOS
 .DS_Store
