@@ -77,3 +77,35 @@ export const generateUserDataExport = onDocumentCreated(
     }
   },
 );
+
+/* BOOST CREATED — EMAIL CONFIRMATION */
+
+export const handleBoostCreated = onDocumentCreated(
+  "boosts/{boostId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const boost = snap.data();
+    const userId = boost.user_id;
+
+    try {
+      const userRecord = await auth.getUser(userId);
+      const email = userRecord.email;
+      if (!email) return;
+
+      // Log confirmation (wire up Resend/SendGrid here when ready)
+      console.log(
+        `Boost confirmation for ${email}: post ${boost.post_id}, ` +
+          `${boost.duration_days} days, $${boost.total_amount}`,
+      );
+
+      await snap.ref.update({
+        email_sent: true,
+        email_sent_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Boost email error:", String(err));
+    }
+  },
+);

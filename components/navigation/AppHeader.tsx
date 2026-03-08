@@ -1,28 +1,24 @@
-// components/navigation/AppHeader.tsx
+// components/navigation/AppHeader.tsx — COMPLETED + UPDATED ✅
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
-    ViewStyle,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
   title?: string;
   onBack?: () => void;
-
-  // 44x44 slot (icon)
   left?: React.ReactNode;
   right?: React.ReactNode;
-
-  // Wide slots (brand / multi-actions)
   leftWide?: React.ReactNode;
   rightWide?: React.ReactNode;
-
   backgroundColor?: string;
   containerStyle?: ViewStyle;
   titleAlign?: "center" | "left";
@@ -38,12 +34,16 @@ export default function AppHeader({
   leftWide,
   right,
   rightWide,
-  backgroundColor = "#F5F7FF",
+  backgroundColor,
   containerStyle,
   titleAlign = "center",
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
   const hasTitle = !!title && title.trim().length > 0;
+
+  // Use passed backgroundColor, fall back to theme
+  const bgColor = backgroundColor ?? colors.background;
 
   const LeftNode = leftWide ? (
     <View style={styles.leftWide}>{leftWide}</View>
@@ -53,10 +53,17 @@ export default function AppHeader({
     <View style={styles.side}>
       <Pressable
         onPress={onBack}
-        style={styles.circleBtn}
+        style={[
+          styles.circleBtn,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            shadowOpacity: isDark ? 0.22 : 0.08,
+          },
+        ]}
         android_ripple={{ borderless: true }}
       >
-        <Ionicons name="arrow-back" size={22} color="#111827" />
+        <Ionicons name="arrow-back" size={22} color={colors.text} />
       </Pressable>
     </View>
   ) : (
@@ -75,20 +82,17 @@ export default function AppHeader({
     <View
       style={[
         styles.shell,
-        { paddingTop: insets.top, backgroundColor },
+        { paddingTop: insets.top, backgroundColor: bgColor },
         containerStyle,
       ]}
     >
       <View style={styles.row}>
-        {/* LEFT */}
         {hasTitle ? (
           LeftNode
         ) : (
-          // ✅ When there's no title, let left occupy remaining space.
           <View style={styles.leftNoTitleWrap}>{LeftNode}</View>
         )}
 
-        {/* CENTER (only if title exists) */}
         {hasTitle ? (
           <View
             style={[
@@ -96,13 +100,15 @@ export default function AppHeader({
               titleAlign === "left" ? styles.titleWrapLeft : undefined,
             ]}
           >
-            <Text numberOfLines={1} style={styles.title}>
+            <Text
+              numberOfLines={1}
+              style={[styles.title, { color: colors.text }]}
+            >
               {title}
             </Text>
           </View>
         ) : null}
 
-        {/* RIGHT */}
         {RightNode}
       </View>
     </View>
@@ -128,7 +134,6 @@ const styles = StyleSheet.create({
   },
   sideGhost: { width: SIDE, height: SIDE },
 
-  // ✅ Critical: flex:1 + minWidth:0 prevents text squish/measure bugs on Android
   leftNoTitleWrap: {
     flex: 1,
     minWidth: 0,
@@ -156,12 +161,11 @@ const styles = StyleSheet.create({
     width: SIDE,
     height: SIDE,
     borderRadius: SIDE / 2,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
   },
@@ -178,6 +182,5 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: Platform.select({ ios: "900", android: "800" }) as any,
-    color: "#111827",
   },
 });

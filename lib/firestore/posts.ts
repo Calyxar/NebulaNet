@@ -1,20 +1,19 @@
 // lib/firestore/posts.ts — FIREBASE ✅ (COMPLETED + UPDATED)
-// Firestore + Storage version of posts queries
-//
+// ✅ Removed where("is_visible", "==", true) from Firestore query
+//    — was causing silent 0 results (requires composite index with orderBy)
+// ✅ Filter is_visible in JS after fetch instead
 // ✅ communityIds filter (Firestore "in" limit respected)
-// ✅ media_urls + visibility + is_visible + post_type
+// ✅ media_urls + visibility + post_type
 // ✅ newest / popular / trending
 // ✅ returns is_liked / is_saved / is_owned for current user
 // ✅ cursor pagination for infinite feed
-//
-// IMPORTANT FIXES:
-// ✅ Firestore "in" supports max 10 values (not 30) → chunked + limited
-// ✅ Like/Save flag queries chunked to 10
-// ✅ username lookup uses username_lc when present
-// ✅ Android-safe media upload: Blob-first, base64 fallback for content:// URIs
+// ✅ Boost injection on first page
+// ✅ uploadString base64 — works in Expo Go and production builds
+// ✅ Android content:// URI copy before read
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth, db, storage } from "@/lib/firebase";
+import { getActiveBoostsPostIds } from "@/lib/firestore/boosts";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import {
   Timestamp,
@@ -32,7 +31,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { getDownloadURL, ref, uploadString } from "firebase/storage";
 
 /* =========================================================
    TYPES
@@ -69,10 +68,8 @@ export interface Post {
   post_type?: PostType | null;
   is_visible?: boolean | null;
 
-  // ✅ Stored hashtags extracted from content
   hashtags?: string[];
 
-  // ✅ Poll payload — only present when post_type === "poll"
   poll?: import("@/lib/firestore/polls").PollData | null;
 
   like_count: number;
@@ -82,7 +79,6 @@ export interface Post {
   created_at: string;
   updated_at: string;
 
-  // denormalized snapshots for feed
   user: ProfileRow | null;
   community: CommunityRow | null;
 
@@ -112,7 +108,7 @@ export interface PostFilters {
 
 export interface PaginatedPosts {
   posts: Post[];
-  total: number; // Firestore count is expensive; set -1 unless you add aggregates
+  total: number;
   hasMore: boolean;
   nextCursor: PostFilters["cursor"];
 }
@@ -167,7 +163,6 @@ function normalizeVisibility(v: any): PostVisibility {
 
 function normalizePostType(p: { post_type?: any; media_urls?: any }): PostType {
   const t = p?.post_type;
-  // ✅ "poll" is a first-class type — preserve it as-is
   if (
     t === "text" ||
     t === "image" ||
@@ -211,7 +206,6 @@ function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
     post_type: normalizePostType(d),
     is_visible: typeof d.is_visible === "boolean" ? d.is_visible : true,
     hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
-    // ✅ Poll payload passed through — PollCard needs this in the feed
     poll: d.poll ?? null,
     like_count: typeof d.like_count === "number" ? d.like_count : 0,
     comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
@@ -242,12 +236,10 @@ async function resolveUserIdFromUsername(
 
   const u = raw.toLowerCase();
 
-  // Prefer username_lc (if you store it)
   let q = query(PROFILES, where("username_lc", "==", u), fsLimit(1));
   let snap = await getDocs(q);
   if (!snap.empty) return snap.docs[0].id;
 
-  // Fallback to username (if you store original-cased usernames)
   q = query(PROFILES, where("username", "==", raw), fsLimit(1));
   snap = await getDocs(q);
   return snap.docs[0]?.id ?? null;
@@ -299,28 +291,6 @@ function makeObjectPath(userId: string, ext: string): string {
   return `post-media/${userId}/${Date.now()}-${rand}.${ext}`;
 }
 
-function base64ToUint8Array(base64: string) {
-  const binary = globalThis.atob
-    ? globalThis.atob(base64)
-    : Buffer.from(base64, "base64").toString("binary");
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("Failed to read media file");
-  return await res.blob();
-}
-
-async function uriToBytesLegacy(uri: string): Promise<Uint8Array> {
-  const base64 = await FileSystemLegacy.readAsStringAsync(uri, {
-    encoding: "base64" as any,
-  });
-  return base64ToUint8Array(base64);
-}
-
 async function uploadMediaForPost(
   userId: string,
   media: MediaItem[] | undefined,
@@ -340,20 +310,22 @@ async function uploadMediaForPost(
       item.type === "video" ? "mp4" : item.type === "gif" ? "gif" : "jpg";
     const ext = guessExt(item.uri, fallbackExt);
     const path = makeObjectPath(userId, ext);
-
     const storageRef = ref(storage, path);
 
-    // ✅ Blob-first, base64 fallback (Android content:// safe)
-    try {
-      const blob = await uriToBlob(item.uri);
-      await uploadBytes(storageRef, blob as any, {
-        contentType: (blob as any).type || undefined,
-      });
-    } catch (e) {
-      const bytes = await uriToBytesLegacy(item.uri);
-      // contentType not strictly required; you can add mapping if you want
-      await uploadBytes(storageRef, bytes as any);
+    let readUri = item.uri;
+
+    // ✅ Android content:// URIs must be copied to a local file first
+    if (item.uri.startsWith("content://")) {
+      const localPath = `${FileSystemLegacy.cacheDirectory}upload-${Date.now()}.${ext}`;
+      await FileSystemLegacy.copyAsync({ from: item.uri, to: localPath });
+      readUri = localPath;
     }
+
+    // ✅ Upload as base64 string — works in Expo Go and production builds
+    const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
+      encoding: "base64" as any,
+    });
+    await uploadString(storageRef, base64, "base64");
 
     const dl = await getDownloadURL(storageRef);
     urls.push(dl);
@@ -371,9 +343,7 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
     return { liked: new Set<string>(), saved: new Set<string>() };
   }
 
-  // ✅ Firestore "in" supports max 10
   const chunks = chunk(postIds, 10);
-
   const liked = new Set<string>();
   const saved = new Set<string>();
 
@@ -435,9 +405,11 @@ export async function getPosts(
     resolvedUserId = await resolveUserIdFromUsername(username);
   }
 
-  const wheres: any[] = [where("is_visible", "==", true)];
+  // ✅ No where("is_visible", "==", true) here — that field + orderBy("created_at_ts")
+  // requires a composite Firestore index that doesn't exist, causing silent 0 results.
+  // We filter is_visible in JS below instead.
+  const wheres: any[] = [];
 
-  // ✅ Firestore "in" max 10 — take first 10 (UI can pass more, but query can’t)
   if (resolvedCommunityIds.length) {
     wheres.push(where("community_id", "in", resolvedCommunityIds.slice(0, 10)));
   }
@@ -453,7 +425,6 @@ export async function getPosts(
       ),
     );
 
-  // trending = last 7 days + likes desc
   const extra: any[] = [];
   if (sortBy === "trending") {
     const weekAgo = Timestamp.fromDate(new Date(Date.now() - 7 * 86400000));
@@ -469,17 +440,22 @@ export async function getPosts(
 
   let qBase = query(POSTS, ...wheres, ...extra);
 
-  // Cursor paging uses lastDoc snapshot
   if (cursor?.lastDocId) {
     const lastSnap = await getDoc(doc(db, "posts", cursor.lastDocId));
     if (lastSnap.exists()) qBase = query(qBase, startAfter(lastSnap));
   }
 
-  const snap = await getDocs(query(qBase, fsLimit(limit)));
+  // ✅ Fetch slightly more than limit to account for is_visible filtering in JS
+  const snap = await getDocs(query(qBase, fsLimit(limit + 10)));
 
   const viewerId = auth.currentUser?.uid ?? "";
 
-  const raw = snap.docs.map((d) => docToPost(d.id, d.data()));
+  // ✅ Filter is_visible in JS — avoids the composite index requirement
+  const raw = snap.docs
+    .map((d) => docToPost(d.id, d.data()))
+    .filter((p) => p.is_visible !== false)
+    .slice(0, limit);
+
   const ids = raw.map((p) => p.id);
 
   const { liked, saved } = viewerId
@@ -499,10 +475,29 @@ export async function getPosts(
     ? { lastDocId: last.id }
     : null;
 
+  // ✅ Boost injection — only on first page (no cursor)
+  if (!cursor) {
+    try {
+      const boostedIds = await getActiveBoostsPostIds();
+      if (boostedIds.length > 0) {
+        const boosted = posts.filter((p) => boostedIds.includes(p.id));
+        const normal = posts.filter((p) => !boostedIds.includes(p.id));
+        return {
+          posts: [...boosted, ...normal],
+          total: -1,
+          hasMore: snap.docs.length >= limit,
+          nextCursor,
+        };
+      }
+    } catch {
+      // boost fetch failed — fall through to normal return
+    }
+  }
+
   return {
     posts,
     total: -1,
-    hasMore: snap.docs.length === limit,
+    hasMore: snap.docs.length >= limit,
     nextCursor,
   };
 }
@@ -643,7 +638,6 @@ export async function updatePost(
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
 
-  // update community snapshot if changed
   let communitySnap: CommunityRow | null | undefined = undefined;
   if (patch.community_id !== undefined) {
     communitySnap = patch.community_id

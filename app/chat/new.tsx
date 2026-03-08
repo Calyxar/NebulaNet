@@ -1,13 +1,9 @@
-// app/chat/new.tsx — FIRESTORE ✅ (COMPLETED + FIXED)
-// ✅ Uses Firestore profiles + blocks + follows
-// ✅ Uses createOrOpenChat (Firestore)
-// ✅ Fixes profilesMap TS generic syntax
-// ✅ Removes leftover Supabase code
-
+// app/chat/new.tsx ✅ THEMED
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
@@ -46,10 +42,8 @@ type ProfileRow = {
   username_lc?: string | null;
   full_name_lc?: string | null;
 };
-
 type BlockRow = { blocker_id: string; blocked_id: string };
 type FollowRow = { following_id: string; status: "accepted" | "pending" };
-
 type RecentItem = {
   id: string;
   updated_at: string;
@@ -70,29 +64,26 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 function tsToIso(ts: unknown): string {
   if (!ts) return "";
-  if (typeof (ts as { toDate?: unknown }).toDate === "function") {
+  if (typeof (ts as { toDate?: unknown }).toDate === "function")
     return (ts as { toDate: () => Date }).toDate().toISOString();
-  }
   const d = new Date(ts as string | number);
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
 export default function NewChatScreen() {
   const { user } = useAuth();
+  const { colors } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
   const [creatingId, setCreatingId] = useState<string | null>(null);
 
   const search = searchQuery.trim();
   const canSearch = search.length >= 2;
 
-  // ─── Recent conversations ────────────────────────────────────────────────
-
   const [recent, setRecent] = useState<RecentItem[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
 
   useEffect(() => {
     let alive = true;
-
     const run = async () => {
       if (!user?.id) return;
       setLoadingRecent(true);
@@ -104,9 +95,7 @@ export default function NewChatScreen() {
           orderBy("updated_at_ts", "desc"),
           limit(12),
         );
-
         const snap = await getDocs(q1);
-
         const base: RecentItem[] = snap.docs
           .map((d) => {
             const x = d.data() as any;
@@ -152,12 +141,9 @@ export default function NewChatScreen() {
           ...c,
           unread_count: unreadMap.get(c.id) ?? 0,
         }));
-
         const otherIds = Array.from(
           new Set(withUnread.map((c) => c.otherUserId)),
         );
-
-        // ✅ FIXED generic syntax
         const profilesMap = new Map<
           string,
           {
@@ -176,46 +162,42 @@ export default function NewChatScreen() {
           ps.docs.forEach((pd) => {
             const p = pd.data() as any;
             profilesMap.set(pd.id, {
-              username: (p.username as string) ?? "",
-              full_name: (p.full_name as string | null) ?? null,
-              avatar_url: (p.avatar_url as string | null) ?? null,
+              username: p.username ?? "",
+              full_name: p.full_name ?? null,
+              avatar_url: p.avatar_url ?? null,
             });
           });
         }
 
-        const final = withUnread.map((c) => ({
-          ...c,
-          other: profilesMap.get(c.otherUserId) ?? null,
-        }));
-
-        if (alive) setRecent(final);
+        if (alive)
+          setRecent(
+            withUnread.map((c) => ({
+              ...c,
+              other: profilesMap.get(c.otherUserId) ?? null,
+            })),
+          );
       } catch {
         if (alive) setRecent([]);
       } finally {
         if (alive) setLoadingRecent(false);
       }
     };
-
     run();
     return () => {
       alive = false;
     };
   }, [user?.id]);
 
-  // ─── User search ─────────────────────────────────────────────────────────
-
   const [results, setResults] = useState<ProfileRow[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
 
   useEffect(() => {
     let alive = true;
-
     const run = async () => {
       if (!user?.id || !canSearch) {
         setResults([]);
         return;
       }
-
       setLoadingResults(true);
       try {
         const s = search.toLowerCase();
@@ -226,19 +208,18 @@ export default function NewChatScreen() {
           endAt(s + "\uf8ff"),
           limit(25),
         );
-
         const snap = await getDocs(q1);
         const rows: ProfileRow[] = snap.docs
           .map((d) => {
             const x = d.data() as any;
             return {
               id: d.id,
-              username: (x.username as string) ?? "",
-              full_name: (x.full_name as string | null) ?? null,
-              avatar_url: (x.avatar_url as string | null) ?? null,
-              is_private: (x.is_private as boolean | null) ?? null,
-              username_lc: (x.username_lc as string | null) ?? null,
-              full_name_lc: (x.full_name_lc as string | null) ?? null,
+              username: x.username ?? "",
+              full_name: x.full_name ?? null,
+              avatar_url: x.avatar_url ?? null,
+              is_private: x.is_private ?? null,
+              username_lc: x.username_lc ?? null,
+              full_name_lc: x.full_name_lc ?? null,
             };
           })
           .filter((r) => r.id !== user.id)
@@ -248,7 +229,6 @@ export default function NewChatScreen() {
             return u.includes(s) || n.includes(s);
           })
           .slice(0, 25);
-
         if (alive) setResults(rows);
       } catch {
         if (alive) setResults([]);
@@ -256,7 +236,6 @@ export default function NewChatScreen() {
         if (alive) setLoadingResults(false);
       }
     };
-
     const t = setTimeout(run, 250);
     return () => {
       alive = false;
@@ -264,13 +243,10 @@ export default function NewChatScreen() {
     };
   }, [user?.id, canSearch, search]);
 
-  // ─── Blocks ──────────────────────────────────────────────────────────────
-
   const [blocks, setBlocks] = useState<BlockRow[]>([]);
   useEffect(() => {
     if (!user?.id) return;
     let alive = true;
-
     getDocs(
       query(
         collection(db, "user_blocks"),
@@ -287,7 +263,6 @@ export default function NewChatScreen() {
       .catch(() => {
         if (alive) setBlocks([]);
       });
-
     return () => {
       alive = false;
     };
@@ -302,8 +277,6 @@ export default function NewChatScreen() {
     return s;
   }, [blocks, user?.id]);
 
-  // ─── Follows ─────────────────────────────────────────────────────────────
-
   const targetIds = useMemo(() => results.map((r) => r.id), [results]);
   const [followingAccepted, setFollowingAccepted] = useState<Set<string>>(
     new Set(),
@@ -314,9 +287,7 @@ export default function NewChatScreen() {
       setFollowingAccepted(new Set());
       return;
     }
-
     let alive = true;
-
     const run = async () => {
       try {
         const all: FollowRow[] = [];
@@ -333,10 +304,7 @@ export default function NewChatScreen() {
           );
           snap.docs.forEach((d) => {
             const x = d.data() as any;
-            all.push({
-              following_id: x.following_id as string,
-              status: x.status as "accepted" | "pending",
-            });
+            all.push({ following_id: x.following_id, status: x.status });
           });
         }
         if (alive)
@@ -345,7 +313,6 @@ export default function NewChatScreen() {
         if (alive) setFollowingAccepted(new Set());
       }
     };
-
     run();
     return () => {
       alive = false;
@@ -363,7 +330,6 @@ export default function NewChatScreen() {
     if (!user?.id) return;
     const gate = dmGate(p);
     if (!gate.ok) return;
-
     try {
       setCreatingId(p.id);
       const conversationId = await createOrOpenChat(user.id, p.id);
@@ -374,29 +340,28 @@ export default function NewChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["left", "right"]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={["top", "left", "right"]}
+    >
       <AppHeader
         title="New Chat"
-        backgroundColor="#FFFFFF"
-        left={
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
-        }
+        backgroundColor={colors.card}
+        onBack={() => router.back()}
       />
 
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={18} color="#6B7280" />
+      <View style={[styles.searchWrap, { backgroundColor: colors.surface }]}>
+        <Ionicons
+          name="search-outline"
+          size={18}
+          color={colors.textSecondary}
+        />
         <TextInput
           placeholder="Search people…"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={colors.textTertiary}
           value={searchQuery}
           onChangeText={setSearchQuery}
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.text }]}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -405,23 +370,35 @@ export default function NewChatScreen() {
             onPress={() => setSearchQuery("")}
             activeOpacity={0.8}
           >
-            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            <Ionicons
+              name="close-circle"
+              size={18}
+              color={colors.textTertiary}
+            />
           </TouchableOpacity>
         )}
       </View>
 
       {!canSearch ? (
         <View style={{ flex: 1 }}>
-          <Text style={styles.sectionTitle}>Recent</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+            Recent
+          </Text>
           {loadingRecent ? (
             <View style={styles.center}>
-              <ActivityIndicator />
+              <ActivityIndicator color={colors.primary} />
             </View>
           ) : recent.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="chatbubbles-outline" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No recent chats</Text>
-              <Text style={styles.emptySub}>
+              <Ionicons
+                name="chatbubbles-outline"
+                size={48}
+                color={colors.border}
+              />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                No recent chats
+              </Text>
+              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
                 Search for someone to start a DM.
               </Text>
             </View>
@@ -431,23 +408,33 @@ export default function NewChatScreen() {
               keyExtractor={(x) => x.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.row}
+                  style={[
+                    styles.row,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
                   activeOpacity={0.85}
                   onPress={() => router.replace(`/chat/${item.id}`)}
                 >
-                  <View style={styles.avatar}>
+                  <View
+                    style={[styles.avatar, { backgroundColor: colors.primary }]}
+                  >
                     <Text style={styles.avatarText}>
                       {(item.other?.username?.[0] ?? "U").toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>
+                    <Text style={[styles.rowTitle, { color: colors.text }]}>
                       {item.other?.full_name ||
                         (item.other?.username
                           ? `@${item.other.username}`
                           : "Conversation")}
                     </Text>
-                    <Text style={styles.rowSub}>
+                    <Text
+                      style={[styles.rowSub, { color: colors.textSecondary }]}
+                    >
                       {item.other?.username
                         ? `@${item.other.username}`
                         : "Tap to open"}
@@ -456,7 +443,11 @@ export default function NewChatScreen() {
                         : ""}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textTertiary}
+                  />
                 </TouchableOpacity>
               )}
               contentContainerStyle={{ paddingBottom: 18 }}
@@ -465,16 +456,20 @@ export default function NewChatScreen() {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-          <Text style={styles.sectionTitle}>Results</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+            Results
+          </Text>
           {loadingResults ? (
             <View style={styles.center}>
-              <ActivityIndicator />
+              <ActivityIndicator color={colors.primary} />
             </View>
           ) : results.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="search-outline" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No users found</Text>
-              <Text style={styles.emptySub}>
+              <Ionicons name="search-outline" size={48} color={colors.border} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                No users found
+              </Text>
+              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
                 Try a different name or username.
               </Text>
             </View>
@@ -485,7 +480,6 @@ export default function NewChatScreen() {
               renderItem={({ item }) => {
                 const gate = dmGate(item);
                 const busy = creatingId === item.id;
-
                 return (
                   <TouchableOpacity
                     activeOpacity={0.85}
@@ -493,19 +487,30 @@ export default function NewChatScreen() {
                     disabled={!gate.ok || !!creatingId}
                     style={[
                       styles.row,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                      },
                       (!gate.ok || busy) && { opacity: 0.45 },
                     ]}
                   >
-                    <View style={styles.avatar}>
+                    <View
+                      style={[
+                        styles.avatar,
+                        { backgroundColor: colors.primary },
+                      ]}
+                    >
                       <Text style={styles.avatarText}>
                         {(item.username?.[0] ?? "U").toUpperCase()}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.rowTitle}>
+                      <Text style={[styles.rowTitle, { color: colors.text }]}>
                         {item.full_name || `@${item.username}`}
                       </Text>
-                      <Text style={styles.rowSub}>
+                      <Text
+                        style={[styles.rowSub, { color: colors.textSecondary }]}
+                      >
                         @{item.username}
                         {gate.ok
                           ? item.is_private
@@ -514,14 +519,13 @@ export default function NewChatScreen() {
                           : ` • ${gate.reason}`}
                       </Text>
                     </View>
-
                     {busy ? (
-                      <ActivityIndicator size="small" color="#7C3AED" />
+                      <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <Ionicons
                         name="chevron-forward"
                         size={18}
-                        color="#9CA3AF"
+                        color={colors.textTertiary}
                       />
                     )}
                   </TouchableOpacity>
@@ -537,19 +541,11 @@ export default function NewChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-  headerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  container: { flex: 1 },
   searchWrap: {
     marginTop: 10,
     marginHorizontal: 16,
     marginBottom: 10,
-    backgroundColor: "#F3F4F6",
     borderRadius: 16,
     paddingHorizontal: 12,
     height: 46,
@@ -557,14 +553,13 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: "center",
   },
-  searchInput: { flex: 1, color: "#111827", fontWeight: "800" },
+  searchInput: { flex: 1, fontWeight: "800" },
   sectionTitle: {
     marginTop: 8,
     marginBottom: 8,
     paddingHorizontal: 16,
     fontSize: 13,
     fontWeight: "900",
-    color: "#6B7280",
     letterSpacing: 0.4,
   },
   row: {
@@ -572,9 +567,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#EEF2FF",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -584,13 +577,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
   avatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 18 },
-  rowTitle: { fontSize: 14, fontWeight: "900", color: "#111827" },
-  rowSub: { marginTop: 2, fontSize: 12, fontWeight: "700", color: "#6B7280" },
+  rowTitle: { fontSize: 14, fontWeight: "900" },
+  rowSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: {
     flex: 1,
@@ -598,17 +590,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  emptyTitle: {
-    marginTop: 10,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-  },
+  emptyTitle: { marginTop: 10, fontSize: 16, fontWeight: "900" },
   emptySub: {
     marginTop: 6,
     fontSize: 13,
     fontWeight: "700",
-    color: "#6B7280",
     textAlign: "center",
   },
 });

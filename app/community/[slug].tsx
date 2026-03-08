@@ -1,12 +1,4 @@
 // app/community/[slug].tsx — COMPLETED + UPDATED ✅
-// ✅ FIXED HEADER: uses SafeArea top + AppHeader so it doesn't overlap status bar/notch
-// ✅ Dark mode via ThemeProvider
-// ✅ joined_at missing -> safe fallback query + ordering
-// ✅ Owner/mod controls (Manage button)
-// ✅ Join/Leave button styled
-// ✅ Media grid UI (image/video thumbs)
-// ✅ Feed post tap -> /post/[id]
-
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
@@ -45,8 +37,6 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-/* ----------------------------- types ----------------------------- */
-
 type ProfileMini = {
   username: string | null;
   full_name: string | null;
@@ -58,12 +48,10 @@ type Community = {
   slug: string;
   name: string;
   description: string | null;
-
   image_url: string | null;
   member_count: number | null;
   created_at?: string;
   updated_at?: string;
-
   is_private?: boolean | null;
   owner_id?: string | null;
   banner_url?: string | null;
@@ -97,8 +85,6 @@ type MediaGridItem = {
   type: "image" | "video";
 };
 
-/* ----------------------------- helpers ----------------------------- */
-
 const isVideoUrl = (url: string) => /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(url);
 
 const formatTimeAgo = (iso: string) => {
@@ -119,8 +105,6 @@ function safeFirstLetter(name: string) {
   const s = (name ?? "").trim();
   return (s[0] ?? "U").toUpperCase();
 }
-
-/* ----------------------------- screen ----------------------------- */
 
 export default function CommunityScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -151,8 +135,6 @@ export default function CommunityScreen() {
     [width],
   );
 
-  /* ----------------------------- safe queries ----------------------------- */
-
   const fetchCommunityBySlug = useCallback(async (slugValue: string) => {
     const snap = await getDocs(
       query(
@@ -166,7 +148,6 @@ export default function CommunityScreen() {
     return { id: d.id, ...d.data() } as unknown as Community;
   }, []);
 
-  // ✅ members: try with joined_at, fallback if missing
   const fetchMembersSafe = useCallback(async (communityId: string) => {
     const membersSnap = await getDocs(
       query(
@@ -195,11 +176,8 @@ export default function CommunityScreen() {
     return memberProfiles as Member[];
   }, []);
 
-  /* ----------------------------- load ----------------------------- */
-
   const loadCommunity = useCallback(async () => {
     if (!slug) return;
-
     setLoading(true);
     try {
       const c = await fetchCommunityBySlug(slug);
@@ -229,6 +207,7 @@ export default function CommunityScreen() {
           ),
         ]);
 
+        // ✅ FIX: use user.uid not user.id
         joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
         moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
       }
@@ -237,7 +216,8 @@ export default function CommunityScreen() {
       setIsModerator(moderator);
 
       const isPrivate = normalizeBool(c.is_private);
-      const isOwner = !!ownerId && ownerId === user?.id;
+      // ✅ FIX: use user.uid not user.id
+      const isOwner = !!ownerId && ownerId === user?.uid;
       const canViewPrivate = !isPrivate || joined || isOwner;
 
       const [postsTyped, rulesTyped, membersTyped] = await Promise.all([
@@ -287,7 +267,7 @@ export default function CommunityScreen() {
     } finally {
       setLoading(false);
     }
-  }, [slug, user?.id, user?.uid, fetchCommunityBySlug, fetchMembersSafe]);
+  }, [slug, user?.uid, fetchCommunityBySlug, fetchMembersSafe]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -302,8 +282,6 @@ export default function CommunityScreen() {
     void loadCommunity();
   }, [loadCommunity]);
 
-  /* ----------------------------- join/leave ----------------------------- */
-
   const bumpMemberCount = useCallback(
     async (delta: number) => {
       if (!community?.id) return;
@@ -313,7 +291,6 @@ export default function CommunityScreen() {
             ? community.member_count
             : 0;
         const next = Math.max(0, current + delta);
-
         await updateDoc(doc(db, "communities", community.id), {
           member_count: next,
         });
@@ -327,7 +304,8 @@ export default function CommunityScreen() {
 
   const joinCommunity = useCallback(async () => {
     if (!community?.id) return;
-    if (!user?.id) {
+    // ✅ FIX: use user?.uid not user?.id
+    if (!user?.uid) {
       Alert.alert("Sign in required", "Log in to join communities.");
       return;
     }
@@ -339,7 +317,6 @@ export default function CommunityScreen() {
         user_id: user.uid,
         joined_at: serverTimestamp(),
       });
-
       setIsJoined(true);
       await bumpMemberCount(+1);
       await loadCommunity();
@@ -348,13 +325,14 @@ export default function CommunityScreen() {
     } finally {
       setJoining(false);
     }
-  }, [community?.id, user?.id, user?.uid, loadCommunity, bumpMemberCount]);
+  }, [community?.id, user?.uid, loadCommunity, bumpMemberCount]);
 
   const leaveCommunity = useCallback(async () => {
-    if (!community?.id || !user?.id) return;
+    // ✅ FIX: use user?.uid throughout
+    if (!community?.id || !user?.uid) return;
 
-    if (community.owner_id && community.owner_id === user.id) {
-      Alert.alert("Owner", "You can’t leave a community you own.");
+    if (community.owner_id && community.owner_id === user.uid) {
+      Alert.alert("Owner", "You can't leave a community you own.");
       return;
     }
 
@@ -368,7 +346,6 @@ export default function CommunityScreen() {
         ),
       );
       await Promise.all(leaveSnap.docs.map((d) => deleteDoc(d.ref)));
-
       setIsJoined(false);
       await bumpMemberCount(-1);
       await loadCommunity();
@@ -379,15 +356,11 @@ export default function CommunityScreen() {
     }
   }, [
     community?.id,
-    user?.id,
     community?.owner_id,
+    user?.uid,
     loadCommunity,
     bumpMemberCount,
-    user?.uid,
   ]);
-
-  /* ----------------------------- computed ----------------------------- */
-
 
   const confirmDeleteCommunity = useCallback(() => {
     if (!community?.id || !community?.slug) return;
@@ -407,7 +380,8 @@ export default function CommunityScreen() {
               Alert.alert("Deleted", "Community deleted successfully.");
               router.replace("/(tabs)/explore");
             } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : "Failed to delete community.";
+              const msg =
+                e instanceof Error ? e.message : "Failed to delete community.";
               Alert.alert("Error", msg);
             } finally {
               setDeletingCommunity(false);
@@ -418,9 +392,10 @@ export default function CommunityScreen() {
     );
   }, [community?.id, community?.slug]);
 
+  // ✅ FIX: use user?.uid throughout
   const isOwner = useMemo(
-    () => !!community?.owner_id && community.owner_id === user?.id,
-    [community?.owner_id, user?.id],
+    () => !!community?.owner_id && community.owner_id === user?.uid,
+    [community?.owner_id, user?.uid],
   );
 
   const canManage = isOwner || isModerator;
@@ -429,10 +404,10 @@ export default function CommunityScreen() {
     if (!community) return false;
     const isPrivate = normalizeBool(community.is_private);
     if (!isPrivate) return false;
-    if (!user?.id) return true;
+    if (!user?.uid) return true;
     if (isOwner) return false;
     return !isJoined;
-  }, [community, user?.id, isOwner, isJoined]);
+  }, [community, user?.uid, isOwner, isJoined]);
 
   const memberCountLabel = useMemo(() => {
     const n =
@@ -441,12 +416,9 @@ export default function CommunityScreen() {
         : members.length
           ? members.length
           : null;
-
     if (typeof n === "number") return `${n} member${n === 1 ? "" : "s"}`;
     return "";
   }, [community?.member_count, members.length]);
-
-  /* ----------------------------- renderers ----------------------------- */
 
   const renderPost = useCallback(
     ({ item }: { item: Post }) => {
@@ -573,8 +545,6 @@ export default function CommunityScreen() {
     [gridSide, colors.surface],
   );
 
-  /* ----------------------------- UI ----------------------------- */
-
   if (loading) {
     return (
       <SafeAreaView
@@ -608,7 +578,6 @@ export default function CommunityScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={["top", "left", "right"]}
     >
-      {/* ✅ FIXED HEADER */}
       <AppHeader
         backgroundColor={colors.background}
         leftWide={
@@ -739,11 +708,7 @@ export default function CommunityScreen() {
                   { backgroundColor: colors.card, borderColor: colors.border },
                 ]}
               >
-                <Ionicons
-                  name="trash-outline"
-                  size={16}
-                  color="#EF4444"
-                />
+                <Ionicons name="trash-outline" size={16} color="#EF4444" />
               </TouchableOpacity>
             )}
 
@@ -940,7 +905,6 @@ export default function CommunityScreen() {
                         </Text>
                       </View>
                     )}
-
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text
                         style={[styles.rowTitle, { color: colors.text }]}

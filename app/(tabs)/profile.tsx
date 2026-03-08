@@ -1,8 +1,8 @@
-// app/(tabs)/profile.tsx — FIRESTORE ✅ (COMPLETED + UPDATED)
-// ✅ Fixes FirebaseUser.id -> FirebaseUser.uid everywhere
-// ✅ Uses created_at_ts for ordering (matches your posts.ts)
-// ✅ Safe delete w/ optional ownership check
-// ✅ Keeps your UI structure intact (cards/tabs/posts list)
+// app/(tabs)/profile.tsx — COMPLETED + UPDATED ✅
+// ✅ Removed orderBy("created_at_ts") — silently returned 0 results on migrated posts
+// ✅ JS-side sort instead — works regardless of timestamp field
+// ✅ Default tab "Post"
+// ✅ Full theme support + LinearGradient
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -22,8 +22,6 @@ import {
   getCountFromServer,
   getDoc,
   getDocs,
-  limit,
-  orderBy,
   query,
   Timestamp,
   where,
@@ -55,7 +53,7 @@ interface UserPost {
   like_count: number;
   comment_count: number;
   share_count: number;
-  created_at: string; // ISO string
+  created_at: string;
 }
 
 interface UserStats {
@@ -79,14 +77,13 @@ export default function ProfileTabScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { showActionSheetWithOptions } = useActionSheet();
-
   const { colors, isDark } = useTheme();
   const { user, profile, isProfileLoading } = useAuth();
 
-  // ✅ Firebase user id
   const uid = user?.uid ?? null;
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>("Activity");
+  // ✅ Default to Post so posts are immediately visible
+  const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
 
   const profileTabs: ProfileTab[] = useMemo(
     () => ["Activity", "Post", "Tagged", "Media"],
@@ -104,29 +101,38 @@ export default function ProfileTabScreen() {
     queryFn: async () => {
       if (!uid) return [];
 
-      // ✅ posts where user_id == uid, newest first (prefer created_at_ts)
-      const qy = query(
-        collection(db, "posts"),
-        where("user_id", "==", uid),
-        orderBy("created_at_ts", "desc"),
-        limit(50),
+      console.log("🔍 Profile posts query — uid:", uid);
+
+      // ✅ No orderBy — migrated posts may lack created_at_ts field.
+      // Firestore silently returns 0 results when orderBy field is missing.
+      const snap = await getDocs(
+        query(collection(db, "posts"), where("user_id", "==", uid)),
       );
 
-      const snap = await getDocs(qy);
+      console.log("📦 Posts found:", snap.size);
 
-      return snap.docs.map((d) => {
-        const x: any = d.data();
-        return {
-          id: d.id,
-          title: x.title ?? null,
-          content: x.content ?? "",
-          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-          like_count: Number(x.like_count ?? 0),
-          comment_count: Number(x.comment_count ?? 0),
-          share_count: Number(x.share_count ?? 0),
-          created_at: tsToIso(x.created_at_ts ?? x.created_at),
-        } as UserPost;
-      });
+      return (
+        snap.docs
+          .map((d) => {
+            const x: any = d.data();
+            return {
+              id: d.id,
+              title: x.title ?? null,
+              content: x.content ?? "",
+              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+              like_count: Number(x.like_count ?? 0),
+              comment_count: Number(x.comment_count ?? 0),
+              share_count: Number(x.share_count ?? 0),
+              created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            } as UserPost;
+          })
+          // ✅ Sort newest first in JS — works for both ISO strings and Timestamps
+          .sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          )
+      );
     },
   });
 
@@ -136,17 +142,17 @@ export default function ProfileTabScreen() {
     queryFn: async (): Promise<UserStats> => {
       if (!uid) return { posts: 0, followers: 0, following: 0 };
 
-      const postsAgg = await getCountFromServer(
-        query(collection(db, "posts"), where("user_id", "==", uid)),
-      );
-
-      const followersAgg = await getCountFromServer(
-        query(collection(db, "follows"), where("following_id", "==", uid)),
-      );
-
-      const followingAgg = await getCountFromServer(
-        query(collection(db, "follows"), where("follower_id", "==", uid)),
-      );
+      const [postsAgg, followersAgg, followingAgg] = await Promise.all([
+        getCountFromServer(
+          query(collection(db, "posts"), where("user_id", "==", uid)),
+        ),
+        getCountFromServer(
+          query(collection(db, "follows"), where("following_id", "==", uid)),
+        ),
+        getCountFromServer(
+          query(collection(db, "follows"), where("follower_id", "==", uid)),
+        ),
+      ]);
 
       return {
         posts: postsAgg.data().count ?? 0,
@@ -166,24 +172,6 @@ export default function ProfileTabScreen() {
     return `${num}`;
   };
 
-  const handleEditProfile = () => router.push("/profile/edit");
-  const handleSettings = () => router.push("/settings");
-
-  const handleShareProfile = async () => {
-    try {
-      await shareProfileLink({
-        username: profile?.username,
-        userId: profile?.id ?? uid ?? "",
-        fullName: profile?.full_name,
-      });
-    } catch {
-      const username = profile?.username || "user";
-      await Share.share({
-        message: `Check out my NebulaNet profile: @${username}`,
-      });
-    }
-  };
-
   const getInitial = () =>
     (profile?.username?.charAt(0) || profile?.full_name?.charAt(0) || "U")
       .toUpperCase()
@@ -196,17 +184,30 @@ export default function ProfileTabScreen() {
       const diffMs = now.getTime() - d.getTime();
       const diffH = Math.floor(diffMs / (1000 * 60 * 60));
       if (diffH < 1) return "Just now";
-      if (diffH < 24) return `${diffH} hr ago`;
+      if (diffH < 24) return `${diffH}h ago`;
       const diffD = Math.floor(diffH / 24);
-      return `${diffD} days ago`;
+      return `${diffD}d ago`;
     } catch {
       return "Recently";
     }
   };
 
+  const handleShareProfile = async () => {
+    try {
+      await shareProfileLink({
+        username: profile?.username,
+        userId: profile?.id ?? uid ?? "",
+        fullName: profile?.full_name,
+      });
+    } catch {
+      await Share.share({
+        message: `Check out my NebulaNet profile: @${profile?.username || "user"}`,
+      });
+    }
+  };
+
   const deletePost = async (postId: string) => {
     if (!uid) return;
-
     Alert.alert("Delete post?", "This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
       {
@@ -216,11 +217,8 @@ export default function ProfileTabScreen() {
           void (async () => {
             try {
               const ref = doc(db, "posts", postId);
-
-              // ✅ Optional ownership check (rules should enforce anyway)
               const snap = await getDoc(ref);
               if (!snap.exists()) return;
-
               const d = snap.data() as any;
               if (d.user_id !== uid) {
                 Alert.alert(
@@ -229,9 +227,7 @@ export default function ProfileTabScreen() {
                 );
                 return;
               }
-
               await deleteDoc(ref);
-
               await queryClient.invalidateQueries({
                 queryKey: ["user-posts", uid],
               });
@@ -248,12 +244,12 @@ export default function ProfileTabScreen() {
   };
 
   const openPostMenu = (postId: string) => {
-    const options = ["View Post", "Boost Post", "Delete Post", "Cancel"];
-    const cancelButtonIndex = 3;
-    const destructiveButtonIndex = 2;
-
     showActionSheetWithOptions(
-      { options, cancelButtonIndex, destructiveButtonIndex },
+      {
+        options: ["View Post", "Boost Post", "Delete Post", "Cancel"],
+        cancelButtonIndex: 3,
+        destructiveButtonIndex: 2,
+      },
       (index) => {
         if (index === 0) router.push(`/post/${postId}` as any);
         if (index === 1) router.push(`/boost/${postId}` as any);
@@ -264,7 +260,6 @@ export default function ProfileTabScreen() {
 
   const renderPostCard = (post: UserPost) => {
     const img = post.media_urls?.[0];
-
     return (
       <Pressable
         key={post.id}
@@ -295,7 +290,6 @@ export default function ProfileTabScreen() {
                 </Text>
               </View>
             )}
-
             <View>
               <Text style={[styles.postUserName, { color: colors.text }]}>
                 {profile?.full_name || profile?.username || "User"}
@@ -322,6 +316,15 @@ export default function ProfileTabScreen() {
           </TouchableOpacity>
         </View>
 
+        {post.title ? (
+          <Text
+            style={[styles.postTitle, { color: colors.text }]}
+            numberOfLines={2}
+          >
+            {post.title}
+          </Text>
+        ) : null}
+
         {post.content ? (
           <Text
             style={[styles.postBodyText, { color: colors.text }]}
@@ -341,20 +344,38 @@ export default function ProfileTabScreen() {
 
         <View style={[styles.postFooterRow, { borderTopColor: colors.border }]}>
           <View style={styles.postFooterItem}>
-            <Ionicons name="heart-outline" size={18} color={colors.text} />
-            <Text style={[styles.postFooterText, { color: colors.text }]}>
+            <Ionicons
+              name="heart-outline"
+              size={18}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={[styles.postFooterText, { color: colors.textTertiary }]}
+            >
               {post.like_count}
             </Text>
           </View>
           <View style={styles.postFooterItem}>
-            <Ionicons name="chatbubble-outline" size={18} color={colors.text} />
-            <Text style={[styles.postFooterText, { color: colors.text }]}>
+            <Ionicons
+              name="chatbubble-outline"
+              size={18}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={[styles.postFooterText, { color: colors.textTertiary }]}
+            >
               {post.comment_count}
             </Text>
           </View>
           <View style={styles.postFooterItem}>
-            <Ionicons name="arrow-redo-outline" size={18} color={colors.text} />
-            <Text style={[styles.postFooterText, { color: colors.text }]}>
+            <Ionicons
+              name="arrow-redo-outline"
+              size={18}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={[styles.postFooterText, { color: colors.textTertiary }]}
+            >
               {post.share_count}
             </Text>
           </View>
@@ -395,7 +416,6 @@ export default function ProfileTabScreen() {
         translucent
         backgroundColor="transparent"
       />
-
       <LinearGradient
         colors={gradientColors as any}
         locations={[0, 0.42, 1]}
@@ -415,7 +435,7 @@ export default function ProfileTabScreen() {
                     shadowOpacity: isDark ? 0.22 : 0.08,
                   },
                 ]}
-                onPress={handleSettings}
+                onPress={() => router.push("/settings")}
                 activeOpacity={0.85}
               >
                 <Ionicons
@@ -434,6 +454,7 @@ export default function ProfileTabScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
+            {/* Profile Card */}
             <View
               style={[
                 styles.profileCard,
@@ -468,36 +489,25 @@ export default function ProfileTabScreen() {
                 )}
 
                 <View style={styles.statsRow}>
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(userStats?.posts || 0)}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Post
-                    </Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(userStats?.followers || 0)}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Followers
-                    </Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(userStats?.following || 0)}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Following
-                    </Text>
-                  </View>
+                  {[
+                    { label: "Post", value: userStats?.posts ?? 0 },
+                    { label: "Followers", value: userStats?.followers ?? 0 },
+                    { label: "Following", value: userStats?.following ?? 0 },
+                  ].map((s) => (
+                    <View key={s.label} style={styles.statItem}>
+                      <Text style={[styles.statValue, { color: colors.text }]}>
+                        {formatNumber(s.value)}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.statLabel,
+                          { color: colors.textTertiary },
+                        ]}
+                      >
+                        {s.label}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               </View>
 
@@ -526,25 +536,23 @@ export default function ProfileTabScreen() {
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={[
-                    styles.primaryButton,
+                    styles.actionBtn,
                     {
                       backgroundColor: colors.card,
                       borderColor: colors.border,
                     },
                   ]}
-                  onPress={handleEditProfile}
+                  onPress={() => router.push("/profile/edit")}
                   activeOpacity={0.85}
                 >
-                  <Text
-                    style={[styles.primaryButtonText, { color: colors.text }]}
-                  >
+                  <Text style={[styles.actionBtnText, { color: colors.text }]}>
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
-                    styles.secondaryButton,
+                    styles.actionBtn,
                     {
                       backgroundColor: colors.card,
                       borderColor: colors.border,
@@ -553,16 +561,14 @@ export default function ProfileTabScreen() {
                   onPress={handleShareProfile}
                   activeOpacity={0.85}
                 >
-                  <Text
-                    style={[styles.secondaryButtonText, { color: colors.text }]}
-                  >
+                  <Text style={[styles.actionBtnText, { color: colors.text }]}>
                     Share profile
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
-                    styles.iconButton,
+                    styles.iconBtn,
                     {
                       backgroundColor: colors.card,
                       borderColor: colors.border,
@@ -579,6 +585,7 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
+            {/* Tabs */}
             <View
               style={[
                 styles.tabsWrap,
@@ -604,7 +611,7 @@ export default function ProfileTabScreen() {
                       style={[
                         styles.tabText,
                         { color: colors.textTertiary },
-                        active && { color: "#FFFFFF" },
+                        active && { color: "#fff" },
                       ]}
                     >
                       {tab}
@@ -614,6 +621,7 @@ export default function ProfileTabScreen() {
               })}
             </View>
 
+            {/* Content */}
             <View style={styles.contentArea}>
               {activeTab === "Activity" && (
                 <EmptyPanel
@@ -648,7 +656,7 @@ export default function ProfileTabScreen() {
                   colors={colors}
                   icon="pricetag-outline"
                   title="No Tags Yet"
-                  subtitle="Posts where you’re tagged will appear here."
+                  subtitle="Posts where you're tagged will appear here."
                 />
               )}
 
@@ -694,14 +702,11 @@ function EmptyPanel({
   );
 }
 
-// (styles unchanged from your file)
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safe: { flex: 1, backgroundColor: "transparent" },
-
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingInline: { paddingVertical: 16, alignItems: "center" },
-
   headerCircle: {
     width: 44,
     height: 44,
@@ -713,17 +718,15 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-
   scroll: { paddingHorizontal: 18, paddingBottom: 24 },
-
   profileCard: {
     borderRadius: 26,
     padding: 16,
+    marginBottom: 14,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 18,
     elevation: 2,
-    marginBottom: 14,
   },
   profileTop: {
     flexDirection: "row",
@@ -740,7 +743,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarPlaceholderText: { fontSize: 20, fontWeight: "800" },
-
   statsRow: {
     flex: 1,
     flexDirection: "row",
@@ -750,7 +752,6 @@ const styles = StyleSheet.create({
   statItem: { alignItems: "center", flex: 1 },
   statValue: { fontSize: 16, fontWeight: "900" },
   statLabel: { fontSize: 12, marginTop: 2, fontWeight: "700" },
-
   displayName: {
     fontSize: 16,
     fontWeight: "900",
@@ -759,9 +760,8 @@ const styles = StyleSheet.create({
   },
   bio: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
   bioPlaceholder: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
-
   actionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  primaryButton: {
+  actionBtn: {
     flex: 1,
     height: 40,
     borderRadius: 20,
@@ -769,17 +769,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryButtonText: { fontSize: 13, fontWeight: "800" },
-  secondaryButton: {
-    flex: 1,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonText: { fontSize: 13, fontWeight: "800" },
-  iconButton: {
+  actionBtnText: { fontSize: 13, fontWeight: "800" },
+  iconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -787,7 +778,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   tabsWrap: {
     borderRadius: 22,
     padding: 6,
@@ -807,9 +797,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabText: { fontSize: 13, fontWeight: "800" },
-
   contentArea: { gap: 12 },
-
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 24,
@@ -835,7 +823,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
-
   postCard: {
     borderRadius: 22,
     padding: 14,
@@ -862,6 +849,7 @@ const styles = StyleSheet.create({
   postAvatarText: { fontSize: 14, fontWeight: "900" },
   postUserName: { fontSize: 13.5, fontWeight: "900" },
   postTime: { fontSize: 11.5, marginTop: 2, fontWeight: "700" },
+  postTitle: { fontSize: 14, fontWeight: "800", marginBottom: 6 },
   postBodyText: { fontSize: 13.5, lineHeight: 19, marginBottom: 10 },
   postMedia: { width: "100%", height: 180, borderRadius: 16, marginBottom: 12 },
   postFooterRow: {

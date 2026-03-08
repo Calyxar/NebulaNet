@@ -1,9 +1,9 @@
-// lib/firestore/stories.ts — FIRESTORE ✅ (COMPLETED)
+// lib/firestore/stories.ts — FIRESTORE ✅ (COMPLETED + UPDATED)
 // ✅ fetchStoryById
 // ✅ fetchActiveStories
 // ✅ fetchActiveStoriesByUser
 // ✅ markStorySeen (idempotent)
-// ✅ uploadStoryMedia (Firebase Storage, Android-safe Blob->base64 fallback)
+// ✅ uploadStoryMedia (uploadString base64 — Expo Go + Android safe)
 // ✅ createStory (writes story doc)
 // ✅ sendStoryReply (writes story_comments doc)
 // ✅ fetchStorySeenViewers (join via profile fetch, chunked "in" <= 10)
@@ -11,21 +11,21 @@
 import { auth, db, storage } from "@/lib/firebase";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import {
-    Timestamp,
-    addDoc,
-    collection,
-    doc,
-    limit as fsLimit,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    setDoc,
-    where,
+  Timestamp,
+  addDoc,
+  collection,
+  doc,
+  limit as fsLimit,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { getDownloadURL, ref, uploadString } from "firebase/storage";
 
 /* -------------------- TYPES -------------------- */
 
@@ -105,38 +105,6 @@ function guessExt(uri: string, mediaType: "image" | "video") {
   const ext =
     parts.length > 1 ? (parts[parts.length - 1] || "").toLowerCase() : "";
   return ext || (mediaType === "video" ? "mp4" : "jpg");
-}
-
-function guessContentType(ext: string, mediaType: "image" | "video") {
-  if (mediaType === "video") {
-    if (ext === "mov") return "video/quicktime";
-    return "video/mp4";
-  }
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  return "image/jpeg";
-}
-
-function base64ToUint8Array(base64: string) {
-  const binary = globalThis.atob
-    ? globalThis.atob(base64)
-    : Buffer.from(base64, "base64").toString("binary");
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("Failed to read media file");
-  return await res.blob();
-}
-
-async function uriToBytesLegacy(uri: string): Promise<Uint8Array> {
-  const base64 = await FileSystemLegacy.readAsStringAsync(uri, {
-    encoding: "base64" as any,
-  });
-  return base64ToUint8Array(base64);
 }
 
 async function getProfilesMap(userIds: string[]) {
@@ -244,7 +212,6 @@ export async function markStorySeen(storyId: string) {
   const sid = storyId.trim();
   if (!sid) return;
 
-  // deterministic doc id => idempotent "upsert"
   const key = `${sid}_${viewer.uid}`;
 
   await setDoc(
@@ -261,14 +228,6 @@ export async function markStorySeen(storyId: string) {
 /* -------------------- UPLOAD (Firebase Storage) -------------------- */
 
 export async function uploadStoryMedia(
-  uri: string,
-  mediaType: "image" | "video",
-): Promise<{ publicUrl: string; path: string }>;
-export async function uploadStoryMedia(params: {
-  uri: string;
-  mediaType: "image" | "video";
-}): Promise<{ publicUrl: string; path: string }>;
-export async function uploadStoryMedia(
   arg1: any,
   arg2?: any,
 ): Promise<{ publicUrl: string; path: string }> {
@@ -284,19 +243,21 @@ export async function uploadStoryMedia(
   };
 
   const ext = guessExt(uri, mediaType);
-  const contentType = guessContentType(ext, mediaType);
-
   const path = `stories/${viewer.uid}/${Date.now()}.${ext}`;
   const storageRef = ref(storage, path);
 
-  // ✅ Blob-first, base64 fallback (Android content:// safe)
-  try {
-    const blob = await uriToBlob(uri);
-    await uploadBytes(storageRef, blob as any, { contentType });
-  } catch {
-    const bytes = await uriToBytesLegacy(uri);
-    await uploadBytes(storageRef, bytes as any, { contentType });
+  // ✅ Copy content:// URIs first (Android), then upload as base64
+  let readUri = uri;
+  if (uri.startsWith("content://")) {
+    const localPath = `${FileSystemLegacy.cacheDirectory}story-upload-${Date.now()}.${ext}`;
+    await FileSystemLegacy.copyAsync({ from: uri, to: localPath });
+    readUri = localPath;
   }
+
+  const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
+    encoding: "base64" as any,
+  });
+  await uploadString(storageRef, base64, "base64");
 
   const publicUrl = await getDownloadURL(storageRef);
   return { publicUrl, path };
@@ -340,7 +301,6 @@ export async function createStory(params: {
     created_at_ts: serverTimestamp(),
     expires_at_ts: Timestamp.fromDate(expiresAt),
 
-    // optional denorm
     profile,
   });
 
@@ -389,7 +349,7 @@ export async function fetchStorySeenViewers(
   const rows = snap.docs.map((d) => {
     const x = d.data() as any;
     return {
-      viewer_id: x.viewer_id as string,
+      viewer_id: (x.viewer_id as string) ?? "",
       seen_at: tsToIso(x.seen_at_ts) || "",
     };
   });
@@ -403,8 +363,8 @@ export async function fetchStorySeenViewers(
   }));
 }
 
-/* -------------------- OPTIONAL: realtime active stories -------------------- */
-// Use this if you want live story updates without refetching.
+/* -------------------- REALTIME -------------------- */
+
 export function subscribeActiveStories(
   callback: (stories: StoryRow[]) => void,
 ) {

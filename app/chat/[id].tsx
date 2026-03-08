@@ -1,8 +1,7 @@
 // app/chat/[id].tsx — FIRESTORE + FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
-// ✅ Removes SupabaseAttachment import
-// ✅ Uses ChatAttachment from Firebase ChatInput
-// ✅ Keeps your useChat() contract the same (selectConversation, sendMessage, messages, loading)
-// ✅ StatusBar respects theme (dark mode)
+// ✅ Fixed SafeAreaView edges — added "top" to prevent camera punch-hole overlap
+// ✅ Theme applied via useTheme
+// ✅ StatusBar respects dark/light mode
 
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput, { type ChatAttachment } from "@/components/chat/ChatInput";
@@ -44,7 +43,6 @@ export default function ChatConversationScreen() {
   const title = useMemo(() => {
     if (!conversation) return "Chat";
     if (conversation.name) return conversation.name;
-
     if (
       !conversation.is_group &&
       (conversation.participants?.length ?? 0) >= 2 &&
@@ -59,17 +57,13 @@ export default function ChatConversationScreen() {
         "Unknown User"
       );
     }
-
-    if (conversation.is_group) {
+    if (conversation.is_group)
       return `${conversation.participants?.length ?? 0} members`;
-    }
-
     return "Chat";
   }, [conversation, user?.id]);
 
   const subtitle = useMemo(() => {
     if (!conversation) return "";
-
     if (
       !conversation.is_group &&
       (conversation.participants?.length ?? 0) >= 2 &&
@@ -80,11 +74,8 @@ export default function ChatConversationScreen() {
       );
       return other?.profiles?.username ? `@${other.profiles.username}` : "";
     }
-
-    if (conversation.is_group) {
+    if (conversation.is_group)
       return `${conversation.participants?.length ?? 0} members`;
-    }
-
     return "";
   }, [conversation, user?.id]);
 
@@ -106,6 +97,7 @@ export default function ChatConversationScreen() {
         />
         <SafeAreaView
           style={[styles.container, { backgroundColor: colors.background }]}
+          edges={["top", "left", "right", "bottom"]}
         >
           <View style={styles.loading}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -123,8 +115,10 @@ export default function ChatConversationScreen() {
         backgroundColor={colors.background}
       />
 
+      {/* ✅ "top" added — prevents camera punch-hole from showing through header */}
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
+        edges={["top", "left", "right", "bottom"]}
       >
         <ChatHeader
           title={title}

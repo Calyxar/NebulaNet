@@ -1,11 +1,7 @@
 // app/(auth)/onboarding.tsx — COMPLETED + UPDATED ✅
-// ✅ Uses AuthProvider: completeOnboarding() + skipOnboarding()
-// ✅ Saves interests to /user_interests/{uid}
-// ✅ Works with your Firestore rules
-// ✅ Fixes old missing function names: markOnboardingCompleted -> completeOnboarding/skipOnboarding
-
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { router } from "expo-router";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
@@ -47,7 +43,6 @@ const INTERESTS = [
 const nowIso = () => new Date().toISOString();
 
 async function saveUserInterests(uid: string, interests: string[]) {
-  // Firestore rules: match /user_interests/{userId} allow read,write if isSelf(userId)
   await setDoc(
     doc(db, "user_interests", uid),
     {
@@ -69,66 +64,52 @@ export default function OnboardingScreen() {
     isLoading,
     isUserSettingsLoading,
   } = useAuth();
+  const { colors, isDark } = useTheme();
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
+  const isShort = SCREEN_HEIGHT < 700;
 
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const maxSelections = 20;
   const selectedCount = selectedInterests.length;
-
   const progress = useMemo(
     () => (selectedCount / maxSelections) * 100,
     [selectedCount],
   );
 
-  const { height: SCREEN_HEIGHT } = useWindowDimensions();
-  const isShort = SCREEN_HEIGHT < 700;
-
-  // ✅ If already completed (or skipped), leave onboarding safely
   useEffect(() => {
-    if (!user?.uid) return;
-    if (isLoading || isUserSettingsLoading) return;
-    if (!hasCompletedOnboarding) return;
+    if (
+      !user?.uid ||
+      isLoading ||
+      isUserSettingsLoading ||
+      !hasCompletedOnboarding
+    )
+      return;
     router.replace("/(tabs)/home");
   }, [user?.uid, isLoading, isUserSettingsLoading, hasCompletedOnboarding]);
 
-  const toggleInterest = (interestId: string) => {
+  const toggleInterest = (id: string) => {
     if (saving) return;
-
-    setSelectedInterests((prev) => {
-      if (prev.includes(interestId))
-        return prev.filter((id) => id !== interestId);
-      if (prev.length < maxSelections) return [...prev, interestId];
-      return prev;
-    });
-  };
-
-  const requireAuthOrSendToLogin = () => {
-    if (user?.uid) return true;
-
-    Alert.alert(
-      "Authentication Required",
-      "Please sign in or sign up to continue.",
-      [{ text: "OK", onPress: () => router.replace("/(auth)/login") }],
+    setSelectedInterests((prev) =>
+      prev.includes(id)
+        ? prev.filter((i) => i !== id)
+        : prev.length < maxSelections
+          ? [...prev, id]
+          : prev,
     );
-
-    return false;
   };
 
   const goHome = () => router.replace("/(tabs)/home");
 
   const handleSkip = async () => {
-    if (saving) return;
-    if (!requireAuthOrSendToLogin()) return;
-
+    if (saving || !user?.uid) return;
     setSaving(true);
     try {
-      // optional: store empty interests (or omit entirely)
-      await saveUserInterests(user!.uid, []);
-      await skipOnboarding(); // ✅ sets onboarding_skipped=true
+      await saveUserInterests(user.uid, []);
+      await skipOnboarding();
       goHome();
     } catch (e: any) {
-      console.error("Onboarding skip error:", e);
       Alert.alert("Error", e?.message || "Failed to skip onboarding.");
       goHome();
     } finally {
@@ -138,27 +119,23 @@ export default function OnboardingScreen() {
 
   const handleContinue = async () => {
     if (saving) return;
-
     if (selectedCount === 0) {
       Alert.alert("Select Interests", "Please select at least one interest.");
       return;
     }
-
-    if (!requireAuthOrSendToLogin()) return;
-
+    if (!user?.uid) {
+      Alert.alert("Authentication Required", "Please sign in to continue.");
+      return;
+    }
     setSaving(true);
     try {
-      await saveUserInterests(user!.uid, selectedInterests);
-      await completeOnboarding(); // ✅ sets onboarding_completed=true
+      await saveUserInterests(user.uid, selectedInterests);
+      await completeOnboarding();
       goHome();
     } catch (error: any) {
-      console.error("Onboarding error:", error);
-      Alert.alert(
-        "Error",
-        error?.message ||
-          "Failed to save your preferences. You can update them later in settings.",
-        [{ text: "Go to Home", onPress: goHome }],
-      );
+      Alert.alert("Error", error?.message || "Failed to save preferences.", [
+        { text: "Go to Home", onPress: goHome },
+      ]);
     } finally {
       setSaving(false);
     }
@@ -168,8 +145,13 @@ export default function OnboardingScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
-      <SafeAreaView style={styles.container}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
         <View
           style={[
             styles.header,
@@ -177,18 +159,20 @@ export default function OnboardingScreen() {
           ]}
         >
           <View style={styles.headerRow}>
-            <Text style={styles.title}>Select Your Interest</Text>
-
+            <Text style={[styles.title, { color: colors.text }]}>
+              Select Your Interest
+            </Text>
             <TouchableOpacity
               onPress={handleSkip}
               disabled={busy}
               activeOpacity={0.8}
             >
-              <Text style={styles.skipText}>{busy ? "..." : "Skip"}</Text>
+              <Text style={[styles.skipText, { color: colors.primary }]}>
+                {busy ? "..." : "Skip"}
+              </Text>
             </TouchableOpacity>
           </View>
-
-          <Text style={styles.subtitle}>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Select more interests to refine your experience.
           </Text>
         </View>
@@ -199,12 +183,21 @@ export default function OnboardingScreen() {
             { marginBottom: isShort ? 14 : 24 },
           ]}
         >
-          <Text style={styles.progressText}>
+          <Text style={[styles.progressText, { color: colors.text }]}>
             {selectedCount}/{maxSelections}
           </Text>
-
-          <View style={styles.progressBarContainer}>
-            <View style={[styles.progressBar, { width: `${progress}%` }]} />
+          <View
+            style={[
+              styles.progressBarContainer,
+              { backgroundColor: colors.inputBackground },
+            ]}
+          >
+            <View
+              style={[
+                styles.progressBar,
+                { width: `${progress}%`, backgroundColor: colors.primary },
+              ]}
+            />
           </View>
         </View>
 
@@ -225,8 +218,9 @@ export default function OnboardingScreen() {
                       paddingHorizontal: isShort ? 14 : 16,
                       paddingVertical: isShort ? 10 : 12,
                       borderRadius: isShort ? 22 : 24,
+                      backgroundColor: colors.card,
                     },
-                    isSelected && styles.interestButtonSelected,
+                    isSelected && { backgroundColor: colors.primary },
                   ]}
                   onPress={() => toggleInterest(interest.id)}
                   activeOpacity={0.7}
@@ -236,7 +230,8 @@ export default function OnboardingScreen() {
                   <Text
                     style={[
                       styles.interestText,
-                      isSelected && styles.interestTextSelected,
+                      { color: colors.text },
+                      isSelected && { color: "#fff", fontWeight: "600" },
                     ]}
                   >
                     {interest.name}
@@ -247,11 +242,14 @@ export default function OnboardingScreen() {
           </View>
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { backgroundColor: colors.background }]}>
           <TouchableOpacity
             style={[
               styles.continueButton,
-              (selectedCount === 0 || busy) && styles.continueButtonDisabled,
+              { backgroundColor: colors.primary },
+              (selectedCount === 0 || busy) && {
+                backgroundColor: colors.border,
+              },
             ]}
             onPress={handleContinue}
             disabled={selectedCount === 0 || busy}
@@ -268,45 +266,26 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
-
-  header: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16 },
+  container: { flex: 1 },
+  header: { paddingHorizontal: 24 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  title: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#9FA8DA", lineHeight: 22 },
-
-  skipText: { fontSize: 15, fontWeight: "700", color: "#7C3AED" },
-
-  progressContainer: { paddingHorizontal: 24, marginBottom: 24 },
-  progressText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  progressBarContainer: {
-    height: 8,
-    backgroundColor: "#D1D5F0",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  progressBar: { height: "100%", backgroundColor: "#7C3AED", borderRadius: 4 },
-
+  title: { fontSize: 28, fontWeight: "700", marginBottom: 8 },
+  subtitle: { fontSize: 15, lineHeight: 22 },
+  skipText: { fontSize: 15, fontWeight: "700" },
+  progressContainer: { paddingHorizontal: 24 },
+  progressText: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
+  progressBarContainer: { height: 8, borderRadius: 4, overflow: "hidden" },
+  progressBar: { height: "100%", borderRadius: 4 },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 24 },
-
-  interestsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  interestsGrid: { flexDirection: "row", flexWrap: "wrap" },
   interestButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
     gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -314,31 +293,13 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  interestButtonSelected: { backgroundColor: "#7C3AED" },
   interestEmoji: { fontSize: 18 },
-  interestText: { fontSize: 15, fontWeight: "500", color: "#000" },
-  interestTextSelected: { color: "#FFFFFF", fontWeight: "600" },
-
-  footer: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    backgroundColor: "#E8EAF6",
-  },
+  interestText: { fontSize: 15, fontWeight: "500" },
+  footer: { paddingHorizontal: 24, paddingVertical: 20 },
   continueButton: {
-    backgroundColor: "#7C3AED",
     paddingVertical: 18,
     borderRadius: 28,
     alignItems: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  continueButtonDisabled: {
-    backgroundColor: "#C5CAE9",
-    shadowOpacity: 0,
-    elevation: 0,
   },
   continueButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
 });

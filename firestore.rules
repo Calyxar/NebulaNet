@@ -17,7 +17,6 @@ service cloud.firestore {
       return signedIn() && uid() == userId;
     }
 
-    // Matches the "profiles" collection in your TypeScript code
     function profileDoc(userId) {
       return get(/databases/$(database)/documents/profiles/$(userId));
     }
@@ -35,7 +34,7 @@ service cloud.firestore {
     function isSuspended() {
       return signedIn() &&
         hasProfile(uid()) &&
-        profileDoc(uid()).data.suspended == true;
+        profileDoc(uid()).data.is_suspended == true;
     }
 
     function isPrivate(userId) {
@@ -44,17 +43,17 @@ service cloud.firestore {
     }
 
     /* =========================================================
-       PROFILES (Matches "profiles" in code)
+       PROFILES
     ========================================================= */
     match /profiles/{userId} {
       allow read: if (!isPrivate(userId)) || isSelf(userId) || isAdmin();
-      allow create: if isSelf(userId); // Fixed: creation allowed
-      allow update: if isSelf(userId) && !isSuspended();
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId) && !(resource.data.is_suspended == true);
       allow delete: if isSelf(userId) || isAdmin();
     }
 
     /* =========================================================
-       FOLLOWS (Matches "follows" in code)
+       FOLLOWS
     ========================================================= */
     match /follows/{followId} {
       allow read: if signedIn();
@@ -63,11 +62,170 @@ service cloud.firestore {
     }
 
     /* =========================================================
-       NOTIFICATIONS (Matches "notifications" in code)
+       NOTIFICATIONS
     ========================================================= */
     match /notifications/{notifId} {
       allow read: if signedIn() && resource.data.receiver_id == uid();
-      allow create: if signedIn() && !isSuspended(); // Functions create this
+      allow create: if signedIn() && !isSuspended();
+    }
+
+    /* =========================================================
+       POSTS
+    ========================================================= */
+    match /posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+
+      match /poll_votes/{voteId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && !isSuspended();
+      }
+    }
+
+    /* =========================================================
+       LIKES
+    ========================================================= */
+    match /likes/{likeId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    /* =========================================================
+       SAVES
+    ========================================================= */
+    match /saves/{saveId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    /* =========================================================
+       COMMENTS
+    ========================================================= */
+    match /comments/{commentId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn() && resource.data.user_id == uid();
+      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    /* =========================================================
+       COMMUNITIES
+    ========================================================= */
+    match /communities/{communityId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
+      allow delete: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
+    }
+
+    match /community_members/{memberId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    /* =========================================================
+       USER SETTINGS
+    ========================================================= */
+    match /user_settings/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
+    /* =========================================================
+       STORIES
+    ========================================================= */
+    match /stories/{storyId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn() && resource.data.user_id == uid();
+      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    match /story_seen/{seenId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    match /story_comments/{commentId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+    }
+
+    /* =========================================================
+       CHATS & MESSAGES
+    ========================================================= */
+    match /chats/{chatId} {
+      allow read: if signedIn() && uid() in resource.data.participant_ids;
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn() && uid() in resource.data.participant_ids;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended() && request.resource.data.sender_id == uid();
+      allow update: if signedIn() && resource.data.sender_id == uid();
+      allow delete: if signedIn() && resource.data.sender_id == uid();
+    }
+
+    /* =========================================================
+       BOOSTS
+    ========================================================= */
+    match /boosts/{boostId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
+      allow update: if signedIn() && resource.data.user_id == uid();
+    }
+
+    /* =========================================================
+       ACCOUNT DELETION REQUESTS
+    ========================================================= */
+    match /account_deletion_requests/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
+    /* =========================================================
+       DATA EXPORT REQUESTS
+    ========================================================= */
+    match /data_export_requests/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
+    /* =========================================================
+       BLOCKS
+    ========================================================= */
+    match /blocks/{blockId} {
+      allow read: if signedIn() && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
+      allow create: if signedIn() && request.resource.data.blocker_id == uid();
+      allow delete: if signedIn() && resource.data.blocker_id == uid();
+    }
+
+    /* =========================================================
+       POLLS
+    ========================================================= */
+    match /polls/{pollId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !isSuspended();
+      allow update: if signedIn();
+    }
+
+    /* =========================================================
+       HASHTAGS
+    ========================================================= */
+    match /hashtags/{hashtagId} {
+      allow read: if true;
+      allow write: if signedIn() && !isSuspended();
+    }
+
+    match /hashtag_counts/{hashtagId} {
+      allow read: if true;
+      allow write: if signedIn() && !isSuspended();
     }
 
     /* =========================================================

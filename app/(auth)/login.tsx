@@ -1,10 +1,6 @@
-// app/(auth)/login.tsx — FIREBASE ✅ (provider-only auth calls)
-// ✅ Uses AuthProvider for user + mutations (email + Google)
-// ✅ Google SSO via expo-auth-session -> AuthProvider.googleLogin (Firebase signInWithCredential)
-// ✅ No router.replace after auth; /(auth)/_layout.tsx Redirect handles it
-// ⚠️ Phone login UI remains but is not implemented
-
+// app/(auth)/login.tsx — COMPLETED + UPDATED ✅
 import { useAuth } from "@/providers/AuthProvider";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
@@ -27,6 +23,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function LoginScreen() {
   const { user, isLoading: authLoading, login, googleLogin } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
@@ -35,22 +32,12 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const validateEmail = (v: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(v);
-  };
-
-  const validatePhone = (v: string) => {
-    const phoneRegex = /^[\+]?[1-9][\d]{0,17}$/;
-    return phoneRegex.test(v.replace(/\D/g, ""));
-  };
+  const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const validatePhone = (v: string) =>
+    /^[\+]?[1-9][\d]{0,17}$/.test(v.replace(/\D/g, ""));
 
   const redirectUri = useMemo(
-    () =>
-      makeRedirectUri({
-        scheme: "nebulanet",
-        path: "auth/callback",
-      }),
+    () => makeRedirectUri({ scheme: "nebulanet", path: "auth/callback" }),
     [],
   );
 
@@ -70,27 +57,19 @@ export default function LoginScreen() {
     });
 
   const handleLogin = async () => {
-    // Already authed? Let /(auth)/_layout.tsx redirect.
     if (user) return;
-
     if (activeTab === "email" && !validateEmail(email)) {
       Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
-
     if (activeTab === "phone") {
       if (!validatePhone(phone)) {
         Alert.alert("Invalid Phone", "Please enter a valid phone number");
         return;
       }
-
-      Alert.alert(
-        "Not supported yet",
-        "Phone login isn't wired up yet. Use email login for now.",
-      );
+      Alert.alert("Not supported yet", "Use email login for now.");
       return;
     }
-
     if (!password) {
       Alert.alert("Error", "Please enter your password");
       return;
@@ -102,87 +81,61 @@ export default function LoginScreen() {
         email: email.trim().toLowerCase(),
         password,
       });
-
-      // Optional: enforce verification (Firebase allows login even if not verified)
-      // If you want to block unverified users in the app layer:
       if (res.user && res.user.emailVerified === false) {
         Alert.alert(
           "Email Not Verified",
           "Please verify your email before continuing.",
-          [
-            {
-              text: "OK",
-              onPress: () => router.push("/(auth)/verify-email"),
-            },
-          ],
+          [{ text: "OK", onPress: () => router.push("/(auth)/verify-email") }],
         );
-        // You can also signOut() here if you want, but not required.
         return;
       }
-
-      // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
-      const errorMessage = error?.message || "Login failed";
-      const lower = errorMessage.toLowerCase();
-
-      let alertTitle = "Login Failed";
-      let alertMessage = errorMessage;
-
-      // Firebase common auth errors (these show up in message strings)
+      const lower = (error?.message || "").toLowerCase();
+      let title = "Login Failed";
+      let message = error?.message || "Login failed";
       if (
         lower.includes("auth/wrong-password") ||
         lower.includes("auth/invalid-credential")
       ) {
-        alertTitle = "Invalid Credentials";
-        alertMessage = "The email or password you entered is incorrect.";
+        title = "Invalid Credentials";
+        message = "The email or password you entered is incorrect.";
       } else if (lower.includes("auth/user-not-found")) {
-        alertTitle = "Account Not Found";
-        alertMessage = "No account found for this email. Please sign up.";
+        title = "Account Not Found";
+        message = "No account found for this email. Please sign up.";
       } else if (lower.includes("auth/too-many-requests")) {
-        alertTitle = "Too Many Attempts";
-        alertMessage =
-          "Too many failed attempts. Please wait a bit and try again.";
+        title = "Too Many Attempts";
+        message = "Too many failed attempts. Please wait and try again.";
       } else if (lower.includes("auth/invalid-email")) {
-        alertTitle = "Invalid Email";
-        alertMessage = "Please enter a valid email address.";
+        title = "Invalid Email";
+        message = "Please enter a valid email address.";
       }
-
-      Alert.alert(alertTitle, alertMessage);
+      Alert.alert(title, message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    if (user) return;
-
-    if (!googleRequest) {
-      Alert.alert("Error", "Google auth is not ready yet.");
-      return;
-    }
-
+    if (user || !googleRequest) return;
     setIsSubmitting(true);
     try {
       const result = await googlePromptAsync();
       if (result.type !== "success") return;
-
       const { id_token, access_token } = result.params as any;
-
       if (!id_token) {
-        Alert.alert("Google Login Failed", "No ID token received from Google.");
+        Alert.alert("Google Login Failed", "No ID token received.");
         return;
       }
-
       await googleLogin.mutateAsync({
         idToken: id_token,
         accessToken: access_token ?? undefined,
       });
-
-      // ✅ No navigation here; layout redirect handles it.
     } catch (error: any) {
       const msg = error?.message || "Unable to sign in with Google.";
-      const lower = msg.toLowerCase();
-      if (!lower.includes("cancelled") && !lower.includes("dismissed")) {
+      if (
+        !msg.toLowerCase().includes("cancelled") &&
+        !msg.toLowerCase().includes("dismissed")
+      ) {
         Alert.alert("Google Login Failed", msg);
       }
     } finally {
@@ -195,8 +148,13 @@ export default function LoginScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
-      <SafeAreaView style={styles.container}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.keyboardView}
@@ -205,54 +163,60 @@ export default function LoginScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
             <View style={styles.header}>
-              <Text style={styles.title}>Welcome Back</Text>
-              <Text style={styles.subtitle}>
+              <Text style={[styles.title, { color: colors.text }]}>
+                Welcome Back
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                 Sign in to continue your journey.
               </Text>
             </View>
 
-            {/* Tab Selector */}
-            <View style={styles.tabContainer}>
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "email" && styles.activeTab]}
-                onPress={() => setActiveTab("email")}
-                disabled={disabled}
-              >
-                <Text
+            {/* Tab selector */}
+            <View
+              style={[
+                styles.tabContainer,
+                { backgroundColor: colors.inputBackground },
+              ]}
+            >
+              {(["email", "phone"] as const).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
                   style={[
-                    styles.tabText,
-                    activeTab === "email" && styles.activeTabText,
+                    styles.tab,
+                    activeTab === tab && { backgroundColor: colors.card },
                   ]}
+                  onPress={() => setActiveTab(tab)}
+                  disabled={disabled}
                 >
-                  Email
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "phone" && styles.activeTab]}
-                onPress={() => setActiveTab("phone")}
-                disabled={disabled}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === "phone" && styles.activeTabText,
-                  ]}
-                >
-                  Phone
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.tabText,
+                      { color: colors.textSecondary },
+                      activeTab === tab && {
+                        color: colors.text,
+                        fontWeight: "600",
+                      },
+                    ]}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
-            {/* Email/Phone Input */}
+            {/* Email / Phone input */}
             {activeTab === "email" ? (
-              <View style={styles.inputContainer}>
+              <View
+                style={[
+                  styles.inputContainer,
+                  { backgroundColor: colors.card },
+                ]}
+              >
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   placeholder="Enter your email"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={colors.placeholder}
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
@@ -261,17 +225,32 @@ export default function LoginScreen() {
                 />
               </View>
             ) : (
-              <View style={styles.phoneInputContainer}>
-                <View style={styles.countrySelector}>
+              <View
+                style={[
+                  styles.phoneInputContainer,
+                  { backgroundColor: colors.card },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.countrySelector,
+                    { borderRightColor: colors.border },
+                  ]}
+                >
                   <Text style={styles.flagEmoji}>🇺🇸</Text>
-                  <Text style={styles.countryCode}>+1</Text>
-                  <Ionicons name="chevron-down" size={16} color="#666" />
+                  <Text style={[styles.countryCode, { color: colors.text }]}>
+                    +1
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={16}
+                    color={colors.textTertiary}
+                  />
                 </View>
-
                 <TextInput
-                  style={styles.phoneInput}
+                  style={[styles.phoneInput, { color: colors.text }]}
                   placeholder="882 9983 2233"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={colors.placeholder}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
@@ -280,19 +259,21 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* Password Input */}
+            {/* Password */}
             <View style={styles.passwordContainer}>
-              <View style={styles.inputWrapper}>
+              <View
+                style={[styles.inputWrapper, { backgroundColor: colors.card }]}
+              >
                 <Ionicons
                   name="lock-closed-outline"
                   size={20}
-                  color="#9FA8DA"
+                  color={colors.textTertiary}
                   style={styles.inputIcon}
                 />
                 <TextInput
-                  style={styles.passwordInputField}
+                  style={[styles.passwordInputField, { color: colors.text }]}
                   placeholder="Password"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={colors.placeholder}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -301,30 +282,31 @@ export default function LoginScreen() {
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeButton}
                   disabled={disabled}
                 >
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                     size={20}
-                    color="#9FA8DA"
+                    color={colors.textTertiary}
                   />
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Forgot Password */}
             <TouchableOpacity
               style={styles.forgotPassword}
               onPress={() => router.push("/(auth)/forgot-password")}
               disabled={disabled}
             >
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              <Text
+                style={[styles.forgotPasswordText, { color: colors.primary }]}
+              >
+                Forgot Password?
+              </Text>
             </TouchableOpacity>
 
-            {/* Login Button */}
             <TouchableOpacity
-              style={styles.loginButton}
+              style={[styles.loginButton, { backgroundColor: colors.primary }]}
               onPress={handleLogin}
               disabled={disabled}
               activeOpacity={0.9}
@@ -334,38 +316,50 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* OR Divider */}
             <View style={styles.orContainer}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.orLine} />
+              <View
+                style={[styles.orLine, { backgroundColor: colors.border }]}
+              />
+              <Text style={[styles.orText, { color: colors.textTertiary }]}>
+                or
+              </Text>
+              <View
+                style={[styles.orLine, { backgroundColor: colors.border }]}
+              />
             </View>
 
-            {/* Social Login Buttons */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
-                style={styles.socialButton}
+                style={[styles.socialButton, { backgroundColor: colors.card }]}
                 onPress={handleGoogleLogin}
                 disabled={disabled}
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.socialButton} disabled>
+              <TouchableOpacity
+                style={[styles.socialButton, { backgroundColor: colors.card }]}
+                disabled
+              >
                 <Ionicons name="logo-facebook" size={24} color="#1877F2" />
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.socialButton} disabled>
-                <Ionicons name="logo-apple" size={28} color="#000" />
+              <TouchableOpacity
+                style={[styles.socialButton, { backgroundColor: colors.card }]}
+                disabled
+              >
+                <Ionicons name="logo-apple" size={28} color={colors.text} />
               </TouchableOpacity>
             </View>
 
-            {/* Sign Up Link */}
             <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>
+              <Text
+                style={[styles.signupText, { color: colors.textSecondary }]}
+              >
                 Don&apos;t have an account?{" "}
               </Text>
-              <Link href="/(auth)/signup" style={styles.signupLink}>
+              <Link
+                href="/(auth)/signup"
+                style={[styles.signupLink, { color: colors.text }]}
+              >
                 Sign Up
               </Link>
             </View>
@@ -376,40 +370,30 @@ export default function LoginScreen() {
   );
 }
 
-// ⬇️ Your styles unchanged
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  container: { flex: 1 },
   keyboardView: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40 },
-
   header: { marginBottom: 32 },
-  title: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#9FA8DA", lineHeight: 22 },
-
+  title: { fontSize: 28, fontWeight: "700", marginBottom: 8 },
+  subtitle: { fontSize: 15, lineHeight: 22 },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#D1D5F0",
     borderRadius: 25,
     padding: 4,
     marginBottom: 24,
   },
   tab: { flex: 1, paddingVertical: 12, borderRadius: 22, alignItems: "center" },
-  activeTab: { backgroundColor: "#FFFFFF" },
-  tabText: { fontSize: 15, fontWeight: "500", color: "#7986CB" },
-  activeTabText: { color: "#000", fontWeight: "600" },
-
+  tabText: { fontSize: 15, fontWeight: "500" },
   inputContainer: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 16,
     marginBottom: 16,
   },
-  input: { fontSize: 16, color: "#000", padding: 0 },
-
+  input: { fontSize: 16, padding: 0 },
   phoneInputContainer: {
     flexDirection: "row",
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -421,57 +405,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingRight: 12,
     borderRightWidth: 1,
-    borderRightColor: "#E0E0E0",
     marginRight: 12,
   },
   flagEmoji: { fontSize: 20, marginRight: 6 },
-  countryCode: {
-    fontSize: 16,
-    color: "#000",
-    fontWeight: "500",
-    marginRight: 4,
-  },
-  phoneInput: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
-
+  countryCode: { fontSize: 16, fontWeight: "500", marginRight: 4 },
+  phoneInput: { flex: 1, fontSize: 16, padding: 0 },
   passwordContainer: { marginBottom: 8 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
   inputIcon: { marginRight: 12 },
-  passwordInputField: { flex: 1, fontSize: 16, color: "#000", padding: 0 },
-  eyeButton: { padding: 4 },
-
+  passwordInputField: { flex: 1, fontSize: 16, padding: 0 },
   forgotPassword: { alignSelf: "flex-end", marginBottom: 24 },
-  forgotPasswordText: { fontSize: 14, color: "#5C6BC0", fontWeight: "500" },
-
+  forgotPasswordText: { fontSize: 14, fontWeight: "500" },
   loginButton: {
-    backgroundColor: "#7C3AED",
     paddingVertical: 18,
     borderRadius: 28,
     alignItems: "center",
     marginBottom: 24,
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
   },
   loginButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
-
   orContainer: { flexDirection: "row", alignItems: "center", marginBottom: 24 },
-  orLine: { flex: 1, height: 1, backgroundColor: "#C5CAE9" },
-  orText: {
-    marginHorizontal: 16,
-    color: "#9FA8DA",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
+  orLine: { flex: 1, height: 1 },
+  orText: { marginHorizontal: 16, fontSize: 14, fontWeight: "500" },
   socialContainer: {
     flexDirection: "row",
     justifyContent: "center",
@@ -482,7 +442,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
@@ -491,12 +450,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
   signupContainer: {
     flexDirection: "row",
     justifyContent: "center",
     marginTop: 16,
   },
-  signupText: { fontSize: 15, color: "#9FA8DA" },
-  signupLink: { fontSize: 15, color: "#000", fontWeight: "600" },
+  signupText: { fontSize: 15 },
+  signupLink: { fontSize: 15, fontWeight: "600" },
 });
