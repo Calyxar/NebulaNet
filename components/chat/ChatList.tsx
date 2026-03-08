@@ -1,10 +1,9 @@
-// components/chat/ChatList.tsx — FIRESTORE + FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
-// ✅ Uses ChatAttachment shape (url + storagePath)
-// ✅ Fixes date grouping (timestamp is display-only; grouping uses createdAtIso)
-// ✅ Keeps backward compatibility with mediaUrl/mediaType
-// ✅ Adds basic open behavior for file/video urls
+// components/chat/ChatList.tsx ✅ THEMED
+// Only the renderMessageItem + date header + empty state need theme colors
+// Everything else (attachment shapes) stays the same
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef } from "react";
 import {
@@ -23,23 +22,11 @@ export interface Message {
   id: string;
   content: string;
   sender: "me" | "other";
-
-  /**
-   * Display-only time string (ex: "02:14 PM") — what you currently pass.
-   */
   timestamp: string;
-
-  /**
-   * ✅ REQUIRED for date headers + sorting
-   * Pass msg.created_at (ISO) from Firestore here.
-   */
   createdAtIso: string;
-
   status?: "sent" | "delivered" | "read";
   mediaUrl?: string;
   mediaType?: "image" | "video" | "audio" | "file";
-
-  // ✅ Firebase attachments
   attachments?: ChatAttachment[];
 }
 
@@ -66,14 +53,15 @@ export default function ChatList({
   emptyComponent,
   showDateHeaders = true,
 }: ChatListProps) {
+  const { colors } = useTheme();
   const flatListRef = useRef<FlatList>(null);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > 0 && flatListRef.current) {
-      const t = setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 80);
+      const t = setTimeout(
+        () => flatListRef.current?.scrollToEnd({ animated: true }),
+        80,
+      );
       return () => clearTimeout(t);
     }
   }, [messages]);
@@ -83,12 +71,9 @@ export default function ChatList({
     try {
       const can = await Linking.canOpenURL(url);
       if (can) await Linking.openURL(url);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  // ✅ Group messages by DATE using createdAtIso (NOT the display timestamp)
   const grouped = useMemo(() => {
     const groups: Record<string, Message[]> = {};
     for (const m of messages) {
@@ -97,8 +82,6 @@ export default function ChatList({
       if (!groups[key]) groups[key] = [];
       groups[key].push(m);
     }
-
-    // Within each date: sort ascending by time for nicer reading
     for (const k of Object.keys(groups)) {
       groups[k].sort(
         (a, b) =>
@@ -106,55 +89,55 @@ export default function ChatList({
           new Date(b.createdAtIso).getTime(),
       );
     }
-
     return groups;
   }, [messages]);
 
   const dates = useMemo(() => {
-    const keys = Object.keys(grouped);
-    // Sort date groups ascending
-    keys.sort((a, b) => {
+    return Object.keys(grouped).sort((a, b) => {
       if (a === "Unknown Date") return 1;
       if (b === "Unknown Date") return -1;
-      const da = new Date(a);
-      const db = new Date(b);
-      return da.getTime() - db.getTime();
+      return new Date(a).getTime() - new Date(b).getTime();
     });
-    return keys;
   }, [grouped]);
 
   const renderDateHeader = (date: string) => (
     <View style={styles.dateHeader}>
-      <Text style={styles.dateHeaderText}>{date}</Text>
+      <Text
+        style={[
+          styles.dateHeaderText,
+          { color: colors.textSecondary, backgroundColor: colors.surface },
+        ]}
+      >
+        {date}
+      </Text>
     </View>
   );
 
   const renderEmpty = () => {
     if (emptyComponent) return emptyComponent;
-
     return (
       <View style={styles.emptyContainer}>
         <Ionicons
           name="chatbubble-ellipses-outline"
           size={64}
-          color="#e1e1e1"
+          color={colors.border}
         />
-        <Text style={styles.emptyTitle}>No messages yet</Text>
-        <Text style={styles.emptySubtitle}>
+        <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+          No messages yet
+        </Text>
+        <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
           Start a conversation by sending a message
         </Text>
       </View>
     );
   };
 
-  const renderFooter = () => {
-    if (!isLoading) return null;
-    return (
+  const renderFooter = () =>
+    isLoading ? (
       <View style={styles.footer}>
-        <ActivityIndicator size="small" color="#007AFF" />
+        <ActivityIndicator size="small" color={colors.primary} />
       </View>
-    );
-  };
+    ) : null;
 
   const renderMessageItem = ({ item }: { item: Message }) => {
     const isMe = item.sender === "me";
@@ -168,7 +151,6 @@ export default function ChatList({
           isMe ? styles.myMessage : styles.otherMessage,
         ]}
       >
-        {/* ✅ Attachments (Firebase) */}
         {hasAttachments && (
           <View style={styles.attachmentsContainer}>
             {item.attachments!.map((attachment, index) => (
@@ -177,18 +159,19 @@ export default function ChatList({
                 attachment={attachment}
                 isMe={isMe}
                 onOpen={() => openUrl(attachment.url)}
+                colors={colors}
               />
             ))}
           </View>
         )}
 
-        {/* Backward-compatible single media */}
         {hasMedia && !hasAttachments && (
           <MediaPreview
             mediaUrl={item.mediaUrl!}
             mediaType={item.mediaType!}
             isMe={isMe}
             onOpen={() => openUrl(item.mediaUrl)}
+            colors={colors}
           />
         )}
 
@@ -196,7 +179,12 @@ export default function ChatList({
           <Text
             style={[
               styles.messageText,
-              isMe ? styles.myMessageText : styles.otherMessageText,
+              isMe
+                ? [styles.myMessageText, { backgroundColor: colors.primary }]
+                : [
+                    styles.otherMessageText,
+                    { backgroundColor: colors.card, color: colors.text },
+                  ],
             ]}
           >
             {item.content}
@@ -204,32 +192,14 @@ export default function ChatList({
         )}
 
         <View style={styles.messageFooter}>
-          <Text
-            style={[
-              styles.timestamp,
-              isMe ? styles.myTimestamp : styles.otherTimestamp,
-            ]}
-          >
+          <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
             {item.timestamp}
           </Text>
-
           {isMe && item.status && (
             <Ionicons
-              name={
-                item.status === "read"
-                  ? "checkmark-done"
-                  : item.status === "delivered"
-                    ? "checkmark-done"
-                    : "checkmark"
-              }
+              name={item.status === "sent" ? "checkmark" : "checkmark-done"}
               size={16}
-              color={
-                item.status === "read"
-                  ? "#4ADE80"
-                  : item.status === "delivered"
-                    ? "#666"
-                    : "#999"
-              }
+              color={item.status === "read" ? "#4ADE80" : colors.textTertiary}
               style={styles.statusIcon}
             />
           )}
@@ -238,9 +208,6 @@ export default function ChatList({
     );
   };
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // With date headers
-  // ────────────────────────────────────────────────────────────────────────────
   if (showDateHeaders && dates.length > 0) {
     return (
       <FlatList
@@ -269,7 +236,7 @@ export default function ChatList({
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={onRefresh}
-              tintColor="#007AFF"
+              tintColor={colors.primary}
             />
           ) : undefined
         }
@@ -277,14 +244,10 @@ export default function ChatList({
         onEndReachedThreshold={0.5}
         ListEmptyComponent={renderEmpty}
         ListFooterComponent={renderFooter}
-        inverted={false}
       />
     );
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Flat list (no date headers)
-  // ────────────────────────────────────────────────────────────────────────────
   return (
     <FlatList
       ref={flatListRef}
@@ -306,7 +269,7 @@ export default function ChatList({
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={onRefresh}
-            tintColor="#007AFF"
+            tintColor={colors.primary}
           />
         ) : undefined
       }
@@ -314,27 +277,25 @@ export default function ChatList({
       onEndReachedThreshold={0.5}
       ListEmptyComponent={renderEmpty}
       ListFooterComponent={renderFooter}
-      inverted={false}
     />
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Attachment Preview (Firebase)
-// ─────────────────────────────────────────────────────────────────────────────
 const AttachmentPreview = ({
   attachment,
   isMe,
   onOpen,
+  colors,
 }: {
   attachment: ChatAttachment;
   isMe: boolean;
   onOpen: () => void;
+  colors: any;
 }) => {
   const formatFileSize = (bytes: number) => {
     if (!bytes) return "";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
+    const k = 1024,
+      sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
@@ -349,7 +310,6 @@ const AttachmentPreview = ({
       </TouchableOpacity>
     );
   }
-
   if (attachment.type === "video") {
     return (
       <TouchableOpacity
@@ -365,7 +325,6 @@ const AttachmentPreview = ({
       </TouchableOpacity>
     );
   }
-
   if (attachment.type === "audio") {
     return (
       <TouchableOpacity
@@ -373,18 +332,18 @@ const AttachmentPreview = ({
         onPress={onOpen}
         style={[
           styles.audioAttachment,
-          isMe ? styles.myAudioAttachment : styles.otherAudioAttachment,
+          { backgroundColor: isMe ? colors.primary : colors.surface },
         ]}
       >
         <Ionicons
           name="volume-high"
           size={20}
-          color={isMe ? "#FFFFFF" : "#007AFF"}
+          color={isMe ? "#FFFFFF" : colors.primary}
         />
         <Text
           style={[
             styles.audioText,
-            isMe ? styles.myAudioText : styles.otherAudioText,
+            { color: isMe ? "#FFFFFF" : colors.primary },
           ]}
         >
           Voice message
@@ -393,7 +352,7 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.audioDuration,
-              isMe ? styles.myAudioDuration : styles.otherAudioDuration,
+              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
             ]}
           >
             {attachment.duration}
@@ -402,28 +361,23 @@ const AttachmentPreview = ({
       </TouchableOpacity>
     );
   }
-
-  // file
   return (
     <TouchableOpacity
       activeOpacity={0.85}
       onPress={onOpen}
       style={[
         styles.fileAttachment,
-        isMe ? styles.myFileAttachment : styles.otherFileAttachment,
+        { backgroundColor: isMe ? colors.primary : colors.surface },
       ]}
     >
       <Ionicons
         name="document-text"
         size={24}
-        color={isMe ? "#FFFFFF" : "#007AFF"}
+        color={isMe ? "#FFFFFF" : colors.primary}
       />
       <View style={styles.fileInfo}>
         <Text
-          style={[
-            styles.fileName,
-            isMe ? styles.myFileName : styles.otherFileName,
-          ]}
+          style={[styles.fileName, { color: isMe ? "#FFFFFF" : colors.text }]}
           numberOfLines={1}
         >
           {attachment.name || "File"}
@@ -432,7 +386,7 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.fileSize,
-              isMe ? styles.myFileSize : styles.otherFileSize,
+              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
             ]}
           >
             {formatFileSize(attachment.size)}
@@ -443,19 +397,18 @@ const AttachmentPreview = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Media Preview (legacy)
-// ─────────────────────────────────────────────────────────────────────────────
 const MediaPreview = ({
   mediaUrl,
   mediaType,
   isMe,
   onOpen,
+  colors,
 }: {
   mediaUrl: string;
   mediaType: string;
   isMe: boolean;
   onOpen: () => void;
+  colors: any;
 }) => {
   if (mediaType === "image") {
     return (
@@ -464,7 +417,6 @@ const MediaPreview = ({
       </TouchableOpacity>
     );
   }
-
   if (mediaType === "video") {
     return (
       <TouchableOpacity
@@ -477,7 +429,6 @@ const MediaPreview = ({
       </TouchableOpacity>
     );
   }
-
   if (mediaType === "audio") {
     return (
       <TouchableOpacity
@@ -485,18 +436,18 @@ const MediaPreview = ({
         onPress={onOpen}
         style={[
           styles.mediaAudio,
-          isMe ? styles.myMediaAudio : styles.otherMediaAudio,
+          { backgroundColor: isMe ? colors.primary : colors.surface },
         ]}
       >
         <Ionicons
           name="volume-high"
           size={20}
-          color={isMe ? "#FFFFFF" : "#007AFF"}
+          color={isMe ? "#FFFFFF" : colors.primary}
         />
         <Text
           style={[
             styles.mediaAudioText,
-            isMe ? styles.myMediaAudioText : styles.otherMediaAudioText,
+            { color: isMe ? "#FFFFFF" : colors.primary },
           ]}
         >
           Voice message
@@ -504,29 +455,14 @@ const MediaPreview = ({
       </TouchableOpacity>
     );
   }
-
   return null;
 };
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexGrow: 1,
-  },
-  messageContainer: {
-    maxWidth: "80%",
-    marginBottom: 12,
-    alignSelf: "flex-start",
-  },
-  myMessage: {
-    alignSelf: "flex-end",
-    alignItems: "flex-end",
-  },
-  otherMessage: {
-    alignSelf: "flex-start",
-    alignItems: "flex-start",
-  },
+  container: { paddingHorizontal: 16, paddingVertical: 8, flexGrow: 1 },
+  messageContainer: { maxWidth: "80%", marginBottom: 12 },
+  myMessage: { alignSelf: "flex-end", alignItems: "flex-end" },
+  otherMessage: { alignSelf: "flex-start", alignItems: "flex-start" },
   messageText: {
     fontSize: 16,
     lineHeight: 22,
@@ -535,43 +471,25 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
   },
-  myMessageText: {
-    backgroundColor: "#7C3AED",
-    color: "#FFFFFF",
-    borderTopRightRadius: 4,
-  },
-  otherMessageText: {
-    backgroundColor: "#FFFFFF",
-    color: "#000000",
-    borderTopLeftRadius: 4,
-  },
+  myMessageText: { color: "#FFFFFF", borderTopRightRadius: 4 },
+  otherMessageText: { borderTopLeftRadius: 4 },
   messageFooter: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 4,
     paddingHorizontal: 8,
   },
-  timestamp: {
-    fontSize: 12,
-    opacity: 0.7,
-  },
-  myTimestamp: { color: "#666" },
-  otherTimestamp: { color: "#666" },
+  timestamp: { fontSize: 12 },
   statusIcon: { marginLeft: 4 },
-
-  dateHeader: {
-    alignItems: "center",
-    marginVertical: 16,
-  },
+  dateHeader: { alignItems: "center", marginVertical: 16 },
   dateHeaderText: {
     fontSize: 12,
-    color: "#666",
-    backgroundColor: "#f5f5f5",
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
+    overflow: "hidden",
+    fontWeight: "700",
   },
-
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
@@ -580,24 +498,12 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#666",
+    fontWeight: "700",
     marginTop: 16,
     marginBottom: 8,
   },
-  emptySubtitle: {
-    fontSize: 14,
-    color: "#999",
-    textAlign: "center",
-    paddingHorizontal: 40,
-  },
-
-  footer: {
-    paddingVertical: 20,
-    alignItems: "center",
-  },
-
-  // Attachments
+  emptySubtitle: { fontSize: 14, textAlign: "center", paddingHorizontal: 40 },
+  footer: { paddingVertical: 20, alignItems: "center" },
   attachmentsContainer: { marginBottom: 8 },
   attachmentImage: {
     width: 200,
@@ -631,7 +537,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
   },
-
   audioAttachment: {
     flexDirection: "row",
     alignItems: "center",
@@ -640,15 +545,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 4,
   },
-  myAudioAttachment: { backgroundColor: "#7C3AED" },
-  otherAudioAttachment: { backgroundColor: "#F3F4F6" },
   audioText: { fontSize: 14, fontWeight: "500", marginLeft: 8 },
-  myAudioText: { color: "#FFFFFF" },
-  otherAudioText: { color: "#007AFF" },
   audioDuration: { fontSize: 12, marginLeft: 8 },
-  myAudioDuration: { color: "rgba(255,255,255,0.7)" },
-  otherAudioDuration: { color: "#666" },
-
   fileAttachment: {
     flexDirection: "row",
     alignItems: "center",
@@ -656,23 +554,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 4,
   },
-  myFileAttachment: { backgroundColor: "#7C3AED" },
-  otherFileAttachment: { backgroundColor: "#F3F4F6" },
   fileInfo: { marginLeft: 8, flex: 1 },
   fileName: { fontSize: 14, fontWeight: "500" },
-  myFileName: { color: "#FFFFFF" },
-  otherFileName: { color: "#333" },
   fileSize: { fontSize: 12, marginTop: 2 },
-  myFileSize: { color: "rgba(255,255,255,0.7)" },
-  otherFileSize: { color: "#666" },
-
-  // Legacy media
-  mediaImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
+  mediaImage: { width: 200, height: 150, borderRadius: 12, marginBottom: 8 },
   mediaVideo: {
     width: 200,
     height: 150,
@@ -691,11 +576,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 8,
   },
-  myMediaAudio: { backgroundColor: "#7C3AED" },
-  otherMediaAudio: { backgroundColor: "#F3F4F6" },
   mediaAudioText: { fontSize: 14, fontWeight: "500", marginLeft: 8 },
-  myMediaAudioText: { color: "#FFFFFF" },
-  otherMediaAudioText: { color: "#007AFF" },
   mediaOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.3)",

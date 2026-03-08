@@ -1,12 +1,7 @@
-// app/post/[id].tsx — COMPLETE ✅
-// ✅ Full post detail: author, content, media, poll, actions, comments
-// ✅ PollCard rendered for post_type === "poll"
-// ✅ HashtagText in post body + comments
-// ✅ Firestore delete with ownership check
-// ✅ Like / Save / Share (optimistic via hooks)
-// ✅ Comment posting + per-comment like
-// ✅ Skeleton loading state
-
+// app/post/[id].tsx — COMPLETED + UPDATED ✅ full theme support
+import { PostCardSkeleton } from "@/components/Skeleton";
+import HashtagText from "@/components/post/HashtagText";
+import PollCard from "@/components/post/PollCard";
 import { useAuth } from "@/hooks/useAuth";
 import {
   useAddComment,
@@ -18,11 +13,9 @@ import {
   useToggleLike,
   type CommentWithAuthor,
 } from "@/hooks/usePosts";
-import { PostCardSkeleton } from "@/components/Skeleton";
-import HashtagText from "@/components/post/HashtagText";
-import PollCard from "@/components/post/PollCard";
 import { db } from "@/lib/firebase";
 import { sharePost } from "@/lib/share";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
 import { router, useLocalSearchParams } from "expo-router";
@@ -35,6 +28,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -43,10 +37,6 @@ import {
   type AlertButton,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-/* ─────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────── */
 
 function coerceParamToString(v: unknown): string | null {
   if (typeof v === "string" && v.trim().length) return v;
@@ -73,18 +63,16 @@ function formatTime(dateString: string): string {
   }
 }
 
-/* ─────────────────────────────────────────
-   AVATAR
-───────────────────────────────────────── */
-
 function Avatar({
   uri,
   name,
   size,
+  fallbackColor,
 }: {
   uri?: string | null;
   name: string;
   size: number;
+  fallbackColor?: string;
 }) {
   if (uri) {
     return (
@@ -100,21 +88,19 @@ function Avatar({
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: "#007AFF",
+        backgroundColor: fallbackColor ?? "#7C3AED",
         justifyContent: "center",
         alignItems: "center",
       }}
     >
-      <Text style={{ color: "#fff", fontSize: size * 0.36, fontWeight: "bold" }}>
+      <Text
+        style={{ color: "#fff", fontSize: size * 0.36, fontWeight: "bold" }}
+      >
         {getInitials(name || "?")}
       </Text>
     </View>
   );
 }
-
-/* ─────────────────────────────────────────
-   MAIN SCREEN
-───────────────────────────────────────── */
 
 export default function PostDetailScreen() {
   const params = useLocalSearchParams();
@@ -124,14 +110,18 @@ export default function PostDetailScreen() {
   );
 
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const commentInputRef = useRef<TextInput>(null);
 
-  const { data: post, isLoading: isLoadingPost, error: postError } =
-    usePost(postId ?? "");
+  const {
+    data: post,
+    isLoading: isLoadingPost,
+    error: postError,
+  } = usePost(postId ?? "");
 
   const { data: comments = [], isLoading: isLoadingComments } = useComments(
     postId ?? "",
@@ -150,15 +140,13 @@ export default function PostDetailScreen() {
 
   const viewerId = useMemo(() => {
     const u = user as any;
-    return (u?.id as string | undefined) || (u?.user?.id as string | undefined);
+    return (u?.uid as string | undefined) || (u?.id as string | undefined);
   }, [user]);
 
   const isOwner = useMemo(
     () => !!post?.user_id && !!viewerId && post.user_id === viewerId,
     [post?.user_id, viewerId],
   );
-
-  /* ── actions ── */
 
   const handleLike = async () => {
     if (!post) return;
@@ -279,11 +267,8 @@ export default function PostDetailScreen() {
     Alert.alert("Post Options", undefined, buttons);
   };
 
-  /* ── media helpers ── */
-
   const mediaUrl = post?.media_urls?.[0];
-  const mediaExt =
-    typeof mediaUrl === "string" ? mediaUrl.split("?")[0] : "";
+  const mediaExt = typeof mediaUrl === "string" ? mediaUrl.split("?")[0] : "";
   const isImage =
     typeof mediaUrl === "string" &&
     /\.(png|jpg|jpeg|webp|gif|heic)$/i.test(mediaExt);
@@ -291,27 +276,31 @@ export default function PostDetailScreen() {
     typeof mediaUrl === "string" &&
     /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(mediaExt);
 
-  /* ── early returns ── */
+  const isPoll = (post as any)?.post_type === "poll";
 
-  const HeaderBar = ({
-    showMenu = true,
-  }: {
-    showMenu?: boolean;
-  }) => (
-    <View style={styles.header}>
+  const HeaderBar = ({ showMenu = true }: { showMenu?: boolean }) => (
+    <View
+      style={[
+        styles.header,
+        {
+          backgroundColor: colors.card,
+          borderBottomColor: colors.border,
+        },
+      ]}
+    >
       <TouchableOpacity
         onPress={() => router.back()}
         style={styles.backButton}
         hitSlop={8}
       >
-        <Ionicons name="arrow-back" size={24} color="#000" />
+        <Ionicons name="arrow-back" size={24} color={colors.text} />
       </TouchableOpacity>
-      <Text style={styles.headerTitle}>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>
         {isPoll ? "Poll" : "Post"}
       </Text>
       {showMenu ? (
         <TouchableOpacity onPress={openMenu} disabled={isDeleting} hitSlop={8}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+          <Ionicons name="ellipsis-horizontal" size={24} color={colors.text} />
         </TouchableOpacity>
       ) : (
         <View style={{ width: 32 }} />
@@ -321,14 +310,23 @@ export default function PostDetailScreen() {
 
   if (!postId) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <HeaderBar showMenu={false} />
         <View style={styles.centeredBox}>
-          <Ionicons name="alert-circle-outline" size={64} color="#999" />
-          <Text style={styles.errorText}>Invalid post link</Text>
+          <Ionicons
+            name="alert-circle-outline"
+            size={64}
+            color={colors.border}
+          />
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+            Invalid post link
+          </Text>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={styles.pillBtn}
+            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
           >
             <Text style={styles.pillBtnText}>Go Back</Text>
           </TouchableOpacity>
@@ -339,7 +337,10 @@ export default function PostDetailScreen() {
 
   if (isLoadingPost) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <HeaderBar showMenu={false} />
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <PostCardSkeleton />
@@ -351,16 +352,23 @@ export default function PostDetailScreen() {
 
   if (postError || !post) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <HeaderBar showMenu={false} />
         <View style={styles.centeredBox}>
-          <Ionicons name="alert-circle-outline" size={64} color="#999" />
-          <Text style={styles.errorText}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={64}
+            color={colors.border}
+          />
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
             {postError ? "Failed to load post" : "Post not found"}
           </Text>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={styles.pillBtn}
+            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
           >
             <Text style={styles.pillBtnText}>Go Back</Text>
           </TouchableOpacity>
@@ -372,12 +380,11 @@ export default function PostDetailScreen() {
   const postAuthorName =
     post.user?.full_name?.trim() || post.user?.username?.trim() || "Unknown";
 
-  const isPoll = (post as any).post_type === "poll";
-
-  /* ── full UI ── */
-
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <HeaderBar />
 
       <KeyboardAvoidingView
@@ -391,12 +398,17 @@ export default function PostDetailScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* ══════════════════════════════
-              POST CARD
-          ══════════════════════════════ */}
-          <View style={styles.postCard}>
-
-            {/* Author row */}
+          {/* ── Post card ── */}
+          <View
+            style={[
+              styles.postCard,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.25 : 0.06,
+              },
+            ]}
+          >
+            {/* Author */}
             <Pressable
               style={styles.authorRow}
               onPress={() =>
@@ -409,16 +421,24 @@ export default function PostDetailScreen() {
                 uri={post.user?.avatar_url}
                 name={postAuthorName}
                 size={44}
+                fallbackColor={colors.primary}
               />
               <View style={styles.authorInfo}>
-                <Text style={styles.authorName}>{postAuthorName}</Text>
+                <Text style={[styles.authorName, { color: colors.text }]}>
+                  {postAuthorName}
+                </Text>
                 {post.user?.username && (
-                  <Text style={styles.authorUsername}>
+                  <Text
+                    style={[
+                      styles.authorUsername,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
                     @{post.user.username}
                   </Text>
                 )}
               </View>
-              <Text style={styles.timestamp}>
+              <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
                 {formatTime(post.created_at)}
               </Text>
             </Pressable>
@@ -426,58 +446,66 @@ export default function PostDetailScreen() {
             {/* Community badge */}
             {post.community && (
               <Pressable
-                style={styles.communityBadge}
+                style={[
+                  styles.communityBadge,
+                  { backgroundColor: colors.primary + "18" },
+                ]}
                 onPress={() =>
                   router.push(`/community/${post.community!.slug}` as any)
                 }
               >
-                <Ionicons name="people" size={13} color="#6366F1" />
-                <Text style={styles.communityText}>{post.community.name}</Text>
+                <Ionicons name="people" size={13} color={colors.primary} />
+                <Text style={[styles.communityText, { color: colors.primary }]}>
+                  {post.community.name}
+                </Text>
               </Pressable>
             )}
 
             {/* Title */}
             {!!post.title && !isPoll && (
-              <Text style={styles.postTitle}>{post.title}</Text>
+              <Text style={[styles.postTitle, { color: colors.text }]}>
+                {post.title}
+              </Text>
             )}
 
             {/* Poll title */}
             {isPoll && (
-              <Text style={styles.pollQuestion}>
+              <Text style={[styles.pollQuestion, { color: colors.text }]}>
                 {post.title || post.content}
               </Text>
             )}
 
-            {/* Body text — only for non-poll posts */}
+            {/* Body */}
             {!isPoll && !!post.content && (
               <HashtagText
                 text={post.content}
-                style={styles.postBody}
+                style={[styles.postBody, { color: colors.textSecondary }] as any}
               />
             )}
 
-            {/* ── Poll card ── */}
+            {/* Poll card */}
             {isPoll && (post as any).poll && (
               <PollCard
                 postId={post.id}
                 poll={(post as any).poll}
-                accentColor="#6366F1"
-                textColor="#111827"
-                subColor="#6B7280"
-                cardBg="#F9FAFB"
-                borderColor="#E5E7EB"
+                accentColor={colors.primary}
+                textColor={colors.text}
+                subColor={colors.textTertiary}
+                cardBg={colors.surface}
+                borderColor={colors.border}
               />
             )}
 
-            {/* ── Media ── */}
+            {/* Image */}
             {isImage && mediaUrl && (
               <Image
                 source={{ uri: mediaUrl }}
-                style={styles.media}
+                style={[styles.media, { backgroundColor: colors.surface }]}
                 resizeMode="cover"
               />
             )}
 
+            {/* Video badge */}
             {isVideo && mediaUrl && (
               <View style={styles.videoBadgeWrap}>
                 <Ionicons name="videocam" size={20} color="#fff" />
@@ -485,38 +513,37 @@ export default function PostDetailScreen() {
               </View>
             )}
 
-            {/* Extra media count */}
             {(post.media_urls?.length ?? 0) > 1 && (
-              <Text style={styles.moreMedia}>
+              <Text style={[styles.moreMedia, { color: colors.textTertiary }]}>
                 +{post.media_urls.length - 1} more{" "}
                 {post.media_urls.length - 1 === 1 ? "file" : "files"}
               </Text>
             )}
 
-            {/* ── Stats row ── */}
-            <View style={styles.statsRow}>
-              <Text style={styles.statText}>
-                <Text style={styles.statNum}>
+            {/* Stats */}
+            <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
                   {(post.like_count ?? 0).toLocaleString()}
                 </Text>{" "}
                 {post.like_count === 1 ? "like" : "likes"}
               </Text>
-              <Text style={styles.statText}>
-                <Text style={styles.statNum}>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
                   {(post.comment_count ?? 0).toLocaleString()}
                 </Text>{" "}
                 {post.comment_count === 1 ? "comment" : "comments"}
               </Text>
-              <Text style={styles.statText}>
-                <Text style={styles.statNum}>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
                   {(post.share_count ?? 0).toLocaleString()}
                 </Text>{" "}
                 {post.share_count === 1 ? "share" : "shares"}
               </Text>
             </View>
 
-            {/* ── Action row ── */}
-            <View style={styles.actionRow}>
+            {/* Actions */}
+            <View style={[styles.actionRow, { borderTopColor: colors.border }]}>
               <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={handleLike}
@@ -525,12 +552,14 @@ export default function PostDetailScreen() {
                 <Ionicons
                   name={post.is_liked ? "heart" : "heart-outline"}
                   size={22}
-                  color={post.is_liked ? "#EF4444" : "#6B7280"}
+                  color={post.is_liked ? colors.like : colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.actionLabel,
-                    post.is_liked && { color: "#EF4444" },
+                    {
+                      color: post.is_liked ? colors.like : colors.textSecondary,
+                    },
                   ]}
                 >
                   Like
@@ -545,9 +574,13 @@ export default function PostDetailScreen() {
                 <Ionicons
                   name="chatbubble-outline"
                   size={22}
-                  color="#6B7280"
+                  color={colors.textSecondary}
                 />
-                <Text style={styles.actionLabel}>Comment</Text>
+                <Text
+                  style={[styles.actionLabel, { color: colors.textSecondary }]}
+                >
+                  Comment
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -555,8 +588,16 @@ export default function PostDetailScreen() {
                 onPress={handleShare}
                 activeOpacity={0.75}
               >
-                <Ionicons name="arrow-redo-outline" size={22} color="#6B7280" />
-                <Text style={styles.actionLabel}>Share</Text>
+                <Ionicons
+                  name="arrow-redo-outline"
+                  size={22}
+                  color={colors.textSecondary}
+                />
+                <Text
+                  style={[styles.actionLabel, { color: colors.textSecondary }]}
+                >
+                  Share
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -567,12 +608,14 @@ export default function PostDetailScreen() {
                 <Ionicons
                   name={post.is_saved ? "bookmark" : "bookmark-outline"}
                   size={22}
-                  color={post.is_saved ? "#111827" : "#6B7280"}
+                  color={post.is_saved ? colors.save : colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.actionLabel,
-                    post.is_saved && { color: "#111827" },
+                    {
+                      color: post.is_saved ? colors.save : colors.textSecondary,
+                    },
                   ]}
                 >
                   Save
@@ -581,14 +624,23 @@ export default function PostDetailScreen() {
             </View>
           </View>
 
-          {/* ══════════════════════════════
-              COMMENTS
-          ══════════════════════════════ */}
-          <View style={styles.commentsSection}>
-            <Text style={styles.commentsSectionTitle}>
+          {/* ── Comments ── */}
+          <View
+            style={[
+              styles.commentsSection,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.25 : 0.05,
+              },
+            ]}
+          >
+            <Text style={[styles.commentsSectionTitle, { color: colors.text }]}>
               Comments
               {comments.length > 0 && (
-                <Text style={styles.commentCount}> ({comments.length})</Text>
+                <Text style={{ color: colors.textTertiary, fontWeight: "600" }}>
+                  {" "}
+                  ({comments.length})
+                </Text>
               )}
             </Text>
 
@@ -598,10 +650,25 @@ export default function PostDetailScreen() {
                   .fill(null)
                   .map((_, i) => (
                     <View key={i} style={styles.commentSkeletonRow}>
-                      <View style={styles.commentSkeletonAvatar} />
+                      <View
+                        style={[
+                          styles.commentSkeletonAvatar,
+                          { backgroundColor: colors.border },
+                        ]}
+                      />
                       <View style={styles.commentSkeletonLines}>
-                        <View style={styles.commentSkeletonName} />
-                        <View style={styles.commentSkeletonBody} />
+                        <View
+                          style={[
+                            styles.commentSkeletonName,
+                            { backgroundColor: colors.border },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.commentSkeletonBody,
+                            { backgroundColor: colors.border },
+                          ]}
+                        />
                       </View>
                     </View>
                   ))}
@@ -611,70 +678,97 @@ export default function PostDetailScreen() {
                 <Ionicons
                   name="chatbubble-outline"
                   size={32}
-                  color="#D1D5DB"
+                  color={colors.border}
                 />
-                <Text style={styles.noCommentsText}>
+                <Text
+                  style={[
+                    styles.noCommentsText,
+                    { color: colors.textTertiary },
+                  ]}
+                >
                   No comments yet. Be first!
                 </Text>
               </View>
             ) : (
               <>
-                {displayedComments.map(
-                  (c: CommentWithAuthor, idx: number) => {
-                    const authorName =
-                      c.author?.full_name?.trim() ||
-                      c.author?.username?.trim() ||
-                      "User";
+                {displayedComments.map((c: CommentWithAuthor, idx: number) => {
+                  const authorName =
+                    c.author?.full_name?.trim() ||
+                    c.author?.username?.trim() ||
+                    "User";
 
-                    return (
-                      <View
-                        key={c.id}
-                        style={[
-                          styles.commentRow,
-                          idx !== 0 && styles.commentBorder,
-                        ]}
-                      >
-                        <Avatar
-                          uri={c.author?.avatar_url}
-                          name={authorName}
-                          size={34}
-                        />
-                        <View style={styles.commentBody}>
-                          <View style={styles.commentHeader}>
-                            <Text style={styles.commentAuthor}>
-                              {authorName}
-                            </Text>
-                            <Text style={styles.commentTime}>
-                              {formatTime(c.created_at)}
-                            </Text>
-                          </View>
-                          <HashtagText
-                            text={c.content}
-                            style={styles.commentText}
-                          />
-                          <TouchableOpacity
-                            style={styles.commentLikeBtn}
-                            onPress={() => handleCommentLike(c.id)}
-                            activeOpacity={0.75}
+                  return (
+                    <View
+                      key={c.id}
+                      style={[
+                        styles.commentRow,
+                        idx !== 0 && [
+                          styles.commentBorder,
+                          { borderTopColor: colors.border },
+                        ],
+                      ]}
+                    >
+                      <Avatar
+                        uri={c.author?.avatar_url}
+                        name={authorName}
+                        size={34}
+                        fallbackColor={colors.primary}
+                      />
+                      <View style={styles.commentBody}>
+                        <View style={styles.commentHeader}>
+                          <Text
+                            style={[
+                              styles.commentAuthor,
+                              { color: colors.text },
+                            ]}
                           >
-                            <Ionicons
-                              name={
-                                c.user_has_liked ? "heart" : "heart-outline"
-                              }
-                              size={14}
-                              color={c.user_has_liked ? "#EF4444" : "#9CA3AF"}
-                            />
-                            {(c.likes_count ?? 0) > 0 && (
-                              <Text style={styles.commentLikeCount}>
-                                {c.likes_count}
-                              </Text>
-                            )}
-                          </TouchableOpacity>
+                            {authorName}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.commentTime,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            {formatTime(c.created_at)}
+                          </Text>
                         </View>
+                        <HashtagText
+                          text={c.content}
+                          style={StyleSheet.flatten([
+                            styles.commentText,
+                            { color: colors.textSecondary },
+                          ])}
+                        />
+                        <TouchableOpacity
+                          style={styles.commentLikeBtn}
+                          onPress={() => handleCommentLike(c.id)}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons
+                            name={c.user_has_liked ? "heart" : "heart-outline"}
+                            size={14}
+                            color={
+                              c.user_has_liked
+                                ? colors.like
+                                : colors.textTertiary
+                            }
+                          />
+                          {(c.likes_count ?? 0) > 0 && (
+                            <Text
+                              style={[
+                                styles.commentLikeCount,
+                                { color: colors.textTertiary },
+                              ]}
+                            >
+                              {c.likes_count}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
                       </View>
-                    );
-                  },
-                )}
+                    </View>
+                  );
+                })}
 
                 {comments.length > 3 && (
                   <TouchableOpacity
@@ -682,7 +776,9 @@ export default function PostDetailScreen() {
                     onPress={() => setShowAllComments((v) => !v)}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.showMoreText}>
+                    <Text
+                      style={[styles.showMoreText, { color: colors.primary }]}
+                    >
                       {showAllComments
                         ? "Show less"
                         : `Show ${comments.length - 3} more comment${
@@ -690,11 +786,9 @@ export default function PostDetailScreen() {
                           }`}
                     </Text>
                     <Ionicons
-                      name={
-                        showAllComments ? "chevron-up" : "chevron-down"
-                      }
+                      name={showAllComments ? "chevron-up" : "chevron-down"}
                       size={14}
-                      color="#6366F1"
+                      color={colors.primary}
                     />
                   </TouchableOpacity>
                 )}
@@ -705,18 +799,34 @@ export default function PostDetailScreen() {
           <View style={{ height: 80 }} />
         </ScrollView>
 
-        {/* ── Comment input pinned above keyboard ── */}
-        <View style={styles.commentInputBar}>
+        {/* ── Comment input ── */}
+        <View
+          style={[
+            styles.commentInputBar,
+            {
+              backgroundColor: colors.card,
+              borderTopColor: colors.border,
+            },
+          ]}
+        >
           <Avatar
             uri={(user as any)?.avatar_url}
             name={(user as any)?.full_name || (user as any)?.email || "Me"}
             size={32}
+            fallbackColor={colors.primary}
           />
           <TextInput
             ref={commentInputRef}
-            style={styles.commentInput}
+            style={[
+              styles.commentInput,
+              {
+                backgroundColor: colors.inputBackground,
+                borderColor: colors.border,
+                color: colors.text,
+              },
+            ]}
             placeholder="Write a comment…"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={colors.placeholder}
             value={comment}
             onChangeText={setComment}
             multiline
@@ -727,6 +837,7 @@ export default function PostDetailScreen() {
           <TouchableOpacity
             style={[
               styles.sendBtn,
+              { backgroundColor: colors.primary + "20" },
               (!comment.trim() || addCommentMutation.isPending) &&
                 styles.sendBtnDisabled,
             ]}
@@ -739,8 +850,8 @@ export default function PostDetailScreen() {
               size={18}
               color={
                 comment.trim() && !addCommentMutation.isPending
-                  ? "#6366F1"
-                  : "#D1D5DB"
+                  ? colors.primary
+                  : colors.border
               }
             />
           </TouchableOpacity>
@@ -750,29 +861,21 @@ export default function PostDetailScreen() {
   );
 }
 
-/* ─────────────────────────────────────────
-   STYLES
-───────────────────────────────────────── */
-
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#F3F4F6" },
+  container: { flex: 1 },
 
-  /* header */
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
   },
   backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  headerTitle: { fontSize: 18, fontWeight: "700" },
 
-  /* states */
   centeredBox: {
     flex: 1,
     justifyContent: "center",
@@ -780,33 +883,27 @@ const styles = StyleSheet.create({
     padding: 24,
     gap: 12,
   },
-  errorText: { fontSize: 16, color: "#6B7280", textAlign: "center" },
+  errorText: { fontSize: 16, textAlign: "center" },
   pillBtn: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    backgroundColor: "#6366F1",
     borderRadius: 999,
     marginTop: 8,
   },
   pillBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 
-  /* scroll */
   scrollContent: { paddingTop: 12, paddingHorizontal: 14 },
 
-  /* post card */
   postCard: {
-    backgroundColor: "#fff",
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
   },
 
-  /* author */
   authorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -814,53 +911,41 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   authorInfo: { flex: 1 },
-  authorName: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  authorUsername: { fontSize: 13, color: "#6B7280", marginTop: 1 },
-  timestamp: { fontSize: 12, color: "#9CA3AF" },
+  authorName: { fontSize: 15, fontWeight: "700" },
+  authorUsername: { fontSize: 13, marginTop: 1 },
+  timestamp: { fontSize: 12 },
 
-  /* community badge */
   communityBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     alignSelf: "flex-start",
-    backgroundColor: "#EEF2FF",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
     marginBottom: 10,
   },
-  communityText: { fontSize: 12, fontWeight: "700", color: "#6366F1" },
+  communityText: { fontSize: 12, fontWeight: "700" },
 
-  /* post content */
   postTitle: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#111827",
     marginBottom: 8,
     lineHeight: 26,
   },
   pollQuestion: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#111827",
     marginBottom: 4,
     lineHeight: 24,
   },
-  postBody: {
-    fontSize: 16,
-    color: "#374151",
-    lineHeight: 24,
-    marginBottom: 8,
-  },
+  postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
 
-  /* media */
   media: {
     width: "100%",
     height: 240,
     borderRadius: 14,
     marginTop: 12,
-    backgroundColor: "#F3F4F6",
   },
   videoBadgeWrap: {
     flexDirection: "row",
@@ -874,32 +959,23 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   videoBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  moreMedia: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "600",
-  },
+  moreMedia: { marginTop: 6, fontSize: 12, fontWeight: "600" },
 
-  /* stats */
   statsRow: {
     flexDirection: "row",
     gap: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
     marginTop: 12,
   },
-  statText: { fontSize: 13, color: "#6B7280" },
-  statNum: { fontWeight: "700", color: "#111827" },
+  statText: { fontSize: 13 },
+  statNum: { fontWeight: "700" },
 
-  /* actions */
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-around",
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
   },
   actionBtn: {
     alignItems: "center",
@@ -907,70 +983,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     gap: 4,
   },
-  actionLabel: { fontSize: 11, color: "#6B7280", fontWeight: "600" },
+  actionLabel: { fontSize: 11, fontWeight: "600" },
 
-  /* comments section */
   commentsSection: {
-    backgroundColor: "#fff",
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
-  commentsSectionTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 14,
-  },
-  commentCount: { color: "#9CA3AF", fontWeight: "600" },
+  commentsSectionTitle: { fontSize: 16, fontWeight: "800", marginBottom: 14 },
 
-  /* comment skeleton */
   commentsLoading: { gap: 16 },
-  commentSkeletonRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  commentSkeletonAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#E5E7EB",
+  commentSkeletonRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
   },
+  commentSkeletonAvatar: { width: 34, height: 34, borderRadius: 17 },
   commentSkeletonLines: { flex: 1, gap: 6 },
-  commentSkeletonName: {
-    height: 12,
-    width: "35%",
-    borderRadius: 6,
-    backgroundColor: "#E5E7EB",
-  },
-  commentSkeletonBody: {
-    height: 12,
-    width: "80%",
-    borderRadius: 6,
-    backgroundColor: "#E5E7EB",
-  },
+  commentSkeletonName: { height: 12, width: "35%", borderRadius: 6 },
+  commentSkeletonBody: { height: 12, width: "80%", borderRadius: 6 },
 
-  /* no comments */
-  noComments: {
-    alignItems: "center",
-    paddingVertical: 24,
-    gap: 8,
-  },
-  noCommentsText: { fontSize: 14, color: "#9CA3AF", fontWeight: "500" },
+  noComments: { alignItems: "center", paddingVertical: 24, gap: 8 },
+  noCommentsText: { fontSize: 14, fontWeight: "500" },
 
-  /* comment rows */
   commentRow: {
     flexDirection: "row",
     gap: 10,
     alignItems: "flex-start",
     paddingVertical: 10,
   },
-  commentBorder: {
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
+  commentBorder: { borderTopWidth: 1 },
   commentBody: { flex: 1 },
   commentHeader: {
     flexDirection: "row",
@@ -978,9 +1024,9 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 3,
   },
-  commentAuthor: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  commentTime: { fontSize: 11, color: "#9CA3AF" },
-  commentText: { fontSize: 14, color: "#374151", lineHeight: 20 },
+  commentAuthor: { fontSize: 13, fontWeight: "700" },
+  commentTime: { fontSize: 11 },
+  commentText: { fontSize: 14, lineHeight: 20 },
   commentLikeBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -988,9 +1034,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
     alignSelf: "flex-start",
   },
-  commentLikeCount: { fontSize: 11, color: "#9CA3AF", fontWeight: "600" },
+  commentLikeCount: { fontSize: 11, fontWeight: "600" },
 
-  /* show more */
   showMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -998,9 +1043,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     justifyContent: "center",
   },
-  showMoreText: { fontSize: 13, color: "#6366F1", fontWeight: "700" },
+  showMoreText: { fontSize: 13, fontWeight: "700" },
 
-  /* comment input bar */
   commentInputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -1008,19 +1052,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    backgroundColor: "#fff",
   },
   commentInput: {
     flex: 1,
     fontSize: 14,
-    color: "#111827",
-    backgroundColor: "#F9FAFB",
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     maxHeight: 100,
   },
   sendBtn: {
@@ -1029,7 +1068,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EEF2FF",
   },
   sendBtnDisabled: { opacity: 0.45 },
 });

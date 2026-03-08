@@ -1,4 +1,5 @@
 import { auth, db } from "@/lib/firebase";
+import { initRevenueCat } from "@/lib/revenuecat";
 import {
   useMutation,
   useQuery,
@@ -122,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           (u as any).id = u.uid;
+          initRevenueCat(u.uid);
 
           const pSnap = await getDoc(profileRef(u.uid));
           if (!pSnap.exists()) {

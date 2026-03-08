@@ -1,9 +1,12 @@
-// app/boost/[postId]/review.tsx — Review + Confirm (UI-only)
+// app/boost/[postId]/review.tsx
+import { createBoost } from "@/lib/firestore/boosts";
+import { getBoostOffering, purchaseBoostPackage } from "@/lib/revenuecat";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useState } from "react";
 import {
+    ActivityIndicator,
     Alert,
     ScrollView,
     StyleSheet,
@@ -13,59 +16,92 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type Objective = "engagement" | "profile_visits" | "website_clicks";
-type Duration = 1 | 3 | 7 | 14;
-
-const money = (n: number) => `$${Math.max(0, Math.round(n)).toLocaleString()}`;
-
-const objectiveLabel = (o: Objective) => {
-  if (o === "engagement") return "More engagement";
-  if (o === "profile_visits") return "More profile visits";
-  return "More clicks";
-};
+const money = (n: number) => `$${Number(n).toFixed(2)}`;
 
 export default function BoostReviewScreen() {
+  const { colors, isDark } = useTheme();
   const params = useLocalSearchParams<{
     postId: string;
-    objective?: Objective;
-    dailyBudget?: string;
-    duration?: string;
-    audience?: "auto" | "custom";
-    destinationUrl?: string;
+    objective: string;
+    dailyBudget: string;
+    duration: string;
+    audience: string;
+    destinationUrl: string;
   }>();
 
-  const { colors, isDark } = useTheme();
+  const postId = params.postId ?? "";
+  const objective = params.objective ?? "engagement";
+  const dailyBudget = Number(params.dailyBudget ?? 5);
+  const duration = Number(params.duration ?? 3);
+  const audience = params.audience ?? "auto";
+  const destinationUrl = params.destinationUrl ?? "";
 
-  const postId = params.postId;
-  const objective = (params.objective ?? "engagement") as Objective;
-  const dailyBudget = Number(params.dailyBudget ?? "5");
-  const duration = Number(params.duration ?? "3") as Duration;
-  const audience = (params.audience ?? "auto") as "auto" | "custom";
-  const destinationUrl = (params.destinationUrl ?? "").trim();
+  const [loading, setLoading] = useState(false);
 
-  const total = useMemo(() => dailyBudget * duration, [dailyBudget, duration]);
-  const showUrl = objective === "website_clicks";
+  const objectiveLabel = () => {
+    if (objective === "engagement") return "More engagement";
+    if (objective === "profile_visits") return "More profile visits";
+    return "More clicks";
+  };
 
-  const confirm = () => {
-    // UI-only for now. Later: create a row in boosts table + start Stripe flow, etc.
-    Alert.alert(
-      "Boost confirmed (UI-only)",
-      [
-        `Post: ${postId}`,
-        `Objective: ${objectiveLabel(objective)}`,
-        showUrl ? `Link: ${destinationUrl || "Not set"}` : null,
-        `Daily: ${money(dailyBudget)}`,
-        `Duration: ${duration} day${duration === 1 ? "" : "s"}`,
-        `Total: ${money(total)}`,
-        `Audience: ${audience === "auto" ? "Automatic" : "Custom"}`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      [
-        { text: "Edit", onPress: () => router.back() },
-        { text: "Done", onPress: () => router.replace("/(tabs)/home") },
-      ],
-    );
+  const handlePay = async () => {
+    if (!postId) {
+      Alert.alert("Error", "Missing post ID.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const offering = await getBoostOffering();
+      const pkg = offering?.availablePackages?.[0];
+
+      if (!pkg) {
+        Alert.alert(
+          "Not available",
+          "Boost isn't available right now. Please try again.",
+        );
+        return;
+      }
+
+      const customerInfo = await purchaseBoostPackage(pkg);
+
+      await createBoost({
+        post_id: postId,
+        objective: objective as any,
+        daily_budget: dailyBudget,
+        duration_days: duration,
+        total_amount: 4.99,
+        destination_url: destinationUrl || undefined,
+        audience: audience as any,
+        revenuecat_product_id: "boost_post",
+        revenuecat_transaction_id:
+          customerInfo?.latestExpirationDate ?? undefined,
+      });
+
+      Alert.alert(
+        "🚀 Boost activated!",
+        `Your post is now being promoted for ${duration} day${duration === 1 ? "" : "s"}.`,
+        [
+          {
+            text: "Done",
+            onPress: () => router.replace("/(tabs)/home" as any),
+          },
+        ],
+      );
+    } catch (e: any) {
+      const msg = e?.message ?? "";
+      if (
+        msg.toLowerCase().includes("cancel") ||
+        msg.toLowerCase().includes("dismiss")
+      )
+        return;
+      Alert.alert(
+        "Payment failed",
+        msg || "Something went wrong. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -78,89 +114,130 @@ export default function BoostReviewScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
-
         <View style={{ flex: 1 }}>
-          <Text style={[styles.hTitle, { color: colors.text }]}>Review</Text>
+          <Text style={[styles.hTitle, { color: colors.text }]}>
+            Review & Pay
+          </Text>
           <Text style={[styles.hSub, { color: colors.textTertiary }]}>
             Confirm your boost details
           </Text>
         </View>
-
-        <TouchableOpacity
-          onPress={() => router.back()}
-          activeOpacity={0.8}
-          style={styles.editBtn}
-        >
-          <Text style={[styles.editText, { color: colors.primary }]}>Edit</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
+        {/* Summary Card */}
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>
+          Boost Summary
+        </Text>
+
         <View style={[styles.card, { backgroundColor: colors.card }]}>
-          <Row label="Post" value={postId} colors={colors} />
-          <Divider colors={colors} />
           <Row
             label="Objective"
-            value={objectiveLabel(objective)}
+            value={objectiveLabel()}
             colors={colors}
+            border
           />
-          {showUrl && (
-            <>
-              <Divider colors={colors} />
-              <Row
-                label="Link"
-                value={destinationUrl || "Not set"}
-                colors={colors}
-                numberOfLines={1}
-              />
-            </>
-          )}
-          <Divider colors={colors} />
-          <Row
-            label="Budget"
-            value={`${money(dailyBudget)}/day`}
-            colors={colors}
-          />
-          <Divider colors={colors} />
+          {destinationUrl ? (
+            <Row label="Link" value={destinationUrl} colors={colors} border />
+          ) : null}
           <Row
             label="Duration"
             value={`${duration} day${duration === 1 ? "" : "s"}`}
             colors={colors}
+            border
           />
-          <Divider colors={colors} />
-          <Row
-            label="Estimated total"
-            value={money(total)}
-            colors={colors}
-            strong
-          />
-          <Divider colors={colors} />
           <Row
             label="Audience"
             value={audience === "auto" ? "Automatic" : "Custom"}
             colors={colors}
+            border
+          />
+          <Row
+            label="Total charge"
+            value={money(4.99)}
+            colors={colors}
+            highlight
           />
         </View>
 
+        {/* What happens next */}
+        <Text
+          style={[styles.sectionTitle, { color: colors.text, marginTop: 20 }]}
+        >
+          What happens next
+        </Text>
+
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          {[
+            {
+              icon: "rocket-outline",
+              text: "Your post starts showing to more people immediately",
+            },
+            {
+              icon: "mail-outline",
+              text: "You'll receive an email confirmation",
+            },
+            {
+              icon: "bar-chart-outline",
+              text: "Your post is prioritized in Home, Explore, and Hashtag feeds",
+            },
+            {
+              icon: "time-outline",
+              text: `Boost runs for ${duration} day${duration === 1 ? "" : "s"} then stops automatically`,
+            },
+          ].map((item, i) => (
+            <View
+              key={i}
+              style={[
+                styles.stepRow,
+                i !== 0 && {
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                },
+              ]}
+            >
+              <View
+                style={[styles.stepIcon, { backgroundColor: colors.surface }]}
+              >
+                <Ionicons
+                  name={item.icon as any}
+                  size={18}
+                  color={colors.primary}
+                />
+              </View>
+              <Text style={[styles.stepText, { color: colors.text }]}>
+                {item.text}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Pay Button */}
         <TouchableOpacity
-          onPress={confirm}
+          onPress={handlePay}
+          disabled={loading}
           activeOpacity={0.9}
           style={[
             styles.cta,
             {
-              backgroundColor: colors.primary,
+              backgroundColor: loading ? colors.border : colors.primary,
               shadowOpacity: isDark ? 0.2 : 0.08,
             },
           ]}
         >
-          <Text style={styles.ctaText}>Confirm boost</Text>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.ctaText}>Pay {money(4.99)} & Boost</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={[styles.disclaimer, { color: colors.textTertiary }]}>
-          UI-only for now. Next step is adding payments + delivery estimates.
+          Payment is processed securely via Google Play or App Store. Boosts are
+          non-refundable once activated.
         </Text>
 
         <View style={{ height: 16 }} />
@@ -169,35 +246,35 @@ export default function BoostReviewScreen() {
   );
 }
 
-function Divider({ colors }: { colors: any }) {
-  return <View style={{ height: 1, backgroundColor: colors.border }} />;
-}
-
 function Row({
   label,
   value,
   colors,
-  strong,
-  numberOfLines,
+  border,
+  highlight,
 }: {
   label: string;
   value: string;
   colors: any;
-  strong?: boolean;
-  numberOfLines?: number;
+  border?: boolean;
+  highlight?: boolean;
 }) {
   return (
-    <View style={styles.row}>
-      <Text style={[styles.label, { color: colors.textTertiary }]}>
+    <View
+      style={[
+        styles.reviewRow,
+        border && { borderBottomWidth: 1, borderBottomColor: colors.border },
+      ]}
+    >
+      <Text style={[styles.reviewLabel, { color: colors.textTertiary }]}>
         {label}
       </Text>
       <Text
         style={[
-          styles.value,
-          { color: colors.text },
-          strong && { fontWeight: "900" },
+          styles.reviewValue,
+          { color: highlight ? colors.primary : colors.text },
+          highlight && { fontSize: 15, fontWeight: "900" },
         ]}
-        numberOfLines={numberOfLines}
       >
         {value}
       </Text>
@@ -225,11 +302,8 @@ const styles = StyleSheet.create({
   },
   hTitle: { fontSize: 16, fontWeight: "900" },
   hSub: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
-  editBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  editText: { fontSize: 13, fontWeight: "900" },
-
   content: { padding: 16 },
-
+  sectionTitle: { fontSize: 13.5, fontWeight: "900", marginBottom: 10 },
   card: {
     borderRadius: 18,
     overflow: "hidden",
@@ -238,39 +312,47 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-
-  row: {
+  reviewRow: {
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  reviewLabel: { fontSize: 13, fontWeight: "700" },
+  reviewValue: { fontSize: 13, fontWeight: "800", maxWidth: "60%" },
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
-  label: { fontSize: 12.5, fontWeight: "800" },
-  value: {
-    fontSize: 12.5,
-    fontWeight: "900",
-    flexShrink: 1,
-    textAlign: "right",
+  stepIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
-
+  stepText: { flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 19 },
   cta: {
-    marginTop: 18,
+    marginTop: 20,
     borderRadius: 18,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 12 },
     shadowRadius: 18,
     elevation: 2,
   },
-  ctaText: { color: "#fff", fontWeight: "900", fontSize: 14.5 },
-
+  ctaText: { color: "#fff", fontWeight: "900", fontSize: 15 },
   disclaimer: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 16,
+    fontWeight: "600",
+    lineHeight: 17,
+    textAlign: "center",
+    paddingHorizontal: 8,
   },
 });

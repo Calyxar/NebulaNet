@@ -33,6 +33,10 @@ firebase-debug.log*
 # Firebase noise
 .firebase/
 
+# Firebase User Data
+firebase_users.json
+check.json
+
 # macOS
 .DS_Store
 *.pem
@@ -43,6 +47,7 @@ firebase-debug.log*
 .env.production
 .env.local
 .env.development
+.env.migration
 
 # typescript
 *.tsbuildinfo

@@ -1,15 +1,16 @@
 // app/profile/edit.tsx — COMPLETED + UPDATED ✅
-// ✅ Dark mode support (ThemeProvider)
-// ✅ StatusBar adapts
-// ✅ Back/check buttons match theme
-// ✅ Keeps your avatar upload logic exactly the same
-
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import { decode as base64Decode } from "base-64";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadString,
+} from "firebase/storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -24,21 +25,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useTheme } from "@/providers/ThemeProvider";
-import {
-  getDownloadURL,
-  getStorage,
-  ref as storageRef,
-  uploadBytes,
-} from "firebase/storage";
-
-function base64ToUint8Array(base64: string) {
-  const binary = base64Decode(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 function guessExtFromUri(uri: string) {
   const clean = uri.split("?")[0];
   const ext = clean.split(".").pop()?.toLowerCase();
@@ -49,20 +35,6 @@ function guessExtFromUri(uri: string) {
   return "jpg";
 }
 
-function contentTypeFromExt(ext: string) {
-  switch (ext) {
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    case "heic":
-      return "image/heic";
-    case "jpg":
-    default:
-      return "image/jpeg";
-  }
-}
-
 export default function EditProfileScreen() {
   const { profile, user, updateProfile: updateProfileMutation } = useAuth();
   const { colors, isDark } = useTheme();
@@ -71,7 +43,6 @@ export default function EditProfileScreen() {
     full_name: profile?.full_name || "",
     username: profile?.username || "",
     bio: profile?.bio || "",
-    // keep in UI, but we will only send it if column exists
     location: (profile as any)?.location || "",
   });
 
@@ -108,8 +79,6 @@ export default function EditProfileScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      // Expo SDK 54 note: newer API is ImagePicker.MediaType.Images,
-      // but this works across versions too.
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
@@ -124,12 +93,13 @@ export default function EditProfileScreen() {
       return;
     }
 
-    setAvatar(pickedUri); // local preview instantly
+    setAvatar(pickedUri);
     await uploadAvatar(pickedUri);
   };
 
   const uploadAvatar = async (uri: string) => {
-    if (!user?.id) {
+    // ✅ FIX: use user?.uid not user?.id
+    if (!user?.uid) {
       Alert.alert("Error", "User not found. Please log in again.");
       return;
     }
@@ -138,27 +108,24 @@ export default function EditProfileScreen() {
 
     try {
       const ext = guessExtFromUri(uri);
-      const contentType = contentTypeFromExt(ext);
 
-      // Expo SDK 54: legacy import required for readAsStringAsync
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64" as any,
       });
 
-      const bytes = base64ToUint8Array(base64);
-
       const fileName = `${Date.now()}.${ext}`;
-      const filePath = `${user.id}/${fileName}`;
+      // ✅ FIX: use user.uid not user.id
+      const filePath = `${user.uid}/${fileName}`;
 
       const storage = getStorage();
       const fileRef = storageRef(storage, filePath);
-      await uploadBytes(fileRef, bytes, { contentType });
+      await uploadString(fileRef, base64, "base64");
       const publicUrl = await getDownloadURL(fileRef);
+
       if (!publicUrl)
         throw new Error("Could not create download URL for avatar.");
 
       setAvatar(publicUrl);
-
       Alert.alert(
         "Success",
         "Avatar uploaded! Click Continue to save your changes.",
@@ -210,12 +177,10 @@ export default function EditProfileScreen() {
       }
 
       await updateProfileMutation.mutateAsync(updates);
-
       Alert.alert("Success", "Profile updated successfully!");
       setTimeout(() => router.back(), 300);
     } catch (error: any) {
       let errorMessage = "Failed to update profile";
-
       if (
         error?.message?.includes("duplicate") &&
         error?.message?.includes("username")
@@ -224,7 +189,6 @@ export default function EditProfileScreen() {
       } else if (error?.message) {
         errorMessage = error.message;
       }
-
       Alert.alert("Update Failed", errorMessage);
     }
   };
@@ -332,8 +296,9 @@ export default function EditProfileScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Form Card */}
+          {/* Form */}
           <View style={[styles.formCard, { backgroundColor: colors.card }]}>
+            {/* Name */}
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.text }]}>Name</Text>
               <View
@@ -358,12 +323,13 @@ export default function EditProfileScreen() {
                     setFormData({ ...formData, full_name: text })
                   }
                   placeholder="Enter your full name"
-                  placeholderTextColor={colors.textTertiary}
+                  placeholderTextColor={colors.placeholder}
                   editable={!isLoading}
                 />
               </View>
             </View>
 
+            {/* Username */}
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.text }]}>
                 Username
@@ -387,16 +353,20 @@ export default function EditProfileScreen() {
                   style={[styles.input, { color: colors.text }]}
                   value={formData.username}
                   onChangeText={(text) =>
-                    setFormData({ ...formData, username: text.toLowerCase() })
+                    setFormData({
+                      ...formData,
+                      username: text.toLowerCase(),
+                    })
                   }
                   placeholder="username"
-                  placeholderTextColor={colors.textTertiary}
+                  placeholderTextColor={colors.placeholder}
                   autoCapitalize="none"
                   editable={!isLoading}
                 />
               </View>
             </View>
 
+            {/* Location */}
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.text }]}>
                 Location
@@ -423,12 +393,13 @@ export default function EditProfileScreen() {
                     setFormData({ ...formData, location: text })
                   }
                   placeholder="Let others know where you're based"
-                  placeholderTextColor={colors.textTertiary}
+                  placeholderTextColor={colors.placeholder}
                   editable={!isLoading}
                 />
               </View>
             </View>
 
+            {/* Bio */}
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
               <View
@@ -457,8 +428,8 @@ export default function EditProfileScreen() {
                   onChangeText={(text) =>
                     setFormData({ ...formData, bio: text })
                   }
-                  placeholderTextColor={colors.textTertiary}
                   placeholder="Tell us about yourself"
+                  placeholderTextColor={colors.placeholder}
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
@@ -466,14 +437,13 @@ export default function EditProfileScreen() {
                   editable={!isLoading}
                 />
               </View>
-
               <Text style={[styles.charCount, { color: colors.textTertiary }]}>
                 {formData.bio.length}/200 characters
               </Text>
             </View>
           </View>
 
-          {/* Continue */}
+          {/* Save button */}
           <TouchableOpacity
             style={[
               styles.continueButton,
@@ -496,6 +466,7 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   header: {
     flexDirection: "row",
     alignItems: "center",

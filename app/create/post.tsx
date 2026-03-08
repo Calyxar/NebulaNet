@@ -1,19 +1,16 @@
-// app/create/post.tsx — COMPLETED + UPDATED ✅
-// ✅ uses visibility + media_urls (no is_public)
-// ✅ FIXES ImagePicker.MediaType TS error by supporting BOTH old + new APIs
-// ✅ Uses createPost() from lib/firestore/posts — hashtags auto-extracted + indexed
-// ✅ Live hashtag chip preview while typing
-
+// app/create/post.tsx — REDESIGNED ✅ Twitter-style composer
 import { useAuth } from "@/hooks/useAuth";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { createPost } from "@/lib/firestore/posts";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -24,7 +21,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-type MediaType = "image" | "video";
+type MediaType = "image" | "video" | "gif";
 type Visibility = "public" | "followers" | "private";
 
 interface LocalMediaItem {
@@ -32,50 +29,50 @@ interface LocalMediaItem {
   type: MediaType;
 }
 
-// ✅ Works with BOTH APIs:
-// - Older: ImagePicker.MediaTypeOptions
-// - Newer: ImagePicker.MediaType / MediaType[]
 const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
-export default function CreatePostScreen() {
-  const { user } = useAuth();
+const VISIBILITY_CONFIG = {
+  public: { icon: "globe-outline" as const, label: "Public", color: "#7C3AED" },
+  followers: {
+    icon: "people-outline" as const,
+    label: "Followers",
+    color: "#6366F1",
+  },
+  private: {
+    icon: "lock-closed-outline" as const,
+    label: "Only Me",
+    color: "#6B7280",
+  },
+};
 
-  const [title, setTitle] = useState("");
+export default function CreatePostScreen() {
+  const { user, profile } = useAuth();
+  const inputRef = useRef<TextInput>(null);
+
   const [bodyText, setBodyText] = useState("");
-  const [selectedCommunityId] = useState<string>("");
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
   const [isPosting, setIsPosting] = useState(false);
 
   const canPost = useMemo(
-    () => title.trim().length > 0 && !isPosting,
-    [title, isPosting],
+    () => (bodyText.trim().length > 0 || mediaItems.length > 0) && !isPosting,
+    [bodyText, mediaItems, isPosting],
   );
 
-  // ✅ Live hashtag detection from title + body
-  const detectedHashtags = useMemo(() => {
-    return extractHashtags([title, bodyText].join(" "));
-  }, [title, bodyText]);
+  const detectedHashtags = useMemo(() => extractHashtags(bodyText), [bodyText]);
+
+  const charCount = bodyText.length;
+  const charLimit = 500;
+  const isNearLimit = charCount > charLimit * 0.8;
+  const isOverLimit = charCount > charLimit;
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(
         "Permission required",
-        "We need photo library permissions to attach media.",
-      );
-      return false;
-    }
-    return true;
-  };
-
-  const ensureCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "We need camera permissions to record video.",
+        "We need photo library access to attach media.",
       );
       return false;
     }
@@ -87,7 +84,7 @@ export default function CreatePostScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: PickerMedia.Images,
       allowsMultipleSelection: true,
-      selectionLimit: 10,
+      selectionLimit: 4,
       quality: 0.9,
     });
     if (result.canceled || !result.assets?.length) return;
@@ -95,71 +92,46 @@ export default function CreatePostScreen() {
       uri: a.uri,
       type: "image" as const,
     }));
-    setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
+    setMediaItems((prev) => [...prev, ...picked].slice(0, 4));
   };
 
   const pickVideos = async () => {
     if (!(await ensureLibraryPermission())) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: PickerMedia.Videos,
-      allowsMultipleSelection: true,
-      selectionLimit: 5,
+      selectionLimit: 1,
       quality: 1,
       videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.length) return;
-    const picked: LocalMediaItem[] = result.assets.map((a) => ({
-      uri: a.uri,
-      type: "video" as const,
-    }));
-    setMediaItems((prev) => [...prev, ...picked].slice(0, 10));
+    setMediaItems([{ uri: result.assets[0].uri, type: "video" as const }]);
   };
 
   const recordVideo = async () => {
-    if (!(await ensureCameraPermission())) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "We need camera access.");
+      return;
+    }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: PickerMedia.Videos,
       videoMaxDuration: 60,
       quality: 1,
     });
     if (result.canceled || !result.assets?.length) return;
-    setMediaItems((prev) =>
-      [...prev, { uri: result.assets[0].uri, type: "video" as const }].slice(
-        0,
-        10,
-      ),
-    );
+    setMediaItems([{ uri: result.assets[0].uri, type: "video" as const }]);
   };
 
-  const removeMedia = (index: number) => {
+  const removeMedia = (index: number) =>
     setMediaItems((prev) => prev.filter((_, i) => i !== index));
-  };
 
-  const toggleVisibility = () => {
+  const cycleVisibility = () =>
     setVisibility((v) =>
       v === "public" ? "followers" : v === "followers" ? "private" : "public",
     );
-  };
-
-  const visibilityIcon: keyof typeof Ionicons.glyphMap =
-    visibility === "public"
-      ? "globe-outline"
-      : visibility === "followers"
-        ? "people-outline"
-        : "lock-closed-outline";
-
-  const visibilityLabel =
-    visibility === "public"
-      ? "Public"
-      : visibility === "followers"
-        ? "Followers"
-        : "Private";
 
   const handlePost = async () => {
-    if (!title.trim()) {
-      Alert.alert("Title Required", "Please enter a title for your post.");
-      return;
-    }
+    if (!canPost || isOverLimit) return;
     if (!user) {
       Alert.alert("Not logged in", "Please log in again.");
       return;
@@ -167,19 +139,12 @@ export default function CreatePostScreen() {
 
     setIsPosting(true);
     try {
-      // ✅ Use createPost() — it handles media upload, hashtag extraction,
-      //    hashtag indexing, and writing the correct Firestore document shape.
       await createPost({
-        title: title.trim(),
         content: bodyText.trim(),
         media: mediaItems.map((m) => ({ uri: m.uri, type: m.type })) as any,
-        community_id: selectedCommunityId || undefined,
         visibility,
       });
-
-      Alert.alert("Success", "Your post has been created!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to create post.");
     } finally {
@@ -187,364 +152,337 @@ export default function CreatePostScreen() {
     }
   };
 
-  const handleSaveDraft = () => {
-    Alert.alert("Draft Saved", "Your post has been saved as a draft.");
-  };
+  const vis = VISIBILITY_CONFIG[visibility];
+  const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
+
+  const mediaGridStyle =
+    mediaItems.length === 1
+      ? styles.mediaSingle
+      : mediaItems.length === 2
+        ? styles.mediaDouble
+        : styles.mediaGrid;
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8EAF6" />
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Post</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.inputCard}>
-            <TextInput
-              style={styles.titleInput}
-              placeholder="Title"
-              placeholderTextColor="#999"
-              value={title}
-              onChangeText={setTitle}
-              maxLength={100}
-            />
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.cancelBtn}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
 
-            <TextInput
-              style={styles.bodyInput}
-              placeholder="Body Text (Optional) — use #hashtags to tag your post"
-              placeholderTextColor="#B0B0B0"
-              value={bodyText}
-              onChangeText={setBodyText}
-              multiline
-              textAlignVertical="top"
-            />
-
-            {/* ✅ Live hashtag chip preview */}
-            {detectedHashtags.length > 0 && (
-              <View style={styles.hashtagPreview}>
-                {detectedHashtags.map((tag) => (
-                  <View key={tag} style={styles.hashtagChip}>
-                    <Text style={styles.hashtagChipText}>#{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {mediaItems.length > 0 && (
-              <View style={styles.previewWrap}>
-                <Text style={styles.previewLabel}>Attachments</Text>
-                <View style={styles.grid}>
-                  {mediaItems.map((m, idx) => (
-                    <View key={`${m.uri}-${idx}`} style={styles.gridItemWrap}>
-                      <Image source={{ uri: m.uri }} style={styles.gridItem} />
-
-                      {m.type === "video" && (
-                        <View style={styles.videoBadge}>
-                          <Ionicons name="play" size={12} color="#fff" />
-                          <Text style={styles.videoBadgeText}>Video</Text>
-                        </View>
-                      )}
-
-                      <TouchableOpacity
-                        style={styles.removeBtn}
-                        onPress={() => removeMedia(idx)}
-                        activeOpacity={0.85}
-                      >
-                        <Ionicons name="close" size={14} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            <View style={styles.mediaActions}>
-              <TouchableOpacity
-                style={styles.mediaButton}
-                onPress={pickImages}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="image-outline" size={20} color="#666" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.mediaButton}
-                onPress={pickVideos}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="videocam-outline" size={20} color="#666" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.mediaButton}
-                onPress={recordVideo}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="camera-outline" size={20} color="#666" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.mediaButton}
-                onPress={toggleVisibility}
-                activeOpacity={0.85}
-              >
-                <Ionicons name={visibilityIcon} size={20} color="#666" />
-              </TouchableOpacity>
-
-              <View style={styles.spacer} />
-
-              <View style={styles.visibilityPill}>
-                <Text style={styles.visibilityText}>{visibilityLabel}</Text>
-              </View>
-            </View>
+            <TouchableOpacity
+              style={[
+                styles.postBtn,
+                !canPost || isOverLimit ? styles.postBtnDisabled : null,
+              ]}
+              onPress={handlePost}
+              disabled={!canPost || isOverLimit}
+            >
+              <Text style={styles.postBtnText}>
+                {isPosting ? "Posting..." : "Post"}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={toggleVisibility}
-            activeOpacity={0.85}
+          <ScrollView
+            style={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <View style={styles.optionLeft}>
-              <View style={styles.optionIconContainer}>
-                <Ionicons name={visibilityIcon} size={20} color="#666" />
+            {/* Composer row */}
+            <View style={styles.composerRow}>
+              {/* Avatar */}
+              <View style={styles.avatarCol}>
+                {profile?.avatar_url ? (
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarLetter}>{avatarLetter}</Text>
+                  </View>
+                )}
               </View>
-              <Text style={styles.optionText}>
-                Visibility: {visibilityLabel}
-              </Text>
+
+              {/* Input area */}
+              <View style={styles.inputCol}>
+                {/* Visibility pill */}
+                <TouchableOpacity
+                  style={[styles.visPill, { borderColor: vis.color }]}
+                  onPress={cycleVisibility}
+                >
+                  <Ionicons name={vis.icon} size={12} color={vis.color} />
+                  <Text style={[styles.visText, { color: vis.color }]}>
+                    {vis.label}
+                  </Text>
+                </TouchableOpacity>
+
+                <TextInput
+                  ref={inputRef}
+                  style={styles.textInput}
+                  placeholder="What's happening?"
+                  placeholderTextColor="#9CA3AF"
+                  value={bodyText}
+                  onChangeText={setBodyText}
+                  multiline
+                  autoFocus
+                  maxLength={charLimit + 50}
+                />
+
+                {/* Hashtag chips */}
+                {detectedHashtags.length > 0 && (
+                  <View style={styles.hashtagRow}>
+                    {detectedHashtags.map((tag) => (
+                      <View key={tag} style={styles.hashtagChip}>
+                        <Text style={styles.hashtagChipText}>#{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Media preview */}
+                {mediaItems.length > 0 && (
+                  <View style={[styles.mediaContainer, mediaGridStyle]}>
+                    {mediaItems.map((m, idx) => (
+                      <View
+                        key={`${m.uri}-${idx}`}
+                        style={[
+                          styles.mediaItem,
+                          mediaItems.length === 1 && styles.mediaItemSingle,
+                          mediaItems.length === 2 && styles.mediaItemDouble,
+                          mediaItems.length >= 3 && styles.mediaItemGrid,
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: m.uri }}
+                          style={styles.mediaImage}
+                        />
+                        {m.type === "video" && (
+                          <View style={styles.videoBadge}>
+                            <Ionicons
+                              name="play-circle"
+                              size={28}
+                              color="#fff"
+                            />
+                          </View>
+                        )}
+                        <TouchableOpacity
+                          style={styles.removeBtn}
+                          onPress={() => removeMedia(idx)}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={22}
+                            color="#fff"
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-        </ScrollView>
+          </ScrollView>
 
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.draftButton}
-            onPress={handleSaveDraft}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.draftButtonText}>Save as Draft</Text>
-          </TouchableOpacity>
+          {/* Toolbar */}
+          <View style={styles.toolbar}>
+            <View style={styles.toolbarLeft}>
+              <TouchableOpacity
+                style={styles.toolBtn}
+                onPress={pickImages}
+                disabled={mediaItems.some((m) => m.type === "video")}
+              >
+                <Ionicons
+                  name="image-outline"
+                  size={22}
+                  color={
+                    mediaItems.some((m) => m.type === "video")
+                      ? "#D1D5DB"
+                      : "#7C3AED"
+                  }
+                />
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.postButton, !canPost && styles.postButtonDisabled]}
-            onPress={handlePost}
-            disabled={!canPost}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.postButtonText}>
-              {isPosting ? "Posting..." : "Post"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <TouchableOpacity
+                style={styles.toolBtn}
+                onPress={pickVideos}
+                disabled={
+                  mediaItems.length > 0 && mediaItems[0].type !== "video"
+                }
+              >
+                <Ionicons
+                  name="videocam-outline"
+                  size={22}
+                  color={
+                    mediaItems.length > 0 && mediaItems[0].type !== "video"
+                      ? "#D1D5DB"
+                      : "#7C3AED"
+                  }
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.toolBtn} onPress={recordVideo}>
+                <Ionicons name="camera-outline" size={22} color="#7C3AED" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Char count */}
+            {charCount > 0 && (
+              <Text
+                style={[
+                  styles.charCount,
+                  isNearLimit && styles.charCountWarn,
+                  isOverLimit && styles.charCountOver,
+                ]}
+              >
+                {charLimit - charCount}
+              </Text>
+            )}
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  container: { flex: 1, backgroundColor: "#fff" },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#E8EAF6",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
+  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4 },
+  cancelText: { fontSize: 16, color: "#374151", fontWeight: "500" },
+  postBtn: {
+    backgroundColor: "#7C3AED",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  postBtnDisabled: { backgroundColor: "#C4B5FD" },
+  postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
+  scroll: { flex: 1 },
+
+  composerRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 12,
+  },
+
+  avatarCol: { paddingTop: 2 },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 18, fontWeight: "600", color: "#000" },
-  headerSpacer: { width: 40 },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16 },
-  inputCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-  },
-  titleInput: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 12,
-    paddingVertical: 8,
-  },
-  bodyInput: {
-    fontSize: 14,
-    color: "#666",
-    minHeight: 100,
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
+  avatarLetter: { color: "#fff", fontWeight: "700", fontSize: 18 },
 
-  // ✅ Hashtag preview chips
-  hashtagPreview: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 12,
-  },
-  hashtagChip: {
-    backgroundColor: "#EEF2FF",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#C7D2FE",
-  },
-  hashtagChipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#4F46E5",
-  },
+  inputCol: { flex: 1 },
 
-  previewWrap: {
-    marginTop: 6,
-    marginBottom: 12,
-    backgroundColor: "#F8F8FF",
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#EEE",
-  },
-  previewLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 10,
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 10,
-  },
-  gridItemWrap: {
-    width: "32%",
-    aspectRatio: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#F3F4F6",
-    position: "relative",
-  },
-  gridItem: { width: "100%", height: "100%" },
-  videoBadge: {
-    position: "absolute",
-    left: 8,
-    bottom: 8,
+  visPill: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 10,
+  },
+  visText: { fontSize: 12, fontWeight: "600" },
+
+  textInput: {
+    fontSize: 17,
+    color: "#111827",
+    lineHeight: 24,
+    minHeight: 80,
+    paddingTop: 0,
+  },
+
+  hashtagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 6,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    marginTop: 8,
+  },
+  hashtagChip: {
+    backgroundColor: "#EDE9FE",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
   },
-  videoBadgeText: { color: "#fff", fontWeight: "800", fontSize: 10 },
+  hashtagChipText: { fontSize: 12, fontWeight: "700", color: "#7C3AED" },
+
+  mediaContainer: {
+    marginTop: 12,
+    borderRadius: 16,
+    overflow: "hidden",
+    gap: 2,
+  },
+  mediaSingle: { height: 240 },
+  mediaDouble: { flexDirection: "row", height: 180 },
+  mediaGrid: { flexDirection: "row", flexWrap: "wrap", height: 240 },
+
+  mediaItem: { overflow: "hidden", position: "relative" },
+  mediaItemSingle: { flex: 1 },
+  mediaItemDouble: { flex: 1 },
+  mediaItemGrid: { width: "50%", height: "50%" },
+
+  mediaImage: { width: "100%", height: "100%" },
+  videoBadge: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
   removeBtn: {
     position: "absolute",
     top: 8,
     right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(239,68,68,0.95)",
-    alignItems: "center",
-    justifyContent: "center",
   },
-  mediaActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
-    gap: 12,
-  },
-  mediaButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F5F5F5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  spacer: { flex: 1 },
-  visibilityPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#F5F5F5",
-  },
-  visibilityText: { fontSize: 12, color: "#374151", fontWeight: "700" },
-  optionCard: {
+
+  toolbar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
-  optionLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
-  optionIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#F5F5F5",
+  toolbarLeft: { flexDirection: "row", gap: 4 },
+  toolBtn: {
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 20,
   },
-  optionText: { fontSize: 15, fontWeight: "500", color: "#000" },
-  footer: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: "#E8EAF6",
-    gap: 12,
-  },
-  draftButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 28,
-    backgroundColor: "#D1D5F0",
-    alignItems: "center",
-  },
-  draftButtonText: { fontSize: 16, fontWeight: "600", color: "#666" },
-  postButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 28,
-    backgroundColor: "#7C3AED",
-    alignItems: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  postButtonDisabled: {
-    backgroundColor: "#C5CAE9",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  postButtonText: { fontSize: 16, fontWeight: "600", color: "#FFFFFF" },
+  charCount: { fontSize: 14, color: "#9CA3AF", fontWeight: "600" },
+  charCountWarn: { color: "#F59E0B" },
+  charCountOver: { color: "#EF4444" },
 });

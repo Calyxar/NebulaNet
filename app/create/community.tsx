@@ -1,7 +1,9 @@
-// app/create/community.tsx — ✅ FULL Create Community (UI + upload + create + auto-join + route)
+// app/create/community.tsx — REDESIGNED ✅ matches Twitter-style composer
+// ✅ uploadString base64 — Expo Go + Android content:// safe
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
@@ -17,7 +19,7 @@ import {
   getDownloadURL,
   getStorage,
   ref as storageRef,
-  uploadBytes,
+  uploadString,
 } from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
@@ -26,14 +28,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const PickerMedia: any =
+  (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
 function slugify(input: string) {
   return input
@@ -53,11 +58,8 @@ function randomSuffix(len = 5) {
 
 async function ensureUniqueSlug(base: string) {
   const slug = base || `community-${randomSuffix(6)}`;
-
-  // Try a few attempts: slug, slug-xxxxx, slug-yyyyy, ...
   for (let i = 0; i < 6; i++) {
     const attempt = i === 0 ? slug : `${slug}-${randomSuffix(5)}`;
-
     const snap = await getDocs(
       query(
         collection(db, "communities"),
@@ -65,74 +67,70 @@ async function ensureUniqueSlug(base: string) {
         limit(1),
       ),
     );
-
     if (snap.empty) return attempt;
   }
-
   return `${slug}-${Date.now().toString().slice(-5)}`;
 }
 
-async function uploadCommunityImage(userId: string, uri: string) {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("Could not read selected image");
-  const blob = await res.blob();
-
-  const extGuess = uri
-    .split("?")[0]
-    ?.split("#")[0]
-    ?.split(".")
-    .pop()
-    ?.toLowerCase();
+async function uploadCommunityImage(
+  userId: string,
+  uri: string,
+): Promise<string> {
+  const extGuess = uri.split("?")[0]?.split(".").pop()?.toLowerCase();
   const ext = extGuess && extGuess.length <= 5 ? extGuess : "jpg";
-
-  const objectPath = `community/${userId}/${Date.now()}-${randomSuffix(8)}.${ext}`;
+  const path = `community/${userId}/${Date.now()}-${randomSuffix(8)}.${ext}`;
 
   const storage = getStorage();
-  const fileRef = storageRef(storage, objectPath);
-  await uploadBytes(fileRef, blob, { contentType: blob.type || undefined });
-  const publicUrl = await getDownloadURL(fileRef);
-  if (!publicUrl) throw new Error("Could not get download URL for image");
-  return publicUrl;
+  const fileRef = storageRef(storage, path);
+
+  // ✅ Copy content:// URIs first (Android), then upload as base64
+  let readUri = uri;
+  if (uri.startsWith("content://")) {
+    const localPath = `${FileSystemLegacy.cacheDirectory}community-upload-${Date.now()}.${ext}`;
+    await FileSystemLegacy.copyAsync({ from: uri, to: localPath });
+    readUri = localPath;
+  }
+
+  const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
+    encoding: "base64" as any,
+  });
+  await uploadString(fileRef, base64, "base64");
+  return getDownloadURL(fileRef);
 }
 
 export default function CreateCommunityScreen() {
-  const { user } = useAuth();
+  const { profile } = useAuth();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
-
   const [imageUri, setImageUri] = useState<string | null>(null);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canSubmit = useMemo(() => {
-    return name.trim().length >= 3 && !isSubmitting;
-  }, [name, isSubmitting]);
+  const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
+  const canSubmit = useMemo(
+    () => name.trim().length >= 3 && !isSubmitting,
+    [name, isSubmitting],
+  );
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Please allow photo access to pick an image.",
-      );
+      Alert.alert("Permission required", "Please allow photo access.");
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: PickerMedia.Images,
       quality: 0.9,
       allowsEditing: true,
       aspect: [1, 1],
     });
-
     if (result.canceled || !result.assets?.length) return;
     setImageUri(result.assets[0].uri);
   };
 
   const handleCreate = async () => {
-    if (!user?.id) {
+    if (!auth.currentUser) {
       Alert.alert("Not logged in", "Please log in again.");
       return;
     }
@@ -147,115 +145,41 @@ export default function CreateCommunityScreen() {
 
     setIsSubmitting(true);
     try {
-      const baseSlug = slugify(trimmedName);
-      const slug = await ensureUniqueSlug(baseSlug);
+      const slug = await ensureUniqueSlug(slugify(trimmedName));
 
-      // Try upload image (optional). If storage bucket/policy isn’t ready, we just skip.
       let image_url: string | null = null;
       if (imageUri) {
         try {
-          image_url = await uploadCommunityImage(user.id, imageUri);
+          image_url = await uploadCommunityImage(
+            auth.currentUser.uid,
+            imageUri,
+          );
         } catch (e) {
-          console.warn("image upload skipped:", e);
-          image_url = null;
+          console.warn("Image upload skipped:", e);
         }
       }
 
-      // Build insert payload (fallback-safe for optional columns)
-      const payload: any = {
+      const ref = await addDoc(collection(db, "communities"), {
         name: trimmedName,
         slug,
         description: description.trim() || null,
-
-        // you said your DB uses image_url
         image_url,
-
-        // safe defaults
+        is_private: isPrivate,
+        owner_id: auth.currentUser.uid,
         member_count: 1,
-      };
-
-      // optional fields (only if your schema has them)
-      payload.is_private = isPrivate;
-      payload.owner_id = user.id;
-
-      // Insert community
-      let created: { id: string; slug: string } | null = null;
-      let cErr: any = null;
-      try {
-        const ref = await addDoc(collection(db, "communities"), {
-          ...payload,
-          created_at: serverTimestamp(),
-        });
-        created = { id: ref.id, slug: payload.slug };
-      } catch (e) {
-        cErr = e;
-      }
-      if (cErr) {
-        // If error due to missing columns, retry with minimal payload
-        const msg = cErr.message || "";
-        const looksLikeMissingColumn =
-          msg.includes("does not exist") || msg.includes("column");
-
-        if (looksLikeMissingColumn) {
-          const minimal: any = {
-            name: trimmedName,
-            slug,
-            description: description.trim() || null,
-            image_url,
-            member_count: 1,
-          };
-
-          const retryRef = await addDoc(collection(db, "communities"), {
-            ...minimal,
-            created_at: serverTimestamp(),
-          });
-          const commId = retryRef.id;
-          const commSlug = minimal.slug as string;
-          await addDoc(collection(db, "community_members"), {
-            community_id: commId,
-            user_id: auth.currentUser!.uid,
-            joined_at: serverTimestamp(),
-          });
-          await addDoc(collection(db, "community_moderators"), {
-            community_id: commId,
-            user_id: auth.currentUser!.uid,
-            created_at: serverTimestamp(),
-          });
-
-          Alert.alert("Success", "Community created!", [
-            {
-              text: "OK",
-              onPress: () => router.replace(`/community/${commSlug}`),
-            },
-          ]);
-          return;
-        }
-
-        throw cErr;
-      }
-
-      if (!created?.id || !created?.slug)
-        throw new Error("Failed to create community");
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
 
       await addDoc(collection(db, "community_members"), {
-        community_id: created.id,
-        user_id: auth.currentUser!.uid,
+        community_id: ref.id,
+        user_id: auth.currentUser.uid,
+        role: "owner",
         joined_at: serverTimestamp(),
       });
-      await addDoc(collection(db, "community_moderators"), {
-        community_id: created.id,
-        user_id: auth.currentUser!.uid,
-        created_at: serverTimestamp(),
-      });
 
-      Alert.alert("Success", "Community created!", [
-        {
-          text: "OK",
-          onPress: () => router.replace(`/community/${created.slug}`),
-        },
-      ]);
+      router.replace(`/community/${slug}` as any);
     } catch (e: any) {
-      console.error(e);
       Alert.alert("Error", e?.message || "Failed to create community.");
     } finally {
       setIsSubmitting(false);
@@ -263,112 +187,201 @@ export default function CreateCommunityScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1 }}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
-
-          <Text style={styles.headerTitle}>Create Community</Text>
-
-          <View style={{ width: 40 }} />
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          {/* Image */}
-          <View style={styles.card}>
-            <Text style={styles.label}>Community image (optional)</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.cancelBtn}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.imagePicker}
-              onPress={pickImage}
-              activeOpacity={0.85}
+              style={[styles.postBtn, !canSubmit && styles.postBtnDisabled]}
+              onPress={handleCreate}
+              disabled={!canSubmit}
             >
-              {imageUri ? (
-                <Image source={{ uri: imageUri }} style={styles.image} />
-              ) : (
-                <View style={styles.imageEmpty}>
-                  <Ionicons name="image-outline" size={26} color="#6B7280" />
-                  <Text style={styles.imageEmptyText}>Tap to add an image</Text>
-                </View>
-              )}
+              <Text style={styles.postBtnText}>
+                {isSubmitting ? "Creating..." : "Create"}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Name + Desc */}
-          <View style={styles.card}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Nebula Gamers"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              maxLength={50}
-            />
-
-            <Text style={[styles.label, { marginTop: 14 }]}>
-              Description (optional)
-            </Text>
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder="What is this community about?"
-              placeholderTextColor="#9CA3AF"
-              style={[styles.input, styles.textarea]}
-              multiline
-              textAlignVertical="top"
-              maxLength={200}
-            />
-          </View>
-
-          {/* Privacy */}
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.privacyTitle}>Private community</Text>
-                <Text style={styles.privacySub}>
-                  Private communities are visible, but content is locked until a
-                  user joins.
-                </Text>
-              </View>
-              <Switch value={isPrivate} onValueChange={setIsPrivate} />
-            </View>
-          </View>
-
-          {/* Submit */}
-          <TouchableOpacity
-            disabled={!canSubmit}
-            onPress={handleCreate}
-            style={[styles.primaryBtn, !canSubmit && styles.primaryBtnDisabled]}
-            activeOpacity={0.9}
+          <ScrollView
+            style={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.primaryBtnText}>
-              {isSubmitting ? "Creating..." : "Create Community"}
-            </Text>
-          </TouchableOpacity>
+            {/* Composer row */}
+            <View style={styles.composerRow}>
+              {/* Avatar */}
+              <View style={styles.avatarCol}>
+                {profile?.avatar_url ? (
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarLetter}>{avatarLetter}</Text>
+                  </View>
+                )}
+                <View style={styles.avatarLine} />
+              </View>
 
-          <Text style={styles.helper}>
-            By creating a community, you’ll be the first member and moderator.
-          </Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              {/* Name + description */}
+              <View style={styles.inputCol}>
+                <TextInput
+                  style={styles.nameInput}
+                  placeholder="Community name"
+                  placeholderTextColor="#9CA3AF"
+                  value={name}
+                  onChangeText={setName}
+                  autoFocus
+                  maxLength={50}
+                />
+                <TextInput
+                  style={styles.descInput}
+                  placeholder="What is this community about? (optional)"
+                  placeholderTextColor="#9CA3AF"
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  maxLength={200}
+                />
+                {name.trim().length > 0 && (
+                  <Text style={styles.slugPreview}>
+                    nebulanet.space/community/{slugify(name)}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            {/* Settings section */}
+            <View style={styles.settingsSection}>
+              <View style={styles.avatarColSpacer} />
+              <View style={styles.settingsCol}>
+                {/* Community image */}
+                <Text style={styles.sectionLabel}>Community image</Text>
+                <TouchableOpacity
+                  style={styles.imagePicker}
+                  onPress={pickImage}
+                  activeOpacity={0.8}
+                >
+                  {imageUri ? (
+                    <>
+                      <Image
+                        source={{ uri: imageUri }}
+                        style={styles.imagePreview}
+                      />
+                      <View style={styles.imageOverlay}>
+                        <Ionicons name="camera" size={20} color="#fff" />
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.imagePlaceholder}>
+                      <Ionicons
+                        name="image-outline"
+                        size={24}
+                        color="#7C3AED"
+                      />
+                      <Text style={styles.imagePlaceholderText}>Add image</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Privacy */}
+                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>
+                  Privacy
+                </Text>
+                <View style={styles.settingsCard}>
+                  <TouchableOpacity
+                    style={styles.settingRow}
+                    onPress={() => setIsPrivate(false)}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.settingIconWrap,
+                        { backgroundColor: "#EDE9FE" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="earth-outline"
+                        size={18}
+                        color="#7C3AED"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.settingTitle}>Public</Text>
+                      <Text style={styles.settingSubtitle}>
+                        Anyone can see and join
+                      </Text>
+                    </View>
+                    {!isPrivate && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={22}
+                        color="#7C3AED"
+                      />
+                    )}
+                  </TouchableOpacity>
+
+                  <View style={styles.divider} />
+
+                  <TouchableOpacity
+                    style={styles.settingRow}
+                    onPress={() => setIsPrivate(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.settingIconWrap,
+                        { backgroundColor: "#F3F4F6" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={18}
+                        color="#6B7280"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.settingTitle}>Private</Text>
+                      <Text style={styles.settingSubtitle}>
+                        Content locked until user joins
+                      </Text>
+                    </View>
+                    {isPrivate && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={22}
+                        color="#7C3AED"
+                      />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.helperText}>
+                  You'll be the first member and moderator.
+                </Text>
+
+                <View style={{ height: 32 }} />
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </>
   );
 }
-
-/* ---------------- styles ---------------- */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
@@ -377,71 +390,147 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEF2F7",
+    borderBottomColor: "#F3F4F6",
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4 },
+  cancelText: { fontSize: 16, color: "#374151", fontWeight: "500" },
+  postBtn: {
+    backgroundColor: "#7C3AED",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  postBtnDisabled: { backgroundColor: "#C4B5FD" },
+  postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
+  scroll: { flex: 1 },
+
+  composerRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 12,
+  },
+  avatarCol: { alignItems: "center" },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-
-  content: { padding: 16, paddingBottom: 28, gap: 12 },
-
-  card: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
-    padding: 14,
-    backgroundColor: "#fff",
+  avatarLetter: { color: "#fff", fontWeight: "700", fontSize: 18 },
+  avatarLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 20,
+    backgroundColor: "#E5E7EB",
+    marginTop: 8,
+    borderRadius: 1,
   },
 
-  label: { fontSize: 12, fontWeight: "900", color: "#111827", marginBottom: 8 },
+  inputCol: { flex: 1, paddingBottom: 8 },
+  nameInput: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    paddingTop: 0,
+    marginBottom: 8,
+  },
+  descInput: {
+    fontSize: 15,
+    color: "#374151",
+    lineHeight: 22,
+    minHeight: 60,
+    paddingTop: 0,
+  },
+  slugPreview: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    marginTop: 6,
+    fontWeight: "500",
+  },
+
+  settingsSection: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingTop: 8,
+  },
+  avatarColSpacer: { width: 44 },
+  settingsCol: { flex: 1 },
+
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+    marginBottom: 10,
+  },
 
   imagePicker: {
-    width: "100%",
-    aspectRatio: 1,
-    borderRadius: 14,
+    width: 80,
+    height: 80,
+    borderRadius: 20,
     overflow: "hidden",
     backgroundColor: "#F3F4F6",
+    position: "relative",
+  },
+  imagePreview: { width: "100%", height: "100%" },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
     alignItems: "center",
     justifyContent: "center",
   },
-  image: { width: "100%", height: "100%" },
-  imageEmpty: { alignItems: "center", justifyContent: "center", gap: 8 },
-  imageEmptyText: { color: "#6B7280", fontWeight: "700" },
-
-  input: {
+  imagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: "#111827",
-    backgroundColor: "#fff",
+    borderStyle: "dashed",
+    borderRadius: 20,
   },
-  textarea: { minHeight: 110 },
+  imagePlaceholderText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#7C3AED",
+  },
 
-  row: { flexDirection: "row", alignItems: "center", gap: 12 },
-  privacyTitle: { fontWeight: "900", color: "#111827" },
-  privacySub: { marginTop: 4, color: "#6B7280", fontSize: 12, lineHeight: 16 },
-
-  primaryBtn: {
-    marginTop: 6,
-    backgroundColor: "#7C3AED",
+  settingsCard: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
+    overflow: "hidden",
   },
-  primaryBtnDisabled: { backgroundColor: "#C4B5FD" },
-  primaryBtnText: { color: "#fff", fontWeight: "900", fontSize: 15 },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+  },
+  settingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  settingSubtitle: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
+  divider: { height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 14 },
 
-  helper: { textAlign: "center", color: "#6B7280", fontSize: 12, marginTop: 6 },
+  helperText: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    marginTop: 12,
+    lineHeight: 16,
+  },
 });

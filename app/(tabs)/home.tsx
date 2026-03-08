@@ -1,12 +1,4 @@
 // app/(tabs)/home.tsx — COMPLETED + UPDATED ✅
-// ✅ Stories grouped by user (one bubble per user)
-// ✅ "My Communities" row ONLY appears when activeTab === "my-community"
-// ✅ Community search by name (filters your joined/owned communities)
-// ✅ My Community feed uses joined/owned communityIds (via useCommunities)
-// ✅ For You includes your own posts automatically (RLS) — no filtering needed
-// ✅ FIX: Community image field uses image_url (not avatar_url)
-// ✅ FIX: PollCard rendered inline for post_type === "poll"
-
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
@@ -33,6 +25,7 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -73,8 +66,7 @@ const isVideoUrl = (url?: string | null) => {
 const isVideoPost = (post: any) => {
   if (post?.post_type === "video") return true;
   if (post?.post_type === "mixed") return true;
-  const first = post?.media_urls?.[0];
-  return isVideoUrl(first);
+  return isVideoUrl(post?.media_urls?.[0]);
 };
 
 export default function HomeScreen() {
@@ -96,7 +88,6 @@ export default function HomeScreen() {
   const [communitySearch, setCommunitySearch] = useState("");
 
   const unreadCount = useUnreadNotificationsCount();
-
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
 
@@ -120,7 +111,6 @@ export default function HomeScreen() {
 
   const openPost = (postId: string) => router.push(`/post/${postId}` as any);
 
-  // ✅ GROUP STORIES BY USER so each user appears once
   const stories = useMemo(() => {
     const list = storiesRaw ?? [];
     const map = new Map<string, any>();
@@ -315,7 +305,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* My Communities row (ONLY in My Community tab) */}
+        {/* My Communities row */}
         {activeTab === "my-community" && (
           <View
             style={[
@@ -417,7 +407,7 @@ export default function HomeScreen() {
                 }}
               >
                 <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
-                  No communities match &quot;{communitySearch.trim()}&quot;.
+                  No communities match "{communitySearch.trim()}".
                 </Text>
               </View>
             )}
@@ -455,7 +445,6 @@ export default function HomeScreen() {
             },
           ]}
         >
-          {/* ── Card header ── */}
           <View style={styles.cardTop}>
             <TouchableOpacity
               style={styles.authorRow}
@@ -507,10 +496,8 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── Poll ── */}
           {isPoll ? (
             <>
-              {/* Question as title */}
               {!!item.title && (
                 <Text
                   style={[styles.pollQuestion, { color: colors.text }]}
@@ -519,7 +506,6 @@ export default function HomeScreen() {
                   {item.title}
                 </Text>
               )}
-              {/* ✅ Interactive PollCard — users vote directly from feed */}
               <PollCard
                 postId={item.id}
                 poll={(item as any).poll}
@@ -532,7 +518,6 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
-              {/* ── Regular post content ── */}
               {!!item.content && (
                 <Text
                   style={[styles.content, { color: colors.text }]}
@@ -554,7 +539,6 @@ export default function HomeScreen() {
                     style={styles.media}
                     resizeMode="cover"
                   />
-
                   {video && (
                     <>
                       <View
@@ -570,7 +554,6 @@ export default function HomeScreen() {
                         <Ionicons name="videocam" size={14} color="#fff" />
                         <Text style={styles.videoBadgeText}>Video</Text>
                       </View>
-
                       <View
                         style={[
                           styles.playOverlay,
@@ -591,7 +574,6 @@ export default function HomeScreen() {
             </>
           )}
 
-          {/* ── Actions ── */}
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -665,6 +647,7 @@ export default function HomeScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -677,6 +660,7 @@ export default function HomeScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={["left", "right"]}
     >
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <FlatList
         data={posts}
         keyExtractor={(item) => item.id}
@@ -890,14 +874,12 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20 },
   author: { fontSize: 14, fontWeight: "900" },
   time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
-
   pollQuestion: {
     fontSize: 16,
     fontWeight: "800",
     lineHeight: 22,
     marginBottom: 4,
   },
-
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
 
   mediaWrap: {
@@ -908,7 +890,6 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   media: { width: "100%", height: "100%" },
-
   videoBadge: {
     position: "absolute",
     top: 10,
@@ -921,7 +902,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   videoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-
   playOverlay: {
     position: "absolute",
     top: "50%",
