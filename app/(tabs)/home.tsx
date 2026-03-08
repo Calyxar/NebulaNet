@@ -5,9 +5,11 @@
 // ✅ My Community feed uses joined/owned communityIds (via useCommunities)
 // ✅ For You includes your own posts automatically (RLS) — no filtering needed
 // ✅ FIX: Community image field uses image_url (not avatar_url)
+// ✅ FIX: PollCard rendered inline for post_type === "poll"
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import PollCard from "@/components/post/PollCard";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
@@ -98,7 +100,6 @@ export default function HomeScreen() {
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
 
-  // ✅ Feed (My Community uses ids)
   const {
     data,
     fetchNextPage,
@@ -123,12 +124,9 @@ export default function HomeScreen() {
   const stories = useMemo(() => {
     const list = storiesRaw ?? [];
     const map = new Map<string, any>();
-
     for (const s of list) {
       const uid = s.user_id;
       const existing = map.get(uid);
-
-      // choose newest story per user
       if (!existing) map.set(uid, s);
       else {
         const a = new Date(existing.created_at).getTime();
@@ -136,14 +134,12 @@ export default function HomeScreen() {
         if (b > a) map.set(uid, s);
       }
     }
-
     return Array.from(map.values()).sort(
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
   }, [storiesRaw]);
 
-  // ✅ filter joined communities by name
   const filteredCommunities = useMemo(() => {
     const q = communitySearch.trim().toLowerCase();
     if (!q) return myCommunities;
@@ -200,7 +196,7 @@ export default function HomeScreen() {
           }
         />
 
-        {/* ✅ Stories (one bubble per user) */}
+        {/* Stories */}
         <View
           style={[styles.storiesWrap, { backgroundColor: colors.background }]}
         >
@@ -273,7 +269,6 @@ export default function HomeScreen() {
                       </Text>
                     </View>
                   )}
-
                   <Text
                     style={[styles.storyLabel, { color: colors.text }]}
                     numberOfLines={1}
@@ -286,7 +281,7 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* ✅ Segments */}
+        {/* Segments */}
         <View
           style={[styles.segmentWrap, { backgroundColor: colors.background }]}
         >
@@ -320,7 +315,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ✅ My Communities row (ONLY in My Community tab) */}
+        {/* My Communities row (ONLY in My Community tab) */}
         {activeTab === "my-community" && (
           <View
             style={[
@@ -382,7 +377,6 @@ export default function HomeScreen() {
                     }
                     activeOpacity={0.85}
                   >
-                    {/* ✅ use image_url */}
                     {item.image_url ? (
                       <Image
                         source={{ uri: item.image_url }}
@@ -405,7 +399,6 @@ export default function HomeScreen() {
                         </Text>
                       </View>
                     )}
-
                     <Text
                       style={[styles.communityName, { color: colors.text }]}
                       numberOfLines={1}
@@ -424,7 +417,7 @@ export default function HomeScreen() {
                 }}
               >
                 <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
-                  No communities match “{communitySearch.trim()}”.
+                  No communities match &quot;{communitySearch.trim()}&quot;.
                 </Text>
               </View>
             )}
@@ -448,11 +441,12 @@ export default function HomeScreen() {
       const avatar = item.user?.avatar_url;
       const media = item.media_urls?.[0];
       const video = isVideoPost(item);
+      const isPoll = item.post_type === "poll" && !!(item as any).poll;
 
       return (
         <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={() => openPost(item.id)}
+          activeOpacity={isPoll ? 1 : 0.92}
+          onPress={() => !isPoll && openPost(item.id)}
           style={[
             styles.card,
             {
@@ -461,8 +455,16 @@ export default function HomeScreen() {
             },
           ]}
         >
+          {/* ── Card header ── */}
           <View style={styles.cardTop}>
-            <View style={styles.authorRow}>
+            <TouchableOpacity
+              style={styles.authorRow}
+              onPress={() =>
+                item.user?.username &&
+                router.push(`/user/${item.user.username}` as any)
+              }
+              activeOpacity={0.85}
+            >
               {avatar ? (
                 <Image source={{ uri: avatar }} style={styles.avatar} />
               ) : (
@@ -487,7 +489,6 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               )}
-
               <View>
                 <Text style={[styles.author, { color: colors.text }]}>
                   {author}
@@ -496,7 +497,7 @@ export default function HomeScreen() {
                   {timeAgo(item.created_at)}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.7}
@@ -506,62 +507,91 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {!!item.content && (
-            <Text
-              style={[styles.content, { color: colors.text }]}
-              numberOfLines={6}
-            >
-              {item.content}
-            </Text>
-          )}
-
-          {!!media && (
-            <View
-              style={[
-                styles.mediaWrap,
-                { height: mediaHeight, backgroundColor: colors.surface },
-              ]}
-            >
-              <Image
-                source={{ uri: media }}
-                style={styles.media}
-                resizeMode="cover"
-              />
-
-              {video && (
-                <>
-                  <View
-                    style={[
-                      styles.videoBadge,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(0,0,0,0.55)"
-                          : "rgba(0,0,0,0.45)",
-                      },
-                    ]}
-                  >
-                    <Ionicons name="videocam" size={14} color="#fff" />
-                    <Text style={styles.videoBadgeText}>Video</Text>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.playOverlay,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(0,0,0,0.45)"
-                          : "rgba(0,0,0,0.35)",
-                        borderColor: "rgba(255,255,255,0.35)",
-                      },
-                    ]}
-                  >
-                    <Ionicons name="play" size={28} color="#fff" />
-                  </View>
-                </>
+          {/* ── Poll ── */}
+          {isPoll ? (
+            <>
+              {/* Question as title */}
+              {!!item.title && (
+                <Text
+                  style={[styles.pollQuestion, { color: colors.text }]}
+                  numberOfLines={3}
+                >
+                  {item.title}
+                </Text>
               )}
-            </View>
+              {/* ✅ Interactive PollCard — users vote directly from feed */}
+              <PollCard
+                postId={item.id}
+                poll={(item as any).poll}
+                accentColor={colors.primary}
+                textColor={colors.text}
+                subColor={colors.textTertiary}
+                cardBg={colors.surface}
+                borderColor={colors.border}
+              />
+            </>
+          ) : (
+            <>
+              {/* ── Regular post content ── */}
+              {!!item.content && (
+                <Text
+                  style={[styles.content, { color: colors.text }]}
+                  numberOfLines={6}
+                >
+                  {item.content}
+                </Text>
+              )}
+
+              {!!media && (
+                <View
+                  style={[
+                    styles.mediaWrap,
+                    { height: mediaHeight, backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Image
+                    source={{ uri: media }}
+                    style={styles.media}
+                    resizeMode="cover"
+                  />
+
+                  {video && (
+                    <>
+                      <View
+                        style={[
+                          styles.videoBadge,
+                          {
+                            backgroundColor: isDark
+                              ? "rgba(0,0,0,0.55)"
+                              : "rgba(0,0,0,0.45)",
+                          },
+                        ]}
+                      >
+                        <Ionicons name="videocam" size={14} color="#fff" />
+                        <Text style={styles.videoBadgeText}>Video</Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.playOverlay,
+                          {
+                            backgroundColor: isDark
+                              ? "rgba(0,0,0,0.45)"
+                              : "rgba(0,0,0,0.35)",
+                            borderColor: "rgba(255,255,255,0.35)",
+                          },
+                        ]}
+                      >
+                        <Ionicons name="play" size={28} color="#fff" />
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+            </>
           )}
 
+          {/* ── Actions ── */}
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -785,7 +815,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   segBtn: {
     flex: 1,
     height: 38,
@@ -824,7 +853,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   communityPill: { alignItems: "center", marginRight: 12, width: 86 },
   communityAvatar: {
     width: 46,
@@ -862,6 +890,13 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20 },
   author: { fontSize: 14, fontWeight: "900" },
   time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
+
+  pollQuestion: {
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+    marginBottom: 4,
+  },
 
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
 

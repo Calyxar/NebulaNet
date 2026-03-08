@@ -18,7 +18,7 @@ import {
   type Post,
   type PostFilters,
   type UpdatePostData,
-} from "@/lib/queries/posts";
+} from "@/lib/firestore/posts";
 
 import {
   useInfiniteQuery,

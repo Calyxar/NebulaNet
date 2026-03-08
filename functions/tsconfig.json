@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "target": "es2017",
-    "lib": ["es2017"],
-    "moduleResolution": "node",
-    "rootDir": "src",
+    "target": "es2022",
+    "lib": ["es2022"],
     "outDir": "lib",
+    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "types": ["node"]
   },
   "include": ["src"],
-  "exclude": ["../app", "../hooks", "../lib", "../components"]
+  "exclude": ["node_modules"]
 }
