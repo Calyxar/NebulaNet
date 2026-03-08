@@ -142,7 +142,8 @@
       ],
       "@react-native-google-signin/google-signin",
       "expo-localization",
-      "expo-build-properties"
+      "expo-build-properties",
+      "@react-native-firebase/app-check"
     ],
     "extra": {
       "eas": {

@@ -1,6 +1,11 @@
-// components/post/PostCard.tsx — UPDATED (tap-to-open + ActionSheet + Android-safe menu + tappable hashtags)
+// components/post/PostCard.tsx — UPDATED ✅
+// ✅ Tappable hashtags via HashtagText
+// ✅ PollCard rendered inline when post_type === "poll"
+// ✅ ActionSheet + Android-safe menu
 import HashtagText from "@/components/post/HashtagText";
+import PollCard from "@/components/post/PollCard";
 import Avatar from "@/components/user/Avatar";
+import { type PollData } from "@/lib/firestore/polls";
 import {
   copyLink,
   generatePostLink,
@@ -25,6 +30,8 @@ interface PostCardProps {
   id: string;
   title?: string;
   content: string;
+  post_type?: "text" | "poll" | "image" | "video" | string;
+  poll?: PollData;
   author: {
     id: string;
     name: string;
@@ -46,19 +53,11 @@ interface PostCardProps {
   media?: string[];
   viewCount?: number;
 
-  /* interactions */
   onLikePress?: () => void | Promise<void>;
   onCommentPress?: () => void;
   onSharePress?: () => void | Promise<void>;
   onSavePress?: () => void | Promise<void>;
-
-  /**
-   * Optional: allow parent to ADD actions (not replace).
-   * Return extra Alert-like buttons to append.
-   */
   getMoreActions?: () => AlertButton[];
-
-  /* analytics */
   onVisible?: () => void;
 }
 
@@ -67,6 +66,8 @@ export default function PostCard(props: PostCardProps) {
     id,
     title,
     content,
+    post_type,
+    poll,
     author,
     community,
     timestamp,
@@ -86,10 +87,8 @@ export default function PostCard(props: PostCardProps) {
   } = props;
 
   const { showActionSheetWithOptions } = useActionSheet();
-
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
-
   const hasTrackedView = useRef(false);
 
   useEffect(() => {
@@ -99,14 +98,13 @@ export default function PostCard(props: PostCardProps) {
     }
   }, [onVisible]);
 
-  const openPost = () => {
-    router.push(`/post/${id}` as any);
-  };
+  const isPoll = post_type === "poll" && !!poll;
+
+  const openPost = () => router.push(`/post/${id}` as any);
 
   const handleLike = async () => {
     await onLikePress?.();
   };
-
   const handleSave = async () => {
     await onSavePress?.();
   };
@@ -137,27 +135,24 @@ export default function PostCard(props: PostCardProps) {
     }
   };
 
-  const handleBoost = () => {
-    router.push(`/boost/${id}` as any);
-  };
-
   const handleCopyLink = async () => {
     const link = generatePostLink(id);
     await copyLink(link, "Post link");
     await onSharePress?.();
   };
 
-  const handleReport = () => {
-    Alert.alert("Report", "Reporting will be available soon.");
-  };
-
   const handleMoreOptions = () => {
     const baseButtons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
-      { text: "Boost Post", onPress: handleBoost },
+      { text: "Boost Post", onPress: () => router.push(`/boost/${id}` as any) },
       { text: "Share to Chat", onPress: () => void handleShareToChat() },
       { text: "Copy Link", onPress: () => void handleCopyLink() },
-      { text: "Report Post", style: "destructive", onPress: handleReport },
+      {
+        text: "Report Post",
+        style: "destructive",
+        onPress: () =>
+          Alert.alert("Report", "Reporting will be available soon."),
+      },
     ];
 
     const extraButtons = getMoreActions?.() ?? [];
@@ -167,27 +162,29 @@ export default function PostCard(props: PostCardProps) {
     const destructiveIndex = allButtons.findIndex(
       (b) => b.style === "destructive",
     );
-    const destructiveButtonIndex =
-      destructiveIndex >= 0 ? destructiveIndex : undefined;
 
     showActionSheetWithOptions(
-      { options, cancelButtonIndex, destructiveButtonIndex },
+      {
+        options,
+        cancelButtonIndex,
+        destructiveButtonIndex:
+          destructiveIndex >= 0 ? destructiveIndex : undefined,
+      },
       (selectedIndex) => {
-        if (selectedIndex == null) return;
-        if (selectedIndex === cancelButtonIndex) return;
-        const btn = allButtons[selectedIndex];
-        btn?.onPress?.();
+        if (selectedIndex == null || selectedIndex === cancelButtonIndex)
+          return;
+        allButtons[selectedIndex]?.onPress?.();
       },
     );
   };
 
-  const isTruncated = content.length > 150;
+  const isTruncated = !isPoll && content.length > 150;
   const displayContent =
     expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
   return (
     <Pressable onPress={openPost} style={styles.container}>
-      {/* Header */}
+      {/* ── Header ── */}
       <View style={styles.header}>
         <Link href={`/user/${author.username}`} asChild>
           <TouchableOpacity
@@ -222,47 +219,66 @@ export default function PostCard(props: PostCardProps) {
         </View>
       </View>
 
-      {/* Content */}
+      {/* ── Content ── */}
       <View style={styles.content}>
-        {title && <Text style={styles.title}>{title}</Text>}
+        {isPoll ? (
+          <>
+            {/* Poll: question as bold header, then interactive PollCard */}
+            <Text style={styles.pollQuestion} numberOfLines={3}>
+              {title || content}
+            </Text>
+            <PollCard
+              postId={id}
+              poll={poll}
+              accentColor="#6366F1"
+              textColor="#111827"
+              subColor="#6B7280"
+              cardBg="#F9FAFB"
+              borderColor="#E5E7EB"
+            />
+          </>
+        ) : (
+          <>
+            {title && <Text style={styles.title}>{title}</Text>}
 
-        {/* ✅ HashtagText renders #tags as tappable links */}
-        <HashtagText
-          text={displayContent}
-          style={styles.text}
-          onPress={openPost}
-        />
+            <HashtagText
+              text={displayContent}
+              style={styles.text}
+              onPress={openPost}
+            />
 
-        {isTruncated && (
-          <Text
-            style={styles.readMore}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              setExpanded((v) => !v);
-            }}
-          >
-            {expanded ? " Show less" : " Read more"}
-          </Text>
-        )}
-
-        {media && media.length > 0 && (
-          <View style={styles.mediaContainer}>
-            <View style={styles.mediaPreview}>
-              <Ionicons name="image-outline" size={40} color="#999" />
-              <Text style={styles.mediaText}>
-                {media.length} {media.length === 1 ? "photo" : "photos"}
+            {isTruncated && (
+              <Text
+                style={styles.readMore}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setExpanded((v) => !v);
+                }}
+              >
+                {expanded ? " Show less" : " Read more"}
               </Text>
-            </View>
-          </View>
+            )}
+
+            {media && media.length > 0 && (
+              <View style={styles.mediaContainer}>
+                <View style={styles.mediaPreview}>
+                  <Ionicons name="image-outline" size={40} color="#999" />
+                  <Text style={styles.mediaText}>
+                    {media.length} {media.length === 1 ? "photo" : "photos"}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </>
         )}
       </View>
 
-      {/* Views */}
+      {/* ── Views ── */}
       {typeof viewCount === "number" && (
         <Text style={styles.viewCount}>{viewCount.toLocaleString()} views</Text>
       )}
 
-      {/* Stats */}
+      {/* ── Stats ── */}
       <View style={styles.stats}>
         <Stat icon="heart" value={likes} label="like" color="#ff375f" />
         <Stat icon="chatbubble-outline" value={comments} label="comment" />
@@ -270,7 +286,7 @@ export default function PostCard(props: PostCardProps) {
         <Stat icon="bookmark-outline" value={saves} label="save" />
       </View>
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <View style={styles.actions}>
         <Action
           icon={isLiked ? "heart" : "heart-outline"}
@@ -278,11 +294,7 @@ export default function PostCard(props: PostCardProps) {
           color={isLiked ? "#ff375f" : "#666"}
           onPress={handleLike}
         />
-        <Action
-          icon="chatbubble-outline"
-          label="Comment"
-          onPress={() => openPost()}
-        />
+        <Action icon="chatbubble-outline" label="Comment" onPress={openPost} />
         <Action
           icon={isSharing ? "sync" : "arrow-redo-outline"}
           label="Share"
@@ -299,6 +311,10 @@ export default function PostCard(props: PostCardProps) {
     </Pressable>
   );
 }
+
+/* ─────────────────────────────────────────
+   SUB-COMPONENTS
+───────────────────────────────────────── */
 
 function Stat({
   icon,
@@ -352,6 +368,10 @@ function Action({
   );
 }
 
+/* ─────────────────────────────────────────
+   STYLES
+───────────────────────────────────────── */
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: "#fff",
@@ -375,6 +395,13 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: 12, color: "#666" },
   moreButton: { padding: 4 },
   content: { marginBottom: 12 },
+  pollQuestion: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+    lineHeight: 23,
+  },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500", marginTop: 4 },

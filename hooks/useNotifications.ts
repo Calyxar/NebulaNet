@@ -1,9 +1,14 @@
-// hooks/useNotifications.ts — FIREBASE ✅
+// hooks/useNotifications.ts — FIREBASE ✅ FIXED
+// ✅ onSnapshot no longer fires spurious sound/push on mount (initialised ref)
+// ✅ unreadCount derived from notifications list — can't drift out of sync
+// ✅ Real-time listener re-attaches when auth state changes (onAuthStateChanged)
+// ✅ markAsRead(undefined) = mark all; markAsRead(id) = mark one
 
 import { auth, db } from "@/lib/firebase";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Audio } from "expo-av";
 import * as Notifications from "expo-notifications";
+import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
   deleteDoc,
@@ -17,8 +22,12 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
+
+/* ─────────────────────────────────────────
+   TYPE
+───────────────────────────────────────── */
 
 export interface Notification {
   id: string;
@@ -54,6 +63,10 @@ export interface Notification {
   story?: { id: string; content: string | null };
 }
 
+/* ─────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────── */
+
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts instanceof Timestamp) return ts.toDate().toISOString();
@@ -70,8 +83,18 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/* ─────────────────────────────────────────
+   HOOK
+───────────────────────────────────────── */
+
 export function useNotifications() {
   const queryClient = useQueryClient();
+
+  // ✅ Tracks whether the real-time listener has finished its initial snapshot.
+  // We skip sound + push for any docs present when the listener first attaches.
+  const initialisedRef = useRef(false);
+
+  /* ── Sound ── */
 
   const playNotificationSound = useCallback(async () => {
     try {
@@ -91,7 +114,7 @@ export function useNotifications() {
           content: {
             title,
             body,
-            data: data || {},
+            data: data ?? {},
             sound: "notification.wav",
             badge: 1,
           },
@@ -104,6 +127,8 @@ export function useNotifications() {
     },
     [playNotificationSound],
   );
+
+  /* ── Permission + Android channel ── */
 
   useEffect(() => {
     const init = async () => {
@@ -127,6 +152,8 @@ export function useNotifications() {
     };
     init();
   }, []);
+
+  /* ── Fetch (polling fallback) ── */
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -152,9 +179,78 @@ export function useNotifications() {
         } as Notification;
       });
     },
-    refetchInterval: 30000,
+    refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  // ✅ Derived — never drifts out of sync with the list
+  const unreadCount = (notificationsQuery.data ?? []).filter(
+    (n) => !n.read,
+  ).length;
+
+  /* ── Real-time listener ──
+     ✅ Re-attaches whenever auth state changes (handles late sign-in)
+     ✅ Skips the initial snapshot so existing docs don't trigger sound/push
+  ─────────────────────────────────────────────────────────────────────── */
+
+  useEffect(() => {
+    let unsubSnapshot: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      // Clean up any previous listener first
+      unsubSnapshot?.();
+      unsubSnapshot = null;
+      initialisedRef.current = false;
+
+      if (!user) return;
+
+      const q = query(
+        collection(db, "notifications"),
+        where("receiver_id", "==", user.uid),
+        orderBy("created_at", "desc"),
+        limit(1),
+      );
+
+      unsubSnapshot = onSnapshot(q, (snap) => {
+        // ✅ First snapshot = existing data — mark as initialised and skip
+        if (!initialisedRef.current) {
+          initialisedRef.current = true;
+          return;
+        }
+
+        snap.docChanges().forEach(async (change) => {
+          if (change.type === "added") {
+            const data = change.doc.data() as any;
+            const notification: Notification = {
+              id: change.doc.id,
+              ...data,
+              created_at: tsToIso(data.created_at),
+            };
+
+            await showLocalNotification(
+              getNotificationTitle(notification),
+              getNotificationBody(notification),
+              { notificationId: notification.id, type: notification.type },
+            );
+
+            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          }
+
+          if (change.type === "modified" || change.type === "removed") {
+            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          }
+        });
+      });
+    });
+
+    return () => {
+      unsubAuth();
+      unsubSnapshot?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, showLocalNotification]);
+
+  /* ── Mutations ── */
 
   const markAsRead = useMutation({
     mutationFn: async (notificationId?: string) => {
@@ -166,6 +262,7 @@ export function useNotifications() {
           read: true,
         });
       } else {
+        // Mark all unread
         const snap = await getDocs(
           query(
             collection(db, "notifications"),
@@ -180,7 +277,6 @@ export function useNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
       Notifications.setBadgeCountAsync(0);
     },
   });
@@ -191,7 +287,6 @@ export function useNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
     },
   });
 
@@ -204,74 +299,18 @@ export function useNotifications() {
         query(
           collection(db, "notifications"),
           where("receiver_id", "==", user.uid),
+          limit(200), // safety cap — call multiple times for very large sets
         ),
       );
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications", "unread"] });
       Notifications.setBadgeCountAsync(0);
     },
   });
 
-  const unreadCountQuery = useQuery({
-    queryKey: ["notifications", "unread"],
-    queryFn: async () => {
-      const user = auth.currentUser;
-      if (!user) return 0;
-
-      const snap = await getDocs(
-        query(
-          collection(db, "notifications"),
-          where("receiver_id", "==", user.uid),
-          where("read", "==", false),
-        ),
-      );
-      return snap.size;
-    },
-    refetchInterval: 30000,
-  });
-
-  // Real-time subscription (replaces Supabase postgres_changes)
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const q = query(
-      collection(db, "notifications"),
-      where("receiver_id", "==", user.uid),
-      orderBy("created_at", "desc"),
-      limit(1),
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach(async (change) => {
-        if (change.type === "added") {
-          const data = change.doc.data() as any;
-          const notification = { id: change.doc.id, ...data } as Notification;
-          await playNotificationSound();
-          await showLocalNotification(
-            getNotificationTitle(notification),
-            getNotificationBody(notification),
-            { notificationId: notification.id, type: notification.type },
-          );
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
-          queryClient.invalidateQueries({
-            queryKey: ["notifications", "unread"],
-          });
-        }
-        if (change.type === "modified" || change.type === "removed") {
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
-          queryClient.invalidateQueries({
-            queryKey: ["notifications", "unread"],
-          });
-        }
-      });
-    });
-
-    return () => unsub();
-  }, [queryClient, playNotificationSound, showLocalNotification]);
+  /* ── Display helpers ── */
 
   const getNotificationTitle = useCallback(
     (notification: Notification): string => {
@@ -309,7 +348,7 @@ export function useNotifications() {
     (notification: Notification): string => {
       switch (notification.type) {
         case "like":
-          return "Someone liked your content";
+          return "Liked your content";
         case "comment":
           return notification.comment?.content
             ? notification.comment.content.substring(0, 100)
@@ -394,10 +433,11 @@ export function useNotifications() {
 
   const groupNotificationsByDate = useCallback(
     (notifications: Notification[]) => {
-      const groups: { [key: string]: Notification[] } = {};
+      const groups: Record<string, Notification[]> = {};
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
+      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       notifications.forEach((n) => {
         const date = new Date(n.created_at);
@@ -405,8 +445,8 @@ export function useNotifications() {
         if (date.toDateString() === today.toDateString()) key = "Today";
         else if (date.toDateString() === yesterday.toDateString())
           key = "Yesterday";
-        else if (date.getTime() > today.getTime() - 7 * 24 * 60 * 60 * 1000)
-          key = "This Week";
+        else if (date.getTime() > weekAgo.getTime()) key = "This Week";
+
         if (!groups[key]) groups[key] = [];
         groups[key].push(n);
       });
@@ -416,10 +456,12 @@ export function useNotifications() {
     [],
   );
 
+  /* ── Return ── */
+
   return {
-    notifications: notificationsQuery.data || [],
+    notifications: notificationsQuery.data ?? [],
     isLoading: notificationsQuery.isLoading,
-    unreadCount: unreadCountQuery.data || 0,
+    unreadCount, // ✅ derived, never stale
     markAsRead,
     deleteNotification,
     clearAllNotifications,
