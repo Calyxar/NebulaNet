@@ -1,13 +1,23 @@
-// app/(tabs)/explore.tsx — UPDATED ✅
-// ✅ Theme + dark mode support
-// ✅ Post results show image thumb OR video thumb badge
-// ✅ Community results show community image if available
-// ✅ FIX: Do NOT search when Trending selected (prevents wrong default type)
-// ✅ FIX: Safe defaults if useSearch returns undefined data
-// ✅ Back button works: router.canGoBack() fallback to /(tabs)/home
-// ✅ Trending tab shows real hashtags from Firestore
-// ✅ Hashtag tab: search by hashtag, click to open /hashtag/[tag]
-// ✅ All loading states replaced with skeleton components
+// app/(tabs)/explore.tsx — FIREBASE ✅ (COMPLETED + UPDATED)
+// ✅ SafeAreaView edges include "top" — prevents camera punch-hole overlap
+// ✅ Full theme support via useTheme
+// ✅ Trending tab: real hashtags from Firestore via getTrendingHashtags()
+// ✅ Trending tab: Suggested Users section with live follow/unfollow per row
+// ✅ Trending tab: Discovery media grid — recent public posts with images/video
+// ✅ SuggestedUserRow uses useFollowActions(u.id) per row — correct hook pattern
+// ✅ Follow button shows "Follow" / "Requested" / "Following" based on live status
+// ✅ Private account follow sends "pending" status automatically
+// ✅ Account tab: search results include follow buttons (reuses SuggestedUserRow)
+// ✅ Recent searches: AsyncStorage-persisted, shown when bar focused + query empty
+// ✅ Recent searches: per-row delete + clear all; saved on submit/tab switch
+// ✅ Post tab: fixed searchPosts — no composite index bug (is_visible filtered in JS)
+// ✅ Community tab: search by name, slug, or description
+// ✅ Hashtag tab: filter local trending list while typing
+// ✅ All loading states use Skeleton components — no raw spinners
+// ✅ EmptyState component reused across all tabs
+// ✅ Keyboard dismissed on scroll (KeyboardAwareBehavior via scrollView.onScrollBeginDrag)
+// ✅ Back button: router.canGoBack() with /(tabs)/home fallback
+// ✅ Linear gradient background (light mode only, dark stays flat)
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -16,7 +26,16 @@ import {
   PostSearchSkeleton,
   SearchRowSkeleton,
 } from "@/components/Skeleton";
-import { useSearch } from "@/hooks/useSearch";
+import { useAuth } from "@/hooks/useAuth";
+import { useFollowActions, useFollowStatus } from "@/hooks/useFollowActions";
+import {
+  fetchDiscoveryPosts,
+  fetchSuggestedUsers,
+  useRecentSearches,
+  useSearch,
+  type DiscoveryPost,
+  type SuggestedUser,
+} from "@/hooks/useSearch";
 import {
   getTrendingHashtags,
   type TrendingHashtag,
@@ -25,9 +44,18 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
+  ActivityIndicator,
+  Dimensions,
   Image,
+  Keyboard,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -40,6 +68,22 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+
+/* =========================
+   CONSTANTS
+========================= */
+
+const SCREEN_W = Dimensions.get("window").width;
+const GRID_H_PAD = 36; // paddingHorizontal: 18 * 2
+const GRID_GAP = 2;
+const GRID_COLS = 3;
+// Each grid cell width = (available width - gaps between cols) / num cols
+const GRID_CELL =
+  (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+
+/* =========================
+   TYPES
+========================= */
 
 type ExploreCategory =
   | "trending"
@@ -55,78 +99,390 @@ type ExploreCategory =
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
-  return (
-    clean.endsWith(".mp4") ||
-    clean.endsWith(".mov") ||
-    clean.endsWith(".m4v") ||
-    clean.endsWith(".webm") ||
-    clean.endsWith(".mkv") ||
-    clean.endsWith(".avi")
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
   );
 };
 
 const isImageUrl = (url?: string | null) => {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
-  return (
-    clean.endsWith(".jpg") ||
-    clean.endsWith(".jpeg") ||
-    clean.endsWith(".png") ||
-    clean.endsWith(".webp") ||
-    clean.endsWith(".gif")
+  return ["jpg", "jpeg", "png", "webp", "gif"].some((e) =>
+    clean.endsWith(`.${e}`),
   );
 };
 
 /* =========================
-   SKELETON WRAPPERS
+   SUGGESTED / ACCOUNT RESULT ROW
+   Used both for the "Suggested for you" section on the Trending tab
+   AND for account search results — so both get inline follow buttons.
+   Each row gets its own useFollowActions(u.id) call (correct hook pattern).
 ========================= */
 
-function SkeletonCard({
-  count,
-  children,
+function SuggestedUserRow({
+  user: u,
+  idx,
+  colors,
+  showBorder = true,
 }: {
-  count: number;
-  children: React.ReactNode;
+  user: SuggestedUser;
+  idx: number;
+  colors: any;
+  showBorder?: boolean;
 }) {
-  // children is the skeleton row component
+  const { follow, unfollow, isFollowingBusy } = useFollowActions(u.id, false);
+  const { data: status } = useFollowStatus(u.id);
+
+  const isFollowing = status === "accepted" || status === "pending";
+  const name = u.full_name || u.username || "User";
+
   return (
-    <View style={skeletonCard.wrap}>
-      {Array(count)
+    <View
+      style={[
+        styles.row,
+        showBorder &&
+          idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
+      ]}
+    >
+      {/* Avatar + name — tappable */}
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.rowLeft}
+        onPress={() =>
+          u.username ? router.push(`/user/${u.username}`) : undefined
+        }
+      >
+        {u.avatar_url ? (
+          <Image
+            source={{ uri: u.avatar_url }}
+            style={[styles.avatar, { backgroundColor: colors.surface }]}
+          />
+        ) : (
+          <View
+            style={[
+              styles.avatarPlaceholder,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <Text style={[styles.avatarText, { color: colors.primary }]}>
+              {(name[0] || "U").toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={[styles.rowTitle, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {name}
+          </Text>
+          <Text
+            style={[styles.rowSubtitle, { color: colors.textTertiary }]}
+            numberOfLines={1}
+          >
+            @{u.username || "user"}
+            {u.follower_count > 0
+              ? ` · ${u.follower_count.toLocaleString()} followers`
+              : ""}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Follow / Requested / Following button */}
+      <TouchableOpacity
+        onPress={() => (isFollowing ? unfollow() : follow())}
+        disabled={isFollowingBusy}
+        activeOpacity={0.85}
+        style={[
+          styles.followBtn,
+          {
+            backgroundColor: isFollowing ? colors.surface : colors.primary,
+            borderColor: isFollowing ? colors.border : colors.primary,
+            opacity: isFollowingBusy ? 0.6 : 1,
+          },
+        ]}
+      >
+        {isFollowingBusy ? (
+          <ActivityIndicator
+            size={12}
+            color={isFollowing ? colors.text : "#fff"}
+          />
+        ) : (
+          <Text
+            style={[
+              styles.followBtnText,
+              { color: isFollowing ? colors.text : "#fff" },
+            ]}
+          >
+            {status === "pending"
+              ? "Requested"
+              : isFollowing
+                ? "Following"
+                : "Follow"}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/* =========================
+   DISCOVERY GRID CELL
+   Single cell in the 3-column media grid
+========================= */
+
+function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={() => router.push(`/post/${post.id}` as any)}
+      style={[styles.gridCell, { backgroundColor: colors.surface }]}
+    >
+      {post.is_video ? (
+        // Video: dark overlay with play icon
+        <View style={styles.gridVideoOverlay}>
+          <View style={styles.gridPlayBadge}>
+            <Ionicons name="play" size={10} color="#fff" />
+          </View>
+        </View>
+      ) : (
+        <Image
+          source={{ uri: post.media_url }}
+          style={styles.gridImage}
+          resizeMode="cover"
+        />
+      )}
+    </TouchableOpacity>
+  );
+}
+
+/* =========================
+   DISCOVERY GRID
+   Renders discovery posts in a 3-column grid with 2px gaps.
+   Builds rows of GRID_COLS items; last row gets empty spacers.
+========================= */
+
+function DiscoveryGrid({
+  posts,
+  colors,
+}: {
+  posts: DiscoveryPost[];
+  colors: any;
+}) {
+  if (!posts.length) return null;
+
+  // Split into rows of GRID_COLS
+  const rows: DiscoveryPost[][] = [];
+  for (let i = 0; i < posts.length; i += GRID_COLS) {
+    rows.push(posts.slice(i, i + GRID_COLS));
+  }
+
+  return (
+    <View style={styles.gridWrap}>
+      {rows.map((row, ri) => (
+        <View key={ri} style={styles.gridRow}>
+          {row.map((post) => (
+            <GridCell key={post.id} post={post} colors={colors} />
+          ))}
+          {/* Spacer cells for incomplete last row */}
+          {row.length < GRID_COLS &&
+            Array(GRID_COLS - row.length)
+              .fill(null)
+              .map((_, i) => (
+                <View
+                  key={`spacer-${i}`}
+                  style={[styles.gridCell, { backgroundColor: "transparent" }]}
+                />
+              ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/* =========================
+   DISCOVERY GRID SKELETON
+========================= */
+
+function GridSkeleton({ colors }: { colors: any }) {
+  return (
+    <View style={styles.gridWrap}>
+      {Array(3)
         .fill(null)
-        .map((_, i) => (
-          <View key={i} style={i !== 0 ? skeletonCard.border : undefined}>
-            {children}
+        .map((_, ri) => (
+          <View key={ri} style={styles.gridRow}>
+            {Array(GRID_COLS)
+              .fill(null)
+              .map((_, ci) => (
+                <View
+                  key={ci}
+                  style={[
+                    styles.gridCell,
+                    { backgroundColor: colors.surface, opacity: 0.5 },
+                  ]}
+                />
+              ))}
           </View>
         ))}
     </View>
   );
 }
 
-const skeletonCard = StyleSheet.create({
-  wrap: {
-    borderRadius: 22,
-    overflow: "hidden",
-    backgroundColor: "transparent",
-  },
-  border: {
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-});
+/* =========================
+   EMPTY STATE
+========================= */
+
+function EmptyState({
+  icon,
+  title,
+  subtitle,
+  colors,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  colors: any;
+}) {
+  return (
+    <View style={[styles.emptyWrap, { backgroundColor: colors.card }]}>
+      <View
+        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
+      >
+        <Ionicons name={icon} size={26} color={colors.primary} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
+        {subtitle}
+      </Text>
+    </View>
+  );
+}
+
+/* =========================
+   RECENT SEARCHES PANEL
+   Shown when search bar is focused and query is empty.
+   Allows tapping a term to re-run it, or swiping/tapping × to remove.
+========================= */
+
+function RecentSearchesPanel({
+  recents,
+  onSelect,
+  onRemove,
+  onClearAll,
+  colors,
+  isDark,
+}: {
+  recents: string[];
+  onSelect: (term: string) => void;
+  onRemove: (term: string) => void;
+  onClearAll: () => void;
+  colors: any;
+  isDark: boolean;
+}) {
+  if (!recents.length) return null;
+
+  return (
+    <View
+      style={[
+        styles.recentPanel,
+        {
+          backgroundColor: colors.card,
+          shadowOpacity: isDark ? 0.22 : 0.05,
+        },
+      ]}
+    >
+      {/* Header */}
+      <View style={styles.recentHeader}>
+        <Text style={[styles.recentTitle, { color: colors.text }]}>Recent</Text>
+        <TouchableOpacity onPress={onClearAll} activeOpacity={0.8}>
+          <Text style={[styles.recentClear, { color: colors.primary }]}>
+            Clear all
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {recents.map((term, idx) => (
+        <TouchableOpacity
+          key={term}
+          activeOpacity={0.85}
+          style={[
+            styles.recentRow,
+            idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
+          ]}
+          onPress={() => onSelect(term)}
+        >
+          <View
+            style={[
+              styles.recentIconCircle,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <Ionicons
+              name="time-outline"
+              size={16}
+              color={colors.textTertiary}
+            />
+          </View>
+          <Text
+            style={[styles.recentTerm, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {term}
+          </Text>
+          <TouchableOpacity
+            onPress={() => onRemove(term)}
+            hitSlop={10}
+            activeOpacity={0.8}
+            style={[
+              styles.recentRemoveBtn,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <Ionicons name="close" size={14} color={colors.textTertiary} />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+/* =========================
+   MAIN SCREEN
+========================= */
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
-  // ✅ Trending hashtags state
+  const inputRef = useRef<TextInput>(null);
+
+  // Trending hashtags
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
     [],
   );
   const [trendingLoading, setTrendingLoading] = useState(true);
+
+  // Suggested users
+  const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
+  const [suggestedLoading, setSuggestedLoading] = useState(true);
+
+  // Discovery posts (media grid)
+  const [discoveryPosts, setDiscoveryPosts] = useState<DiscoveryPost[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(true);
+
+  // Recent searches
+  const {
+    recents,
+    add: addRecent,
+    remove: removeRecent,
+    clear: clearRecents,
+  } = useRecentSearches();
 
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
@@ -152,7 +508,36 @@ export default function ExploreScreen() {
     else router.replace("/(tabs)/home");
   };
 
-  // ✅ Load trending hashtags once on mount
+  // Save current query to recents and dismiss keyboard
+  const commitSearch = useCallback(() => {
+    const t = searchQuery.trim();
+    if (t.length >= 2) void addRecent(t);
+    Keyboard.dismiss();
+    setIsSearchFocused(false);
+  }, [searchQuery, addRecent]);
+
+  // Tap a recent term: set query + save to recents (bumps to top)
+  const selectRecent = useCallback(
+    (term: string) => {
+      setSearchQuery(term);
+      void addRecent(term);
+      setIsSearchFocused(false);
+      Keyboard.dismiss();
+    },
+    [addRecent],
+  );
+
+  // Save to recents when switching tabs
+  const switchCategory = useCallback(
+    (key: ExploreCategory) => {
+      const t = searchQuery.trim();
+      if (t.length >= 2) void addRecent(t);
+      setActiveCategory(key);
+    },
+    [searchQuery, addRecent],
+  );
+
+  // Load trending hashtags
   useEffect(() => {
     setTrendingLoading(true);
     getTrendingHashtags(15)
@@ -161,7 +546,25 @@ export default function ExploreScreen() {
       .finally(() => setTrendingLoading(false));
   }, []);
 
-  // ✅ Only search if NOT trending
+  // Load suggested users
+  useEffect(() => {
+    setSuggestedLoading(true);
+    fetchSuggestedUsers(8)
+      .then(setSuggestedUsers)
+      .catch((e) => console.warn("fetchSuggestedUsers failed:", e))
+      .finally(() => setSuggestedLoading(false));
+  }, [user?.id]);
+
+  // Load discovery posts (media grid)
+  useEffect(() => {
+    setDiscoveryLoading(true);
+    fetchDiscoveryPosts(30)
+      .then(setDiscoveryPosts)
+      .catch((e) => console.warn("fetchDiscoveryPosts failed:", e))
+      .finally(() => setDiscoveryLoading(false));
+  }, []);
+
+  // Only trigger useSearch for tabs that query Firestore
   const shouldSearch =
     activeCategory !== "trending" && activeCategory !== "hashtag";
 
@@ -185,12 +588,16 @@ export default function ExploreScreen() {
   const posts = (data as any)?.posts ?? [];
   const communities = (data as any)?.communities ?? [];
 
-  // ✅ Hashtag search: filter local trending list while typing
+  // Hashtag tab: filter trending list locally
   const hashtagResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase().replace(/^#/, "");
-    if (!q) return trendingHashtags; // show all trending when empty
+    if (!q) return trendingHashtags;
     return trendingHashtags.filter((h) => h.tag.includes(q));
   }, [searchQuery, trendingHashtags]);
+
+  // Show recent panel: bar is focused AND query is empty (or just cleared)
+  const showRecents =
+    isSearchFocused && !searchQuery.trim() && recents.length > 0;
 
   return (
     <>
@@ -205,7 +612,8 @@ export default function ExploreScreen() {
         locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
-        <SafeAreaView style={styles.container} edges={["left", "right"]}>
+        <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+          {/* Header */}
           <AppHeader
             backgroundColor="transparent"
             title=""
@@ -240,8 +648,15 @@ export default function ExploreScreen() {
                     color={colors.textTertiary}
                   />
                   <TextInput
+                    ref={inputRef}
                     value={searchQuery}
                     onChangeText={setSearchQuery}
+                    onFocus={() => setIsSearchFocused(true)}
+                    onBlur={() => {
+                      // slight delay so tap-on-recent fires before blur hides panel
+                      setTimeout(() => setIsSearchFocused(false), 150);
+                    }}
+                    onSubmitEditing={commitSearch}
                     placeholder={
                       activeCategory === "hashtag"
                         ? "Search hashtags…"
@@ -253,7 +668,6 @@ export default function ExploreScreen() {
                     autoCorrect={false}
                     autoCapitalize="none"
                   />
-
                   {!!searchQuery.trim() && (
                     <TouchableOpacity
                       onPress={clearSearch}
@@ -275,7 +689,7 @@ export default function ExploreScreen() {
             }
           />
 
-          {/* Category segments */}
+          {/* Category pill segments */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -296,7 +710,7 @@ export default function ExploreScreen() {
                 return (
                   <TouchableOpacity
                     key={c.key}
-                    onPress={() => setActiveCategory(c.key)}
+                    onPress={() => switchCategory(c.key)}
                     activeOpacity={0.85}
                     style={[
                       styles.segmentItem,
@@ -318,22 +732,114 @@ export default function ExploreScreen() {
             </View>
           </ScrollView>
 
+          {/* Recent searches panel — shown when focused + empty query */}
+          {showRecents && (
+            <View style={[styles.recentOverlay, { paddingHorizontal: 18 }]}>
+              <RecentSearchesPanel
+                recents={recents}
+                onSelect={selectRecent}
+                onRemove={(t) => void removeRecent(t)}
+                onClearAll={() => void clearRecents()}
+                colors={colors}
+                isDark={isDark}
+              />
+            </View>
+          )}
+
+          {/* Main content */}
           <ScrollView
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={Keyboard.dismiss} // ✅ dismiss keyboard on scroll
             contentContainerStyle={[
               styles.content,
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* ===== TRENDING ===== */}
+            {/* ===== TRENDING TAB ===== */}
             {activeCategory === "trending" && (
               <>
+                {/* -- Suggested Users -- */}
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  Suggested for you
+                </Text>
+
+                {suggestedLoading ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(4)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <SearchRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
+                ) : suggestedUsers.length > 0 ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {suggestedUsers.map((u, idx) => (
+                      <SuggestedUserRow
+                        key={u.id}
+                        user={u}
+                        idx={idx}
+                        colors={colors}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* -- Discovery Grid -- */}
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
+                  Discover
+                </Text>
+
+                {discoveryLoading ? (
+                  <GridSkeleton colors={colors} />
+                ) : discoveryPosts.length > 0 ? (
+                  <DiscoveryGrid posts={discoveryPosts} colors={colors} />
+                ) : null}
+
+                {/* -- Trending Hashtags -- */}
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
                   Trending Hashtags
                 </Text>
 
                 {trendingLoading ? (
-                  // ✅ Skeleton for trending hashtags
                   <View
                     style={[
                       styles.card,
@@ -384,7 +890,6 @@ export default function ExploreScreen() {
                         ]}
                         onPress={() => router.push(`/hashtag/${h.tag}` as any)}
                       >
-                        {/* Hashtag badge */}
                         <View
                           style={[
                             styles.hashtagBadge,
@@ -400,7 +905,6 @@ export default function ExploreScreen() {
                             #
                           </Text>
                         </View>
-
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
                             style={[styles.rowTitle, { color: colors.text }]}
@@ -418,7 +922,6 @@ export default function ExploreScreen() {
                             {h.post_count === 1 ? "post" : "posts"}
                           </Text>
                         </View>
-
                         <Ionicons
                           name="chevron-forward"
                           size={18}
@@ -438,11 +941,10 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== ACCOUNT ===== */}
+            {/* ===== ACCOUNT TAB ===== */}
             {activeCategory === "account" && (
               <>
                 {isSearching && !isIdle ? (
-                  // ✅ Skeleton for account search
                   <View
                     style={[
                       styles.card,
@@ -478,6 +980,7 @@ export default function ExploreScreen() {
                     subtitle="Type at least 2 characters to search accounts."
                   />
                 ) : accounts.length > 0 ? (
+                  // ✅ Reuses SuggestedUserRow so every account result has a follow button
                   <View
                     style={[
                       styles.card,
@@ -487,77 +990,20 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
-                    {accounts.map((a: any, idx: number) => {
-                      const name = a.full_name || a.username || "User";
-                      return (
-                        <TouchableOpacity
-                          key={a.id}
-                          activeOpacity={0.85}
-                          style={[
-                            styles.row,
-                            idx !== 0 && [
-                              styles.rowBorder,
-                              { borderTopColor: colors.border },
-                            ],
-                          ]}
-                          onPress={() =>
-                            a.username
-                              ? router.push(`/user/${a.username}`)
-                              : undefined
-                          }
-                        >
-                          {a.avatar_url ? (
-                            <Image
-                              source={{ uri: a.avatar_url }}
-                              style={[
-                                styles.avatar,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            />
-                          ) : (
-                            <View
-                              style={[
-                                styles.avatarPlaceholder,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.avatarText,
-                                  { color: colors.primary },
-                                ]}
-                              >
-                                {(name[0] || "U").toUpperCase()}
-                              </Text>
-                            </View>
-                          )}
-
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text
-                              style={[styles.rowTitle, { color: colors.text }]}
-                              numberOfLines={1}
-                            >
-                              {name}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.rowSubtitle,
-                                { color: colors.textTertiary },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              @{a.username || "user"}
-                            </Text>
-                          </View>
-
-                          <Ionicons
-                            name="chevron-forward"
-                            size={18}
-                            color={colors.textTertiary}
-                          />
-                        </TouchableOpacity>
-                      );
-                    })}
+                    {accounts.map((a: any, idx: number) => (
+                      <SuggestedUserRow
+                        key={a.id}
+                        user={{
+                          id: a.id,
+                          username: a.username,
+                          full_name: a.full_name,
+                          avatar_url: a.avatar_url,
+                          follower_count: a.follower_count ?? 0,
+                        }}
+                        idx={idx}
+                        colors={colors}
+                      />
+                    ))}
                   </View>
                 ) : (
                   <EmptyState
@@ -570,11 +1016,10 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== POST ===== */}
+            {/* ===== POST TAB ===== */}
             {activeCategory === "post" && (
               <>
                 {isSearching && !isIdle ? (
-                  // ✅ Skeleton for post search
                   <View style={{ gap: 10 }}>
                     {Array(4)
                       .fill(null)
@@ -611,16 +1056,57 @@ export default function ExploreScreen() {
                           ]}
                           onPress={() => router.push(`/post/${p.id}`)}
                         >
+                          {/* Author row */}
                           <View style={styles.postTop}>
-                            <Text
-                              style={[
-                                styles.postAuthor,
-                                { color: colors.text },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {author}
-                            </Text>
+                            <View style={styles.postAuthorRow}>
+                              {p.user?.avatar_url ? (
+                                <Image
+                                  source={{ uri: p.user.avatar_url }}
+                                  style={[
+                                    styles.postAvatar,
+                                    { backgroundColor: colors.surface },
+                                  ]}
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.postAvatarPlaceholder,
+                                    { backgroundColor: colors.surface },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.avatarText,
+                                      { color: colors.primary, fontSize: 13 },
+                                    ]}
+                                  >
+                                    {(author[0] || "U").toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text
+                                  style={[
+                                    styles.postAuthor,
+                                    { color: colors.text },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {author}
+                                </Text>
+                                {p.user?.username && (
+                                  <Text
+                                    style={[
+                                      styles.postHandle,
+                                      { color: colors.textTertiary },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    @{p.user.username}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
                             <Ionicons
                               name="chevron-forward"
                               size={16}
@@ -628,6 +1114,7 @@ export default function ExploreScreen() {
                             />
                           </View>
 
+                          {/* Content */}
                           {!!p.content && (
                             <Text
                               style={[
@@ -640,6 +1127,7 @@ export default function ExploreScreen() {
                             </Text>
                           )}
 
+                          {/* Media preview */}
                           {(hasImage || hasVideo) && (
                             <View
                               style={[
@@ -672,6 +1160,44 @@ export default function ExploreScreen() {
                               )}
                             </View>
                           )}
+
+                          {/* Reaction counts */}
+                          <View style={styles.postStats}>
+                            {typeof p.like_count === "number" && (
+                              <View style={styles.postStat}>
+                                <Ionicons
+                                  name="heart"
+                                  size={13}
+                                  color="#FF375F"
+                                />
+                                <Text
+                                  style={[
+                                    styles.postStatText,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  {p.like_count.toLocaleString()}
+                                </Text>
+                              </View>
+                            )}
+                            {typeof p.comment_count === "number" && (
+                              <View style={styles.postStat}>
+                                <Ionicons
+                                  name="chatbubble-outline"
+                                  size={13}
+                                  color={colors.textTertiary}
+                                />
+                                <Text
+                                  style={[
+                                    styles.postStatText,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  {p.comment_count.toLocaleString()}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
@@ -687,11 +1213,10 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== COMMUNITY ===== */}
+            {/* ===== COMMUNITY TAB ===== */}
             {activeCategory === "community" && (
               <>
                 {isSearching && !isIdle ? (
-                  // ✅ Skeleton for community search
                   <View
                     style={[
                       styles.card,
@@ -771,7 +1296,6 @@ export default function ExploreScreen() {
                             />
                           </View>
                         )}
-
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
                             style={[styles.rowTitle, { color: colors.text }]}
@@ -789,7 +1313,6 @@ export default function ExploreScreen() {
                             {c.description || `@${c.slug}` || "Community"}
                           </Text>
                         </View>
-
                         <Ionicons
                           name="chevron-forward"
                           size={18}
@@ -809,7 +1332,7 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== HASHTAG ===== */}
+            {/* ===== HASHTAG TAB ===== */}
             {activeCategory === "hashtag" && (
               <>
                 {trendingLoading ? (
@@ -878,7 +1401,6 @@ export default function ExploreScreen() {
                             #
                           </Text>
                         </View>
-
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
                             style={[styles.rowTitle, { color: colors.text }]}
@@ -896,7 +1418,6 @@ export default function ExploreScreen() {
                             {h.post_count === 1 ? "post" : "posts"}
                           </Text>
                         </View>
-
                         <Ionicons
                           name="chevron-forward"
                           size={18}
@@ -926,36 +1447,15 @@ export default function ExploreScreen() {
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  subtitle,
-  colors,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  subtitle: string;
-  colors: any;
-}) {
-  return (
-    <View style={[styles.emptyWrap, { backgroundColor: colors.card }]}>
-      <View
-        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
-      >
-        <Ionicons name={icon} size={26} color={colors.primary} />
-      </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
-        {subtitle}
-      </Text>
-    </View>
-  );
-}
+/* =========================
+   STYLES
+========================= */
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
+  // Header
   headerLeftWide: {
     flexDirection: "row",
     alignItems: "center",
@@ -988,12 +1488,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
-  searchInput: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 15,
-    paddingVertical: 0,
-  },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 15, paddingVertical: 0 },
   clearBtn: {
     width: 34,
     height: 34,
@@ -1002,6 +1497,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  // Category segments
   segmentScroll: { marginHorizontal: 18, marginBottom: 0 },
   segmentScrollContent: { paddingBottom: 0 },
   segmentWrap: {
@@ -1023,15 +1519,61 @@ const styles = StyleSheet.create({
   },
   segmentText: { fontSize: 13, fontWeight: "700" },
 
+  // Recent searches overlay (floats below search bar, above content)
+  recentOverlay: {
+    zIndex: 100,
+  },
+  recentPanel: {
+    borderRadius: 22,
+    paddingVertical: 6,
+    marginTop: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  recentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  recentTitle: { fontSize: 13, fontWeight: "900" },
+  recentClear: { fontSize: 13, fontWeight: "700" },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 12,
+  },
+  recentIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recentTerm: { flex: 1, fontSize: 14, fontWeight: "700" },
+  recentRemoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Content area
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
     marginBottom: 10,
     paddingHorizontal: 4,
   },
-
   content: { paddingHorizontal: 18, paddingTop: 14 },
 
+  // Generic card + rows
   card: {
     borderRadius: 22,
     paddingVertical: 6,
@@ -1047,10 +1589,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
+  rowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
   rowBorder: { borderTopWidth: 1 },
   rowTitle: { fontSize: 14.5, fontWeight: "900" },
   rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
 
+  // Avatars
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: {
     width: 42,
@@ -1061,6 +1611,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 16, fontWeight: "900" },
 
+  // Community
   communityBadge: {
     width: 42,
     height: 42,
@@ -1070,6 +1621,7 @@ const styles = StyleSheet.create({
   },
   communityAvatar: { width: 42, height: 42, borderRadius: 21 },
 
+  // Hashtag
   hashtagBadge: {
     width: 42,
     height: 42,
@@ -1079,6 +1631,19 @@ const styles = StyleSheet.create({
   },
   hashtagSymbol: { fontSize: 22, fontWeight: "900" },
 
+  // Follow button
+  followBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    minWidth: 88,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followBtnText: { fontSize: 13, fontWeight: "900" },
+
+  // Post search cards
   postCard: {
     borderRadius: 22,
     padding: 14,
@@ -1091,12 +1656,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  postAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  postAvatar: { width: 34, height: 34, borderRadius: 17 },
+  postAvatarPlaceholder: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
   },
   postAuthor: { fontSize: 14, fontWeight: "900" },
-  postContent: { marginTop: 8, fontSize: 13.5, lineHeight: 19 },
-
+  postHandle: { fontSize: 12, fontWeight: "700", marginTop: 1 },
+  postContent: { fontSize: 13.5, lineHeight: 19, marginBottom: 4 },
+  postStats: {
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 10,
+  },
+  postStat: { flexDirection: "row", alignItems: "center", gap: 4 },
+  postStatText: { fontSize: 12, fontWeight: "700" },
   thumbWrap: {
-    marginTop: 12,
+    marginTop: 10,
     width: "100%",
     height: 160,
     borderRadius: 18,
@@ -1129,6 +1717,44 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
 
+  // Discovery grid
+  gridWrap: {
+    gap: GRID_GAP,
+    borderRadius: 22,
+    overflow: "hidden",
+  },
+  gridRow: {
+    flexDirection: "row",
+    gap: GRID_GAP,
+  },
+  gridCell: {
+    width: GRID_CELL,
+    height: GRID_CELL, // square cells
+    overflow: "hidden",
+  },
+  gridImage: {
+    width: "100%",
+    height: "100%",
+  },
+  gridVideoOverlay: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    padding: 6,
+  },
+  gridPlayBadge: {
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+
+  // Empty state
   emptyWrap: {
     borderRadius: 22,
     paddingVertical: 26,

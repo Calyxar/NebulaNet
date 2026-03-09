@@ -34,7 +34,7 @@ service cloud.firestore {
     function isSuspended() {
       return signedIn() &&
         hasProfile(uid()) &&
-        profileDoc(uid()).data.is_suspended == true;
+        profileDoc(uid()).data.suspended == true;
     }
 
     function isPrivate(userId) {
@@ -48,7 +48,7 @@ service cloud.firestore {
     match /profiles/{userId} {
       allow read: if (!isPrivate(userId)) || isSelf(userId) || isAdmin();
       allow create: if isSelf(userId);
-      allow update: if isSelf(userId) && !(resource.data.is_suspended == true);
+      allow update: if isSelf(userId) && !isSuspended();
       allow delete: if isSelf(userId) || isAdmin();
     }
 
@@ -57,8 +57,10 @@ service cloud.firestore {
     ========================================================= */
     match /follows/{followId} {
       allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended() && request.resource.data.follower_id == uid();
-      allow delete: if signedIn() && !isSuspended() && resource.data.follower_id == uid();
+      allow create: if signedIn() && !isSuspended()
+        && request.resource.data.follower_id == uid();
+      allow delete: if signedIn() && !isSuspended()
+        && resource.data.follower_id == uid();
     }
 
     /* =========================================================
@@ -75,13 +77,10 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn() && !isSuspended();
-      allow update: if signedIn() && (resource.data.user_id == uid() || isAdmin());
-      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
-
-      match /poll_votes/{voteId} {
-        allow read: if signedIn();
-        allow create: if signedIn() && !isSuspended();
-      }
+      allow update: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
+      allow delete: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
     }
 
     /* =========================================================
@@ -89,7 +88,8 @@ service cloud.firestore {
     ========================================================= */
     match /likes/{likeId} {
       allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
+      allow create: if signedIn() && !isSuspended()
+        && request.resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
@@ -98,7 +98,8 @@ service cloud.firestore {
     ========================================================= */
     match /saves/{saveId} {
       allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
+      allow create: if signedIn() && !isSuspended()
+        && request.resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
@@ -109,7 +110,8 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && !isSuspended();
       allow update: if signedIn() && resource.data.user_id == uid();
-      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+      allow delete: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
     }
 
     /* =========================================================
@@ -118,14 +120,10 @@ service cloud.firestore {
     match /communities/{communityId} {
       allow read: if signedIn();
       allow create: if signedIn() && !isSuspended();
-      allow update: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
-      allow delete: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
-    }
-
-    match /community_members/{memberId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended();
-      allow delete: if signedIn() && resource.data.user_id == uid();
+      allow update: if signedIn()
+        && (resource.data.owner_id == uid() || isAdmin());
+      allow delete: if signedIn()
+        && (resource.data.owner_id == uid() || isAdmin());
     }
 
     /* =========================================================
@@ -143,42 +141,48 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn() && !isSuspended();
       allow update: if signedIn() && resource.data.user_id == uid();
-      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
-    }
-
-    match /story_seen/{seenId} {
-      allow read: if signedIn();
-      allow write: if signedIn();
-    }
-
-    match /story_comments/{commentId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended();
+      allow delete: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
     }
 
     /* =========================================================
        CHATS & MESSAGES
     ========================================================= */
     match /chats/{chatId} {
-      allow read: if signedIn() && uid() in resource.data.participant_ids;
+      allow read: if signedIn()
+        && uid() in resource.data.participant_ids;
       allow create: if signedIn() && !isSuspended();
-      allow update: if signedIn() && uid() in resource.data.participant_ids;
+      allow update: if signedIn()
+        && uid() in resource.data.participant_ids;
     }
 
     match /messages/{messageId} {
       allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended() && request.resource.data.sender_id == uid();
+      allow create: if signedIn() && !isSuspended()
+        && request.resource.data.sender_id == uid();
       allow update: if signedIn() && resource.data.sender_id == uid();
       allow delete: if signedIn() && resource.data.sender_id == uid();
     }
 
     /* =========================================================
-       BOOSTS
+       BOOSTS — UPDATED ✅
+       create : owner only, not suspended, must set own user_id
+                and status must be "active" on creation
+       read   : owner sees their own boosts; admin sees all
+       update : BLOCKED client-side — Cloud Function handles
+                status transitions (active → completed)
+       delete : BLOCKED — keep records for revenue audit trail
     ========================================================= */
     match /boosts/{boostId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && !isSuspended() && request.resource.data.user_id == uid();
-      allow update: if signedIn() && resource.data.user_id == uid();
+      allow create: if signedIn()
+        && !isSuspended()
+        && request.resource.data.user_id == uid()
+        && request.resource.data.status == "active";
+
+      allow read: if signedIn()
+        && (resource.data.user_id == uid() || isAdmin());
+
+      allow update, delete: if false;
     }
 
     /* =========================================================
@@ -201,9 +205,13 @@ service cloud.firestore {
        BLOCKS
     ========================================================= */
     match /blocks/{blockId} {
-      allow read: if signedIn() && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
-      allow create: if signedIn() && request.resource.data.blocker_id == uid();
-      allow delete: if signedIn() && resource.data.blocker_id == uid();
+      allow read: if signedIn()
+        && (resource.data.blocker_id == uid()
+          || resource.data.blocked_id == uid());
+      allow create: if signedIn()
+        && request.resource.data.blocker_id == uid();
+      allow delete: if signedIn()
+        && resource.data.blocker_id == uid();
     }
 
     /* =========================================================
@@ -229,7 +237,7 @@ service cloud.firestore {
     }
 
     /* =========================================================
-       FALLBACK
+       FALLBACK — deny everything not explicitly matched above
     ========================================================= */
     match /{document=**} {
       allow read, write: if false;
