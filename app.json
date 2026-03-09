@@ -34,6 +34,7 @@
       }
     },
     "android": {
+      "googleServicesFile": "./android/app/google-services.json",
       "package": "com.nebulanet.app",
       "versionCode": 1,
       "versionName": "1.0.0",
