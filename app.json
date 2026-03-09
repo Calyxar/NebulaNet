@@ -132,6 +132,7 @@
       "@react-native-google-signin/google-signin",
       "expo-localization",
       "expo-build-properties",
+      "@react-native-firebase/app",
       "@react-native-firebase/app-check"
     ],
     "extra": {
