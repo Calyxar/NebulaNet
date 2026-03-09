@@ -1,27 +1,26 @@
-// app/profile/requests.tsx — COMPLETED + UPDATED (Block relies on DB trigger)
-// ✅ Uses UserRow built-in badges
-// ✅ BottomSheet menu (UserActionsSheet)
-// ✅ Mutual detection (single IN query)
-// ✅ Approve / Deny with optimistic removal
-// ✅ Block mutation + optimistic removal
-// ✅ Cleanup handled by DB trigger (handle_user_block_cleanup)
+// app/profile/requests.tsx — UPDATED ✅
+// ✅ Full useTheme() support — no hardcoded colors
+// ✅ AppHeader replaces inline Header component
+// ✅ Linear gradient background (light mode only)
+// ✅ Skeleton, approve/deny, block logic preserved from original
+// ✅ Approve/Deny button colors use theme tokens
 
-import { Ionicons } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
+import AppHeader from "@/components/navigation/AppHeader";
+import UserActionsSheet, {
+  type UserActionsSheetRef,
+} from "@/components/UserActionsSheet";
+import UserRow, { type UserRowModel } from "@/components/UserRow";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import {
+  invalidateAfterApproveDeny,
+  invalidateAfterBlock,
+} from "@/lib/queryKeys/invalidateSocial";
+import { useTheme } from "@/providers/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import {
   addDoc,
   collection,
@@ -34,16 +33,20 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-
-import UserActionsSheet, {
-  type UserActionsSheetRef,
-} from "@/components/UserActionsSheet";
-import UserRow, { type UserRowModel } from "@/components/UserRow";
-
+import React, { useMemo, useRef, useState } from "react";
 import {
-  invalidateAfterApproveDeny,
-  invalidateAfterBlock,
-} from "@/lib/queryKeys/invalidateSocial";
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+/* =========================
+   TYPES
+========================= */
 
 type RequestRow = {
   id: string;
@@ -59,32 +62,72 @@ type RequestRow = {
   } | null;
 };
 
-function SkeletonRow() {
+/* =========================
+   SKELETON ROW
+========================= */
+
+function SkeletonRow({ colors }: { colors: any }) {
   return (
-    <View style={styles.skelRow}>
-      <View style={styles.skelAvatar} />
-      <View style={{ flex: 1, gap: 8 }}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
+      <View style={[styles.skelRow]}>
         <View
-          style={[styles.skel, { width: 180, height: 12, borderRadius: 10 }]}
+          style={[styles.skelAvatar, { backgroundColor: colors.surface }]}
         />
-        <View
-          style={[styles.skel, { width: 120, height: 10, borderRadius: 10 }]}
-        />
-      </View>
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <View
-          style={[styles.skel, { width: 86, height: 34, borderRadius: 12 }]}
-        />
-        <View
-          style={[styles.skel, { width: 86, height: 34, borderRadius: 12 }]}
-        />
+        <View style={{ flex: 1, gap: 8 }}>
+          <View
+            style={[
+              styles.skel,
+              { width: "60%", height: 12, backgroundColor: colors.surface },
+            ]}
+          />
+          <View
+            style={[
+              styles.skel,
+              { width: "40%", height: 10, backgroundColor: colors.surface },
+            ]}
+          />
+        </View>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View
+            style={[
+              styles.skel,
+              {
+                width: 76,
+                height: 34,
+                borderRadius: 14,
+                backgroundColor: colors.surface,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.skel,
+              {
+                width: 86,
+                height: 34,
+                borderRadius: 14,
+                backgroundColor: colors.surface,
+              },
+            ]}
+          />
+        </View>
       </View>
     </View>
   );
 }
 
+/* =========================
+   MAIN SCREEN
+========================= */
+
 export default function RequestedFollowersScreen() {
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
   const qc = useQueryClient();
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
@@ -92,6 +135,11 @@ export default function RequestedFollowersScreen() {
 
   const myId = user?.id;
 
+  const gradientColors = isDark
+    ? [colors.background, colors.background]
+    : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
+
+  // ── Pending requests ──
   const {
     data: requests,
     isLoading,
@@ -133,7 +181,7 @@ export default function RequestedFollowersScreen() {
     },
   });
 
-  // Mutual detection (single IN query for requesters)
+  // ── Mutual detection ──
   const requesterIds = useMemo(
     () => (requests ?? []).map((r) => r.follower_id),
     [requests],
@@ -157,7 +205,6 @@ export default function RequestedFollowersScreen() {
     },
   });
 
-  // Build list for UserRow
   const list: UserRowModel[] = useMemo(() => {
     return (requests ?? []).map((r) => {
       const u = r.follower!;
@@ -166,13 +213,13 @@ export default function RequestedFollowersScreen() {
         username: u.username,
         full_name: u.full_name,
         avatar_url: u.avatar_url,
-        status: "pending", // UserRow shows "Requested"
+        status: "pending",
         isMutual: !!myFollowingSet?.has(u.id),
       };
     });
   }, [requests, myFollowingSet]);
 
-  // Approve
+  // ── Approve ──
   const approveMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
       await updateDoc(doc(db, "follows", row.id), { status: "accepted" });
@@ -182,7 +229,6 @@ export default function RequestedFollowersScreen() {
       const key = ["requested-followers", myId];
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<RequestRow[]>(key) ?? [];
-
       qc.setQueryData<RequestRow[]>(
         key,
         prev.filter((r) => r.id !== row.id),
@@ -198,7 +244,7 @@ export default function RequestedFollowersScreen() {
     },
   });
 
-  // Deny
+  // ── Deny ──
   const denyMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
       await deleteDoc(doc(db, "follows", row.id));
@@ -208,7 +254,6 @@ export default function RequestedFollowersScreen() {
       const key = ["requested-followers", myId];
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<RequestRow[]>(key) ?? [];
-
       qc.setQueryData<RequestRow[]>(
         key,
         prev.filter((r) => r.id !== row.id),
@@ -224,11 +269,10 @@ export default function RequestedFollowersScreen() {
     },
   });
 
-  // Block (cleanup is done by DB trigger AFTER INSERT on user_blocks)
+  // ── Block ──
   const blockMutation = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-
       await addDoc(collection(db, "user_blocks"), {
         blocker_id: myId,
         blocked_id: target.id,
@@ -240,13 +284,10 @@ export default function RequestedFollowersScreen() {
       const key = ["requested-followers", myId];
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<RequestRow[]>(key) ?? [];
-
-      // optimistic remove by follower_id
       qc.setQueryData<RequestRow[]>(
         key,
         prev.filter((r) => r.follower_id !== target.id),
       );
-
       return { prev };
     },
     onError: (_err, _target, ctx) => {
@@ -254,7 +295,6 @@ export default function RequestedFollowersScreen() {
     },
     onSettled: (_data, _err, target) => {
       if (!myId || !target) return;
-      // If your helper only supports 3 args, just remove target.username
       invalidateAfterBlock(qc, myId, target.id, target.username);
     },
   });
@@ -264,225 +304,228 @@ export default function RequestedFollowersScreen() {
     sheetRef.current?.snapToIndex(0);
   };
 
-  if (!myId) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <Text style={styles.subtleText}>Sign in to view requests.</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <Header title="Requested" />
-
-      {isLoading ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonRow key={i} />
-          ))}
-        </View>
-      ) : (
-        <FlatList
-          data={list}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingBottom: 20,
-            paddingTop: 12,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              tintColor="#7C3AED"
-            />
-          }
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          renderItem={({ item }) => {
-            const row = (requests ?? []).find((r) => r.follower_id === item.id);
-            if (!row) return null;
-
-            const isBusy =
-              approveMutation.isPending ||
-              denyMutation.isPending ||
-              blockMutation.isPending;
-
-            return (
-              <View style={styles.card}>
-                <UserRow
-                  item={item}
-                  onPress={() => router.push(`/user/${item.username}`)}
-                  onMenu={() => openMenu(item)}
-                />
-
-                <View style={styles.actionsRow}>
-                  <Pressable
-                    style={[styles.actionBtn, styles.denyBtn]}
-                    onPress={() => denyMutation.mutate(row)}
-                    disabled={isBusy}
-                  >
-                    <Ionicons name="close" size={18} color="#111827" />
-                    <Text style={styles.denyText}>Deny</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[styles.actionBtn, styles.approveBtn]}
-                    onPress={() => approveMutation.mutate(row)}
-                    disabled={isBusy}
-                  >
-                    <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-                    <Text style={styles.approveText}>Approve</Text>
-                  </Pressable>
-                </View>
-              </View>
-            );
-          }}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="mail-unread-outline" size={56} color="#C5CAE9" />
-              <Text style={styles.emptyTitle}>No requests</Text>
-              <Text style={styles.emptyDesc}>
-                When someone requests to follow you, it will show up here.
-              </Text>
-            </View>
-          }
-          showsVerticalScrollIndicator={false}
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.3, 1]}
+      style={styles.gradient}
+    >
+      <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+        <AppHeader
+          title={`Requests${list.length > 0 ? ` (${list.length})` : ""}`}
+          backgroundColor="transparent"
         />
-      )}
 
-      <UserActionsSheet
-        ref={sheetRef}
-        username={selected?.username}
-        onRemove={async () => {
-          if (!selected) return;
-          const row = (requests ?? []).find(
-            (r) => r.follower_id === selected.id,
-          );
-          sheetRef.current?.close();
-          if (row) denyMutation.mutate(row);
-        }}
-        onBlock={async () => {
-          if (!selected) return;
-          sheetRef.current?.close();
-          await blockMutation.mutateAsync({
-            id: selected.id,
-            username: selected.username,
-          });
-        }}
-      />
-    </SafeAreaView>
+        {isLoading ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SkeletonRow key={i} colors={colors} />
+            ))}
+          </View>
+        ) : (
+          <FlatList
+            data={list}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[
+              styles.listContent,
+              list.length === 0 && styles.listEmpty,
+            ]}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={refetch}
+                tintColor={colors.primary}
+              />
+            }
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            renderItem={({ item }) => {
+              const row = (requests ?? []).find(
+                (r) => r.follower_id === item.id,
+              );
+              if (!row) return null;
+
+              const isBusy =
+                approveMutation.isPending ||
+                denyMutation.isPending ||
+                blockMutation.isPending;
+
+              return (
+                <View
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <UserRow
+                    item={item}
+                    onPress={() => router.push(`/user/${item.username}`)}
+                    onMenu={() => openMenu(item)}
+                    hideMenu={false}
+                  />
+
+                  <View style={styles.actionsRow}>
+                    {/* Deny */}
+                    <Pressable
+                      style={[
+                        styles.actionBtn,
+                        {
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          flex: 1,
+                        },
+                      ]}
+                      onPress={() => denyMutation.mutate(row)}
+                      disabled={isBusy}
+                    >
+                      <Ionicons name="close" size={16} color={colors.text} />
+                      <Text style={[styles.denyText, { color: colors.text }]}>
+                        Deny
+                      </Text>
+                    </Pressable>
+
+                    {/* Approve */}
+                    <Pressable
+                      style={[
+                        styles.actionBtn,
+                        { backgroundColor: colors.primary, flex: 1 },
+                      ]}
+                      onPress={() => approveMutation.mutate(row)}
+                      disabled={isBusy}
+                    >
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                      <Text style={styles.approveText}>Approve</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <View
+                  style={[
+                    styles.emptyIconCircle,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons
+                    name="mail-unread-outline"
+                    size={32}
+                    color={colors.primary}
+                  />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No requests
+                </Text>
+                <Text
+                  style={[styles.emptyDesc, { color: colors.textTertiary }]}
+                >
+                  Follow requests will appear here.
+                </Text>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+
+        <UserActionsSheet
+          ref={sheetRef}
+          username={selected?.username}
+          onRemove={async () => {
+            if (!selected) return;
+            const row = (requests ?? []).find(
+              (r) => r.follower_id === selected.id,
+            );
+            sheetRef.current?.close();
+            if (row) denyMutation.mutate(row);
+          }}
+          onBlock={async () => {
+            if (!selected) return;
+            sheetRef.current?.close();
+            await blockMutation.mutateAsync({
+              id: selected.id,
+              username: selected.username,
+            });
+          }}
+        />
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
-function Header({ title }: { title: string }) {
-  return (
-    <View style={styles.header}>
-      <Pressable style={styles.headerBtn} onPress={() => router.back()}>
-        <Ionicons name="arrow-back" size={22} color="#111827" />
-      </Pressable>
-
-      <Text style={styles.headerTitle}>{title}</Text>
-
-      <View style={styles.headerBtn} />
-    </View>
-  );
-}
+/* =========================
+   STYLES
+========================= */
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  gradient: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
 
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#E8EAF6",
-  },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+  listEmpty: { flex: 1 },
 
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#EEF2FF",
+    gap: 0,
   },
 
   actionsRow: {
     marginTop: 10,
     flexDirection: "row",
-    gap: 10,
-    justifyContent: "flex-end",
+    gap: 8,
   },
 
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
+    justifyContent: "center",
+    gap: 6,
     paddingVertical: 10,
     borderRadius: 14,
   },
-  approveBtn: { backgroundColor: "#7C3AED" },
-  approveText: { color: "#FFFFFF", fontWeight: "900" },
-
-  denyBtn: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#EEF2FF",
-  },
-  denyText: { color: "#111827", fontWeight: "900" },
+  approveText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  denyText: { fontWeight: "900", fontSize: 13 },
 
   empty: {
-    paddingTop: 80,
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
+    paddingTop: 80,
+    gap: 10,
   },
-  emptyTitle: {
-    marginTop: 12,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#111827",
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
   },
+  emptyTitle: { fontSize: 18, fontWeight: "900", textAlign: "center" },
   emptyDesc: {
-    marginTop: 6,
     fontSize: 13,
     fontWeight: "700",
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
+    maxWidth: 260,
   },
-  subtleText: { color: "#6B7280", fontWeight: "800" },
 
-  skel: { backgroundColor: "#E5E7EB" },
+  // Skeleton
+  skel: { borderRadius: 6 },
   skelRow: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderWidth: 1,
-    borderColor: "#EEF2FF",
   },
   skelAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#E5E7EB",
   },
 });

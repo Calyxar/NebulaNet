@@ -74,7 +74,10 @@ export function useFollowActions(
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev)
-        qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), ctx.prev);
+        qc.setQueryData(
+          qk.social.followStatus(user?.id, targetUserId),
+          ctx.prev,
+        );
     },
     onSettled: () => {
       qc.invalidateQueries({
@@ -123,7 +126,10 @@ export function useFollowActions(
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev)
-        qc.setQueryData(qk.social.followStatus(user?.id, targetUserId), ctx.prev);
+        qc.setQueryData(
+          qk.social.followStatus(user?.id, targetUserId),
+          ctx.prev,
+        );
     },
     onSettled: () => {
       qc.invalidateQueries({

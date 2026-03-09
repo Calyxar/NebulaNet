@@ -1,6 +1,13 @@
-// hooks/useSearch.ts — FIREBASE ✅
+// hooks/useSearch.ts — FIREBASE ✅ (COMPLETED + UPDATED)
+// ✅ Fixed searchPosts: removed where("is_visible") + orderBy combo (composite index bug)
+// ✅ Filter is_visible in JS after fetch instead
+// ✅ fetchSuggestedUsers export for Explore screen
+// ✅ fetchDiscoveryPosts — recent public posts with media for trending grid
+// ✅ useRecentSearches — AsyncStorage-backed recent search history (max 8)
+// ✅ SearchAccount.follower_count added for follow-button display on results
 
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery } from "@tanstack/react-query";
 import {
   collection,
@@ -11,7 +18,11 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+/* =========================
+   TYPES
+========================= */
 
 export type SearchType = "account" | "post" | "community";
 
@@ -20,7 +31,9 @@ export type SearchAccount = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  follower_count: number; // ✅ added — allows follow button to show follower count
 };
+
 export type SearchPost = {
   id: string;
   content: string | null;
@@ -37,6 +50,7 @@ export type SearchPost = {
     avatar_url: string | null;
   } | null;
 };
+
 export type SearchCommunity = {
   id: string;
   name: string;
@@ -46,6 +60,21 @@ export type SearchCommunity = {
   avatar_url?: string | null;
 };
 
+export type SuggestedUser = {
+  id: string;
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  follower_count: number;
+};
+
+// ✅ New — used for the trending discovery media grid
+export type DiscoveryPost = {
+  id: string;
+  media_url: string;
+  is_video: boolean;
+};
+
 export type UseSearchParams = {
   type: SearchType;
   query: string;
@@ -53,6 +82,7 @@ export type UseSearchParams = {
   minChars?: number;
   debounceMs?: number;
 };
+
 type UseSearchReturn = {
   query: string;
   debouncedQuery: string;
@@ -66,6 +96,10 @@ type UseSearchReturn = {
   };
   refetch: () => void;
 };
+
+/* =========================
+   HELPERS
+========================= */
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
@@ -82,7 +116,10 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-// Firestore doesn't support ilike — we fetch and filter client-side for small collections
+/* =========================
+   SEARCH FUNCTIONS
+========================= */
+
 async function searchAccounts(
   q: string,
   lim: number,
@@ -102,34 +139,38 @@ async function searchAccounts(
       username: p.username ?? null,
       full_name: p.full_name ?? null,
       avatar_url: p.avatar_url ?? null,
+      follower_count: p.follower_count ?? 0, // ✅ included
     }));
 }
 
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
   const lower = q.toLowerCase();
+
+  // ✅ No where("is_visible") + orderBy — composite index bug. Filter in JS below.
   const snap = await getDocs(
     query(
       collection(db, "posts"),
       where("visibility", "==", "public"),
-      where("is_visible", "==", true),
-      orderBy("created_at", "desc"),
+      orderBy("created_at_ts", "desc"),
       limit(200),
     ),
   );
+
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter((p: any) => p.is_visible !== false)
     .filter((p: any) => p.content?.toLowerCase().includes(lower))
     .slice(0, lim)
     .map((p: any) => ({
       id: p.id,
       content: p.content ?? null,
-      created_at: tsToIso(p.created_at),
-      media_urls: p.media_urls ?? null,
+      created_at: tsToIso(p.created_at_ts ?? p.created_at),
+      media_urls: Array.isArray(p.media_urls) ? p.media_urls : null,
       like_count: p.like_count ?? null,
       comment_count: p.comment_count ?? null,
       share_count: p.share_count ?? null,
       visibility: p.visibility ?? "public",
-      user: null,
+      user: p.user ?? null,
     }));
 }
 
@@ -160,6 +201,158 @@ async function searchCommunities(
     }));
 }
 
+/* =========================
+   FETCH SUGGESTED USERS
+   Profiles not already followed, sorted by follower_count desc
+========================= */
+
+export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
+  const uid = auth.currentUser?.uid;
+
+  const followingSet = new Set<string>();
+  if (uid) {
+    try {
+      const followSnap = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", uid),
+          where("status", "==", "accepted"),
+          limit(500),
+        ),
+      );
+      followSnap.docs.forEach((d) => {
+        const x = d.data() as any;
+        if (x.following_id) followingSet.add(x.following_id);
+      });
+    } catch {}
+  }
+
+  const snap = await getDocs(
+    query(
+      collection(db, "profiles"),
+      orderBy("follower_count", "desc"),
+      limit(50),
+    ),
+  );
+
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter((p: any) => p.id !== uid && !followingSet.has(p.id))
+    .slice(0, lim)
+    .map((p: any) => ({
+      id: p.id,
+      username: p.username ?? null,
+      full_name: p.full_name ?? null,
+      avatar_url: p.avatar_url ?? null,
+      follower_count: p.follower_count ?? 0,
+    }));
+}
+
+/* =========================
+   FETCH DISCOVERY POSTS
+   Recent public posts that have media — used for the trending grid.
+   Returns up to `lim` posts sorted newest-first.
+========================= */
+
+export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, "posts"),
+      where("visibility", "==", "public"),
+      orderBy("created_at_ts", "desc"),
+      limit(lim + 20), // fetch extra to compensate for JS filtering
+    ),
+  );
+
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter((p: any) => p.is_visible !== false)
+    .filter(
+      (p: any) =>
+        Array.isArray(p.media_urls) &&
+        p.media_urls.length > 0 &&
+        typeof p.media_urls[0] === "string",
+    )
+    .slice(0, lim)
+    .map((p: any) => {
+      const url: string = p.media_urls[0];
+      const clean = (url || "").split("?")[0].toLowerCase();
+      const isVideo = ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+        clean.endsWith(`.${e}`),
+      );
+      return { id: p.id, media_url: url, is_video: isVideo };
+    });
+}
+
+/* =========================
+   RECENT SEARCHES
+   Stores up to MAX_RECENT recent search strings in AsyncStorage.
+   Deduplicates (latest occurrence wins position 0).
+========================= */
+
+const RECENT_SEARCHES_KEY = "nebulanet:recent_searches_v1";
+const MAX_RECENT = 8;
+
+export function useRecentSearches() {
+  const [recents, setRecents] = useState<string[]>([]);
+
+  // Load persisted recents on mount
+  useEffect(() => {
+    AsyncStorage.getItem(RECENT_SEARCHES_KEY)
+      .then((v) => {
+        if (v) {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed)) setRecents(parsed);
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const persist = useCallback(async (next: string[]) => {
+    try {
+      await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+    } catch {}
+  }, []);
+
+  // Add a search term (or bump it to front if already exists)
+  const add = useCallback(
+    async (term: string) => {
+      const t = term.trim();
+      if (!t || t.length < 2) return;
+      const next = [t, ...recents.filter((r) => r !== t)].slice(0, MAX_RECENT);
+      setRecents(next);
+      await persist(next);
+    },
+    [recents, persist],
+  );
+
+  // Remove a single term
+  const remove = useCallback(
+    async (term: string) => {
+      const next = recents.filter((r) => r !== term);
+      setRecents(next);
+      await persist(next);
+    },
+    [recents, persist],
+  );
+
+  // Clear all
+  const clear = useCallback(async () => {
+    setRecents([]);
+    try {
+      await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
+    } catch {}
+  }, []);
+
+  return { recents, add, remove, clear };
+}
+
+/* =========================
+   USE SEARCH (main hook)
+========================= */
+
 export function useSearch(params: UseSearchParams): UseSearchReturn {
   const {
     type,
@@ -168,6 +361,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     minChars = 2,
     debounceMs = 350,
   } = params;
+
   const trimmed = (rawQuery ?? "").trim();
   const debouncedQuery = useDebouncedValue(trimmed, debounceMs);
   const enabled = debouncedQuery.length >= minChars;
