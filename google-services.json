@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "651919287297",
+    "project_id": "nebulanet-production",
+    "storage_bucket": "nebulanet-production.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:651919287297:android:02251fdb5589c2b3020c00",
+        "android_client_info": {
+          "package_name": "com.nebulanet.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJ5eC_pjr3X5CwaOVq5Smx15LYiESo460"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
