@@ -76,7 +76,7 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)" />
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="profile" />
-                  <Stack.Screen name="boost/[postId]" />
+                  <Stack.Screen name="boost" />
                   <Stack.Screen name="settings" />
                   <Stack.Screen name="+not-found" />
                 </Stack>
