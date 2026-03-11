@@ -1,5 +1,6 @@
 // app/profile/edit.tsx — COMPLETED + UPDATED ✅
 import { useAuth } from "@/hooks/useAuth";
+import { storage } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
@@ -7,7 +8,6 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
   getDownloadURL,
-  getStorage,
   ref as storageRef,
   uploadString,
 } from "firebase/storage";
@@ -98,7 +98,6 @@ export default function EditProfileScreen() {
   };
 
   const uploadAvatar = async (uri: string) => {
-    // ✅ FIX: use user?.uid not user?.id
     if (!user?.uid) {
       Alert.alert("Error", "User not found. Please log in again.");
       return;
@@ -114,10 +113,10 @@ export default function EditProfileScreen() {
       });
 
       const fileName = `${Date.now()}.${ext}`;
-      // ✅ FIX: use user.uid not user.id
-      const filePath = `${user.uid}/${fileName}`;
+      // ✅ FIX: store under avatars/ prefix so Storage rules can match easily
+      const filePath = `avatars/${user.uid}/${fileName}`;
 
-      const storage = getStorage();
+      // ✅ FIX: use the already-initialized storage instance from lib/firebase
       const fileRef = storageRef(storage, filePath);
       await uploadString(fileRef, base64, "base64");
       const publicUrl = await getDownloadURL(fileRef);
@@ -131,6 +130,7 @@ export default function EditProfileScreen() {
         "Avatar uploaded! Click Continue to save your changes.",
       );
     } catch (e: any) {
+      console.error("Avatar upload error:", e);
       Alert.alert(
         "Upload Failed",
         e?.message || "Failed to upload avatar. Please try again.",
