@@ -41,10 +41,16 @@ interface ShareOptions {
 
 export async function shareContent(options: ShareOptions) {
   try {
+    // Android ignores `url` — always append it to message
+    const fullMessage =
+      Platform.OS === "android" && options.url
+        ? `${options.message || ""}\n\n${options.url}`.trim()
+        : options.message || "";
+
     const result = await RNShare.share({
       title: options.title || "Check this out on NebulaNet",
-      message: options.message || "",
-      url: options.url || "https://nebulanet.space",
+      message: fullMessage,
+      url: options.url || "https://nebulanet.space", // used by iOS only
     });
 
     return result;
@@ -66,11 +72,13 @@ export async function sharePost(postData: {
   try {
     const postLink = generatePostLink(postData.id);
 
-    const message = `${postData.author.name}: ${
-      postData.title || postData.content.substring(0, 100)
-    }...\n\n${
-      postData.community ? `Posted in ${postData.community.name}` : ""
-    }`;
+    const preview = postData.title || postData.content.substring(0, 100);
+    const communityLine = postData.community
+      ? `\nPosted in ${postData.community.name}`
+      : "";
+
+    // Always include link in message so Android shows it
+    const message = `${postData.author.name}: ${preview}...${communityLine}\n\n${postLink}`;
 
     const result = await shareContent({
       title: `Post by ${postData.author.name} | NebulaNet`,
@@ -154,7 +162,7 @@ export async function shareProfile(userData: {
 
     const message = `Check out ${userData.name}'s profile on NebulaNet:\n${
       userData.bio ? userData.bio.substring(0, 100) + "..." : ""
-    }`;
+    }\n\n${profileLink}`;
 
     return await shareContent({
       title: `${userData.name} | NebulaNet`,
@@ -181,7 +189,7 @@ export async function shareCommunity(communityData: {
       communityData.description
         ? communityData.description.substring(0, 100) + "..."
         : ""
-    }`;
+    }\n\n${communityLink}`;
 
     return await shareContent({
       title: `${communityData.name} | NebulaNet`,
@@ -204,13 +212,13 @@ export async function shareWithOptions(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-    const message = `${postData.author.name}: ${
-      postData.title || postData.content.substring(0, 100)
-    }...`;
+    const preview = postData.title || postData.content.substring(0, 100);
+    // Always include link in message for Android
+    const message = `${postData.author.name}: ${preview}...\n\n${postLink}`;
 
     if (Platform.OS === "ios") {
       const result = await RNShare.share({
-        message: `${message}\n\n${postLink}`,
+        message,
         url: postLink,
       });
 
