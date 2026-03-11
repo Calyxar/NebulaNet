@@ -180,6 +180,12 @@ export default function EditProfileScreen() {
       Alert.alert("Success", "Profile updated successfully!");
       setTimeout(() => router.back(), 300);
     } catch (error: any) {
+      console.error(
+        "updateProfile error:",
+        JSON.stringify(error),
+        error?.code,
+        error?.message,
+      );
       let errorMessage = "Failed to update profile";
       if (
         error?.message?.includes("duplicate") &&
@@ -188,6 +194,8 @@ export default function EditProfileScreen() {
         errorMessage = "This username is already taken";
       } else if (error?.message) {
         errorMessage = error.message;
+      } else if (error?.code) {
+        errorMessage = error.code;
       }
       Alert.alert("Update Failed", errorMessage);
     }
