@@ -109,7 +109,8 @@ export default function PostDetailScreen() {
     [params],
   );
 
-  const { user } = useAuth();
+  // ✅ FIX: destructure profile so comment input bar shows correct avatar/name
+  const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [comment, setComment] = useState("");
@@ -479,7 +480,9 @@ export default function PostDetailScreen() {
             {!isPoll && !!post.content && (
               <HashtagText
                 text={post.content}
-                style={[styles.postBody, { color: colors.textSecondary }] as any}
+                style={
+                  [styles.postBody, { color: colors.textSecondary }] as any
+                }
               />
             )}
 
@@ -809,9 +812,12 @@ export default function PostDetailScreen() {
             },
           ]}
         >
+          {/* ✅ FIX: use profile instead of user for avatar/name */}
           <Avatar
-            uri={(user as any)?.avatar_url}
-            name={(user as any)?.full_name || (user as any)?.email || "Me"}
+            uri={profile?.avatar_url}
+            name={
+              profile?.full_name || profile?.username || user?.email || "Me"
+            }
             size={32}
             fallbackColor={colors.primary}
           />
