@@ -1,17 +1,11 @@
 // app/create/post.tsx — REDESIGNED ✅ matches mockup + dark mode + media upload fix
 import { useAuth } from "@/hooks/useAuth";
-import { storage } from "@/lib/firebase";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { createPost } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import {
-  getDownloadURL,
-  ref as storageRef,
-  uploadBytes,
-} from "firebase/storage";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -38,24 +32,6 @@ interface LocalMediaItem {
 
 const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
-
-// ✅ FIX: upload local URI to Firebase Storage and return public URL
-async function uploadMediaToStorage(
-  uid: string,
-  uri: string,
-  type: MediaType,
-): Promise<string> {
-  const ext = type === "video" ? "mp4" : "jpg";
-  const fileName = `${Date.now()}.${ext}`;
-  const path = `posts/${uid}/${fileName}`;
-
-  const response = await fetch(uri);
-  const blob = await response.blob();
-
-  const fileRef = storageRef(storage, path);
-  await uploadBytes(fileRef, blob);
-  return await getDownloadURL(fileRef);
-}
 
 export default function CreatePostScreen() {
   const { user, profile } = useAuth();
@@ -154,27 +130,23 @@ export default function CreatePostScreen() {
 
     setIsPosting(true);
     try {
-      let uploadedUrls: string[] = [];
-
-      // ✅ FIX: upload each media item to Firebase Storage first
       if (mediaItems.length > 0) {
-        setUploadProgress(`Uploading media 0/${mediaItems.length}...`);
-        for (let i = 0; i < mediaItems.length; i++) {
-          const item = mediaItems[i];
-          setUploadProgress(`Uploading media ${i + 1}/${mediaItems.length}...`);
-          const url = await uploadMediaToStorage(user.uid, item.uri, item.type);
-          uploadedUrls.push(url);
-        }
-        setUploadProgress("Creating post...");
+        setUploadProgress(
+          `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}...`,
+        );
       }
 
+      // ✅ FIX: pass media as MediaItem[] — createPost handles upload via uploadMediaForPost
       await createPost({
         title: title.trim() || undefined,
         content: bodyText.trim(),
-        media_urls: uploadedUrls,
+        media: mediaItems.map((m, i) => ({
+          id: `${Date.now()}_${i}`,
+          uri: m.uri,
+          type: m.type,
+        })) as any,
         visibility,
-        hashtags: detectedHashtags,
-      } as any);
+      });
 
       router.back();
     } catch (e: any) {
