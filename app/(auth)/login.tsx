@@ -2,11 +2,12 @@
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import { makeRedirectUri } from "expo-auth-session";
-import * as Google from "expo-auth-session/providers/google";
-import Constants from "expo-constants";
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
 import { Link, router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -21,6 +22,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// ✅ Configure Google Sign-In once on module load
+GoogleSignin.configure({
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  offlineAccess: false,
+  forceCodeForRefreshToken: false,
+});
+
 export default function LoginScreen() {
   const { user, isLoading: authLoading, login, googleLogin } = useAuth();
   const { colors, isDark } = useTheme();
@@ -32,29 +40,14 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Sign out of Google on mount to force account picker each time
+  useEffect(() => {
+    GoogleSignin.signOut().catch(() => {});
+  }, []);
+
   const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const validatePhone = (v: string) =>
     /^[\+]?[1-9][\d]{0,17}$/.test(v.replace(/\D/g, ""));
-
-  const redirectUri = useMemo(
-    () => makeRedirectUri({ scheme: "nebulanet", path: "auth/callback" }),
-    [],
-  );
-
-  const [googleRequest, _googleResponse, googlePromptAsync] =
-    Google.useAuthRequest({
-      clientId:
-        Constants.expoConfig?.extra?.googleWebClientId ||
-        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      iosClientId:
-        Constants.expoConfig?.extra?.googleIosClientId ||
-        process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-      androidClientId:
-        Constants.expoConfig?.extra?.googleAndroidClientId ||
-        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-      redirectUri,
-      scopes: ["profile", "email"],
-    });
 
   const handleLogin = async () => {
     if (user) return;
@@ -116,28 +109,35 @@ export default function LoginScreen() {
   };
 
   const handleGoogleLogin = async () => {
-    if (user || !googleRequest) return;
+    if (user) return;
     setIsSubmitting(true);
     try {
-      const result = await googlePromptAsync();
-      if (result.type !== "success") return;
-      const { id_token, access_token } = result.params as any;
-      if (!id_token) {
-        Alert.alert("Google Login Failed", "No ID token received.");
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+      const signInResult = await GoogleSignin.signIn();
+
+      // ✅ Support both old and new SDK response shapes
+      const idToken =
+        (signInResult as any).data?.idToken ??
+        (signInResult as any).idToken ??
+        null;
+
+      if (!idToken) {
+        Alert.alert("Google Login Failed", "No ID token received from Google.");
         return;
       }
-      await googleLogin.mutateAsync({
-        idToken: id_token,
-        accessToken: access_token ?? undefined,
-      });
+
+      await googleLogin.mutateAsync({ idToken });
     } catch (error: any) {
-      const msg = error?.message || "Unable to sign in with Google.";
-      if (
-        !msg.toLowerCase().includes("cancelled") &&
-        !msg.toLowerCase().includes("dismissed")
-      ) {
-        Alert.alert("Google Login Failed", msg);
+      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
+      if (error?.code === statusCodes.IN_PROGRESS) return;
+      if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert("Error", "Google Play Services not available.");
+        return;
       }
+      const msg = error?.message || "Unable to sign in with Google.";
+      Alert.alert("Google Login Failed", msg);
     } finally {
       setIsSubmitting(false);
     }
