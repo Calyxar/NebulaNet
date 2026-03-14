@@ -1,8 +1,11 @@
-// app/settings/change-password.tsx
+// app/settings/change-password.tsx — UPDATED ✅ dark mode
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import {
   EmailAuthProvider,
   reauthenticateWithCredential,
@@ -13,12 +16,14 @@ import { useState } from "react";
 import {
   Alert,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 interface PasswordStrength {
   score: number;
@@ -26,598 +31,485 @@ interface PasswordStrength {
   color: string;
 }
 
+function passwordStrength(password: string): PasswordStrength {
+  if (!password) return { score: 0, text: "", color: "transparent" };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  const map: Record<number, { text: string; color: string }> = {
+    0: { text: "Very weak", color: "#ff3b30" },
+    1: { text: "Weak", color: "#ff9500" },
+    2: { text: "Fair", color: "#ffcc00" },
+    3: { text: "Good", color: "#34c759" },
+    4: { text: "Strong", color: "#32d74b" },
+    5: { text: "Very strong", color: "#30d158" },
+  };
+  return { score, ...map[Math.min(score, 5)] };
+}
+
 export default function ChangePasswordScreen() {
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
   const [formData, setFormData] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [show, setShow] = useState({
+    current: false,
+    new: false,
+    confirm: false,
+  });
   const [isLoading, setIsLoading] = useState(false);
 
-  const validateForm = () => {
+  const update = (key: keyof typeof formData) => (val: string) =>
+    setFormData((p) => ({ ...p, [key]: val }));
+  const toggleShow = (key: keyof typeof show) =>
+    setShow((p) => ({ ...p, [key]: !p[key] }));
+
+  const validate = () => {
     if (!formData.currentPassword) {
-      Alert.alert("Error", "Please enter your current password");
+      Alert.alert("Error", "Enter your current password");
       return false;
     }
-
-    if (!formData.newPassword) {
-      Alert.alert("Error", "Please enter a new password");
-      return false;
-    }
-
     if (formData.newPassword.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters long");
+      Alert.alert("Error", "Password must be at least 6 characters");
       return false;
     }
-
     if (formData.newPassword !== formData.confirmPassword) {
-      Alert.alert("Error", "New passwords do not match");
+      Alert.alert("Error", "Passwords do not match");
       return false;
     }
-
     if (formData.currentPassword === formData.newPassword) {
-      Alert.alert(
-        "Error",
-        "New password must be different from current password",
-      );
+      Alert.alert("Error", "New password must differ from current");
       return false;
     }
-
     return true;
   };
 
-  const handleUpdatePassword = async () => {
-    if (!validateForm()) return;
-
+  const handleUpdate = async () => {
+    if (!validate()) return;
     setIsLoading(true);
-
     try {
-      // First, verify current password by signing in
       const currentUser = auth.currentUser;
       if (!currentUser?.email) throw new Error("Not signed in");
-      const credential = EmailAuthProvider.credential(
-        currentUser.email,
-        formData.currentPassword,
-      );
       try {
-        await reauthenticateWithCredential(currentUser, credential);
+        await reauthenticateWithCredential(
+          currentUser,
+          EmailAuthProvider.credential(
+            currentUser.email,
+            formData.currentPassword,
+          ),
+        );
       } catch {
         Alert.alert("Error", "Current password is incorrect");
         return;
       }
       await updatePassword(currentUser, formData.newPassword);
-
-      // Clear form
       setFormData({
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
       });
-
-      Alert.alert("Success", "Your password has been updated successfully.", [
-        { text: "OK" },
-      ]);
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to update password");
+      Alert.alert("Success", "Password updated successfully.");
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Failed to update password");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert(
-      "Forgot Password?",
-      "We can send a password reset link to your email address.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Send Reset Link",
-          onPress: async () => {
-            try {
-              await sendPasswordResetEmail(auth, user?.email || "");
-
-              Alert.alert(
-                "Reset Link Sent",
-                "Check your email for instructions to reset your password.",
-              );
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
-            }
-          },
+  const handleForgot = () => {
+    Alert.alert("Forgot Password?", "Send a reset link to your email?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Send",
+        onPress: async () => {
+          try {
+            await sendPasswordResetEmail(auth, user?.email || "");
+            Alert.alert("Sent", "Check your email for reset instructions.");
+          } catch (e: any) {
+            Alert.alert("Error", e.message);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-  const passwordStrength = (password: string): PasswordStrength => {
-    if (!password) return { score: 0, text: "", color: "#f0f0f0" };
+  const strength = passwordStrength(formData.newPassword);
+  const requirements = [
+    { label: "At least 8 characters", met: formData.newPassword.length >= 8 },
+    {
+      label: "Upper and lowercase letters",
+      met:
+        /[A-Z]/.test(formData.newPassword) &&
+        /[a-z]/.test(formData.newPassword),
+    },
+    { label: "At least one number", met: /[0-9]/.test(formData.newPassword) },
+    {
+      label: "At least one special character",
+      met: /[^A-Za-z0-9]/.test(formData.newPassword),
+    },
+  ];
 
-    let score = 0;
-    if (password.length >= 8) score += 1;
-    if (/[A-Z]/.test(password)) score += 1;
-    if (/[a-z]/.test(password)) score += 1;
-    if (/[0-9]/.test(password)) score += 1;
-    if (/[^A-Za-z0-9]/.test(password)) score += 1;
+  const PasswordField = ({
+    label,
+    value,
+    onChange,
+    visible,
+    onToggle,
+    showForgot,
+  }: {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    visible: boolean;
+    onToggle: () => void;
+    showForgot?: boolean;
+  }) => (
+    <View style={styles.inputGroup}>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
+        {label}
+      </Text>
+      <View
+        style={[
+          styles.pwWrap,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
+      >
+        <TextInput
+          style={[styles.pwInput, { color: colors.text }]}
+          placeholder={`Enter ${label.toLowerCase()}`}
+          placeholderTextColor={colors.textTertiary}
+          value={value}
+          onChangeText={onChange}
+          secureTextEntry={!visible}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity style={styles.eyeBtn} onPress={onToggle}>
+          <Ionicons
+            name={visible ? "eye-off-outline" : "eye-outline"}
+            size={20}
+            color={colors.textTertiary}
+          />
+        </TouchableOpacity>
+      </View>
+      {showForgot && (
+        <TouchableOpacity style={styles.forgotBtn} onPress={handleForgot}>
+          <Text style={[styles.forgotText, { color: colors.primary }]}>
+            Forgot password?
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 
-    const strength: Record<number, { text: string; color: string }> = {
-      0: { text: "Very weak", color: "#ff3b30" },
-      1: { text: "Weak", color: "#ff9500" },
-      2: { text: "Fair", color: "#ffcc00" },
-      3: { text: "Good", color: "#34c759" },
-      4: { text: "Strong", color: "#32d74b" },
-      5: { text: "Very strong", color: "#30d158" },
-    };
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-    const strengthLevel = Math.min(score, 5);
-    return {
-      score,
-      text: strength[strengthLevel].text,
-      color: strength[strengthLevel].color,
-    };
-  };
-
-  const newPasswordStrength = passwordStrength(formData.newPassword);
-
-  return (
-    <ScrollView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Change Password</Text>
-        <Text style={styles.headerDescription}>
-          Update your password to keep your account secure
+        <TouchableOpacity
+          style={[
+            styles.backBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Change Password
         </Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.form}>
-        {/* Current Password */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Current Password</Text>
-          <View style={styles.passwordInputContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Enter current password"
-              value={formData.currentPassword}
-              onChangeText={(text) =>
-                setFormData({ ...formData, currentPassword: text })
-              }
-              secureTextEntry={!showCurrentPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-            >
-              <Ionicons
-                name={showCurrentPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color="#666"
-              />
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity
-            style={styles.forgotPasswordLink}
-            onPress={handleForgotPassword}
-          >
-            <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-          </TouchableOpacity>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.cardTitle, { color: colors.text }]}>
+            Update your password
+          </Text>
+          <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
+            Keep your account secure with a strong password.
+          </Text>
         </View>
 
-        {/* New Password */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>New Password</Text>
-          <View style={styles.passwordInputContainer}>
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Enter new password"
-              value={formData.newPassword}
-              onChangeText={(text) =>
-                setFormData({ ...formData, newPassword: text })
-              }
-              secureTextEntry={!showNewPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowNewPassword(!showNewPassword)}
-            >
-              <Ionicons
-                name={showNewPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color="#666"
-              />
-            </TouchableOpacity>
-          </View>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <PasswordField
+            label="Current Password"
+            value={formData.currentPassword}
+            onChange={update("currentPassword")}
+            visible={show.current}
+            onToggle={() => toggleShow("current")}
+            showForgot
+          />
 
-          {/* Password Strength Indicator */}
-          {formData.newPassword && (
-            <View style={styles.strengthContainer}>
-              <View style={styles.strengthBar}>
-                {[1, 2, 3, 4, 5].map((index) => (
+          <PasswordField
+            label="New Password"
+            value={formData.newPassword}
+            onChange={update("newPassword")}
+            visible={show.new}
+            onToggle={() => toggleShow("new")}
+          />
+
+          {/* Strength bar */}
+          {!!formData.newPassword && (
+            <View style={styles.strengthRow}>
+              <View
+                style={[
+                  styles.strengthBar,
+                  { backgroundColor: colors.surface },
+                ]}
+              >
+                {[1, 2, 3, 4, 5].map((i) => (
                   <View
-                    key={index}
+                    key={i}
                     style={[
-                      styles.strengthSegment,
-                      index <= newPasswordStrength.score && {
-                        backgroundColor: newPasswordStrength.color,
+                      styles.strengthSeg,
+                      {
+                        backgroundColor:
+                          i <= strength.score ? strength.color : "transparent",
                       },
                     ]}
                   />
                 ))}
               </View>
-              <Text
-                style={[
-                  styles.strengthText,
-                  { color: newPasswordStrength.color },
-                ]}
-              >
-                {newPasswordStrength.text}
+              <Text style={[styles.strengthLabel, { color: strength.color }]}>
+                {strength.text}
               </Text>
             </View>
           )}
 
-          {/* Password Requirements */}
-          <View style={styles.requirementsContainer}>
-            <Text style={styles.requirementsTitle}>Password must include:</Text>
-            <View style={styles.requirementItem}>
-              <Ionicons
-                name={
-                  formData.newPassword.length >= 8
-                    ? "checkmark-circle"
-                    : "ellipse-outline"
-                }
-                size={16}
-                color={formData.newPassword.length >= 8 ? "#34c759" : "#999"}
-              />
-              <Text
-                style={[
-                  styles.requirementText,
-                  formData.newPassword.length >= 8 && styles.requirementMet,
-                ]}
-              >
-                At least 8 characters
-              </Text>
-            </View>
-            <View style={styles.requirementItem}>
-              <Ionicons
-                name={
-                  /[A-Z]/.test(formData.newPassword) &&
-                  /[a-z]/.test(formData.newPassword)
-                    ? "checkmark-circle"
-                    : "ellipse-outline"
-                }
-                size={16}
-                color={
-                  /[A-Z]/.test(formData.newPassword) &&
-                  /[a-z]/.test(formData.newPassword)
-                    ? "#34c759"
-                    : "#999"
-                }
-              />
-              <Text
-                style={[
-                  styles.requirementText,
-                  /[A-Z]/.test(formData.newPassword) &&
-                    /[a-z]/.test(formData.newPassword) &&
-                    styles.requirementMet,
-                ]}
-              >
-                Upper and lowercase letters
-              </Text>
-            </View>
-            <View style={styles.requirementItem}>
-              <Ionicons
-                name={
-                  /[0-9]/.test(formData.newPassword)
-                    ? "checkmark-circle"
-                    : "ellipse-outline"
-                }
-                size={16}
-                color={/[0-9]/.test(formData.newPassword) ? "#34c759" : "#999"}
-              />
-              <Text
-                style={[
-                  styles.requirementText,
-                  /[0-9]/.test(formData.newPassword) && styles.requirementMet,
-                ]}
-              >
-                At least one number
-              </Text>
-            </View>
-            <View style={styles.requirementItem}>
-              <Ionicons
-                name={
-                  /[^A-Za-z0-9]/.test(formData.newPassword)
-                    ? "checkmark-circle"
-                    : "ellipse-outline"
-                }
-                size={16}
-                color={
-                  /[^A-Za-z0-9]/.test(formData.newPassword) ? "#34c759" : "#999"
-                }
-              />
-              <Text
-                style={[
-                  styles.requirementText,
-                  /[^A-Za-z0-9]/.test(formData.newPassword) &&
-                    styles.requirementMet,
-                ]}
-              >
-                At least one special character
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Confirm Password */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Confirm New Password</Text>
-          <View style={styles.passwordInputContainer}>
-            <TextInput
-              style={[
-                styles.passwordInput,
-                formData.confirmPassword &&
-                  formData.newPassword !== formData.confirmPassword &&
-                  styles.inputError,
-              ]}
-              placeholder="Confirm new password"
-              value={formData.confirmPassword}
-              onChangeText={(text) =>
-                setFormData({ ...formData, confirmPassword: text })
-              }
-              secureTextEntry={!showConfirmPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-            >
-              <Ionicons
-                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color="#666"
-              />
-            </TouchableOpacity>
-          </View>
-          {formData.confirmPassword &&
-            formData.newPassword !== formData.confirmPassword && (
-              <Text style={styles.errorText}>Passwords do not match</Text>
-            )}
-          {formData.confirmPassword &&
-            formData.newPassword === formData.confirmPassword && (
-              <Text style={styles.successText}>Passwords match ✓</Text>
-            )}
-        </View>
-      </View>
-
-      <View style={styles.infoBox}>
-        <Ionicons name="shield-checkmark-outline" size={20} color="#007AFF" />
-        <View style={styles.infoContent}>
-          <Text style={styles.infoTitle}>Security Tips</Text>
-          <Text style={styles.infoText}>
-            • Use a unique password not used on other sites{"\n"}• Consider
-            using a password manager{"\n"}• Change your password regularly{"\n"}
-            • Never share your password with anyone
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.buttonContainer}>
-        <Button
-          title="Update Password"
-          onPress={handleUpdatePassword}
-          loading={isLoading}
-          disabled={
-            !formData.currentPassword ||
-            !formData.newPassword ||
-            !formData.confirmPassword ||
-            formData.newPassword !== formData.confirmPassword ||
-            formData.newPassword.length < 6
-          }
-        />
-
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => {
-            setFormData({
-              currentPassword: "",
-              newPassword: "",
-              confirmPassword: "",
-            });
-          }}
-          disabled={isLoading}
-        >
-          <Text style={styles.cancelButtonText}>Clear Form</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Need help?{" "}
-          <Text
-            style={styles.footerLink}
-            onPress={() => {
-              // Open help center
-            }}
+          {/* Requirements */}
+          <View
+            style={[
+              styles.reqBox,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
           >
-            Visit our help center
-          </Text>
-        </Text>
-      </View>
-    </ScrollView>
+            <Text style={[styles.reqTitle, { color: colors.textSecondary }]}>
+              Password must include:
+            </Text>
+            {requirements.map(({ label, met }) => (
+              <View key={label} style={styles.reqItem}>
+                <Ionicons
+                  name={met ? "checkmark-circle" : "ellipse-outline"}
+                  size={16}
+                  color={met ? "#34c759" : colors.textTertiary}
+                />
+                <Text
+                  style={[
+                    styles.reqText,
+                    { color: met ? "#34c759" : colors.textTertiary },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <PasswordField
+            label="Confirm New Password"
+            value={formData.confirmPassword}
+            onChange={update("confirmPassword")}
+            visible={show.confirm}
+            onToggle={() => toggleShow("confirm")}
+          />
+
+          {!!formData.confirmPassword &&
+            formData.newPassword !== formData.confirmPassword && (
+              <Text style={styles.errText}>Passwords do not match</Text>
+            )}
+          {!!formData.confirmPassword &&
+            formData.newPassword === formData.confirmPassword && (
+              <Text style={styles.okText}>Passwords match ✓</Text>
+            )}
+        </View>
+
+        {/* Security tips */}
+        <View
+          style={[
+            styles.infoCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Ionicons
+            name="shield-checkmark-outline"
+            size={20}
+            color={colors.primary}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.infoTitle, { color: colors.text }]}>
+              Security Tips
+            </Text>
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              {
+                "• Use a unique password not used on other sites\n• Consider a password manager\n• Never share your password"
+              }
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.btnWrap}>
+          <Button
+            title="Update Password"
+            onPress={handleUpdate}
+            loading={isLoading}
+            disabled={
+              !formData.currentPassword ||
+              !formData.newPassword ||
+              !formData.confirmPassword ||
+              formData.newPassword !== formData.confirmPassword ||
+              formData.newPassword.length < 6
+            }
+          />
+          <TouchableOpacity
+            style={styles.clearBtn}
+            onPress={() =>
+              setFormData({
+                currentPassword: "",
+                newPassword: "",
+                confirmPassword: "",
+              })
+            }
+            disabled={isLoading}
+          >
+            <Text style={[styles.clearText, { color: colors.textSecondary }]}>
+              Clear Form
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
   header: {
-    padding: 20,
-    backgroundColor: "white",
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 8,
-  },
-  headerDescription: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  form: {
-    backgroundColor: "white",
-    marginBottom: 16,
-    padding: 20,
-  },
-  inputGroup: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#000",
-    marginBottom: 8,
-  },
-  passwordInputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f8f8f8",
-    borderRadius: 8,
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#e0e0e0",
   },
-  passwordInput: {
-    flex: 1,
-    padding: 12,
-    fontSize: 16,
-    color: "#000",
+  headerTitle: { fontSize: 17, fontWeight: "800" },
+  scroll: { padding: 18, gap: 12, paddingBottom: 32 },
+  card: {
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    gap: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
-  eyeButton: {
-    padding: 12,
-  },
-  inputError: {
-    borderColor: "#ff3b30",
-  },
-  forgotPasswordLink: {
-    alignSelf: "flex-end",
-    marginTop: 8,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    color: "#007AFF",
-  },
-  strengthContainer: {
+  cardTitle: { fontSize: 17, fontWeight: "800" },
+  cardSub: { fontSize: 13, lineHeight: 18 },
+  inputGroup: { marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
+  pwWrap: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  pwInput: { flex: 1, padding: 13, fontSize: 15 },
+  eyeBtn: { padding: 12 },
+  forgotBtn: { alignSelf: "flex-end", marginTop: 8 },
+  forgotText: { fontSize: 13, fontWeight: "600" },
+  strengthRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
+    marginBottom: 12,
   },
   strengthBar: {
     flex: 1,
     flexDirection: "row",
     height: 4,
-    backgroundColor: "#f0f0f0",
     borderRadius: 2,
     overflow: "hidden",
+    gap: 2,
   },
-  strengthSegment: {
-    flex: 1,
-    height: "100%",
-    marginHorizontal: 1,
-  },
-  strengthText: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  requirementsContainer: {
-    marginTop: 16,
-  },
-  requirementsTitle: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#666",
-    marginBottom: 8,
-  },
-  requirementItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-    gap: 8,
-  },
-  requirementText: {
-    fontSize: 14,
-    color: "#999",
-  },
-  requirementMet: {
-    color: "#34c759",
-  },
-  errorText: {
-    fontSize: 14,
-    color: "#ff3b30",
-    marginTop: 4,
-  },
-  successText: {
-    fontSize: 14,
-    color: "#34c759",
-    marginTop: 4,
-  },
-  infoBox: {
-    flexDirection: "row",
-    backgroundColor: "#e8f4f8",
-    margin: 16,
-    padding: 16,
+  strengthSeg: { flex: 1, height: "100%", borderRadius: 2 },
+  strengthLabel: { fontSize: 12, fontWeight: "600" },
+  reqBox: {
     borderRadius: 12,
-    gap: 12,
-  },
-  infoContent: {
-    flex: 1,
-  },
-  infoTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  infoText: {
-    fontSize: 13,
-    color: "#666",
-    lineHeight: 18,
-  },
-  buttonContainer: {
-    padding: 20,
-    gap: 12,
-  },
-  cancelButton: {
-    alignItems: "center",
-    padding: 16,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "500",
-  },
-  footer: {
-    padding: 20,
+    padding: 12,
+    borderWidth: 1,
+    gap: 8,
     marginBottom: 16,
   },
-  footerText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 20,
+  reqTitle: { fontSize: 13, fontWeight: "600", marginBottom: 2 },
+  reqItem: { flexDirection: "row", alignItems: "center", gap: 8 },
+  reqText: { fontSize: 13 },
+  errText: { fontSize: 13, color: "#ff3b30", marginTop: 4 },
+  okText: { fontSize: 13, color: "#34c759", marginTop: 4 },
+  infoCard: {
+    flexDirection: "row",
+    gap: 12,
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
   },
-  footerLink: {
-    color: "#007AFF",
-    fontWeight: "500",
-  },
+  infoTitle: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  infoText: { fontSize: 12, lineHeight: 18 },
+  btnWrap: { gap: 8 },
+  clearBtn: { alignItems: "center", padding: 14 },
+  clearText: { fontSize: 15, fontWeight: "600" },
 });

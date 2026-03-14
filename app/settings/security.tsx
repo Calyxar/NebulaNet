@@ -1,32 +1,35 @@
-// app/settings/security.tsx — NebulaNet RESKIN + fixes implicit any + typed routing
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import React, { useState } from "react";
-import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
+// app/settings/security.tsx — UPDATED ✅ dark mode
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   sendPasswordResetEmail,
   updatePassword,
 } from "firebase/auth";
+import React, { useState } from "react";
+import {
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type PasswordForm = { current: string; next: string; confirm: string };
 
 export default function SecurityScreen() {
   const { user } = useAuth();
-
+  const { colors, isDark } = useTheme();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [passwordData, setPasswordData] = useState<PasswordForm>({
     current: "",
@@ -50,10 +53,7 @@ export default function SecurityScreen() {
       return;
     }
     if (passwordData.current === passwordData.next) {
-      Alert.alert(
-        "Error",
-        "New password must be different from current password",
-      );
+      Alert.alert("Error", "New password must differ from current");
       return;
     }
 
@@ -61,15 +61,13 @@ export default function SecurityScreen() {
     try {
       const currentUser = auth.currentUser;
       if (!currentUser?.email) throw new Error("Not signed in");
-      const credential = EmailAuthProvider.credential(
-        currentUser.email,
-        passwordData.current,
-      );
       try {
-        await reauthenticateWithCredential(currentUser, credential);
+        await reauthenticateWithCredential(
+          currentUser,
+          EmailAuthProvider.credential(currentUser.email, passwordData.current),
+        );
       } catch {
         Alert.alert("Error", "Current password incorrect");
-        setIsUpdatingPassword(false);
         return;
       }
       await updatePassword(currentUser, passwordData.next);
@@ -93,15 +91,10 @@ export default function SecurityScreen() {
             if (!email?.trim()) return;
             setIsResettingPassword(true);
             try {
-              try {
-                await sendPasswordResetEmail(auth, email.trim());
-                Alert.alert("Success", "Check your email for the reset link");
-              } catch (e: any) {
-                Alert.alert(
-                  "Error",
-                  e?.message ?? "Failed to send reset email",
-                );
-              }
+              await sendPasswordResetEmail(auth, email.trim());
+              Alert.alert("Sent", "Check your email for the reset link");
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to send reset email");
             } finally {
               setIsResettingPassword(false);
             }
@@ -113,250 +106,328 @@ export default function SecurityScreen() {
     );
   };
 
-  return (
-    <LinearGradient
-      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
-      locations={[0, 0.45, 1]}
-      style={styles.gradient}
+  const verified = auth.currentUser?.emailVerified ?? false;
+
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
     >
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.logoBubble}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[
+            styles.circleBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <View
+            style={[
+              styles.circleBtn,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={20}
+              color={colors.primary}
+            />
+          </View>
+          <View>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              Security
+            </Text>
+            <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
+              Manage login and account security
+            </Text>
+          </View>
+        </View>
+        <View style={{ width: 44 }} />
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Login Security
+          </Text>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          {/* Email verification */}
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <View
+              style={[
+                styles.rowIcon,
+                { backgroundColor: colors.primary + "18" },
+              ]}
+            >
               <Ionicons
-                name="shield-checkmark-outline"
-                size={20}
-                color="#7C3AED"
+                name={verified ? "checkmark-circle" : "warning-outline"}
+                size={18}
+                color={verified ? "#16A34A" : "#F59E0B"}
               />
             </View>
-            <View>
-              <Text style={styles.headerTitle}>Security</Text>
-              <Text style={styles.headerSub}>
-                Manage login and account security
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>
+                Email Verification
+              </Text>
+              <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>
+                {verified ? "Verified" : "Unverified"}
               </Text>
             </View>
           </View>
-        </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>Login Security</Text>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowIcon}>
-                <Ionicons
-                  name={
-                    (auth.currentUser?.emailVerified ?? false)
-                      ? "checkmark-circle"
-                      : "warning-outline"
-                  }
-                  size={18}
-                  color={
-                    (auth.currentUser?.emailVerified ?? false)
-                      ? "#16A34A"
-                      : "#F59E0B"
-                  }
-                />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Email Verification</Text>
-                <Text style={styles.rowDesc}>
-                  {(auth.currentUser?.emailVerified ?? false)
-                    ? "Verified"
-                    : "Unverified"}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.row}>
-              <View style={styles.rowIcon}>
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={18}
-                  color="#7C3AED"
-                />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Two-Factor Authentication</Text>
-                <Text style={styles.rowDesc}>Disabled</Text>
-              </View>
-              <Button
-                title="Enable"
-                variant="outline"
-                onPress={() =>
-                  Alert.alert(
-                    "Coming soon",
-                    "Two-factor authentication will be available in a future update.",
-                  )
-                }
-                style={styles.smallButton}
-              />
-            </View>
-
-            <View style={[styles.row, { borderBottomWidth: 0 }]}>
-              <View style={styles.rowIcon}>
-                <Ionicons name="key-outline" size={18} color="#7C3AED" />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Change Password</Text>
-                <Text style={styles.rowDesc}>Update your account password</Text>
-              </View>
-              <Button
-                title={showPasswordForm ? "Hide" : "Edit"}
-                variant="outline"
-                onPress={() => setShowPasswordForm((v) => !v)}
-                style={styles.smallButton}
-              />
-            </View>
-          </View>
-
-          {showPasswordForm && (
-            <View style={styles.formCard}>
-              <Text style={styles.formTitle}>Update Password</Text>
-
-              <TextInput
-                style={styles.input}
-                placeholder="Current Password"
-                placeholderTextColor="#9CA3AF"
-                secureTextEntry
-                value={passwordData.current}
-                onChangeText={(t) =>
-                  setPasswordData((p) => ({ ...p, current: t }))
-                }
-                autoCapitalize="none"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="New Password"
-                placeholderTextColor="#9CA3AF"
-                secureTextEntry
-                value={passwordData.next}
-                onChangeText={(t) =>
-                  setPasswordData((p) => ({ ...p, next: t }))
-                }
-                autoCapitalize="none"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Confirm New Password"
-                placeholderTextColor="#9CA3AF"
-                secureTextEntry
-                value={passwordData.confirm}
-                onChangeText={(t) =>
-                  setPasswordData((p) => ({ ...p, confirm: t }))
-                }
-                autoCapitalize="none"
-              />
-
-              <View style={styles.formButtons}>
-                <Button
-                  title="Update Password"
-                  onPress={handlePasswordUpdate}
-                  loading={isUpdatingPassword}
-                  disabled={
-                    !passwordData.current ||
-                    passwordData.next.length < 6 ||
-                    passwordData.next !== passwordData.confirm
-                  }
-                />
-                <Button
-                  title="Cancel"
-                  variant="outline"
-                  onPress={() => {
-                    setShowPasswordForm(false);
-                    setPasswordData({ current: "", next: "", confirm: "" });
-                  }}
-                  disabled={isUpdatingPassword}
-                />
-              </View>
-            </View>
-          )}
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>Account Recovery</Text>
-          </View>
-
-          <View style={styles.card}>
-            <View style={[styles.row, { borderBottomWidth: 0 }]}>
-              <View style={styles.rowIcon}>
-                <Ionicons name="refresh-outline" size={18} color="#7C3AED" />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Reset Password</Text>
-                <Text style={styles.rowDesc}>Get a reset link via email</Text>
-              </View>
-              <Button
-                title="Send"
-                variant="outline"
-                onPress={handleResetPassword}
-                loading={isResettingPassword}
-                style={styles.smallButton}
-              />
-            </View>
-          </View>
-
-          <View style={styles.infoBox}>
-            <View style={styles.infoIcon}>
+          {/* 2FA */}
+          <View style={[styles.row, { borderBottomColor: colors.border }]}>
+            <View
+              style={[
+                styles.rowIcon,
+                { backgroundColor: colors.primary + "18" },
+              ]}
+            >
               <Ionicons
                 name="shield-checkmark-outline"
                 size={18}
-                color="#7C3AED"
+                color={colors.primary}
               />
             </View>
-            <Text style={styles.infoText}>
-              Keep your account secure by using a strong password and enabling
-              2FA.
-            </Text>
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>
+                Two-Factor Authentication
+              </Text>
+              <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>
+                Disabled
+              </Text>
+            </View>
+            <Button
+              title="Enable"
+              variant="outline"
+              onPress={() =>
+                Alert.alert(
+                  "Coming soon",
+                  "2FA will be available in a future update.",
+                )
+              }
+              style={styles.smallBtn}
+            />
           </View>
 
-          <Text style={styles.footerText}>
-            nebulanet.space • Security changes may require re-authentication.
+          {/* Change password */}
+          <View style={[styles.row, { borderBottomWidth: 0 }]}>
+            <View
+              style={[
+                styles.rowIcon,
+                { backgroundColor: colors.primary + "18" },
+              ]}
+            >
+              <Ionicons name="key-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>
+                Change Password
+              </Text>
+              <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>
+                Update your account password
+              </Text>
+            </View>
+            <Button
+              title={showPasswordForm ? "Hide" : "Edit"}
+              variant="outline"
+              onPress={() => setShowPasswordForm((v) => !v)}
+              style={styles.smallBtn}
+            />
+          </View>
+        </View>
+
+        {showPasswordForm && (
+          <View
+            style={[
+              styles.formCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.formTitle, { color: colors.text }]}>
+              Update Password
+            </Text>
+            {(["current", "next", "confirm"] as const).map((key, i) => (
+              <TextInput
+                key={key}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    color: colors.text,
+                  },
+                ]}
+                placeholder={
+                  ["Current Password", "New Password", "Confirm New Password"][
+                    i
+                  ]
+                }
+                placeholderTextColor={colors.textTertiary}
+                secureTextEntry
+                value={passwordData[key]}
+                onChangeText={(t) =>
+                  setPasswordData((p) => ({ ...p, [key]: t }))
+                }
+                autoCapitalize="none"
+              />
+            ))}
+            <View style={styles.formBtns}>
+              <Button
+                title="Update Password"
+                onPress={handlePasswordUpdate}
+                loading={isUpdatingPassword}
+                disabled={
+                  !passwordData.current ||
+                  passwordData.next.length < 6 ||
+                  passwordData.next !== passwordData.confirm
+                }
+              />
+              <Button
+                title="Cancel"
+                variant="outline"
+                onPress={() => {
+                  setShowPasswordForm(false);
+                  setPasswordData({ current: "", next: "", confirm: "" });
+                }}
+                disabled={isUpdatingPassword}
+              />
+            </View>
+          </View>
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Account Recovery
           </Text>
-        </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          <View style={[styles.row, { borderBottomWidth: 0 }]}>
+            <View
+              style={[
+                styles.rowIcon,
+                { backgroundColor: colors.primary + "18" },
+              ]}
+            >
+              <Ionicons
+                name="refresh-outline"
+                size={18}
+                color={colors.primary}
+              />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>
+                Reset Password
+              </Text>
+              <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>
+                Get a reset link via email
+              </Text>
+            </View>
+            <Button
+              title="Send"
+              variant="outline"
+              onPress={handleResetPassword}
+              loading={isResettingPassword}
+              style={styles.smallBtn}
+            />
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.infoBox,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.infoIcon,
+              { backgroundColor: colors.primary + "18" },
+            ]}
+          >
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={18}
+              color={colors.primary}
+            />
+          </View>
+          <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+            Keep your account secure by using a strong password and enabling
+            2FA.
+          </Text>
+        </View>
+
+        <Text style={[styles.footer, { color: colors.textTertiary }]}>
+          nebulanet.space • Security changes may require re-authentication.
+        </Text>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1, backgroundColor: "transparent" },
-
-  header: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 10 },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logoBubble: {
+  header: {
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  circleBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: 1,
   },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2 },
-
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
-
+  headerCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  headerTitle: { fontSize: 18, fontWeight: "800" },
+  headerSub: { fontSize: 12, marginTop: 2 },
+  scroll: { paddingHorizontal: 18, paddingBottom: 28 },
   sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
-  sectionHeaderText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-    letterSpacing: 0.4,
-  },
-
+  sectionText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.4 },
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     overflow: "hidden",
     shadowColor: "#000",
@@ -365,74 +436,50 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 2,
   },
-
   row: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEF2FF",
     gap: 10,
   },
   rowIcon: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
   rowText: { flex: 1 },
-  rowTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
-  rowDesc: { marginTop: 3, fontSize: 12, color: "#6B7280", lineHeight: 16 },
-
+  rowTitle: { fontSize: 14, fontWeight: "800" },
+  rowDesc: { marginTop: 3, fontSize: 12, lineHeight: 16 },
   formCard: {
     marginTop: 12,
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#EEF2FF",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.04,
     shadowRadius: 18,
     elevation: 1,
   },
-  formTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 12,
-  },
-
+  formTitle: { fontSize: 14, fontWeight: "800", marginBottom: 12 },
   input: {
-    backgroundColor: "#F7F7FB",
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     fontSize: 16,
-    color: "#111827",
   },
-
-  formButtons: { gap: 10, marginTop: 6 },
-
-  smallButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-  },
-
+  formBtns: { gap: 10, marginTop: 6 },
+  smallBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
   infoBox: {
     marginTop: 14,
-    backgroundColor: "#FFFFFF",
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#EEF2FF",
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
@@ -441,17 +488,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
-  infoText: { fontSize: 13, color: "#6B7280", flex: 1, lineHeight: 18 },
-
-  footerText: {
-    marginTop: 14,
-    fontSize: 12,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 18,
-  },
+  infoText: { fontSize: 13, flex: 1, lineHeight: 18 },
+  footer: { marginTop: 14, fontSize: 12, textAlign: "center", lineHeight: 18 },
 });

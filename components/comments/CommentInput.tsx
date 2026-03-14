@@ -1,7 +1,7 @@
-// components/comments/CommentInput.tsx — FIREBASE ✅
-
+// components/comments/CommentInput.tsx — FIREBASE ✅ + dark mode
 import Avatar from "@/components/user/Avatar";
 import { auth, db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useState } from "react";
@@ -36,6 +36,7 @@ export default function CommentInput({
   replyTo,
   onCancelReply,
 }: CommentInputProps) {
+  const { colors } = useTheme();
   const [comment, setComment] = useState("");
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,16 +62,24 @@ export default function CommentInput({
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.container}
+      style={[
+        styles.container,
+        { backgroundColor: colors.card, borderTopColor: colors.border },
+      ]}
     >
       {replyTo && (
-        <View style={styles.replyIndicator}>
-          <Text style={styles.replyText}>Replying to {replyTo.name}</Text>
+        <View
+          style={[styles.replyIndicator, { backgroundColor: colors.surface }]}
+        >
+          <Text style={[styles.replyText, { color: colors.textSecondary }]}>
+            Replying to {replyTo.name}
+          </Text>
           <TouchableOpacity onPress={onCancelReply}>
-            <Ionicons name="close" size={16} color="#666" />
+            <Ionicons name="close" size={16} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
       )}
+
       <View style={styles.inputContainer}>
         {userProfile ? (
           <Avatar
@@ -79,12 +88,21 @@ export default function CommentInput({
             image={userProfile.avatar_url}
           />
         ) : (
-          <View style={styles.placeholderAvatar} />
+          <View
+            style={[
+              styles.placeholderAvatar,
+              { backgroundColor: colors.surface },
+            ]}
+          />
         )}
-        <View style={styles.inputWrapper}>
+
+        <View
+          style={[styles.inputWrapper, { backgroundColor: colors.surface }]}
+        >
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: colors.text }]}
             placeholder={placeholder}
+            placeholderTextColor={colors.textTertiary}
             value={comment}
             onChangeText={setComment}
             multiline
@@ -103,58 +121,60 @@ export default function CommentInput({
             <Ionicons
               name="send"
               size={20}
-              color={comment.trim() && !isSubmitting ? "#000" : "#999"}
+              color={
+                comment.trim() && !isSubmitting
+                  ? colors.primary
+                  : colors.textTertiary
+              }
             />
           </TouchableOpacity>
         </View>
       </View>
-      <Text style={styles.charCount}>{comment.length}/500</Text>
+
+      <Text style={[styles.charCount, { color: colors.textTertiary }]}>
+        {comment.length}/500
+      </Text>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: "#e5e5e5",
     padding: 16,
   },
   replyIndicator: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f8f8f8",
     padding: 8,
     borderRadius: 8,
     marginBottom: 12,
   },
-  replyText: { fontSize: 12, color: "#666", fontWeight: "500" },
+  replyText: { fontSize: 12, fontWeight: "500" },
   inputContainer: { flexDirection: "row", alignItems: "flex-start" },
   placeholderAvatar: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#f0f0f0",
     marginRight: 12,
   },
   inputWrapper: {
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#f8f8f8",
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    marginLeft: 10,
   },
   input: {
     flex: 1,
     fontSize: 14,
-    color: "#000",
     maxHeight: 100,
     paddingVertical: 4,
   },
   submitButton: { padding: 4, marginLeft: 8 },
   submitButtonDisabled: { opacity: 0.5 },
-  charCount: { fontSize: 11, color: "#999", textAlign: "right", marginTop: 4 },
+  charCount: { fontSize: 11, textAlign: "right", marginTop: 4 },
 });

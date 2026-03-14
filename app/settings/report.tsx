@@ -1,5 +1,6 @@
-// app/settings/report.tsx  ✅ COMPLETED + UPDATED (Supabase report + optional screenshot upload)
+// app/settings/report.tsx — UPDATED ✅ dark mode
 import { auth, db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
@@ -21,6 +22,7 @@ import {
   Image,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -29,8 +31,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const SUPPORT_BUCKET = "support-screenshots";
-
 async function submitSupportReport(params: {
   subject: string;
   details: string;
@@ -38,12 +38,10 @@ async function submitSupportReport(params: {
 }) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-
   const appVersion =
     Constants.expoConfig?.version ??
     (Constants as any)?.manifest?.version ??
     null;
-
   const reportRef = await addDoc(collection(db, "support_reports"), {
     user_id: user.uid,
     subject: params.subject.trim(),
@@ -55,23 +53,23 @@ async function submitSupportReport(params: {
     screenshot_path: null,
     created_at: serverTimestamp(),
   });
-
   if (params.screenshotUri) {
     const path = `${user.uid}/support/${reportRef.id}.jpg`;
     const resp = await fetch(params.screenshotUri);
     const blob = await resp.blob();
     const storage = getStorage();
-    const fileRef = storageRef(storage, path);
-    await uploadBytes(fileRef, blob, { contentType: "image/jpeg" });
+    await uploadBytes(storageRef(storage, path), blob, {
+      contentType: "image/jpeg",
+    });
     await updateDoc(doc(db, "support_reports", reportRef.id), {
       screenshot_path: path,
     });
   }
-
   return { id: reportRef.id };
 }
 
 export default function ReportProblemScreen() {
+  const { colors, isDark } = useTheme();
   const [subject, setSubject] = useState("");
   const [details, setDetails] = useState("");
   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
@@ -86,192 +84,258 @@ export default function ReportProblemScreen() {
       );
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
-      // NOTE: MediaTypeOptions is deprecated in newer SDKs; if you want,
-      // we'll swap to ImagePicker.MediaType.Images when we do your SDK cleanup.
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
     });
-
-    if (!result.canceled) {
-      setScreenshotUri(result.assets[0].uri);
-    }
+    if (!result.canceled) setScreenshotUri(result.assets[0].uri);
   };
-
-  const removeScreenshot = () => setScreenshotUri(null);
 
   const submit = async () => {
     if (!subject.trim() || !details.trim()) {
       Alert.alert("Missing info", "Please add a subject and details.");
       return;
     }
-
     if (isSubmitting) return;
-
     setIsSubmitting(true);
     try {
       await submitSupportReport({ subject, details, screenshotUri });
-
       Alert.alert(
         "Sent",
-        "Thanks — your report was submitted. We’ll review it soon.",
+        "Thanks — your report was submitted. We'll review it soon.",
       );
-
       setSubject("");
       setDetails("");
       setScreenshotUri(null);
       router.back();
     } catch (e: any) {
-      console.error("❌ Support report submit error:", e);
-      Alert.alert(
-        "Couldn’t send",
-        e?.message || "Something went wrong submitting your report.",
-      );
+      Alert.alert("Couldn't send", e?.message || "Something went wrong.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  return (
-    <LinearGradient
-      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
-      locations={[0, 0.45, 1]}
-      style={styles.gradient}
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
     >
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerCircleButton}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-          <Text style={styles.headerTitle}>Report a Problem</Text>
-
-          <View style={styles.headerCircleButton} />
-        </View>
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[
+            styles.circleBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
         >
-          <View style={styles.card}>
-            <Text style={styles.label}>Subject</Text>
-            <TextInput
-              value={subject}
-              onChangeText={setSubject}
-              placeholder="What happened?"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              editable={!isSubmitting}
-            />
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Report a Problem
+        </Text>
+        <View style={{ width: 44 }} />
+      </View>
 
-            <Text style={[styles.label, { marginTop: 14 }]}>Details</Text>
-            <TextInput
-              value={details}
-              onChangeText={setDetails}
-              placeholder="Steps to reproduce, what you expected, what you saw…"
-              placeholderTextColor="#9CA3AF"
-              style={[styles.input, styles.textArea]}
-              multiline
-              editable={!isSubmitting}
-            />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          <Text style={[styles.label, { color: colors.text }]}>Subject</Text>
+          <TextInput
+            value={subject}
+            onChangeText={setSubject}
+            placeholder="What happened?"
+            placeholderTextColor={colors.textTertiary}
+            style={[
+              styles.input,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                color: colors.text,
+              },
+            ]}
+            editable={!isSubmitting}
+          />
 
-            {/* Screenshot */}
-            <View style={styles.screenshotSection}>
-              <View style={styles.screenshotHeader}>
-                <Text style={styles.label}>Screenshot (optional)</Text>
-                {screenshotUri ? (
-                  <TouchableOpacity
-                    onPress={removeScreenshot}
-                    activeOpacity={0.85}
-                    disabled={isSubmitting}
-                    style={styles.removeChip}
-                  >
-                    <Ionicons name="trash-outline" size={16} color="#111827" />
-                    <Text style={styles.removeChipText}>Remove</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
+          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+            Details
+          </Text>
+          <TextInput
+            value={details}
+            onChangeText={setDetails}
+            placeholder="Steps to reproduce, what you expected, what you saw…"
+            placeholderTextColor={colors.textTertiary}
+            style={[
+              styles.input,
+              styles.textArea,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                color: colors.text,
+              },
+            ]}
+            multiline
+            editable={!isSubmitting}
+          />
 
-              {screenshotUri ? (
-                <Image source={{ uri: screenshotUri }} style={styles.preview} />
-              ) : (
-                <View style={styles.previewPlaceholder}>
-                  <Ionicons name="image-outline" size={22} color="#6B7280" />
-                  <Text style={styles.previewPlaceholderText}>
-                    No screenshot attached
+          {/* Screenshot */}
+          <View style={styles.screenshotSection}>
+            <View style={styles.screenshotHeader}>
+              <Text style={[styles.label, { color: colors.text }]}>
+                Screenshot (optional)
+              </Text>
+              {screenshotUri && (
+                <TouchableOpacity
+                  onPress={() => setScreenshotUri(null)}
+                  activeOpacity={0.85}
+                  disabled={isSubmitting}
+                  style={[
+                    styles.removeChip,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={16}
+                    color={colors.text}
+                  />
+                  <Text style={[styles.removeChipText, { color: colors.text }]}>
+                    Remove
                   </Text>
-                </View>
+                </TouchableOpacity>
               )}
+            </View>
 
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={pickScreenshot}
-                activeOpacity={0.85}
-                disabled={isSubmitting}
+            {screenshotUri ? (
+              <Image source={{ uri: screenshotUri }} style={styles.preview} />
+            ) : (
+              <View
+                style={[
+                  styles.previewPlaceholder,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
               >
                 <Ionicons
-                  name="attach-outline"
-                  size={18}
-                  color="#111827"
-                  style={{ marginRight: 8 }}
+                  name="image-outline"
+                  size={22}
+                  color={colors.textSecondary}
                 />
-                <Text style={styles.secondaryButtonText}>
-                  {screenshotUri ? "Change Screenshot" : "Attach Screenshot"}
+                <Text
+                  style={[
+                    styles.previewPlaceholderText,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  No screenshot attached
                 </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.tipBox}>
-              <Ionicons
-                name="information-circle-outline"
-                size={18}
-                color="#111827"
-              />
-              <Text style={styles.tipText}>
-                Tip: include your device + OS version for faster fixes. (We add
-                it automatically.)
-              </Text>
-            </View>
+              </View>
+            )}
 
             <TouchableOpacity
               style={[
-                styles.primaryButton,
-                isSubmitting && styles.primaryButtonDisabled,
+                styles.secondaryBtn,
+                { backgroundColor: colors.surface, borderColor: colors.border },
               ]}
-              onPress={submit}
+              onPress={pickScreenshot}
               activeOpacity={0.85}
               disabled={isSubmitting}
             >
-              {isSubmitting ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator />
-                  <Text style={styles.primaryButtonText}>Sending…</Text>
-                </View>
-              ) : (
-                <Text style={styles.primaryButtonText}>Submit</Text>
-              )}
+              <Ionicons
+                name="attach-outline"
+                size={18}
+                color={colors.text}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                {screenshotUri ? "Change Screenshot" : "Attach Screenshot"}
+              </Text>
             </TouchableOpacity>
+          </View>
 
-            <Text style={styles.helperText}>
-              You can also email:{" "}
-              <Text style={styles.linkText}>support@nebulanet.space</Text>
+          <View
+            style={[
+              styles.tipBox,
+              {
+                backgroundColor: colors.primary + "12",
+                borderColor: colors.primary + "25",
+              },
+            ]}
+          >
+            <Ionicons
+              name="information-circle-outline"
+              size={18}
+              color={colors.primary}
+            />
+            <Text style={[styles.tipText, { color: colors.textSecondary }]}>
+              Tip: include your device + OS version for faster fixes. (We add it
+              automatically.)
             </Text>
           </View>
-        </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+
+          <TouchableOpacity
+            style={[
+              styles.primaryBtn,
+              { backgroundColor: colors.primary },
+              isSubmitting && { opacity: 0.8 },
+            ]}
+            onPress={submit}
+            activeOpacity={0.85}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color="#fff" />
+                <Text style={styles.primaryBtnText}>Sending…</Text>
+              </View>
+            ) : (
+              <Text style={styles.primaryBtnText}>Submit</Text>
+            )}
+          </TouchableOpacity>
+
+          <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+            You can also email:{" "}
+            <Text style={[styles.linkText, { color: colors.primary }]}>
+              support@nebulanet.space
+            </Text>
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1, backgroundColor: "transparent" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -280,25 +344,17 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 10,
   },
-  headerTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  headerCircleButton: {
+  circleBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: 1,
   },
-
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
-
+  headerTitle: { fontSize: 16, fontWeight: "700" },
+  scroll: { paddingHorizontal: 18, paddingBottom: 28 },
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 16,
     shadowColor: "#000",
@@ -307,102 +363,75 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 2,
   },
-
-  label: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 8 },
-
+  label: { fontSize: 13, fontWeight: "700", marginBottom: 8 },
   input: {
-    backgroundColor: "#F8FAFF",
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: "#E6E9FF",
     fontSize: 15,
-    color: "#111827",
   },
   textArea: { minHeight: 120, textAlignVertical: "top" },
-
   screenshotSection: { marginTop: 14 },
   screenshotHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  preview: {
-    width: "100%",
-    height: 200,
-    borderRadius: 14,
-    marginTop: 10,
-    backgroundColor: "#F3F4F6",
-  },
+  preview: { width: "100%", height: 200, borderRadius: 14, marginTop: 10 },
   previewPlaceholder: {
     marginTop: 10,
     height: 120,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E6E9FF",
-    backgroundColor: "#F8FAFF",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  previewPlaceholderText: { color: "#6B7280", fontSize: 12, fontWeight: "600" },
-
+  previewPlaceholderText: { fontSize: 12, fontWeight: "600" },
   removeChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "#EEF2FF",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#E6E9FF",
   },
-  removeChipText: { color: "#111827", fontSize: 12, fontWeight: "700" },
-
-  secondaryButton: {
+  removeChipText: { fontSize: 12, fontWeight: "700" },
+  secondaryBtn: {
     marginTop: 12,
-    backgroundColor: "#EEF2FF",
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     borderWidth: 1,
-    borderColor: "#E6E9FF",
   },
-  secondaryButtonText: { color: "#111827", fontWeight: "700", fontSize: 14 },
-
+  secondaryBtnText: { fontWeight: "700", fontSize: 14 },
   tipBox: {
     marginTop: 14,
-    backgroundColor: "#EEF2FF",
     borderRadius: 14,
     padding: 12,
     flexDirection: "row",
     gap: 10,
     alignItems: "flex-start",
+    borderWidth: 1,
   },
-  tipText: { flex: 1, color: "#111827", fontSize: 13, lineHeight: 18 },
-
-  primaryButton: {
+  tipText: { flex: 1, fontSize: 13, lineHeight: 18 },
+  primaryBtn: {
     marginTop: 16,
-    backgroundColor: "#7C3AED",
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: "center",
   },
-  primaryButtonDisabled: { opacity: 0.8 },
-  primaryButtonText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
-
+  primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-
   helperText: {
     marginTop: 12,
     fontSize: 12,
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
   },
-  linkText: { color: "#7C3AED", fontWeight: "700" },
+  linkText: { fontWeight: "700" },
 });

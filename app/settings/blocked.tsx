@@ -1,8 +1,10 @@
-// app/settings/blocked.tsx
+// app/settings/blocked.tsx — UPDATED ✅ dark mode
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   collection,
   deleteDoc,
@@ -17,6 +19,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -28,34 +31,18 @@ interface BlockedUser {
   id: string;
   blocked_id: string;
   created_at: string;
-  profile: {
-    username: string;
-    full_name?: string;
-    avatar_url?: string;
-  };
+  profile: { username: string; full_name?: string; avatar_url?: string };
 }
-
 interface MutedUser {
   id: string;
   muted_id: string;
   created_at: string;
-  profile: {
-    username: string;
-    full_name?: string;
-    avatar_url?: string;
-  };
+  profile: { username: string; full_name?: string; avatar_url?: string };
 }
-
-const ACCENT = "#7C3AED";
-const BG = "#E8EAF6";
-const CARD = "#FFFFFF";
-const TEXT = "#111827";
-const SUB = "#6B7280";
-const MUTED = "#9CA3AF";
-const BORDER = "#EEF2FF";
 
 export default function BlockedAccountsScreen() {
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"blocked" | "muted">("blocked");
 
@@ -134,9 +121,8 @@ export default function BlockedAccountsScreen() {
       );
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.uid] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.uid] }),
   });
 
   const unmuteUser = useMutation({
@@ -151,16 +137,12 @@ export default function BlockedAccountsScreen() {
       );
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.uid] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.uid] }),
   });
 
   const tabCounts = useMemo(
-    () => ({
-      blocked: blockedUsers.length,
-      muted: mutedUsers.length,
-    }),
+    () => ({ blocked: blockedUsers.length, muted: mutedUsers.length }),
     [blockedUsers.length, mutedUsers.length],
   );
 
@@ -170,79 +152,88 @@ export default function BlockedAccountsScreen() {
   ) => {
     const displayName = item.profile.full_name || item.profile.username;
     const handle = item.profile.username;
-
-    const dateLabel =
-      mode === "blocked"
-        ? `Blocked • ${new Date(item.created_at).toLocaleDateString()}`
-        : `Muted • ${new Date(item.created_at).toLocaleDateString()}`;
-
-    const actionLabel = mode === "blocked" ? "Unblock" : "Unmute";
+    const dateLabel = `${mode === "blocked" ? "Blocked" : "Muted"} • ${new Date(item.created_at).toLocaleDateString()}`;
     const actionPending =
       mode === "blocked" ? unblockUser.isPending : unmuteUser.isPending;
 
     const action = () => {
       if (mode === "blocked") {
-        Alert.alert(
-          "Unblock User",
-          `Unblock @${handle}? They’ll be able to see your profile and interact again.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Unblock",
-              style: "destructive",
-              onPress: () =>
-                unblockUser.mutate((item as BlockedUser).blocked_id),
-            },
-          ],
-        );
+        Alert.alert("Unblock User", `Unblock @${handle}?`, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Unblock",
+            style: "destructive",
+            onPress: () => unblockUser.mutate((item as BlockedUser).blocked_id),
+          },
+        ]);
       } else {
-        Alert.alert(
-          "Unmute User",
-          `Unmute @${handle}? You’ll see their content again.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Unmute",
-              onPress: () => unmuteUser.mutate((item as MutedUser).muted_id),
-            },
-          ],
-        );
+        Alert.alert("Unmute User", `Unmute @${handle}?`, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Unmute",
+            onPress: () => unmuteUser.mutate((item as MutedUser).muted_id),
+          },
+        ]);
       }
     };
 
     return (
-      <View style={styles.userCard}>
-        <View style={styles.avatar}>
+      <View
+        style={[
+          styles.userCard,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        <View
+          style={[
+            styles.avatarCircle,
+            {
+              backgroundColor: colors.primary + "15",
+              borderColor: colors.border,
+            },
+          ]}
+        >
           <Ionicons
             name={mode === "blocked" ? "ban-outline" : "volume-mute-outline"}
             size={18}
-            color={ACCENT}
+            color={colors.primary}
           />
         </View>
-
         <View style={styles.userInfo}>
-          <Text style={styles.userName} numberOfLines={1}>
+          <Text
+            style={[styles.userName, { color: colors.text }]}
+            numberOfLines={1}
+          >
             {displayName}
           </Text>
-          <Text style={styles.userHandle} numberOfLines={1}>
+          <Text
+            style={[styles.userHandle, { color: colors.textSecondary }]}
+            numberOfLines={1}
+          >
             @{handle}
           </Text>
-          <Text style={styles.userMeta}>{dateLabel}</Text>
+          <Text style={[styles.userMeta, { color: colors.textTertiary }]}>
+            {dateLabel}
+          </Text>
         </View>
-
         <TouchableOpacity
           style={[
             styles.actionBtn,
-            mode === "blocked" ? styles.actionDanger : styles.actionPrimary,
+            {
+              backgroundColor:
+                mode === "blocked" ? colors.error : colors.primary,
+            },
           ]}
           onPress={action}
           disabled={actionPending}
           activeOpacity={0.85}
         >
           {actionPending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.actionText}>{actionLabel}</Text>
+            <Text style={styles.actionText}>
+              {mode === "blocked" ? "Unblock" : "Unmute"}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -250,133 +241,145 @@ export default function BlockedAccountsScreen() {
   };
 
   const Empty = ({ mode }: { mode: "blocked" | "muted" }) => (
-    <View style={styles.emptyWrap}>
-      <View style={styles.emptyIcon}>
+    <View
+      style={[
+        styles.emptyWrap,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
+      <View
+        style={[styles.emptyIcon, { backgroundColor: colors.primary + "15" }]}
+      >
         <Ionicons
           name={mode === "blocked" ? "ban-outline" : "volume-mute-outline"}
           size={30}
-          color={ACCENT}
+          color={colors.primary}
         />
       </View>
-      <Text style={styles.emptyTitle}>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>
         {mode === "blocked" ? "No blocked users" : "No muted users"}
       </Text>
-      <Text style={styles.emptySub}>
+      <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
         {mode === "blocked"
-          ? "People you block can’t see your profile or interact with you."
-          : "People you mute can still see you — you just won’t see their content."}
+          ? "People you block can't see your profile or interact with you."
+          : "People you mute can still see you — you just won't see their content."}
       </Text>
     </View>
   );
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Blocked & Muted</Text>
-          <Text style={styles.subtitle}>
-            Control who you see and who can interact with you.
-          </Text>
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-          {/* Tabs */}
-          <View style={styles.tabPill}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: colors.text }]}>
+          Blocked & Muted
+        </Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          Control who you see and who can interact with you.
+        </Text>
+        <View style={[styles.tabPill, { backgroundColor: colors.card }]}>
+          {(["blocked", "muted"] as const).map((tab) => (
             <TouchableOpacity
-              style={[styles.tab, activeTab === "blocked" && styles.tabActive]}
-              onPress={() => setActiveTab("blocked")}
+              key={tab}
+              style={[
+                styles.tab,
+                activeTab === tab && { backgroundColor: colors.primary },
+              ]}
+              onPress={() => setActiveTab(tab)}
               activeOpacity={0.85}
             >
               <Ionicons
-                name="ban-outline"
+                name={tab === "blocked" ? "ban-outline" : "volume-mute-outline"}
                 size={16}
-                color={activeTab === "blocked" ? "#FFFFFF" : SUB}
+                color={activeTab === tab ? "#fff" : colors.textSecondary}
               />
               <Text
                 style={[
                   styles.tabText,
-                  activeTab === "blocked" && styles.tabTextActive,
+                  { color: activeTab === tab ? "#fff" : colors.textSecondary },
                 ]}
               >
-                Blocked {tabCounts.blocked ? `(${tabCounts.blocked})` : ""}
+                {tab === "blocked" ? "Blocked" : "Muted"}
+                {tabCounts[tab] ? ` (${tabCounts[tab]})` : ""}
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.tab, activeTab === "muted" && styles.tabActive]}
-              onPress={() => setActiveTab("muted")}
-              activeOpacity={0.85}
-            >
-              <Ionicons
-                name="volume-mute-outline"
-                size={16}
-                color={activeTab === "muted" ? "#FFFFFF" : SUB}
-              />
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === "muted" && styles.tabTextActive,
-                ]}
-              >
-                Muted {tabCounts.muted ? `(${tabCounts.muted})` : ""}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* List */}
-        {activeTab === "blocked" ? (
-          <FlatList
-            data={blockedUsers}
-            keyExtractor={(i) => i.id}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => renderUserRow(item, "blocked")}
-            refreshing={isLoadingBlocked}
-            ListEmptyComponent={<Empty mode="blocked" />}
-          />
-        ) : (
-          <FlatList
-            data={mutedUsers}
-            keyExtractor={(i) => i.id}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => renderUserRow(item, "muted")}
-            refreshing={isLoadingMuted}
-            ListEmptyComponent={<Empty mode="muted" />}
-          />
-        )}
-
-        {/* Info */}
-        <View style={styles.infoCard}>
-          <Ionicons
-            name="information-circle-outline"
-            size={20}
-            color={ACCENT}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.infoTitle}>Quick difference</Text>
-            <Text style={styles.infoText}>
-              <Text style={styles.bold}>Blocked</Text>: they can’t see or
-              interact with you.{"\n"}
-              <Text style={styles.bold}>Muted</Text>: they can see you, but you
-              won’t see their posts/comments.
-            </Text>
-          </View>
+          ))}
         </View>
       </View>
+
+      <FlatList<BlockedUser | MutedUser>
+        data={activeTab === "blocked" ? blockedUsers : mutedUsers}
+        keyExtractor={(i) => i.id}
+        contentContainerStyle={styles.list}
+        renderItem={({ item }) => renderUserRow(item, activeTab)}
+        refreshing={activeTab === "blocked" ? isLoadingBlocked : isLoadingMuted}
+        ListEmptyComponent={<Empty mode={activeTab} />}
+        ListFooterComponent={
+          <View
+            style={[
+              styles.infoCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons
+              name="information-circle-outline"
+              size={20}
+              color={colors.primary}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.infoTitle, { color: colors.text }]}>
+                Quick difference
+              </Text>
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                <Text style={{ fontWeight: "900", color: colors.text }}>
+                  Blocked
+                </Text>
+                : they can't see or interact with you.{"\n"}
+                <Text style={{ fontWeight: "900", color: colors.text }}>
+                  Muted
+                </Text>
+                : they can see you, but you won't see their content.
+              </Text>
+            </View>
+          </View>
+        }
+      />
     </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BG },
-  container: { flex: 1 },
-
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-  title: { fontSize: 20, fontWeight: "800", color: TEXT },
-  subtitle: { fontSize: 12, color: SUB, marginTop: 6, lineHeight: 18 },
-
+  title: { fontSize: 20, fontWeight: "800" },
+  subtitle: { fontSize: 12, marginTop: 6, lineHeight: 18 },
   tabPill: {
     marginTop: 12,
-    backgroundColor: CARD,
     borderRadius: 999,
     padding: 4,
     flexDirection: "row",
@@ -391,35 +394,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tabActive: { backgroundColor: ACCENT },
-  tabText: { fontSize: 13, fontWeight: "700", color: SUB },
-  tabTextActive: { color: "#FFFFFF" },
-
-  list: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 16, gap: 10 },
-
+  tabText: { fontSize: 13, fontWeight: "700" },
+  list: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 8, gap: 10 },
   userCard: {
-    backgroundColor: CARD,
     borderRadius: 18,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    borderWidth: 1,
   },
-  avatar: {
+  avatarCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F7F5FF",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: BORDER,
   },
   userInfo: { flex: 1 },
-  userName: { fontSize: 14, fontWeight: "800", color: TEXT },
-  userHandle: { fontSize: 12, color: SUB, marginTop: 2 },
-  userMeta: { fontSize: 11, color: MUTED, marginTop: 6 },
-
+  userName: { fontSize: 14, fontWeight: "800" },
+  userHandle: { fontSize: 12, marginTop: 2 },
+  userMeta: { fontSize: 11, marginTop: 6 },
   actionBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -428,49 +424,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  actionPrimary: { backgroundColor: ACCENT },
-  actionDanger: { backgroundColor: "#EF4444" },
-  actionText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
-
+  actionText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   emptyWrap: {
-    marginTop: 30,
-    backgroundColor: CARD,
+    marginTop: 20,
     borderRadius: 18,
     padding: 18,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: BORDER,
   },
   emptyIcon: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#F7F5FF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
   },
-  emptyTitle: { fontSize: 14, fontWeight: "900", color: TEXT },
-  emptySub: {
-    fontSize: 12,
-    color: SUB,
-    textAlign: "center",
-    marginTop: 6,
-    lineHeight: 18,
-  },
-
+  emptyTitle: { fontSize: 14, fontWeight: "900" },
+  emptySub: { fontSize: 12, textAlign: "center", marginTop: 6, lineHeight: 18 },
   infoCard: {
     flexDirection: "row",
     gap: 10,
-    backgroundColor: CARD,
     margin: 16,
-    marginTop: 0,
+    marginTop: 8,
     padding: 14,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
   },
-  infoTitle: { fontSize: 13, fontWeight: "900", color: TEXT, marginBottom: 2 },
-  infoText: { fontSize: 12, color: SUB, lineHeight: 18 },
-  bold: { fontWeight: "900", color: TEXT },
+  infoTitle: { fontSize: 13, fontWeight: "900", marginBottom: 2 },
+  infoText: { fontSize: 12, lineHeight: 18 },
 });

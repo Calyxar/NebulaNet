@@ -1,8 +1,7 @@
-// app/settings/account-center.tsx — COMPLETED + FIXED TS ERROR
-// ✅ Back + X header
-// ✅ Fixes “can’t exit settings”
-// ✅ Fixes TypeScript onPress type error
-
+// app/settings/account-center.tsx — UPDATED ✅ dark mode
+import { useAuth } from "@/hooks/useAuth";
+import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -10,15 +9,13 @@ import React from "react";
 import {
   Alert,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-import { useAuth } from "@/hooks/useAuth";
-import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
 
 type RowItem = {
   title: string;
@@ -27,58 +24,9 @@ type RowItem = {
   onPress?: () => void;
 };
 
-function Card({ children }: { children: React.ReactNode }) {
-  return <View style={styles.card}>{children}</View>;
-}
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionHeaderText}>{title}</Text>
-    </View>
-  );
-}
-
-function Row({ item, isLast }: { item: RowItem; isLast?: boolean }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={item.onPress}
-      style={[styles.row, isLast && { borderBottomWidth: 0 }]}
-    >
-      <View style={styles.rowIcon}>
-        <Ionicons name={item.icon} size={18} color="#7C3AED" />
-      </View>
-
-      <View style={styles.rowText}>
-        <Text style={styles.rowTitle}>{item.title}</Text>
-        {!!item.description && (
-          <Text style={styles.rowDesc}>{item.description}</Text>
-        )}
-      </View>
-
-      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-    </TouchableOpacity>
-  );
-}
-
 export default function AccountCenterScreen() {
   const { user, profile } = useAuth();
-
-  const accountRows: RowItem[] = [
-    {
-      title: "Change Password",
-      description: "Update your account password",
-      icon: "key-outline",
-      onPress: () => pushSettings("changePassword"),
-    },
-    {
-      title: "Linked Accounts",
-      description: "Connect Google, GitHub, and more",
-      icon: "link-outline",
-      onPress: () => pushSettings("linkedAccounts"),
-    },
-  ];
+  const { colors, isDark } = useTheme();
 
   const identityRows: RowItem[] = [
     {
@@ -95,94 +43,204 @@ export default function AccountCenterScreen() {
     },
   ];
 
-  return (
-    <LinearGradient
-      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
-      locations={[0, 0.45, 1]}
-      style={styles.gradient}
+  const accountRows: RowItem[] = [
+    {
+      title: "Change Password",
+      description: "Update your account password",
+      icon: "key-outline",
+      onPress: () => pushSettings("changePassword"),
+    },
+    {
+      title: "Linked Accounts",
+      description: "Connect Google and more",
+      icon: "link-outline",
+      onPress: () => pushSettings("linkedAccounts"),
+    },
+  ];
+
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
     >
-      <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          {/* Back */}
-          <TouchableOpacity
-            style={styles.headerCircleButton}
-            activeOpacity={0.85}
-            onPress={() => router.back()}
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[
+            styles.circleBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={styles.headerCenter}>
+          <View
+            style={[
+              styles.circleBtn,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
           >
-            <Ionicons name="arrow-back" size={20} color="#111827" />
-          </TouchableOpacity>
-
-          {/* Center Title */}
-          <View style={styles.headerCenter}>
-            <View style={styles.logoBubble}>
-              <Ionicons
-                name="person-circle-outline"
-                size={20}
-                color="#7C3AED"
-              />
-            </View>
-
-            <View style={{ flexShrink: 1 }}>
-              <Text style={styles.headerTitle} numberOfLines={1}>
-                Account Center
-              </Text>
-              <Text style={styles.headerSub} numberOfLines={1}>
-                Manage identity and account access
-              </Text>
-            </View>
+            <Ionicons
+              name="person-circle-outline"
+              size={20}
+              color={colors.primary}
+            />
           </View>
-
-          {/* Close (FIXED) */}
-          <TouchableOpacity
-            style={styles.headerCircleButton}
-            activeOpacity={0.85}
-            onPress={() => closeSettings()} // ✅ FIXED HERE
-          >
-            <Ionicons name="close" size={20} color="#111827" />
-          </TouchableOpacity>
+          <View style={{ flexShrink: 1 }}>
+            <Text
+              style={[styles.headerTitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              Account Center
+            </Text>
+            <Text
+              style={[styles.headerSub, { color: colors.textSecondary }]}
+              numberOfLines={1}
+            >
+              Manage identity and account access
+            </Text>
+          </View>
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+        <TouchableOpacity
+          style={[
+            styles.circleBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => closeSettings()}
+          activeOpacity={0.85}
         >
-          <SectionHeader title="Identity" />
-          <Card>
-            {identityRows.map((item, idx) => (
-              <Row
-                key={item.title}
-                item={item}
-                isLast={idx === identityRows.length - 1}
-              />
-            ))}
-          </Card>
+          <Ionicons name="close" size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
 
-          <SectionHeader title="Account" />
-          <Card>
-            {accountRows.map((item, idx) => (
-              <Row
-                key={item.title}
-                item={item}
-                isLast={idx === accountRows.length - 1}
-              />
-            ))}
-          </Card>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        <SectionLabel title="Identity" colors={colors} />
+        <Card colors={colors}>
+          {identityRows.map((item, idx) => (
+            <Row
+              key={item.title}
+              item={item}
+              isLast={idx === identityRows.length - 1}
+              colors={colors}
+            />
+          ))}
+        </Card>
 
-          <Text style={styles.footerText}>
-            nebulanet.space • Account changes are protected and may require
-            re-authentication.
+        <SectionLabel title="Account" colors={colors} />
+        <Card colors={colors}>
+          {accountRows.map((item, idx) => (
+            <Row
+              key={item.title}
+              item={item}
+              isLast={idx === accountRows.length - 1}
+              colors={colors}
+            />
+          ))}
+        </Card>
+
+        <Text style={[styles.footer, { color: colors.textTertiary }]}>
+          nebulanet.space • Account changes may require re-authentication.
+        </Text>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
+  );
+}
+
+function SectionLabel({ title, colors }: { title: string; colors: any }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+        {title}
+      </Text>
+    </View>
+  );
+}
+
+function Card({
+  children,
+  colors,
+}: {
+  children: React.ReactNode;
+  colors: any;
+}) {
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card }]}>
+      {children}
+    </View>
+  );
+}
+
+function Row({
+  item,
+  isLast,
+  colors,
+}: {
+  item: RowItem;
+  isLast?: boolean;
+  colors: any;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={item.onPress}
+      style={[
+        styles.row,
+        { borderBottomColor: colors.border },
+        isLast && { borderBottomWidth: 0 },
+      ]}
+    >
+      <View
+        style={[styles.rowIcon, { backgroundColor: colors.primary + "18" }]}
+      >
+        <Ionicons name={item.icon} size={18} color={colors.primary} />
+      </View>
+      <View style={styles.rowText}>
+        <Text style={[styles.rowTitle, { color: colors.text }]}>
+          {item.title}
+        </Text>
+        {!!item.description && (
+          <Text style={[styles.rowDesc, { color: colors.textSecondary }]}>
+            {item.description}
           </Text>
-        </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1, backgroundColor: "transparent" },
-
   header: {
     paddingHorizontal: 18,
     paddingTop: 6,
@@ -192,18 +250,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  headerCircleButton: {
+  circleBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: 1,
   },
   headerCenter: {
     flex: 1,
@@ -211,34 +264,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  logoBubble: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  headerSub: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+  headerTitle: { fontSize: 18, fontWeight: "800" },
+  headerSub: { fontSize: 12, marginTop: 2 },
 
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
+  scroll: { paddingHorizontal: 18, paddingBottom: 28 },
 
   sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
-  sectionHeaderText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-    letterSpacing: 0.4,
-  },
+  sectionText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.4 },
 
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     overflow: "hidden",
     shadowColor: "#000",
@@ -254,26 +288,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEF2FF",
   },
   rowIcon: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
   rowText: { flex: 1 },
-  rowTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
-  rowDesc: { marginTop: 3, fontSize: 12, color: "#6B7280", lineHeight: 16 },
+  rowTitle: { fontSize: 14, fontWeight: "800" },
+  rowDesc: { marginTop: 3, fontSize: 12, lineHeight: 16 },
 
-  footerText: {
-    marginTop: 14,
-    fontSize: 12,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 18,
-  },
+  footer: { marginTop: 14, fontSize: 12, textAlign: "center", lineHeight: 18 },
 });
