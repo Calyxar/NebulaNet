@@ -1,86 +1,135 @@
-// app/settings/about.tsx
+// app/settings/about.tsx — UPDATED ✅ dark mode
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function AboutScreen() {
-  return (
-    <LinearGradient
-      colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
-      locations={[0, 0.45, 1]}
-      style={styles.gradient}
+  const { colors, isDark } = useTheme();
+
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
     >
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerCircleButton}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
-          </TouchableOpacity>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-          <Text style={styles.headerTitle}>About NebulaNet</Text>
-
-          <View style={styles.headerCircleButton} />
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[
+            styles.circleBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
         >
-          <View style={styles.card}>
-            <View style={styles.brandRow}>
-              <View style={styles.logoBubble}>
-                <Ionicons name="planet-outline" size={22} color="#7C3AED" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.appName}>NebulaNet</Text>
-                <Text style={styles.appMeta}>nebulanet.space</Text>
-              </View>
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          About NebulaNet
+        </Text>
+        <View style={styles.circleBtn} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.brandRow}>
+            <View
+              style={[
+                styles.logoBubble,
+                { backgroundColor: colors.primary + "18" },
+              ]}
+            >
+              <Ionicons
+                name="planet-outline"
+                size={22}
+                color={colors.primary}
+              />
             </View>
-
-            <View style={styles.divider} />
-
-            <Text style={styles.body}>
-              NebulaNet is built for communities — fast posting, clean
-              discovery, and privacy you can control.
-            </Text>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Version</Text>
-              <Text style={styles.infoValue}>1.0.0</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Support</Text>
-              <Text style={styles.infoValue}>support@nebulanet.space</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Security</Text>
-              <Text style={styles.infoValue}>security@nebulanet.space</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.appName, { color: colors.text }]}>
+                NebulaNet
+              </Text>
+              <Text style={[styles.appMeta, { color: colors.textSecondary }]}>
+                nebulanet.space
+              </Text>
             </View>
           </View>
-        </ScrollView>
-      </SafeAreaView>
-    </LinearGradient>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          <Text style={[styles.body, { color: colors.textSecondary }]}>
+            NebulaNet is built for communities — fast posting, clean discovery,
+            and privacy you can control.
+          </Text>
+
+          {[
+            { label: "Version", value: "1.0.1" },
+            { label: "Support", value: "support@nebulanet.space" },
+            { label: "Security", value: "security@nebulanet.space" },
+          ].map(({ label, value }) => (
+            <View
+              key={label}
+              style={[
+                styles.infoRow,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                {label}
+              </Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>
+                {value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1, backgroundColor: "transparent" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -89,61 +138,46 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 10,
   },
-  headerTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  headerCircleButton: {
+  headerTitle: { fontSize: 16, fontWeight: "700" },
+  circleBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    borderWidth: 1,
   },
-
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
-
+  scroll: { paddingHorizontal: 18, paddingBottom: 28 },
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 16,
+    borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.06,
     shadowRadius: 18,
     elevation: 2,
   },
-
   brandRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   logoBubble: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
   },
-
-  appName: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  appMeta: { fontSize: 12, color: "#6B7280", marginTop: 2 },
-
-  divider: { height: 1, backgroundColor: "#EEF2FF", marginVertical: 14 },
-
-  body: { fontSize: 14, color: "#374151", lineHeight: 20 },
-
+  appName: { fontSize: 18, fontWeight: "800" },
+  appMeta: { fontSize: 12, marginTop: 2 },
+  divider: { height: 1, marginVertical: 14 },
+  body: { fontSize: 14, lineHeight: 20 },
   infoRow: {
-    marginTop: 14,
-    backgroundColor: "#F8FAFF",
+    marginTop: 10,
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E6E9FF",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  infoLabel: { fontSize: 13, color: "#6B7280", fontWeight: "700" },
-  infoValue: { fontSize: 13, color: "#111827", fontWeight: "700" },
+  infoLabel: { fontSize: 13, fontWeight: "700" },
+  infoValue: { fontSize: 13, fontWeight: "700" },
 });

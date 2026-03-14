@@ -1,5 +1,6 @@
 // lib/uploads.ts — FIREBASE ✅ (Drop-in replacement for Supabase version)
-// Keeps: uploadService.uploadFile(), uploadMultiple(), deleteFile(), picker helpers, uploadMediaItem(s)
+// ✅ FIX: replaced fetch().blob() with FileSystem.readAsStringAsync + uploadString(base64)
+//         fetch().blob() crashes on Android for local file URIs
 
 import { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import * as FileSystem from "expo-file-system";
@@ -8,11 +9,11 @@ import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { getAuth } from "firebase/auth";
 import {
-    deleteObject,
-    getDownloadURL,
-    getStorage,
-    ref,
-    uploadBytes,
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadString,
 } from "firebase/storage";
 
 const storage = getStorage();
@@ -76,9 +77,12 @@ function makeStoragePath(folder: string, userId: string, name: string) {
   return `${folder}/${userId}/${ts}-${rnd}.${ext}`;
 }
 
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  return await res.blob();
+// ✅ FIX: read file as base64 via FileSystem instead of fetch().blob()
+// fetch().blob() throws "Creating blobs from ArrayBuffer is not supported" on Android
+async function uriToBase64(uri: string): Promise<string> {
+  return await FileSystem.readAsStringAsync(uri, {
+    encoding: "base64" as any,
+  });
 }
 
 async function compressImage(uri: string, options: UploadOptions) {
@@ -130,7 +134,7 @@ async function generateVideoThumb(uri: string) {
 }
 
 export class UploadService {
-  private folder = "media"; // replaces Supabase bucket
+  private folder = "media";
 
   constructor(folder?: string) {
     if (folder) this.folder = folder;
@@ -162,11 +166,11 @@ export class UploadService {
       const ext = extFromName(originalName, type === "video" ? "mp4" : "jpg");
       const contentType = mimeFromExt(ext);
       const storagePath = makeStoragePath(this.folder, user.uid, originalName);
-
       const fileRef = ref(storage, storagePath);
-      const blob = await uriToBlob(uploadUri);
 
-      await uploadBytes(fileRef, blob, { contentType });
+      // ✅ Use base64 + uploadString — works on all Android versions
+      const base64 = await uriToBase64(uploadUri);
+      await uploadString(fileRef, base64, "base64", { contentType });
       const url = await getDownloadURL(fileRef);
 
       let thumbnailUrl: string | undefined;
@@ -175,12 +179,7 @@ export class UploadService {
       if (options.generateThumbnails) {
         const thumbSource =
           type === "image"
-            ? await generateImageThumb(
-                options.compressImages
-                  ? uploadUri
-                  : await compressImage(uri, options),
-                options.thumbnailSize ?? 300,
-              )
+            ? await generateImageThumb(uploadUri, options.thumbnailSize ?? 300)
             : type === "video"
               ? await generateVideoThumb(uri)
               : null;
@@ -192,8 +191,10 @@ export class UploadService {
             `${originalName}.jpg`,
           );
           const thumbRef = ref(storage, thumbnailStoragePath);
-          const thumbBlob = await uriToBlob(thumbSource);
-          await uploadBytes(thumbRef, thumbBlob, { contentType: "image/jpeg" });
+          const thumbBase64 = await uriToBase64(thumbSource);
+          await uploadString(thumbRef, thumbBase64, "base64", {
+            contentType: "image/jpeg",
+          });
           thumbnailUrl = await getDownloadURL(thumbRef);
         }
       }
@@ -256,7 +257,6 @@ export class UploadService {
           duration:
             type === "video" ? (asset.duration ?? undefined) : undefined,
           thumbnail: res.thumbnailUrl || res.url,
-          // optional: keep storage path if you want deletes later
           storagePath: res.storagePath,
         } as any);
       }
@@ -308,7 +308,6 @@ export class UploadService {
     });
   }
 
-  // Firebase download URLs are already “signed”; no separate signed URL needed.
   async createSignedUrl(_filePath: string, _expiresIn = 3600) {
     return null;
   }
@@ -316,7 +315,6 @@ export class UploadService {
 
 export const uploadService = new UploadService();
 
-// Helpers (keep same names)
 export async function uploadMediaItem(
   item: MediaItem,
   options: UploadOptions = {},
@@ -352,7 +350,6 @@ export async function uploadMediaItems(
 }
 
 export async function deleteMediaItems(items: MediaItem[]) {
-  // If you stored storagePath, delete by that. If not, skip (can’t reliably parse Firebase URLs).
   for (const it of items as any[]) {
     if (it.storagePath) await uploadService.deleteFile(it.storagePath);
   }

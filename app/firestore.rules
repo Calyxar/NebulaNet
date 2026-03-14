@@ -28,15 +28,12 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
-    function isPrivate(userId) {
-      return hasProfile(userId) &&
-        profileDoc(userId).data.is_private == true;
-    }
-
-    // ✅ REMOVED isSuspended() — causes recursive get() → permission-denied on all writes
+    // ✅ REMOVED isSuspended() — recursive get() → permission-denied on writes
+    // ✅ FIXED profiles read — no longer calls profileDoc() which broke collection queries
+    //    (e.g. username uniqueness check in updateProfile). Privacy enforced at app layer.
 
     match /profiles/{userId} {
-      allow read: if (!isPrivate(userId)) || isSelf(userId) || isAdmin();
+      allow read: if signedIn();
       allow create: if isSelf(userId);
       allow update: if isSelf(userId) && resource.data.is_suspended != true;
       allow delete: if isSelf(userId) || isAdmin();
@@ -150,6 +147,11 @@ service cloud.firestore {
     match /hashtag_counts/{hashtagId} {
       allow read: if true;
       allow write: if signedIn();
+    }
+
+    match /support_reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
     match /{document=**} {

@@ -205,18 +205,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async (updates) => {
       if (!userId) throw new Error("Not authenticated");
 
+      // ✅ FIX: use for...of so thrown errors propagate correctly
       if (updates.username) {
         const usernameLc = updates.username.toLowerCase();
-        const qy = query(
-          collection(db, "profiles"),
-          where("username_lc", "==", usernameLc),
+        const snap = await getDocs(
+          query(
+            collection(db, "profiles"),
+            where("username_lc", "==", usernameLc),
+          ),
         );
-        const snap = await getDocs(qy);
-        snap.forEach((d) => {
+        for (const d of snap.docs) {
           if (d.id !== userId) {
             throw new Error("This username is already taken");
           }
-        });
+        }
         updates.username_lc = usernameLc;
       }
 

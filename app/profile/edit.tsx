@@ -1,4 +1,8 @@
-// app/profile/edit.tsx — COMPLETED + UPDATED ✅
+// app/profile/edit.tsx — FIXED ✅
+// Changes:
+//   • location field always included in updates (removed canSendLocation gate)
+//   • avatar upload already uses uploadString/base64 — no blob issue here
+
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -107,16 +111,12 @@ export default function EditProfileScreen() {
 
     try {
       const ext = guessExtFromUri(uri);
-
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64" as any,
       });
 
       const fileName = `${Date.now()}.${ext}`;
-      // ✅ FIX: store under avatars/ prefix so Storage rules can match easily
       const filePath = `avatars/${user.uid}/${fileName}`;
-
-      // ✅ FIX: use the already-initialized storage instance from lib/firebase
       const fileRef = storageRef(storage, filePath);
       await uploadString(fileRef, base64, "base64");
       const publicUrl = await getDownloadURL(fileRef);
@@ -162,19 +162,15 @@ export default function EditProfileScreen() {
     }
 
     try {
-      const canSendLocation = profile && "location" in (profile as any);
-
+      // ✅ FIX: always include location — removed canSendLocation gate that
+      // prevented saving location on profiles that didn't already have it
       const updates: any = {
-        full_name: formData.full_name,
+        full_name: formData.full_name || null,
         username: formData.username.toLowerCase(),
-        bio: formData.bio,
+        bio: formData.bio || null,
+        location: formData.location || null,
         ...(avatar !== profile?.avatar_url && { avatar_url: avatar }),
-        ...(canSendLocation && { location: formData.location }),
       };
-
-      for (const k of Object.keys(updates)) {
-        if (updates[k] === "") updates[k] = null;
-      }
 
       await updateProfileMutation.mutateAsync(updates);
       Alert.alert("Success", "Profile updated successfully!");
@@ -191,6 +187,8 @@ export default function EditProfileScreen() {
         error?.message?.includes("duplicate") &&
         error?.message?.includes("username")
       ) {
+        errorMessage = "This username is already taken";
+      } else if (error?.message?.includes("already taken")) {
         errorMessage = "This username is already taken";
       } else if (error?.message) {
         errorMessage = error.message;

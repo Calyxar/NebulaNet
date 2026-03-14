@@ -1,12 +1,10 @@
-// components/Skeleton.tsx
+// components/Skeleton.tsx — UPDATED ✅ dark mode support
+import { useTheme } from "@/providers/ThemeProvider";
 import React, { useEffect, useRef } from "react";
 import { Animated, StyleSheet, View, type ViewStyle } from "react-native";
 
-/* =====================================================
-   BASE SKELETON PULSE
-===================================================== */
-
 export function Skeleton({ style }: { style?: ViewStyle }) {
+  const { isDark } = useTheme();
   const opacity = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
@@ -28,120 +26,196 @@ export function Skeleton({ style }: { style?: ViewStyle }) {
     return () => loop.stop();
   }, [opacity]);
 
-  return <Animated.View style={[styles.base, style, { opacity }]} />;
+  const bg = isDark ? "#2C2C2E" : "#E5E7EB";
+
+  return (
+    <Animated.View
+      style={[{ backgroundColor: bg, borderRadius: 12 }, style, { opacity }]}
+    />
+  );
 }
 
-/* =====================================================
-   POST CARD SKELETON
-===================================================== */
+function useSkeletonColors() {
+  const { colors, isDark } = useTheme();
+  return {
+    card: colors.card,
+    border: colors.border,
+  };
+}
 
 export function PostCardSkeleton() {
+  const { card, border } = useSkeletonColors();
   return (
-    <View style={skeletonStyles.card}>
-      {/* Header */}
-      <View style={skeletonStyles.header}>
-        <Skeleton style={skeletonStyles.avatar} />
-        <View style={skeletonStyles.authorBlock}>
-          <Skeleton style={skeletonStyles.nameLine} />
-          <Skeleton style={skeletonStyles.usernameLine} />
+    <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+      <View style={styles.header}>
+        <Skeleton style={styles.avatar} />
+        <View style={styles.authorBlock}>
+          <Skeleton style={styles.nameLine} />
+          <Skeleton style={styles.usernameLine} />
         </View>
-        <Skeleton style={skeletonStyles.timestampLine} />
+        <Skeleton style={styles.timestampLine} />
       </View>
-
-      {/* Content lines */}
-      <Skeleton style={skeletonStyles.contentLine1} />
-      <Skeleton style={skeletonStyles.contentLine2} />
-      <Skeleton style={skeletonStyles.contentLine3} />
-
-      {/* Stats row */}
-      <View style={skeletonStyles.statsRow}>
-        <Skeleton style={skeletonStyles.statChip} />
-        <Skeleton style={skeletonStyles.statChip} />
-        <Skeleton style={skeletonStyles.statChip} />
-        <Skeleton style={skeletonStyles.statChip} />
+      <Skeleton style={styles.contentLine1} />
+      <Skeleton style={styles.contentLine2} />
+      <Skeleton style={styles.contentLine3} />
+      <View style={[styles.statsRow, { borderColor: border }]}>
+        <Skeleton style={styles.statChip} />
+        <Skeleton style={styles.statChip} />
+        <Skeleton style={styles.statChip} />
+        <Skeleton style={styles.statChip} />
       </View>
-
-      {/* Actions row */}
-      <View style={skeletonStyles.actionsRow}>
-        <Skeleton style={skeletonStyles.actionChip} />
-        <Skeleton style={skeletonStyles.actionChip} />
-        <Skeleton style={skeletonStyles.actionChip} />
-        <Skeleton style={skeletonStyles.actionChip} />
+      <View style={styles.actionsRow}>
+        <Skeleton style={styles.actionChip} />
+        <Skeleton style={styles.actionChip} />
+        <Skeleton style={styles.actionChip} />
+        <Skeleton style={styles.actionChip} />
       </View>
     </View>
   );
 }
-
-/* =====================================================
-   HASHTAG ROW SKELETON (for trending list)
-===================================================== */
 
 export function HashtagRowSkeleton() {
   return (
-    <View style={skeletonStyles.hashtagRow}>
-      <Skeleton style={skeletonStyles.hashtagBadge} />
-      <View style={skeletonStyles.hashtagText}>
-        <Skeleton style={skeletonStyles.hashtagName} />
-        <Skeleton style={skeletonStyles.hashtagCount} />
+    <View style={styles.hashtagRow}>
+      <Skeleton style={styles.hashtagBadge} />
+      <View style={styles.hashtagText}>
+        <Skeleton style={styles.hashtagName} />
+        <Skeleton style={styles.hashtagCount} />
       </View>
-      <Skeleton style={skeletonStyles.hashtagChevron} />
+      <Skeleton style={styles.hashtagChevron} />
     </View>
   );
 }
-
-/* =====================================================
-   SEARCH ROW SKELETON (accounts / communities)
-===================================================== */
 
 export function SearchRowSkeleton() {
   return (
-    <View style={skeletonStyles.searchRow}>
-      <Skeleton style={skeletonStyles.searchAvatar} />
-      <View style={skeletonStyles.searchText}>
-        <Skeleton style={skeletonStyles.searchName} />
-        <Skeleton style={skeletonStyles.searchSub} />
+    <View style={styles.searchRow}>
+      <Skeleton style={styles.searchAvatar} />
+      <View style={styles.searchText}>
+        <Skeleton style={styles.searchName} />
+        <Skeleton style={styles.searchSub} />
       </View>
     </View>
   );
 }
-
-/* =====================================================
-   POST SEARCH CARD SKELETON
-===================================================== */
 
 export function PostSearchSkeleton() {
+  const { card, border } = useSkeletonColors();
   return (
-    <View style={skeletonStyles.postSearchCard}>
-      <View style={skeletonStyles.postSearchTop}>
-        <Skeleton style={skeletonStyles.postSearchAvatar} />
-        <Skeleton style={skeletonStyles.postSearchAuthor} />
+    <View
+      style={[
+        styles.postSearchCard,
+        { backgroundColor: card, borderColor: border },
+      ]}
+    >
+      <View style={styles.postSearchTop}>
+        <Skeleton style={styles.postSearchAvatar} />
+        <Skeleton style={styles.postSearchAuthor} />
       </View>
-      <Skeleton style={skeletonStyles.postSearchLine1} />
-      <Skeleton style={skeletonStyles.postSearchLine2} />
+      <Skeleton style={styles.postSearchLine1} />
+      <Skeleton style={styles.postSearchLine2} />
     </View>
   );
 }
 
-/* =====================================================
-   STYLES
-===================================================== */
+// ── New variants for screens not covered above ──
+
+export function ProfilePostSkeleton() {
+  const { card, border } = useSkeletonColors();
+  return (
+    <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+      <View style={styles.header}>
+        <Skeleton style={styles.avatar} />
+        <View style={styles.authorBlock}>
+          <Skeleton style={styles.nameLine} />
+          <Skeleton style={styles.usernameLine} />
+        </View>
+      </View>
+      <Skeleton style={styles.contentLine1} />
+      <Skeleton style={styles.contentLine2} />
+      <View style={[styles.statsRow, { borderColor: border }]}>
+        <Skeleton style={styles.statChip} />
+        <Skeleton style={styles.statChip} />
+        <Skeleton style={styles.statChip} />
+      </View>
+    </View>
+  );
+}
+
+export function NotificationRowSkeleton() {
+  return (
+    <View style={styles.notifRow}>
+      <Skeleton style={styles.notifAvatar} />
+      <View style={styles.notifText}>
+        <Skeleton style={styles.notifLine1} />
+        <Skeleton style={styles.notifLine2} />
+      </View>
+    </View>
+  );
+}
+
+export function ConversationRowSkeleton() {
+  return (
+    <View style={styles.convRow}>
+      <Skeleton style={styles.convAvatar} />
+      <View style={styles.convText}>
+        <View style={styles.convTopRow}>
+          <Skeleton style={styles.convName} />
+          <Skeleton style={styles.convTime} />
+        </View>
+        <Skeleton style={styles.convPreview} />
+      </View>
+    </View>
+  );
+}
+
+export function FeedSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <PostCardSkeleton key={i} />
+      ))}
+    </>
+  );
+}
+
+export function NotificationsSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <NotificationRowSkeleton key={i} />
+      ))}
+    </>
+  );
+}
+
+export function ChatListSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <ConversationRowSkeleton key={i} />
+      ))}
+    </>
+  );
+}
+
+export function ProfilePostsSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <ProfilePostSkeleton key={i} />
+      ))}
+    </>
+  );
+}
 
 const styles = StyleSheet.create({
-  base: {
-    backgroundColor: "#E5E7EB",
-    borderRadius: 12,
-  },
-});
-
-const skeletonStyles = StyleSheet.create({
-  /* PostCardSkeleton */
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
+    borderRadius: 22,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+    marginHorizontal: 14,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
   },
   header: {
     flexDirection: "row",
@@ -154,30 +228,21 @@ const skeletonStyles = StyleSheet.create({
   nameLine: { height: 14, width: "55%", borderRadius: 7 },
   usernameLine: { height: 11, width: "35%", borderRadius: 6 },
   timestampLine: { height: 11, width: 48, borderRadius: 6 },
-
   contentLine1: { height: 13, borderRadius: 7, marginBottom: 8 },
   contentLine2: { height: 13, width: "85%", borderRadius: 7, marginBottom: 8 },
   contentLine3: { height: 13, width: "60%", borderRadius: 7, marginBottom: 16 },
-
   statsRow: {
     flexDirection: "row",
     gap: 12,
     paddingVertical: 12,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#e5e5e5",
     marginBottom: 12,
   },
   statChip: { height: 14, flex: 1, borderRadius: 7 },
-
-  actionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    gap: 8,
-  },
+  actionsRow: { flexDirection: "row", justifyContent: "space-around", gap: 8 },
   actionChip: { height: 32, flex: 1, borderRadius: 10 },
 
-  /* HashtagRowSkeleton */
   hashtagRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -191,7 +256,6 @@ const skeletonStyles = StyleSheet.create({
   hashtagCount: { height: 11, width: "30%", borderRadius: 6 },
   hashtagChevron: { width: 18, height: 18, borderRadius: 9 },
 
-  /* SearchRowSkeleton */
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -204,14 +268,11 @@ const skeletonStyles = StyleSheet.create({
   searchName: { height: 14, width: "50%", borderRadius: 7 },
   searchSub: { height: 11, width: "35%", borderRadius: 6 },
 
-  /* PostSearchSkeleton */
   postSearchCard: {
     borderRadius: 22,
     padding: 14,
-    backgroundColor: "#fff",
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#e5e5e5",
   },
   postSearchTop: {
     flexDirection: "row",
@@ -223,4 +284,33 @@ const skeletonStyles = StyleSheet.create({
   postSearchAuthor: { height: 13, width: "40%", borderRadius: 7 },
   postSearchLine1: { height: 13, borderRadius: 7, marginBottom: 8 },
   postSearchLine2: { height: 13, width: "70%", borderRadius: 7 },
+
+  notifRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  notifAvatar: { width: 44, height: 44, borderRadius: 22 },
+  notifText: { flex: 1, gap: 8 },
+  notifLine1: { height: 13, width: "75%", borderRadius: 7 },
+  notifLine2: { height: 11, width: "40%", borderRadius: 6 },
+
+  convRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  convAvatar: { width: 50, height: 50, borderRadius: 25 },
+  convText: { flex: 1, gap: 8 },
+  convTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  convName: { height: 14, width: "40%", borderRadius: 7 },
+  convTime: { height: 11, width: 40, borderRadius: 6 },
+  convPreview: { height: 12, width: "70%", borderRadius: 6 },
 });

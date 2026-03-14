@@ -1,11 +1,15 @@
-// app/settings/language.tsx
+// app/settings/language.tsx — UPDATED ✅ dark mode
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Localization from "expo-localization";
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Switch,
   Text,
@@ -55,58 +59,45 @@ const REGIONS: Region[] = [
   { code: "MX", name: "Mexico", flag: "🇲🇽" },
 ];
 
-const ACCENT = "#7C3AED";
-const BG = "#E8EAF6";
-const CARD = "#FFFFFF";
-const TEXT = "#111827";
-const SUB = "#6B7280";
-const BORDER = "#EEF2FF";
-
 function getDeviceFallback() {
   const tag = Localization.getLocales?.()?.[0]?.languageTag || "en-US";
   const [langRaw, regionRaw] = tag.split("-");
   const lang = (langRaw || "en").toLowerCase();
   const region = (regionRaw || "US").toUpperCase();
-
-  const safeLang = LANGUAGES.some((l) => l.code === lang) ? lang : "en";
-  const safeRegion = REGIONS.some((r) => r.code === region) ? region : "US";
-  return { language: safeLang, region: safeRegion };
+  return {
+    language: LANGUAGES.some((l) => l.code === lang) ? lang : "en",
+    region: REGIONS.some((r) => r.code === region) ? region : "US",
+  };
 }
 
 export default function LanguageRegionScreen() {
   const { user, userSettings, isUserSettingsLoading, updateSettings } =
     useAuth();
+  const { colors, isDark } = useTheme();
 
   const [selectedLanguage, setSelectedLanguage] = useState("en");
   const [selectedRegion, setSelectedRegion] = useState("US");
   const [localizedContent, setLocalizedContent] = useState(false);
   const [hydratedOnce, setHydratedOnce] = useState(false);
 
-  // ✅ hydrate from DB when it finishes loading
   useEffect(() => {
-    if (!user?.id) return;
-    if (isUserSettingsLoading) return;
-
-    // Provide fallbacks and avoid errors if userSettings props do not exist
+    if (!user?.id || isUserSettingsLoading) return;
     const dbLang =
       userSettings &&
       "language" in userSettings &&
       typeof (userSettings as any).language === "string"
         ? ((userSettings as any).language || "").toLowerCase() || null
         : null;
-
     const dbRegion =
       userSettings &&
       "region" in userSettings &&
       typeof (userSettings as any).region === "string"
         ? ((userSettings as any).region || "").toUpperCase() || null
         : null;
-
     const dbLocalized = !!(userSettings && "localized_content" in userSettings
       ? (userSettings as any).localized_content
       : false);
 
-    // If DB has something, use it
     if (dbLang || dbRegion) {
       setSelectedLanguage(dbLang || "en");
       setSelectedRegion(dbRegion || "US");
@@ -114,15 +105,12 @@ export default function LanguageRegionScreen() {
       setHydratedOnce(true);
       return;
     }
-
-    // Otherwise, set device locale once + persist
     if (!hydratedOnce) {
       const fallback = getDeviceFallback();
       setSelectedLanguage(fallback.language);
       setSelectedRegion(fallback.region);
       setLocalizedContent(false);
       setHydratedOnce(true);
-
       void updateSettings({
         language: fallback.language,
         region: fallback.region,
@@ -137,18 +125,17 @@ export default function LanguageRegionScreen() {
     updateSettings,
   ]);
 
-  const languageLabel = useMemo(() => {
-    return (
+  const languageLabel = useMemo(
+    () =>
       LANGUAGES.find((l) => l.code === selectedLanguage)?.nativeName ??
-      selectedLanguage
-    );
-  }, [selectedLanguage]);
-
-  const regionLabel = useMemo(() => {
-    return (
-      REGIONS.find((r) => r.code === selectedRegion)?.name ?? selectedRegion
-    );
-  }, [selectedRegion]);
+      selectedLanguage,
+    [selectedLanguage],
+  );
+  const regionLabel = useMemo(
+    () =>
+      REGIONS.find((r) => r.code === selectedRegion)?.name ?? selectedRegion,
+    [selectedRegion],
+  );
 
   const save = (patch: {
     language?: string;
@@ -159,153 +146,296 @@ export default function LanguageRegionScreen() {
     void updateSettings(patch);
   };
 
-  const renderLanguageItem = ({ item }: { item: Language }) => (
-    <TouchableOpacity
-      style={[styles.row, selectedLanguage === item.code && styles.rowActive]}
-      activeOpacity={0.85}
-      onPress={() => {
-        setSelectedLanguage(item.code);
-        save({ language: item.code });
-      }}
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
     >
-      <View style={{ flex: 1 }}>
-        <Text style={styles.rowTitle}>{item.name}</Text>
-        <Text style={styles.rowSub}>{item.nativeName}</Text>
-      </View>
-      {selectedLanguage === item.code ? (
-        <Ionicons name="checkmark-circle" size={22} color={ACCENT} />
-      ) : (
-        <Ionicons name="ellipse-outline" size={22} color="#D1D5DB" />
-      )}
-    </TouchableOpacity>
-  );
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-  const renderRegionItem = ({ item }: { item: Region }) => (
-    <TouchableOpacity
-      style={[
-        styles.regionTile,
-        selectedRegion === item.code && styles.regionTileActive,
-      ]}
-      activeOpacity={0.85}
-      onPress={() => {
-        setSelectedRegion(item.code);
-        save({ region: item.code });
-      }}
-    >
-      <View style={styles.regionTop}>
-        <Text style={styles.flag}>{item.flag || "🌍"}</Text>
-        {selectedRegion === item.code ? (
-          <Ionicons name="checkmark-circle" size={20} color={ACCENT} />
-        ) : (
-          <Ionicons name="ellipse-outline" size={20} color="#D1D5DB" />
-        )}
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={[
+            styles.backBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Language & Region
+        </Text>
+        <View style={{ width: 44 }} />
       </View>
-      <Text style={styles.regionName} numberOfLines={1}>
-        {item.name}
-      </Text>
-      <Text style={styles.regionCode}>{item.code}</Text>
-    </TouchableOpacity>
-  );
 
-  return (
-    <SafeAreaView style={styles.safe}>
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
       >
-        <View style={styles.headerCard}>
-          <Text style={styles.title}>Language & Region</Text>
-          <Text style={styles.subtitle}>
+        {/* Current selection pills */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.cardTitle, { color: colors.text }]}>
+            Language & Region
+          </Text>
+          <Text style={[styles.cardSub, { color: colors.textSecondary }]}>
             Menus and formatting follow your selections. Recommendations can use
             region too.
           </Text>
-
           <View style={styles.pillsRow}>
-            <View style={styles.pill}>
-              <Ionicons name="language-outline" size={14} color={ACCENT} />
-              <Text style={styles.pillText}>{languageLabel}</Text>
-            </View>
-            <View style={styles.pill}>
-              <Ionicons name="location-outline" size={14} color={ACCENT} />
-              <Text style={styles.pillText}>{regionLabel}</Text>
-            </View>
+            {[
+              { icon: "language-outline", label: languageLabel },
+              { icon: "location-outline", label: regionLabel },
+            ].map(({ icon, label }) => (
+              <View
+                key={icon}
+                style={[
+                  styles.pill,
+                  {
+                    backgroundColor: colors.primary + "12",
+                    borderColor: colors.primary + "30",
+                  },
+                ]}
+              >
+                <Ionicons name={icon as any} size={14} color={colors.primary} />
+                <Text style={[styles.pillText, { color: colors.primary }]}>
+                  {label}
+                </Text>
+              </View>
+            ))}
           </View>
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Language</Text>
-          <Text style={styles.sectionSub}>Changes menus and UI labels.</Text>
+        {/* Language list */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Language
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
+            Changes menus and UI labels.
+          </Text>
           <FlatList
             data={LANGUAGES}
-            renderItem={renderLanguageItem}
-            keyExtractor={(i) => i.code}
             scrollEnabled={false}
+            keyExtractor={(i) => i.code}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[
+                  styles.row,
+                  { borderBottomColor: colors.border },
+                  index === LANGUAGES.length - 1 && { borderBottomWidth: 0 },
+                ]}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setSelectedLanguage(item.code);
+                  save({ language: item.code });
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>
+                    {item.name}
+                  </Text>
+                  <Text
+                    style={[styles.rowSub, { color: colors.textSecondary }]}
+                  >
+                    {item.nativeName}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={
+                    selectedLanguage === item.code
+                      ? "checkmark-circle"
+                      : "ellipse-outline"
+                  }
+                  size={22}
+                  color={
+                    selectedLanguage === item.code
+                      ? colors.primary
+                      : colors.border
+                  }
+                />
+              </TouchableOpacity>
+            )}
           />
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Region</Text>
-          <Text style={styles.sectionSub}>
-            Affects formats + local recommendations.
+        {/* Region grid */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Region
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
+            Affects formats and local recommendations.
           </Text>
           <FlatList
             data={REGIONS}
-            renderItem={renderRegionItem}
-            keyExtractor={(i) => i.code}
             scrollEnabled={false}
+            keyExtractor={(i) => i.code}
             numColumns={2}
             columnWrapperStyle={{ gap: 10 }}
             contentContainerStyle={{ gap: 10, paddingTop: 10 }}
+            renderItem={({ item }) => {
+              const active = selectedRegion === item.code;
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.regionTile,
+                    {
+                      backgroundColor: active
+                        ? colors.primary + "12"
+                        : colors.surface,
+                      borderColor: active
+                        ? colors.primary + "50"
+                        : colors.border,
+                    },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setSelectedRegion(item.code);
+                    save({ region: item.code });
+                  }}
+                >
+                  <View style={styles.regionTop}>
+                    <Text style={styles.flag}>{item.flag || "🌍"}</Text>
+                    <Ionicons
+                      name={active ? "checkmark-circle" : "ellipse-outline"}
+                      size={20}
+                      color={active ? colors.primary : colors.border}
+                    />
+                  </View>
+                  <Text
+                    style={[styles.regionName, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                  <Text
+                    style={[styles.regionCode, { color: colors.textSecondary }]}
+                  >
+                    {item.code}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
           />
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Content localization</Text>
-          <Text style={styles.sectionSub}>
+        {/* Localization toggle */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Content Localization
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
             Show more posts from your region and in your preferred language.
           </Text>
-
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>Show localized content</Text>
+          <View
+            style={[
+              styles.toggleRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.toggleLabel, { color: colors.text }]}>
+              Show localized content
+            </Text>
             <Switch
               value={localizedContent}
               onValueChange={(v) => {
                 setLocalizedContent(v);
                 save({ localized_content: v });
               }}
+              trackColor={{ false: colors.border, true: colors.primary + "60" }}
+              thumbColor={
+                localizedContent ? colors.primary : colors.textTertiary
+              }
             />
           </View>
         </View>
 
-        <Text style={styles.footer}>
+        <Text style={[styles.footer, { color: colors.textTertiary }]}>
           Some changes may require restarting the app.
         </Text>
       </ScrollView>
     </SafeAreaView>
   );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BG },
-  container: { flex: 1 },
-  content: { paddingBottom: 24 },
-
-  headerCard: {
-    margin: 16,
-    marginBottom: 10,
-    backgroundColor: CARD,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  headerTitle: { fontSize: 17, fontWeight: "800" },
+  scroll: { padding: 16, paddingBottom: 28, gap: 10 },
+  card: {
     borderRadius: 18,
     padding: 16,
     borderWidth: 1,
-    borderColor: BORDER,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
-  title: { fontSize: 20, fontWeight: "800", color: TEXT },
-  subtitle: { fontSize: 12, color: SUB, marginTop: 6, lineHeight: 18 },
-
+  cardTitle: { fontSize: 17, fontWeight: "800" },
+  cardSub: { fontSize: 12, marginTop: 6, lineHeight: 18 },
   pillsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   pill: {
     flex: 1,
-    backgroundColor: "#F7F5FF",
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -313,72 +443,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     borderWidth: 1,
-    borderColor: BORDER,
   },
-  pillText: { fontSize: 12, fontWeight: "900", color: ACCENT },
-
-  sectionCard: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    backgroundColor: CARD,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  sectionTitle: { fontSize: 14, fontWeight: "900", color: TEXT },
-  sectionSub: { fontSize: 12, color: SUB, marginTop: 6, lineHeight: 18 },
-
+  pillText: { fontSize: 12, fontWeight: "900" },
+  sectionTitle: { fontSize: 14, fontWeight: "900" },
+  sectionSub: { fontSize: 12, marginTop: 6, lineHeight: 18 },
   row: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
   },
-  rowActive: {},
-  rowTitle: { fontSize: 14, fontWeight: "800", color: TEXT },
-  rowSub: { fontSize: 12, color: SUB, marginTop: 3 },
-
-  regionTile: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  regionTileActive: {
-    borderColor: "#DDD6FE",
-    backgroundColor: "#F7F5FF",
-  },
+  rowTitle: { fontSize: 14, fontWeight: "800" },
+  rowSub: { fontSize: 12, marginTop: 3 },
+  regionTile: { flex: 1, borderRadius: 16, padding: 12, borderWidth: 1 },
   regionTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   flag: { fontSize: 22 },
-  regionName: { marginTop: 10, fontSize: 13, fontWeight: "900", color: TEXT },
-  regionCode: { marginTop: 4, fontSize: 11, color: SUB, fontWeight: "800" },
-
+  regionName: { marginTop: 10, fontSize: 13, fontWeight: "900" },
+  regionCode: { marginTop: 4, fontSize: 11, fontWeight: "800" },
   toggleRow: {
     marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#F9FAFB",
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
   },
-  toggleLabel: { fontSize: 13, fontWeight: "800", color: TEXT },
-
+  toggleLabel: { fontSize: 13, fontWeight: "800" },
   footer: {
     textAlign: "center",
     fontSize: 12,
-    color: SUB,
     paddingHorizontal: 16,
-    marginTop: 14,
+    marginTop: 4,
   },
 });

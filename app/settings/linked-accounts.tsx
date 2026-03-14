@@ -1,11 +1,14 @@
-// app/settings/linked-accounts.tsx
-import { SettingsGroup, SettingsItem } from "@/components/settings";
+// app/settings/linked-accounts.tsx — UPDATED ✅ dark mode + Google only
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,61 +16,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const ACCENT = "#7C3AED";
-const BG = "#E8EAF6";
-const TEXT = "#111827";
-const SUB = "#6B7280";
-const BORDER = "#EEF2FF";
-
 interface LinkedAccount {
   id: string;
-  provider: "google" | "github" | "twitter" | "discord" | "spotify";
+  provider: "google";
   email?: string;
   connectedAt: string;
 }
 
-interface ProviderInfo {
-  name: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  description: string;
-}
-
-const PROVIDER_INFO: Record<string, ProviderInfo> = {
-  google: {
-    name: "Google",
-    icon: "logo-google",
-    color: "#DB4437",
-    description: "Sign in with Google",
-  },
-  github: {
-    name: "GitHub",
-    icon: "logo-github",
-    color: "#111827",
-    description: "Connect GitHub account",
-  },
-  twitter: {
-    name: "Twitter",
-    icon: "logo-twitter",
-    color: "#1DA1F2",
-    description: "Connect Twitter account",
-  },
-  discord: {
-    name: "Discord",
-    icon: "logo-discord",
-    color: "#5865F2",
-    description: "Connect Discord account",
-  },
-  spotify: {
-    name: "Spotify",
-    icon: "musical-notes",
-    color: "#1DB954",
-    description: "Connect Spotify account",
-  },
-};
-
 export default function LinkedAccountsScreen() {
-  const { user, googleLogin } = useAuth();
+  const { colors, isDark } = useTheme();
+  const { user } = useAuth();
 
   const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([
     {
@@ -78,220 +36,250 @@ export default function LinkedAccountsScreen() {
     },
   ]);
 
-  const handleConnect = (provider: keyof typeof PROVIDER_INFO) => {
-    switch (provider) {
-      case "google":
-        Alert.alert(
-          "Google Connect",
-          "Google credentials are configured, but linking requires a Google sign-in flow to generate an idToken.\n\nOnce implemented, call:\n\ngoogleLogin.mutate({ idToken, accessToken })",
-        );
-        break;
+  const isConnected = linkedAccounts.some((a) => a.provider === "google");
+  const account = linkedAccounts.find((a) => a.provider === "google");
 
-      default:
-        Alert.alert(
-          "Coming Soon",
-          `${PROVIDER_INFO[provider].name} integration coming soon`,
-        );
-    }
+  const handleConnect = () => {
+    Alert.alert(
+      "Connect Google",
+      "Re-authenticate with Google to link your account.",
+    );
   };
 
-  const handleDisconnect = (account: LinkedAccount) => {
+  const handleDisconnect = () => {
     Alert.alert(
-      "Disconnect Account",
-      `Disconnect your ${PROVIDER_INFO[account.provider].name} account?`,
+      "Disconnect Google",
+      "You won't be able to sign in with Google if you disconnect.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Disconnect",
           style: "destructive",
-          onPress: () => {
-            setLinkedAccounts((prev) =>
-              prev.filter((acc) => acc.id !== account.id),
-            );
-            Alert.alert(
-              "Disconnected",
-              `${PROVIDER_INFO[account.provider].name} account disconnected`,
-            );
-          },
+          onPress: () => setLinkedAccounts([]),
         },
       ],
     );
   };
 
-  const isConnected = (provider: keyof typeof PROVIDER_INFO) =>
-    linkedAccounts.some((acc) => acc.provider === provider);
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
-  const renderProviderCard = (provider: keyof typeof PROVIDER_INFO) => {
-    const info = PROVIDER_INFO[provider];
-    const connected = isConnected(provider);
-    const account = linkedAccounts.find((acc) => acc.provider === provider);
-
-    return (
-      <View key={provider} style={styles.providerCard}>
-        <View style={styles.providerLeft}>
-          <View style={[styles.providerIcon, { backgroundColor: info.color }]}>
-            <Ionicons name={info.icon} size={22} color="#FFFFFF" />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={styles.providerName}>{info.name}</Text>
-            <Text style={styles.providerDesc}>{info.description}</Text>
-
-            {connected && (
-              <View style={styles.connectedMeta}>
-                {account?.email ? (
-                  <Text style={styles.providerMeta}>{account.email}</Text>
-                ) : null}
-                <Text style={styles.providerMeta}>
-                  Connected{" "}
-                  {new Date(account?.connectedAt || "").toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {connected ? (
-          <TouchableOpacity
-            style={styles.disconnectBtn}
-            onPress={() => handleDisconnect(account!)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="unlink-outline" size={16} color="#EF4444" />
-            <Text style={styles.disconnectText}>Disconnect</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.connectBtn}
-            onPress={() => handleConnect(provider)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="add-outline" size={16} color="#FFFFFF" />
-            <Text style={styles.connectText}>Connect</Text>
-          </TouchableOpacity>
-        )}
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.backBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="chevron-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          Linked Accounts
+        </Text>
+        <View style={{ width: 44 }} />
       </View>
-    );
-  };
 
-  return (
-    <SafeAreaView style={styles.safe}>
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
       >
-        <View style={styles.headerCard}>
-          <Text style={styles.title}>Linked Accounts</Text>
-          <Text style={styles.subtitle}>
-            Connect accounts for easier sign-in and sharing across platforms.
+        {/* Description */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.descTitle, { color: colors.text }]}>
+            Sign-in methods
           </Text>
-
-          <View style={styles.domainPill}>
-            <Ionicons name="globe-outline" size={14} color={ACCENT} />
-            <Text style={styles.domainText}>nebulanet.space</Text>
-          </View>
-        </View>
-
-        <View style={styles.cardsWrap}>
-          {(Object.keys(PROVIDER_INFO) as (keyof typeof PROVIDER_INFO)[]).map(
-            renderProviderCard,
-          )}
-        </View>
-
-        <SettingsGroup title="Benefits">
-          <SettingsItem
-            title="Single Sign-On"
-            description="Use connected accounts to sign in faster"
-            icon="log-in-outline"
-          />
-          <SettingsItem
-            title="Profile Import"
-            description="Import name and avatar from connected accounts"
-            icon="person-circle-outline"
-          />
-          <SettingsItem
-            title="Content Sharing"
-            description="Share posts directly to connected platforms"
-            icon="share-outline"
-          />
-          <SettingsItem
-            title="Enhanced Features"
-            description="Unlock additional integrations over time"
-            icon="sparkles-outline"
-          />
-        </SettingsGroup>
-
-        <View style={styles.infoCard}>
-          <Ionicons
-            name="information-circle-outline"
-            size={20}
-            color={ACCENT}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.infoTitle}>How it works</Text>
-            <Text style={styles.infoText}>
-              • We never post without permission{"\n"}• You can disconnect
-              anytime{"\n"}• Your data stays private and secure
+          <Text style={[styles.descSub, { color: colors.textSecondary }]}>
+            Connect accounts for easier sign-in. You can disconnect anytime.
+          </Text>
+          <View
+            style={[
+              styles.domainPill,
+              {
+                backgroundColor: colors.primary + "15",
+                borderColor: colors.primary + "30",
+              },
+            ]}
+          >
+            <Ionicons name="globe-outline" size={13} color={colors.primary} />
+            <Text style={[styles.domainText, { color: colors.primary }]}>
+              nebulanet.space
             </Text>
           </View>
         </View>
 
-        <Text style={styles.footer}>Need help? support@nebulanet.space</Text>
+        {/* Google row */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.providerRow}>
+            <View style={[styles.providerIcon, { backgroundColor: "#DB4437" }]}>
+              <Ionicons name="logo-google" size={22} color="#fff" />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.providerName, { color: colors.text }]}>
+                Google
+              </Text>
+              <Text
+                style={[styles.providerDesc, { color: colors.textSecondary }]}
+              >
+                Sign in with Google
+              </Text>
+              {isConnected && account?.email && (
+                <Text
+                  style={[styles.providerMeta, { color: colors.textTertiary }]}
+                >
+                  {account.email}
+                </Text>
+              )}
+            </View>
+
+            {isConnected ? (
+              <TouchableOpacity
+                style={[
+                  styles.disconnectBtn,
+                  {
+                    backgroundColor: colors.error + "15",
+                    borderColor: colors.error + "30",
+                  },
+                ]}
+                onPress={handleDisconnect}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.disconnectText, { color: colors.error }]}>
+                  Disconnect
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.connectBtn, { backgroundColor: colors.primary }]}
+                onPress={handleConnect}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.connectText}>Connect</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Info card */}
+        <View
+          style={[
+            styles.infoCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Ionicons
+            name="information-circle-outline"
+            size={20}
+            color={colors.primary}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.infoTitle, { color: colors.text }]}>
+              How it works
+            </Text>
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              {
+                "• We never post without your permission\n• Disconnect anytime from this screen\n• Your data stays private and secure"
+              }
+            </Text>
+          </View>
+        </View>
+
+        <Text style={[styles.footer, { color: colors.textTertiary }]}>
+          Need help? support@nebulanet.space
+        </Text>
       </ScrollView>
     </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BG },
-  container: { flex: 1 },
-  content: { paddingBottom: 24 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  headerTitle: { fontSize: 17, fontWeight: "800" },
 
-  headerCard: {
-    margin: 16,
-    marginBottom: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+  scroll: { padding: 18, gap: 12, paddingBottom: 32 },
+
+  card: {
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    borderColor: BORDER,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
-  title: { fontSize: 20, fontWeight: "800", color: TEXT },
-  subtitle: { fontSize: 12, color: SUB, marginTop: 6, lineHeight: 18 },
-
+  descTitle: { fontSize: 16, fontWeight: "800", marginBottom: 6 },
+  descSub: { fontSize: 13, lineHeight: 18 },
   domainPill: {
     marginTop: 12,
     alignSelf: "flex-start",
-    backgroundColor: "#F7F5FF",
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     borderWidth: 1,
-    borderColor: BORDER,
   },
-  domainText: { fontSize: 12, fontWeight: "900", color: ACCENT },
+  domainText: { fontSize: 12, fontWeight: "800" },
 
-  cardsWrap: { paddingHorizontal: 16, gap: 10 },
-
-  providerCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  providerLeft: {
+  providerRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    flex: 1,
   },
   providerIcon: {
     width: 44,
@@ -300,52 +288,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  providerName: { fontSize: 14, fontWeight: "900", color: TEXT },
-  providerDesc: { fontSize: 12, color: SUB, marginTop: 3, lineHeight: 16 },
-  connectedMeta: { marginTop: 8 },
-  providerMeta: { fontSize: 11, color: "#9CA3AF", marginTop: 2 },
+  providerName: { fontSize: 14, fontWeight: "800" },
+  providerDesc: { fontSize: 12, marginTop: 2 },
+  providerMeta: { fontSize: 11, marginTop: 4 },
 
   connectBtn: {
-    backgroundColor: ACCENT,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
   },
-  connectText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
+  connectText: { color: "#fff", fontWeight: "800", fontSize: 13 },
 
   disconnectBtn: {
-    backgroundColor: "#FFF1F2",
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
     borderWidth: 1,
-    borderColor: "#FFE4E6",
   },
-  disconnectText: { color: "#EF4444", fontWeight: "900", fontSize: 12 },
+  disconnectText: { fontWeight: "800", fontSize: 13 },
 
   infoCard: {
     flexDirection: "row",
-    gap: 10,
-    backgroundColor: "#FFFFFF",
-    margin: 16,
+    gap: 12,
+    borderRadius: 22,
     padding: 14,
-    borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
   },
-  infoTitle: { fontSize: 13, fontWeight: "900", color: TEXT, marginBottom: 4 },
-  infoText: { fontSize: 12, color: SUB, lineHeight: 18 },
+  infoTitle: { fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  infoText: { fontSize: 12, lineHeight: 19 },
 
-  footer: {
-    textAlign: "center",
-    fontSize: 12,
-    color: SUB,
-    paddingHorizontal: 16,
-  },
+  footer: { textAlign: "center", fontSize: 12, marginTop: 4 },
 });
