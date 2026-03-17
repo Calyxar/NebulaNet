@@ -1,19 +1,10 @@
-// lib/queries/stories.ts — FIRESTORE ✅ UPDATED (batch profile fetching)
+// lib/queries/stories.ts — UPDATED ✅ added "gif" to media_type
 
 import { auth, db, storage } from "@/lib/firebase";
 import {
-  Timestamp,
-  addDoc,
-  collection,
-  doc,
-  documentId,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
+  Timestamp, addDoc, collection, doc, documentId,
+  getDoc, getDocs, orderBy, query, serverTimestamp,
+  setDoc, where,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
@@ -31,7 +22,7 @@ export type StoryRow = {
   id: string;
   user_id: string;
   media_url: string;
-  media_type: "image" | "video";
+  media_type: "image" | "video" | "gif"; // ✅ added gif
   caption: string | null;
   created_at: string;
   expires_at: string;
@@ -63,19 +54,14 @@ function chunk<T>(arr: T[], size: number) {
   return out;
 }
 
-// ✅ Batch fetch profiles (doc IDs = userIds), 30 max per "in" query
-async function batchGetProfiles(
-  userIds: string[],
-): Promise<Map<string, StoryProfile>> {
+async function batchGetProfiles(userIds: string[]): Promise<Map<string, StoryProfile>> {
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
-
   if (!ids.length) return map;
 
   for (const group of chunk(ids, 30)) {
     const q = query(PROFILES, where(documentId(), "in", group));
     const snap = await getDocs(q);
-
     snap.docs.forEach((d) => {
       const data = d.data() as any;
       map.set(d.id, {
@@ -89,14 +75,16 @@ async function batchGetProfiles(
   return map;
 }
 
-function guessExt(uri: string, mediaType: "image" | "video") {
+function guessExt(uri: string, mediaType: "image" | "video" | "gif") {
   const clean = uri.split("?")[0]?.split("#")[0] ?? uri;
   const parts = clean.split(".");
   const ext = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+  if (mediaType === "gif") return "gif";
   return ext || (mediaType === "video" ? "mp4" : "jpg");
 }
 
-function guessContentType(ext: string, mediaType: "image" | "video") {
+function guessContentType(ext: string, mediaType: "image" | "video" | "gif") {
+  if (mediaType === "gif") return "image/gif";
   if (mediaType === "video") {
     if (ext === "mov") return "video/quicktime";
     return "video/mp4";
@@ -116,15 +104,11 @@ async function uriToBlob(uri: string): Promise<Blob> {
    FETCH
 ========================================================= */
 
-export async function fetchStoryById(
-  storyId: string,
-): Promise<StoryRow | null> {
+export async function fetchStoryById(storyId: string): Promise<StoryRow | null> {
   const snap = await getDoc(doc(db, "stories", storyId));
   if (!snap.exists()) return null;
 
   const d = snap.data() as any;
-
-  // single story => single profile lookup is fine
   const profileSnap = await getDoc(doc(db, "profiles", d.user_id));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
 
@@ -136,33 +120,18 @@ export async function fetchStoryById(
     caption: d.caption ?? null,
     created_at: tsToIso(d.created_at_ts),
     expires_at: tsToIso(d.expires_at_ts),
-    profiles: p
-      ? {
-          username: p.username ?? null,
-          full_name: p.full_name ?? null,
-          avatar_url: p.avatar_url ?? null,
-        }
-      : null,
+    profiles: p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null,
   };
 }
 
 export async function fetchActiveStories(): Promise<StoryRow[]> {
   const now = Timestamp.fromDate(new Date());
-
-  const q = query(
-    STORIES,
-    where("expires_at_ts", ">", now),
-    orderBy("expires_at_ts", "desc"),
-  );
-
+  const q = query(STORIES, where("expires_at_ts", ">", now), orderBy("expires_at_ts", "desc"));
   const snap = await getDocs(q);
   if (snap.empty) return [];
 
   const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-  const userIds = docs.map((d) => d.user_id);
-
-  // ✅ Batch profiles once
-  const profilesMap = await batchGetProfiles(userIds);
+  const profilesMap = await batchGetProfiles(docs.map((d) => d.user_id));
 
   return docs.map((d) => ({
     id: d.id,
@@ -176,32 +145,15 @@ export async function fetchActiveStories(): Promise<StoryRow[]> {
   }));
 }
 
-export async function fetchActiveStoriesByUser(
-  userId: string,
-): Promise<StoryRow[]> {
+export async function fetchActiveStoriesByUser(userId: string): Promise<StoryRow[]> {
   const now = Timestamp.fromDate(new Date());
-
-  const q = query(
-    STORIES,
-    where("user_id", "==", userId),
-    where("expires_at_ts", ">", now),
-    orderBy("expires_at_ts", "desc"),
-  );
-
+  const q = query(STORIES, where("user_id", "==", userId), where("expires_at_ts", ">", now), orderBy("expires_at_ts", "desc"));
   const snap = await getDocs(q);
   if (snap.empty) return [];
 
-  // ✅ Single user => one profile read only
   const profileSnap = await getDoc(doc(db, "profiles", userId));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
-
-  const profile: StoryProfile | null = p
-    ? {
-        username: p.username ?? null,
-        full_name: p.full_name ?? null,
-        avatar_url: p.avatar_url ?? null,
-      }
-    : null;
+  const profile: StoryProfile | null = p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null;
 
   return snap.docs.map((docSnap) => {
     const d = docSnap.data() as any;
@@ -227,38 +179,30 @@ export async function markStorySeen(storyId: string) {
   if (!user) return;
 
   const key = `${storyId}_${user.uid}`;
-
-  await setDoc(
-    doc(db, "story_seen", key),
-    {
-      story_id: storyId,
-      viewer_id: user.uid,
-      seen_at_ts: serverTimestamp(),
-    },
-    { merge: true },
-  );
+  await setDoc(doc(db, "story_seen", key), {
+    story_id: storyId,
+    viewer_id: user.uid,
+    seen_at_ts: serverTimestamp(),
+  }, { merge: true });
 }
 
 /* =========================================================
-   UPLOAD (Firebase Storage)
+   UPLOAD
 ========================================================= */
 
 export async function uploadStoryMedia(
   uri: string,
-  mediaType: "image" | "video",
+  mediaType: "image" | "video" | "gif", // ✅ added gif
 ): Promise<{ publicUrl: string; path: string }> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
   const ext = guessExt(uri, mediaType);
   const contentType = guessContentType(ext, mediaType);
-
   const path = `stories/${user.uid}/${Date.now()}.${ext}`;
   const storageRef = ref(storage, path);
-
   const blob = await uriToBlob(uri);
   await uploadBytes(storageRef, blob, { contentType });
-
   const publicUrl = await getDownloadURL(storageRef);
   return { publicUrl, path };
 }
@@ -269,16 +213,14 @@ export async function uploadStoryMedia(
 
 export async function createStory(params: {
   media_url: string;
-  media_type: "image" | "video";
+  media_type: "image" | "video" | "gif"; // ✅ added gif
   caption?: string | null;
   expires_in_hours?: number;
 }): Promise<StoryRow> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  const expiresAt = new Date(
-    Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000,
-  );
+  const expiresAt = new Date(Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000);
 
   const refDoc = await addDoc(STORIES, {
     user_id: user.uid,
@@ -289,7 +231,6 @@ export async function createStory(params: {
     expires_at_ts: Timestamp.fromDate(expiresAt),
   });
 
-  // (optional) return profile snapshot
   const profileSnap = await getDoc(doc(db, "profiles", user.uid));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
 
@@ -301,13 +242,7 @@ export async function createStory(params: {
     caption: params.caption ?? null,
     created_at: new Date().toISOString(),
     expires_at: expiresAt.toISOString(),
-    profiles: p
-      ? {
-          username: p.username ?? null,
-          full_name: p.full_name ?? null,
-          avatar_url: p.avatar_url ?? null,
-        }
-      : null,
+    profiles: p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null,
   };
 }
 
@@ -315,10 +250,7 @@ export async function createStory(params: {
    REPLIES
 ========================================================= */
 
-export async function sendStoryReply(
-  storyId: string,
-  content: string,
-): Promise<void> {
+export async function sendStoryReply(storyId: string, content: string): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
