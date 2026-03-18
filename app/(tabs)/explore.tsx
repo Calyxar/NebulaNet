@@ -44,13 +44,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -78,8 +72,7 @@ const GRID_H_PAD = 36; // paddingHorizontal: 18 * 2
 const GRID_GAP = 2;
 const GRID_COLS = 3;
 // Each grid cell width = (available width - gaps between cols) / num cols
-const GRID_CELL =
-  (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+const GRID_CELL = (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
 /* =========================
    TYPES
@@ -231,7 +224,13 @@ function SuggestedUserRow({
    Single cell in the 3-column media grid
 ========================= */
 
-function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
+function GridCell({
+  post,
+  colors,
+}: {
+  post: DiscoveryPost;
+  colors: any;
+}) {
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -393,7 +392,9 @@ function RecentSearchesPanel({
     >
       {/* Header */}
       <View style={styles.recentHeader}>
-        <Text style={[styles.recentTitle, { color: colors.text }]}>Recent</Text>
+        <Text style={[styles.recentTitle, { color: colors.text }]}>
+          Recent
+        </Text>
         <TouchableOpacity onPress={onClearAll} activeOpacity={0.8}>
           <Text style={[styles.recentClear, { color: colors.primary }]}>
             Clear all
@@ -417,11 +418,7 @@ function RecentSearchesPanel({
               { backgroundColor: colors.surface },
             ]}
           >
-            <Ionicons
-              name="time-outline"
-              size={16}
-              color={colors.textTertiary}
-            />
+            <Ionicons name="time-outline" size={16} color={colors.textTertiary} />
           </View>
           <Text
             style={[styles.recentTerm, { color: colors.text }]}
@@ -463,9 +460,7 @@ export default function ExploreScreen() {
   const inputRef = useRef<TextInput>(null);
 
   // Trending hashtags
-  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
-    [],
-  );
+  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
 
   // Suggested users
@@ -477,12 +472,8 @@ export default function ExploreScreen() {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
 
   // Recent searches
-  const {
-    recents,
-    add: addRecent,
-    remove: removeRecent,
-    clear: clearRecents,
-  } = useRecentSearches();
+  const { recents, add: addRecent, remove: removeRecent, clear: clearRecents } =
+    useRecentSearches();
 
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
@@ -689,21 +680,21 @@ export default function ExploreScreen() {
             }
           />
 
-          {/* Category pill segments */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.segmentScroll}
-            contentContainerStyle={styles.segmentScrollContent}
+          {/* Category pill segments — card fixed width, only labels scroll inside ✅ */}
+          <View
+            style={[
+              styles.segmentWrap,
+              {
+                backgroundColor: colors.card,
+                shadowOpacity: isDark ? 0.22 : 0.05,
+              },
+            ]}
           >
-            <View
-              style={[
-                styles.segmentWrap,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.22 : 0.05,
-                },
-              ]}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.segmentScrollContent}
+              keyboardShouldPersistTaps="handled"
             >
               {categories.map((c) => {
                 const isActive = activeCategory === c.key;
@@ -729,8 +720,8 @@ export default function ExploreScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </View>
-          </ScrollView>
+            </ScrollView>
+          </View>
 
           {/* Recent searches panel — shown when focused + empty query */}
           {showRecents && (
@@ -1497,18 +1488,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Category segments
+  // Category segments — card is fixed full-width, scroll is inside
   segmentScroll: { marginHorizontal: 18, marginBottom: 0 },
-  segmentScrollContent: { paddingBottom: 0 },
+  segmentScrollContent: { flexDirection: "row", gap: 6, padding: 6 },
   segmentWrap: {
+    marginHorizontal: 18,
     borderRadius: 22,
-    padding: 6,
-    flexDirection: "row",
-    gap: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
     elevation: 2,
+    overflow: "hidden",
   },
   segmentItem: {
     paddingHorizontal: 14,
