@@ -8,9 +8,18 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform,
-  ScrollView, StatusBar, StyleSheet, Text, TextInput,
-  TouchableOpacity, View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -29,7 +38,10 @@ export default function CreateStoryScreen() {
   const [uploading, setUploading] = useState(false);
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
-  const canPost = useMemo(() => !!mediaUri && !!mediaType && !uploading, [mediaUri, mediaType, uploading]);
+  const canPost = useMemo(
+    () => !!mediaUri && !!mediaType && !uploading,
+    [mediaUri, mediaType, uploading],
+  );
 
   const pickMedia = async (type: "image" | "video" | "both" = "both") => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -39,9 +51,11 @@ export default function CreateStoryScreen() {
     }
 
     const mediaTypes =
-      type === "image" ? PickerMedia.Images
-      : type === "video" ? PickerMedia.Videos
-      : PickerMedia.All;
+      type === "image"
+        ? PickerMedia.Images
+        : type === "video"
+          ? PickerMedia.Videos
+          : PickerMedia.All;
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes,
@@ -51,19 +65,30 @@ export default function CreateStoryScreen() {
 
     if (result.canceled) return;
     const asset = result.assets?.[0];
-    if (!asset?.uri) { Alert.alert("Error", "Could not read selected media."); return; }
+    if (!asset?.uri) {
+      Alert.alert("Error", "Could not read selected media.");
+      return;
+    }
 
     // Detect GIF by filename
-    const isGif = asset.uri.toLowerCase().endsWith(".gif") || asset.mimeType === "image/gif";
+    const isGif =
+      asset.uri.toLowerCase().endsWith(".gif") ||
+      asset.mimeType === "image/gif";
     setMediaUri(asset.uri);
     setMediaType(isGif ? "gif" : asset.type === "video" ? "video" : "image");
   };
 
   const handlePost = async () => {
-    if (!mediaUri || !mediaType) { Alert.alert("Missing media", "Please select an image, GIF, or video."); return; }
+    if (!mediaUri || !mediaType) {
+      Alert.alert("Missing media", "Please select an image, GIF, or video.");
+      return;
+    }
     setUploading(true);
     try {
-      const uploaded = await uploadStoryMedia(mediaUri, mediaType === "gif" ? "image" : mediaType);
+      const uploaded = await uploadStoryMedia(
+        mediaUri,
+        mediaType === "gif" ? "image" : mediaType,
+      );
       await createStory({
         media_url: uploaded.publicUrl,
         media_type: mediaType,
@@ -73,7 +98,9 @@ export default function CreateStoryScreen() {
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to post story.");
-    } finally { setUploading(false); }
+    } finally {
+      setUploading(false);
+    }
   };
 
   const mediaTypeIcon = () => {
@@ -89,19 +116,39 @@ export default function CreateStoryScreen() {
   };
 
   const content = (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "transparent" }} edges={["left", "right"]}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["top", "left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
 
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.cancelBtn} disabled={uploading}>
-          <Text style={[styles.cancelText, { color: colors.text }]}>Cancel</Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.cancelBtn}
+          disabled={uploading}
+        >
+          <Text style={[styles.cancelText, { color: colors.text }]}>
+            Cancel
+          </Text>
         </TouchableOpacity>
 
-        <Text style={[styles.headerTitle, { color: colors.text }]}>New Story</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>
+          New Story
+        </Text>
 
         <TouchableOpacity
-          style={[styles.postBtn, { backgroundColor: canPost ? colors.primary : colors.primary + "60" }]}
+          style={[
+            styles.postBtn,
+            {
+              backgroundColor: canPost ? colors.primary : colors.primary + "60",
+            },
+          ]}
           onPress={handlePost}
           disabled={!canPost}
         >
@@ -113,26 +160,61 @@ export default function CreateStoryScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          style={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           {/* Composer row */}
           <View style={styles.composerRow}>
             <View style={styles.avatarCol}>
               {profile?.avatar_url ? (
-                <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+                <Image
+                  source={{ uri: profile.avatar_url }}
+                  style={styles.avatar}
+                />
               ) : (
-                <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
+                <View
+                  style={[
+                    styles.avatarFallback,
+                    { backgroundColor: colors.primary },
+                  ]}
+                >
                   <Text style={styles.avatarLetter}>{avatarLetter}</Text>
                 </View>
               )}
-              {mediaUri && <View style={[styles.avatarLine, { backgroundColor: colors.border }]} />}
+              {mediaUri && (
+                <View
+                  style={[
+                    styles.avatarLine,
+                    { backgroundColor: colors.border },
+                  ]}
+                />
+              )}
             </View>
 
             <View style={styles.inputCol}>
-              <View style={[styles.durationPill, { borderColor: colors.primary + "60", backgroundColor: colors.primary + "12" }]}>
-                <Ionicons name="time-outline" size={12} color={colors.primary} />
-                <Text style={[styles.durationText, { color: colors.primary }]}>Disappears in 24h</Text>
+              <View
+                style={[
+                  styles.durationPill,
+                  {
+                    borderColor: colors.primary + "60",
+                    backgroundColor: colors.primary + "12",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="time-outline"
+                  size={12}
+                  color={colors.primary}
+                />
+                <Text style={[styles.durationText, { color: colors.primary }]}>
+                  Disappears in 24h
+                </Text>
               </View>
 
               <TextInput
@@ -147,7 +229,11 @@ export default function CreateStoryScreen() {
               />
 
               {caption.length > 0 && (
-                <Text style={[styles.charCount, { color: colors.textTertiary }]}>{200 - caption.length}</Text>
+                <Text
+                  style={[styles.charCount, { color: colors.textTertiary }]}
+                >
+                  {200 - caption.length}
+                </Text>
               )}
             </View>
           </View>
@@ -158,23 +244,39 @@ export default function CreateStoryScreen() {
             <View style={styles.mediaCol}>
               {mediaUri ? (
                 <TouchableOpacity
-                  style={[styles.previewWrap, { backgroundColor: colors.surface }]}
+                  style={[
+                    styles.previewWrap,
+                    { backgroundColor: colors.surface },
+                  ]}
                   onPress={() => pickMedia()}
                   disabled={uploading}
                   activeOpacity={0.9}
                 >
-                  <Image source={{ uri: mediaUri }} style={styles.preview} resizeMode="cover" />
+                  <Image
+                    source={{ uri: mediaUri }}
+                    style={styles.preview}
+                    resizeMode="cover"
+                  />
 
                   {/* Type badge */}
                   {mediaTypeBadge() && (
                     <View style={styles.typeBadge}>
-                      <Ionicons name={mediaTypeIcon() as any} size={14} color="#fff" />
-                      <Text style={styles.typeBadgeText}>{mediaTypeBadge()}</Text>
+                      <Ionicons
+                        name={mediaTypeIcon() as any}
+                        size={14}
+                        color="#fff"
+                      />
+                      <Text style={styles.typeBadgeText}>
+                        {mediaTypeBadge()}
+                      </Text>
                     </View>
                   )}
 
                   {!uploading && (
-                    <TouchableOpacity style={styles.changeBtn} onPress={() => pickMedia()}>
+                    <TouchableOpacity
+                      style={styles.changeBtn}
+                      onPress={() => pickMedia()}
+                    >
                       <Ionicons name="swap-horizontal" size={14} color="#fff" />
                       <Text style={styles.changeBtnText}>Change</Text>
                     </TouchableOpacity>
@@ -191,20 +293,51 @@ export default function CreateStoryScreen() {
                 /* Picker buttons */
                 <View style={styles.pickerGrid}>
                   {[
-                    { label: "Photo", icon: "image-outline", type: "image" as const },
-                    { label: "Video", icon: "videocam-outline", type: "video" as const },
-                    { label: "GIF", icon: "sparkles-outline", type: "image" as const },
+                    {
+                      label: "Photo",
+                      icon: "image-outline",
+                      type: "image" as const,
+                    },
+                    {
+                      label: "Video",
+                      icon: "videocam-outline",
+                      type: "video" as const,
+                    },
+                    {
+                      label: "GIF",
+                      icon: "sparkles-outline",
+                      type: "image" as const,
+                    },
                   ].map(({ label, icon, type }) => (
                     <TouchableOpacity
                       key={label}
-                      style={[styles.pickBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                      style={[
+                        styles.pickBtn,
+                        {
+                          borderColor: colors.border,
+                          backgroundColor: colors.surface,
+                        },
+                      ]}
                       onPress={() => pickMedia(type)}
                       activeOpacity={0.8}
                     >
-                      <View style={[styles.pickBtnIcon, { backgroundColor: colors.primary + "18" }]}>
-                        <Ionicons name={icon as any} size={22} color={colors.primary} />
+                      <View
+                        style={[
+                          styles.pickBtnIcon,
+                          { backgroundColor: colors.primary + "18" },
+                        ]}
+                      >
+                        <Ionicons
+                          name={icon as any}
+                          size={22}
+                          color={colors.primary}
+                        />
                       </View>
-                      <Text style={[styles.pickBtnText, { color: colors.text }]}>{label}</Text>
+                      <Text
+                        style={[styles.pickBtnText, { color: colors.text }]}
+                      >
+                        {label}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -224,47 +357,149 @@ export default function CreateStoryScreen() {
 
   if (!isDark) {
     return (
-      <LinearGradient colors={["#FFFFFF", "#F8F5FF"]} locations={[0, 1]} style={{ flex: 1 }}>
+      <LinearGradient
+        colors={["#FFFFFF", "#F8F5FF"]}
+        locations={[0, 1]}
+        style={{ flex: 1 }}
+      >
         {content}
       </LinearGradient>
     );
   }
-  return <View style={{ flex: 1, backgroundColor: colors.background }}>{content}</View>;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
   cancelBtn: { paddingVertical: 6, paddingHorizontal: 4, minWidth: 60 },
   cancelText: { fontSize: 16, fontWeight: "500" },
   headerTitle: { fontSize: 16, fontWeight: "800" },
-  postBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 999, minWidth: 72, alignItems: "center" },
+  postBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 999,
+    minWidth: 72,
+    alignItems: "center",
+  },
   postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   scroll: { flex: 1 },
-  composerRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 16, gap: 12 },
+  composerRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 12,
+  },
   avatarCol: { alignItems: "center" },
   avatar: { width: 44, height: 44, borderRadius: 22 },
-  avatarFallback: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  avatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarLetter: { color: "#fff", fontWeight: "700", fontSize: 18 },
-  avatarLine: { width: 2, flex: 1, minHeight: 20, marginTop: 8, borderRadius: 1 },
+  avatarLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 20,
+    marginTop: 8,
+    borderRadius: 1,
+  },
   inputCol: { flex: 1, paddingBottom: 8 },
-  durationPill: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10 },
+  durationPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 10,
+  },
   durationText: { fontSize: 12, fontWeight: "600" },
   captionInput: { fontSize: 17, lineHeight: 24, minHeight: 60, paddingTop: 0 },
   charCount: { fontSize: 13, fontWeight: "600", marginTop: 4 },
-  mediaSection: { flexDirection: "row", paddingHorizontal: 16, gap: 12, paddingTop: 8 },
+  mediaSection: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingTop: 8,
+  },
   avatarSpacer: { width: 44 },
   mediaCol: { flex: 1 },
   pickerGrid: { flexDirection: "row", gap: 10, marginBottom: 12 },
-  pickBtn: { flex: 1, borderWidth: 1, borderStyle: "dashed", borderRadius: 16, paddingVertical: 20, alignItems: "center", gap: 8 },
-  pickBtnIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  pickBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 16,
+    paddingVertical: 20,
+    alignItems: "center",
+    gap: 8,
+  },
+  pickBtnIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   pickBtnText: { fontSize: 13, fontWeight: "600" },
-  previewWrap: { width: "100%", height: 320, borderRadius: 16, overflow: "hidden", marginBottom: 12, position: "relative" },
+  previewWrap: {
+    width: "100%",
+    height: 320,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    position: "relative",
+  },
   preview: { width: "100%", height: "100%" },
-  typeBadge: { position: "absolute", top: 12, left: 12, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  typeBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
   typeBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  changeBtn: { position: "absolute", bottom: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999 },
+  changeBtn: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
   changeBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  uploadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", gap: 12 },
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
   uploadingText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   helperText: { fontSize: 12, lineHeight: 16, marginTop: 4 },
 });

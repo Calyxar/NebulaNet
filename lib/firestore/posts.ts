@@ -1,20 +1,7 @@
-// lib/firestore/posts.ts — FIREBASE ✅ (COMPLETED + UPDATED)
-// ✅ Removed where("is_visible", "==", true) from Firestore query
-//    — was causing silent 0 results (requires composite index with orderBy)
-// ✅ Filter is_visible in JS after fetch instead
-// ✅ communityIds filter (Firestore "in" limit respected)
-// ✅ media_urls + visibility + post_type
-// ✅ newest / popular / trending
-// ✅ returns is_liked / is_saved / is_owned for current user
-// ✅ cursor pagination for infinite feed
-// ✅ Boost injection on first page
-// ✅ uploadString base64 — works in Expo Go and production builds
-// ✅ Android content:// URI copy before read
-
+// lib/firestore/posts.ts — UPDATED ✅ modern fetch/blob upload (no FileSystem)
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth, db, storage } from "@/lib/firebase";
 import { getActiveBoostsPostIds } from "@/lib/firestore/boosts";
-import * as FileSystemLegacy from "expo-file-system/legacy";
 import {
   Timestamp,
   addDoc,
@@ -31,7 +18,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadString } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 /* =========================================================
    TYPES
@@ -57,31 +44,22 @@ export type CommunityRow = {
 export interface Post {
   id: string;
   user_id: string;
-
   title?: string | null;
   content: string;
-
   media_urls: string[];
   visibility: PostVisibility;
   community_id?: string | null;
-
   post_type?: PostType | null;
   is_visible?: boolean | null;
-
   hashtags?: string[];
-
   poll?: import("@/lib/firestore/polls").PollData | null;
-
   like_count: number;
   comment_count: number;
   share_count: number;
-
   created_at: string;
   updated_at: string;
-
   user: ProfileRow | null;
   community: CommunityRow | null;
-
   is_liked?: boolean;
   is_saved?: boolean;
   is_owned?: boolean;
@@ -89,21 +67,14 @@ export interface Post {
 
 export interface PostFilters {
   limit?: number;
-
   communitySlug?: string;
   communityIds?: string[];
-
   username?: string;
   userId?: string;
-
   hashtag?: string;
-
   visibility?: PostVisibility;
   sortBy?: "newest" | "popular" | "trending";
-
-  cursor?: {
-    lastDocId?: string;
-  } | null;
+  cursor?: { lastDocId?: string } | null;
 }
 
 export interface PaginatedPosts {
@@ -171,14 +142,11 @@ function normalizePostType(p: { post_type?: any; media_urls?: any }): PostType {
     t === "poll"
   )
     return t;
-
   const urls = Array.isArray(p?.media_urls) ? (p.media_urls as string[]) : [];
   if (!urls.length) return "text";
-
   const hasVideo = urls.some((u) =>
     /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
   );
-
   if (hasVideo && urls.length > 1) return "mixed";
   if (hasVideo) return "video";
   return "image";
@@ -192,9 +160,6 @@ function tsToIso(ts: any): string {
 }
 
 function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
-  const createdIso = tsToIso(d.created_at_ts ?? d.created_at);
-  const updatedIso = tsToIso(d.updated_at_ts ?? d.updated_at);
-
   return {
     id,
     user_id: d.user_id,
@@ -210,8 +175,8 @@ function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
     like_count: typeof d.like_count === "number" ? d.like_count : 0,
     comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
     share_count: typeof d.share_count === "number" ? d.share_count : 0,
-    created_at: createdIso,
-    updated_at: updatedIso,
+    created_at: tsToIso(d.created_at_ts ?? d.created_at),
+    updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
     user: d.user ?? null,
     community: d.community ?? null,
     ...extras,
@@ -233,13 +198,10 @@ async function resolveUserIdFromUsername(
 ): Promise<string | null> {
   const raw = username.trim();
   if (!raw) return null;
-
   const u = raw.toLowerCase();
-
   let q = query(PROFILES, where("username_lc", "==", u), fsLimit(1));
   let snap = await getDocs(q);
   if (!snap.empty) return snap.docs[0].id;
-
   q = query(PROFILES, where("username", "==", raw), fsLimit(1));
   snap = await getDocs(q);
   return snap.docs[0]?.id ?? null;
@@ -272,7 +234,7 @@ async function getCommunitySnapshot(
 }
 
 /* =========================================================
-   STORAGE UPLOAD (Firebase Storage)
+   STORAGE UPLOAD — modern fetch/blob/uploadBytes ✅
 ========================================================= */
 
 function isRemoteUrl(u: string): boolean {
@@ -284,6 +246,14 @@ function guessExt(uri: string, fallback: string): string {
   const last = clean.split(".").pop();
   if (!last || last.length > 8) return fallback;
   return last.toLowerCase();
+}
+
+function guessMimeType(ext: string, type: MediaType): string {
+  if (type === "gif") return "image/gif";
+  if (type === "video") return ext === "mov" ? "video/quicktime" : "video/mp4";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return "image/jpeg";
 }
 
 function makeObjectPath(userId: string, ext: string): string {
@@ -300,7 +270,6 @@ async function uploadMediaForPost(
 
   for (const item of media) {
     if (!POST_MEDIA_TYPES.has(item.type)) continue;
-
     if (isRemoteUrl(item.uri)) {
       urls.push(item.uri);
       continue;
@@ -309,23 +278,15 @@ async function uploadMediaForPost(
     const fallbackExt =
       item.type === "video" ? "mp4" : item.type === "gif" ? "gif" : "jpg";
     const ext = guessExt(item.uri, fallbackExt);
+    const mimeType = guessMimeType(ext, item.type);
     const path = makeObjectPath(userId, ext);
     const storageRef = ref(storage, path);
 
-    let readUri = item.uri;
-
-    // ✅ Android content:// URIs must be copied to a local file first
-    if (item.uri.startsWith("content://")) {
-      const localPath = `${FileSystemLegacy.cacheDirectory}upload-${Date.now()}.${ext}`;
-      await FileSystemLegacy.copyAsync({ from: item.uri, to: localPath });
-      readUri = localPath;
-    }
-
-    // ✅ Upload as base64 string — works in Expo Go and production builds
-    const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
-      encoding: "base64" as any,
-    });
-    await uploadString(storageRef, base64, "base64");
+    // ✅ Modern approach: fetch → blob → uploadBytes (no FileSystem needed)
+    const response = await fetch(item.uri);
+    if (!response.ok) throw new Error(`Failed to read media file: ${item.uri}`);
+    const blob = await response.blob();
+    await uploadBytes(storageRef, blob, { contentType: mimeType });
 
     const dl = await getDownloadURL(storageRef);
     urls.push(dl);
@@ -335,18 +296,15 @@ async function uploadMediaForPost(
 }
 
 /* =========================================================
-   LIKE/SAVE FLAGS (batch for list)
+   LIKE/SAVE FLAGS
 ========================================================= */
 
 async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
-  if (!uid || !postIds.length) {
+  if (!uid || !postIds.length)
     return { liked: new Set<string>(), saved: new Set<string>() };
-  }
-
   const chunks = chunk(postIds, 10);
   const liked = new Set<string>();
   const saved = new Set<string>();
-
   await Promise.all([
     (async () => {
       for (const c of chunks) {
@@ -371,7 +329,6 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
       }
     })(),
   ]);
-
   return { liked, saved };
 }
 
@@ -401,19 +358,12 @@ export async function getPosts(
   }
 
   let resolvedUserId = userId ?? null;
-  if (username && !resolvedUserId) {
+  if (username && !resolvedUserId)
     resolvedUserId = await resolveUserIdFromUsername(username);
-  }
 
-  // ✅ No where("is_visible", "==", true) here — that field + orderBy("created_at_ts")
-  // requires a composite Firestore index that doesn't exist, causing silent 0 results.
-  // We filter is_visible in JS below instead.
   const wheres: any[] = [];
-
-  if (resolvedCommunityIds.length) {
+  if (resolvedCommunityIds.length)
     wheres.push(where("community_id", "in", resolvedCommunityIds.slice(0, 10)));
-  }
-
   if (resolvedUserId) wheres.push(where("user_id", "==", resolvedUserId));
   if (visibility) wheres.push(where("visibility", "==", visibility));
   if (hashtag)
@@ -428,36 +378,31 @@ export async function getPosts(
   const extra: any[] = [];
   if (sortBy === "trending") {
     const weekAgo = Timestamp.fromDate(new Date(Date.now() - 7 * 86400000));
-    extra.push(where("created_at_ts", ">=", weekAgo));
-    extra.push(orderBy("like_count", "desc"));
-    extra.push(orderBy("created_at_ts", "desc"));
+    extra.push(
+      where("created_at_ts", ">=", weekAgo),
+      orderBy("like_count", "desc"),
+      orderBy("created_at_ts", "desc"),
+    );
   } else if (sortBy === "popular") {
-    extra.push(orderBy("like_count", "desc"));
-    extra.push(orderBy("created_at_ts", "desc"));
+    extra.push(orderBy("like_count", "desc"), orderBy("created_at_ts", "desc"));
   } else {
     extra.push(orderBy("created_at_ts", "desc"));
   }
 
   let qBase = query(POSTS, ...wheres, ...extra);
-
   if (cursor?.lastDocId) {
     const lastSnap = await getDoc(doc(db, "posts", cursor.lastDocId));
     if (lastSnap.exists()) qBase = query(qBase, startAfter(lastSnap));
   }
 
-  // ✅ Fetch slightly more than limit to account for is_visible filtering in JS
   const snap = await getDocs(query(qBase, fsLimit(limit + 10)));
-
   const viewerId = auth.currentUser?.uid ?? "";
 
-  // ✅ Filter is_visible in JS — avoids the composite index requirement
   const raw = snap.docs
     .map((d) => docToPost(d.id, d.data()))
     .filter((p) => p.is_visible !== false)
     .slice(0, limit);
-
   const ids = raw.map((p) => p.id);
-
   const { liked, saved } = viewerId
     ? await fetchMyLikeSaveFlags(viewerId, ids)
     : { liked: new Set<string>(), saved: new Set<string>() };
@@ -475,7 +420,6 @@ export async function getPosts(
     ? { lastDocId: last.id }
     : null;
 
-  // ✅ Boost injection — only on first page (no cursor)
   if (!cursor) {
     try {
       const boostedIds = await getActiveBoostsPostIds();
@@ -490,16 +434,11 @@ export async function getPosts(
         };
       }
     } catch {
-      // boost fetch failed — fall through to normal return
+      /* boost fetch failed */
     }
   }
 
-  return {
-    posts,
-    total: -1,
-    hasMore: snap.docs.length >= limit,
-    nextCursor,
-  };
+  return { posts, total: -1, hasMore: snap.docs.length >= limit, nextCursor };
 }
 
 /* =========================================================
@@ -509,18 +448,13 @@ export async function getPosts(
 export async function getPostById(id: string): Promise<Post | null> {
   const clean = id?.trim();
   if (!clean) return null;
-
   const snap = await getDoc(doc(db, "posts", clean));
   if (!snap.exists()) return null;
-
   const d = snap.data() as any;
   if (d.is_visible === false) return null;
-
   const viewerId = auth.currentUser?.uid ?? "";
-
-  let is_liked = false;
-  let is_saved = false;
-
+  let is_liked = false,
+    is_saved = false;
   if (viewerId) {
     const [likeSnap, saveSnap] = await Promise.all([
       getDocs(
@@ -540,11 +474,9 @@ export async function getPostById(id: string): Promise<Post | null> {
         ),
       ),
     ]);
-
     is_liked = !likeSnap.empty;
     is_saved = !saveSnap.empty;
   }
-
   return docToPost(snap.id, d, {
     is_liked,
     is_saved,
@@ -561,15 +493,11 @@ export async function createPost(
 ): Promise<Post | null> {
   const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
-
   const uid = viewer.uid;
-
   const urls = await uploadMediaForPost(uid, postData.media);
-
   const hasVideo = urls.some((u) =>
     /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
   );
-
   const post_type: PostType = !urls.length
     ? "text"
     : hasVideo && urls.length > 1
@@ -577,14 +505,11 @@ export async function createPost(
       : hasVideo
         ? "video"
         : "image";
-
   const profileSnap = await getProfileSnapshot(uid);
   const communitySnap = postData.community_id
     ? await getCommunitySnapshot(postData.community_id)
     : null;
-
   const now = new Date().toISOString();
-
   const refDoc = await addDoc(POSTS, {
     user_id: uid,
     title: postData.title ?? null,
@@ -594,23 +519,18 @@ export async function createPost(
     media_urls: urls,
     post_type,
     is_visible: true,
-
     like_count: 0,
     comment_count: 0,
     share_count: 0,
-
     user: profileSnap,
     community: communitySnap,
-
     created_at: now,
     updated_at: now,
     created_at_ts: serverTimestamp(),
     updated_at_ts: serverTimestamp(),
   });
-
   const createdSnap = await getDoc(refDoc);
   if (!createdSnap.exists()) return null;
-
   return docToPost(createdSnap.id, createdSnap.data(), {
     is_owned: true,
     is_liked: false,
@@ -628,35 +548,26 @@ export async function updatePost(
 ): Promise<Post | null> {
   const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
-
   const uid = viewer.uid;
-
   const refDoc = doc(db, "posts", postId);
   const snap = await getDoc(refDoc);
   if (!snap.exists()) return null;
-
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
-
   let communitySnap: CommunityRow | null | undefined = undefined;
-  if (patch.community_id !== undefined) {
+  if (patch.community_id !== undefined)
     communitySnap = patch.community_id
       ? await getCommunitySnapshot(patch.community_id)
       : null;
-  }
-
   const now = new Date().toISOString();
-
   await updateDoc(refDoc, {
     ...patch,
     ...(communitySnap !== undefined ? { community: communitySnap } : {}),
     updated_at: now,
     updated_at_ts: serverTimestamp(),
   });
-
   const updated = await getDoc(refDoc);
   if (!updated.exists()) return null;
-
   return docToPost(updated.id, updated.data(), { is_owned: true });
 }
 
@@ -667,16 +578,12 @@ export async function updatePost(
 export async function deletePost(postId: string): Promise<boolean> {
   const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
-
   const uid = viewer.uid;
-
   const refDoc = doc(db, "posts", postId);
   const snap = await getDoc(refDoc);
   if (!snap.exists()) return false;
-
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
-
   await deleteDoc(refDoc);
   return true;
 }

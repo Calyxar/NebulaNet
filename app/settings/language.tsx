@@ -149,7 +149,7 @@ export default function LanguageRegionScreen() {
   const content = (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: "transparent" }}
-      edges={["left", "right"]}
+      edges={["top", "left", "right"]}
     >
       <StatusBar
         barStyle={isDark ? "light-content" : "dark-content"}
