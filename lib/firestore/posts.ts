@@ -8,7 +8,7 @@ import {
   serverTimestamp, startAfter, updateDoc, where,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { detectLanguage } from "@/utils/detectLanguage";
+import { detectLanguage } from "@/utils/detectLanguage"; // sync — uses eld/small static import
 
 /* =========================================================
    TYPES
@@ -324,9 +324,9 @@ export async function createPost(postData: CreatePostData): Promise<Post | null>
   const hasVideo = urls.some((u) => /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""));
   const post_type: PostType = !urls.length ? "text" : hasVideo && urls.length > 1 ? "mixed" : hasVideo ? "video" : "image";
 
-  // ✅ Auto-detect language from title + content
+  // ✅ Auto-detect language from title + content (sync)
   const textForDetection = [postData.title, postData.content].filter(Boolean).join(" ");
-  const detectedLanguage = await detectLanguage(textForDetection);
+  const detectedLanguage = detectLanguage(textForDetection);
   const profileSnap = await getProfileSnapshot(uid);
   const communitySnap = postData.community_id ? await getCommunitySnapshot(postData.community_id) : null;
   const now = new Date().toISOString();
