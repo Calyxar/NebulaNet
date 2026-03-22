@@ -1,18 +1,20 @@
-// app/boost/[postId]/review.tsx
+// app/boost/[postId]/review.tsx — UPDATED ✅ LinearGradient + edges fix
 import { createBoost } from "@/lib/firestore/boosts";
 import { getBoostOffering, purchaseBoostPackage } from "@/lib/revenuecat";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -35,7 +37,6 @@ export default function BoostReviewScreen() {
   const duration = Number(params.duration ?? 3);
   const audience = params.audience ?? "auto";
   const destinationUrl = params.destinationUrl ?? "";
-
   const [loading, setLoading] = useState(false);
 
   const objectiveLabel = () => {
@@ -49,22 +50,18 @@ export default function BoostReviewScreen() {
       Alert.alert("Error", "Missing post ID.");
       return;
     }
-
     setLoading(true);
     try {
       const offering = await getBoostOffering();
       const pkg = offering?.availablePackages?.[0];
-
       if (!pkg) {
         Alert.alert(
           "Not available",
-          "Boost isn't available right now. Please try again.",
+          "Boost isn\'t available right now. Please try again.",
         );
         return;
       }
-
       const customerInfo = await purchaseBoostPackage(pkg);
-
       await createBoost({
         post_id: postId,
         objective: objective as any,
@@ -77,7 +74,6 @@ export default function BoostReviewScreen() {
         revenuecat_transaction_id:
           customerInfo?.latestExpirationDate ?? undefined,
       });
-
       Alert.alert(
         "🚀 Boost activated!",
         `Your post is now being promoted for ${duration} day${duration === 1 ? "" : "s"}.`,
@@ -104,14 +100,42 @@ export default function BoostReviewScreen() {
     }
   };
 
-  return (
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
+
+  const inner = (
     <SafeAreaView
-      style={[styles.safe, { backgroundColor: colors.background }]}
-      edges={["left", "right", "bottom"]}
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["top", "left", "right"]}
     >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+      <View
+        style={[
+          styles.header,
+          {
+            borderBottomColor: colors.border,
+            backgroundColor: colors.background,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[
+            styles.iconBtn,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              borderWidth: 1,
+            },
+          ]}
+        >
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -132,7 +156,6 @@ export default function BoostReviewScreen() {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
           Boost Summary
         </Text>
-
         <View style={[styles.card, { backgroundColor: colors.card }]}>
           <Row
             label="Objective"
@@ -169,7 +192,6 @@ export default function BoostReviewScreen() {
         >
           What happens next
         </Text>
-
         <View style={[styles.card, { backgroundColor: colors.card }]}>
           {[
             {
@@ -178,7 +200,7 @@ export default function BoostReviewScreen() {
             },
             {
               icon: "mail-outline",
-              text: "You'll receive an email confirmation",
+              text: "You\'ll receive an email confirmation",
             },
             {
               icon: "bar-chart-outline",
@@ -193,10 +215,7 @@ export default function BoostReviewScreen() {
               key={i}
               style={[
                 styles.stepRow,
-                i !== 0 && {
-                  borderTopWidth: 1,
-                  borderTopColor: colors.border,
-                },
+                i !== 0 && { borderTopWidth: 1, borderTopColor: colors.border },
               ]}
             >
               <View
@@ -239,10 +258,24 @@ export default function BoostReviewScreen() {
           Payment is processed securely via Google Play or App Store. Boosts are
           non-refundable once activated.
         </Text>
-
         <View style={{ height: 16 }} />
       </ScrollView>
     </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {inner}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>{inner}</View>
   );
 }
 
@@ -283,7 +316,6 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
   header: {
     paddingHorizontal: 14,
     paddingTop: 10,
@@ -294,9 +326,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
   },
