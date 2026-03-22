@@ -1,7 +1,9 @@
-// app/create/poll.tsx — REDESIGNED ✅ matches Twitter-style composer
+// app/create/poll.tsx — UPDATED ✅ dark mode + app design
 import { useAuth } from "@/hooks/useAuth";
 import { createPoll } from "@/lib/firestore/polls";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
@@ -27,11 +29,11 @@ const MAX_OPTION = 80;
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 6;
 const DURATION_CHOICES: PollDurationDays[] = [1, 3, 7, 14];
-
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 export default function CreatePollScreen() {
   const { profile } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState<PollOptionInput[]>([
@@ -68,16 +70,11 @@ export default function CreatePollScreen() {
 
   const handlePost = async () => {
     if (!canPost) return;
-
     const cleaned = options.map((o) => o.text.trim()).filter(Boolean);
-
-    const dupes =
-      new Set(cleaned.map((t) => t.toLowerCase())).size !== cleaned.length;
-    if (dupes) {
+    if (new Set(cleaned.map((t) => t.toLowerCase())).size !== cleaned.length) {
       Alert.alert("Duplicate options", "Please remove duplicate options.");
       return;
     }
-
     setIsLoading(true);
     try {
       await createPoll({
@@ -96,202 +93,300 @@ export default function CreatePollScreen() {
     }
   };
 
-  return (
-    <>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.cancelBtn}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
+  const content = (
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: "transparent" }]}
+      edges={["top", "left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.cancelBtn}
+            disabled={isLoading}
+          >
+            <Text style={[styles.cancelText, { color: colors.text }]}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Create Poll
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.postBtn,
+              {
+                backgroundColor: canPost
+                  ? colors.primary
+                  : colors.primary + "60",
+              },
+            ]}
+            onPress={handlePost}
+            disabled={!canPost}
+          >
+            <Text style={styles.postBtnText}>
+              {isLoading ? "Posting..." : "Post"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-            <TouchableOpacity
-              style={[styles.postBtn, !canPost && styles.postBtnDisabled]}
-              onPress={handlePost}
-              disabled={!canPost}
-            >
-              <Text style={styles.postBtnText}>
-                {isLoading ? "Posting..." : "Post"}
-              </Text>
-            </TouchableOpacity>
+        <ScrollView
+          style={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Composer row */}
+          <View style={styles.composerRow}>
+            <View style={styles.avatarCol}>
+              {profile?.avatar_url ? (
+                <Image
+                  source={{ uri: profile.avatar_url }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.avatarFallback,
+                    { backgroundColor: colors.primary },
+                  ]}
+                >
+                  <Text style={styles.avatarLetter}>{avatarLetter}</Text>
+                </View>
+              )}
+              <View
+                style={[styles.avatarLine, { backgroundColor: colors.border }]}
+              />
+            </View>
+            <View style={styles.inputCol}>
+              <TextInput
+                style={[styles.questionInput, { color: colors.text }]}
+                placeholder="Ask a question..."
+                placeholderTextColor={colors.textTertiary}
+                value={question}
+                onChangeText={setQuestion}
+                multiline
+                autoFocus
+                maxLength={MAX_QUESTION + 20}
+              />
+              {charCount > 0 && (
+                <Text
+                  style={[
+                    styles.charCount,
+                    {
+                      color:
+                        charCount > MAX_QUESTION * 0.8
+                          ? "#F59E0B"
+                          : colors.textTertiary,
+                    },
+                    charCount > MAX_QUESTION && { color: "#EF4444" },
+                  ]}
+                >
+                  {MAX_QUESTION - charCount}
+                </Text>
+              )}
+            </View>
           </View>
 
-          <ScrollView
-            style={styles.scroll}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Composer row */}
-            <View style={styles.composerRow}>
-              {/* Avatar */}
-              <View style={styles.avatarCol}>
-                {profile?.avatar_url ? (
-                  <Image
-                    source={{ uri: profile.avatar_url }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={styles.avatarLetter}>{avatarLetter}</Text>
-                  </View>
-                )}
-                <View style={styles.avatarLine} />
-              </View>
+          {/* Options */}
+          <View style={styles.optionsSection}>
+            <View style={styles.avatarColSpacer} />
+            <View style={styles.optionsCol}>
+              <Text
+                style={[styles.sectionLabel, { color: colors.textSecondary }]}
+              >
+                Poll options
+              </Text>
 
-              {/* Question input */}
-              <View style={styles.inputCol}>
-                <TextInput
-                  style={styles.questionInput}
-                  placeholder="Ask a question..."
-                  placeholderTextColor="#9CA3AF"
-                  value={question}
-                  onChangeText={setQuestion}
-                  multiline
-                  autoFocus
-                  maxLength={MAX_QUESTION + 20}
-                />
-                {charCount > 0 && (
-                  <Text
+              {options.map((opt, idx) => (
+                <View key={opt.id} style={styles.optionRow}>
+                  <View
                     style={[
-                      styles.charCount,
-                      charCount > MAX_QUESTION * 0.8 && styles.charCountWarn,
-                      charCount > MAX_QUESTION && styles.charCountOver,
+                      styles.optionInputWrap,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
                     ]}
                   >
-                    {MAX_QUESTION - charCount}
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            {/* Options */}
-            <View style={styles.optionsSection}>
-              <View style={styles.avatarColSpacer} />
-              <View style={styles.optionsCol}>
-                <Text style={styles.sectionLabel}>Poll options</Text>
-
-                {options.map((opt, idx) => (
-                  <View key={opt.id} style={styles.optionRow}>
-                    <View style={styles.optionInputWrap}>
-                      <TextInput
-                        value={opt.text}
-                        onChangeText={(t) => updateOption(opt.id, t)}
-                        placeholder={
-                          idx < 2
-                            ? `Option ${idx + 1}`
-                            : `Option ${idx + 1} (optional)`
-                        }
-                        placeholderTextColor="#9CA3AF"
-                        style={styles.optionInput}
-                        maxLength={MAX_OPTION}
-                      />
-                    </View>
-                    {options.length > MIN_OPTIONS && (
-                      <TouchableOpacity
-                        onPress={() => removeOption(opt.id)}
-                        style={styles.removeBtn}
-                      >
-                        <Ionicons
-                          name="close-circle"
-                          size={20}
-                          color="#D1D5DB"
-                        />
-                      </TouchableOpacity>
-                    )}
+                    <TextInput
+                      value={opt.text}
+                      onChangeText={(t) => updateOption(opt.id, t)}
+                      placeholder={
+                        idx < 2
+                          ? `Option ${idx + 1}`
+                          : `Option ${idx + 1} (optional)`
+                      }
+                      placeholderTextColor={colors.textTertiary}
+                      style={[styles.optionInput, { color: colors.text }]}
+                      maxLength={MAX_OPTION}
+                    />
                   </View>
-                ))}
+                  {options.length > MIN_OPTIONS && (
+                    <TouchableOpacity
+                      onPress={() => removeOption(opt.id)}
+                      style={styles.removeBtn}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={20}
+                        color={colors.textTertiary}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
 
-                {options.length < MAX_OPTIONS && (
-                  <TouchableOpacity
-                    style={styles.addOptionBtn}
-                    onPress={addOption}
+              {options.length < MAX_OPTIONS && (
+                <TouchableOpacity
+                  style={styles.addOptionBtn}
+                  onPress={addOption}
+                >
+                  <Ionicons name="add" size={18} color={colors.primary} />
+                  <Text
+                    style={[styles.addOptionText, { color: colors.primary }]}
                   >
-                    <Ionicons name="add" size={18} color="#7C3AED" />
-                    <Text style={styles.addOptionText}>Add option</Text>
-                  </TouchableOpacity>
-                )}
+                    Add option
+                  </Text>
+                </TouchableOpacity>
+              )}
 
-                {/* Settings */}
-                <View style={styles.settingsCard}>
-                  {/* Multiple choice */}
-                  <TouchableOpacity
-                    style={styles.settingRow}
-                    onPress={() => setAllowMultiple((p) => !p)}
-                    activeOpacity={0.7}
-                  >
-                    <View>
-                      <Text style={styles.settingTitle}>Multiple choice</Text>
-                      <Text style={styles.settingSubtitle}>
-                        Let people pick more than one
-                      </Text>
-                    </View>
-                    <View
+              {/* Settings card */}
+              <View
+                style={[
+                  styles.settingsCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                {/* Multiple choice */}
+                <TouchableOpacity
+                  style={styles.settingRow}
+                  onPress={() => setAllowMultiple((p) => !p)}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingTitle, { color: colors.text }]}>
+                      Multiple choice
+                    </Text>
+                    <Text
                       style={[
-                        styles.toggle,
-                        allowMultiple ? styles.toggleOn : styles.toggleOff,
+                        styles.settingSubtitle,
+                        { color: colors.textTertiary },
                       ]}
                     >
-                      <View
-                        style={[
-                          styles.toggleDot,
-                          allowMultiple ? styles.dotOn : styles.dotOff,
-                        ]}
-                      />
-                    </View>
-                  </TouchableOpacity>
-
-                  <View style={styles.divider} />
-
-                  {/* Duration */}
-                  <View>
-                    <Text style={styles.settingTitle}>Poll length</Text>
-                    <Text style={styles.settingSubtitle}>
-                      Ends in {durationDays} day{durationDays > 1 ? "s" : ""}
+                      Let people pick more than one
                     </Text>
-                    <View style={styles.durationRow}>
-                      {DURATION_CHOICES.map((d) => (
-                        <TouchableOpacity
-                          key={d}
+                  </View>
+                  <View
+                    style={[
+                      styles.toggle,
+                      allowMultiple
+                        ? {
+                            backgroundColor: colors.primary,
+                            alignItems: "flex-end",
+                          }
+                        : {
+                            backgroundColor: colors.border,
+                            alignItems: "flex-start",
+                          },
+                    ]}
+                  >
+                    <View
+                      style={[styles.toggleDot, { backgroundColor: "#fff" }]}
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                <View
+                  style={[styles.divider, { backgroundColor: colors.border }]}
+                />
+
+                {/* Duration */}
+                <View>
+                  <Text style={[styles.settingTitle, { color: colors.text }]}>
+                    Poll length
+                  </Text>
+                  <Text
+                    style={[
+                      styles.settingSubtitle,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    Ends in {durationDays} day{durationDays > 1 ? "s" : ""}
+                  </Text>
+                  <View style={styles.durationRow}>
+                    {DURATION_CHOICES.map((d) => (
+                      <TouchableOpacity
+                        key={d}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.durationChip,
+                          {
+                            borderColor: colors.border,
+                            backgroundColor: colors.surface,
+                          },
+                          d === durationDays && {
+                            backgroundColor: colors.primary + "18",
+                            borderColor: colors.primary,
+                          },
+                        ]}
+                        onPress={() => setDurationDays(d)}
+                      >
+                        <Text
                           style={[
-                            styles.durationChip,
-                            d === durationDays && styles.durationChipSelected,
+                            styles.durationChipText,
+                            {
+                              color:
+                                d === durationDays
+                                  ? colors.primary
+                                  : colors.textSecondary,
+                            },
                           ]}
-                          onPress={() => setDurationDays(d)}
                         >
-                          <Text
-                            style={[
-                              styles.durationChipText,
-                              d === durationDays &&
-                                styles.durationChipTextSelected,
-                            ]}
-                          >
-                            {d}d
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                          {d}d
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
                 </View>
               </View>
+
+              <View style={{ height: 32 }} />
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -299,21 +394,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
   },
-  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4 },
-  cancelText: { fontSize: 16, color: "#374151", fontWeight: "500" },
+  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4, minWidth: 60 },
+  cancelText: { fontSize: 16, fontWeight: "500" },
+  headerTitle: { fontSize: 16, fontWeight: "800" },
   postBtn: {
-    backgroundColor: "#7C3AED",
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 999,
+    minWidth: 72,
+    alignItems: "center",
   },
-  postBtnDisabled: { backgroundColor: "#C4B5FD" },
   postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-
   scroll: { flex: 1 },
-
   composerRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -326,7 +419,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -335,28 +427,12 @@ const styles = StyleSheet.create({
     width: 2,
     flex: 1,
     minHeight: 20,
-    backgroundColor: "#E5E7EB",
     marginTop: 8,
     borderRadius: 1,
   },
-
   inputCol: { flex: 1, paddingBottom: 8 },
-  questionInput: {
-    fontSize: 17,
-    color: "#111827",
-    lineHeight: 24,
-    minHeight: 80,
-    paddingTop: 0,
-  },
-  charCount: {
-    fontSize: 13,
-    color: "#9CA3AF",
-    fontWeight: "600",
-    marginTop: 4,
-  },
-  charCountWarn: { color: "#F59E0B" },
-  charCountOver: { color: "#EF4444" },
-
+  questionInput: { fontSize: 17, lineHeight: 24, minHeight: 80, paddingTop: 0 },
+  charCount: { fontSize: 13, fontWeight: "600", marginTop: 4 },
   optionsSection: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -366,14 +442,7 @@ const styles = StyleSheet.create({
   },
   avatarColSpacer: { width: 44 },
   optionsCol: { flex: 1 },
-
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-    marginBottom: 10,
-  },
-
+  sectionLabel: { fontSize: 13, fontWeight: "700", marginBottom: 10 },
   optionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -383,18 +452,12 @@ const styles = StyleSheet.create({
   optionInputWrap: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: "#FAFAFA",
   },
-  optionInput: {
-    fontSize: 15,
-    color: "#111827",
-  },
+  optionInput: { fontSize: 15 },
   removeBtn: { padding: 4 },
-
   addOptionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -402,27 +465,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 16,
   },
-  addOptionText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#7C3AED",
-  },
-
-  settingsCard: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
-    padding: 16,
-    gap: 0,
-  },
+  addOptionText: { fontSize: 15, fontWeight: "600" },
+  settingsCard: { borderWidth: 1, borderRadius: 16, padding: 16 },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  settingTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  settingSubtitle: { fontSize: 13, color: "#9CA3AF", marginTop: 2 },
-
+  settingTitle: { fontSize: 14, fontWeight: "700" },
+  settingSubtitle: { fontSize: 13, marginTop: 2 },
   toggle: {
     width: 48,
     height: 28,
@@ -430,51 +481,14 @@ const styles = StyleSheet.create({
     padding: 3,
     justifyContent: "center",
   },
-  toggleOn: {
-    backgroundColor: "#7C3AED",
-    alignItems: "flex-end",
-  },
-  toggleOff: {
-    backgroundColor: "#E5E7EB",
-    alignItems: "flex-start",
-  },
-  toggleDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-  },
-  dotOn: { backgroundColor: "#fff" },
-  dotOff: { backgroundColor: "#fff" },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#F3F4F6",
-    marginVertical: 14,
-  },
-
-  durationRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 10,
-  },
+  toggleDot: { width: 22, height: 22, borderRadius: 11 },
+  divider: { height: 1, marginVertical: 14 },
+  durationRow: { flexDirection: "row", gap: 8, marginTop: 10 },
   durationChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FAFAFA",
   },
-  durationChipSelected: {
-    backgroundColor: "#EDE9FE",
-    borderColor: "#7C3AED",
-  },
-  durationChipText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#6B7280",
-  },
-  durationChipTextSelected: {
-    color: "#7C3AED",
-  },
+  durationChipText: { fontSize: 14, fontWeight: "700" },
 });
