@@ -1,13 +1,10 @@
-// app/user/[username].tsx — COMPLETED + UPDATED ✅
-// ✅ Theme + Dark mode support (header/back button/username fixed)
-// ✅ Keeps your privacy + follow/block + posts logic exactly the same
-// ✅ No hardcoded light colors (uses ThemeProvider colors everywhere)
-
+// app/user/[username].tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   addDoc,
@@ -24,6 +21,7 @@ import {
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Image,
   Pressable,
   ScrollView,
@@ -41,6 +39,10 @@ import UserActionsSheet, {
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 
+const { width: SCREEN_W } = Dimensions.get("window");
+const GRID_GAP = 2;
+const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
+
 type UserProfile = {
   id: string;
   username: string;
@@ -50,61 +52,49 @@ type UserProfile = {
   location?: string | null;
   is_private?: boolean | null;
 };
-
-type PrivacyFlags = {
-  hide_followers: boolean;
-  hide_following: boolean;
-};
-
-type UserStats = {
-  posts: number;
-  followers: number;
-  following: number;
-};
-
+type PrivacyFlags = { hide_followers: boolean; hide_following: boolean };
+type UserStats = { posts: number; followers: number; following: number };
 type PostRow = {
   id: string;
   content: string;
   media_urls: string[] | null;
   created_at: string;
+  post_type?: string | null;
 };
-
 type FollowEdge = {
   follower_id: string;
   following_id: string;
   status: "accepted" | "pending";
 };
-
-type BlockEdge = {
-  blocker_id: string;
-  blocked_id: string;
-};
+type BlockEdge = { blocker_id: string; blocked_id: string };
 
 const profileTabs = ["Activity", "Post", "Tagged", "Media"] as const;
 
 function Skeleton({ style }: { style: any }) {
   return <View style={[styles.skel, style]} />;
 }
-
 function formatNumber(num: number) {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return String(num);
 }
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    url.split("?")[0].toLowerCase().endsWith(`.${e}`),
+  );
+};
 
 export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
-
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const qc = useQueryClient();
-
   const sheetRef = useRef<UserActionsSheetRef>(null);
-
   const [activeTab, setActiveTab] =
-    useState<(typeof profileTabs)[number]>("Activity");
+    useState<(typeof profileTabs)[number]>("Post");
 
-  // 1) Load target profile
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", username],
     enabled: !!username,
@@ -130,14 +120,14 @@ export default function UserProfileScreen() {
     },
   });
 
-  const isMe = useMemo(() => {
-    return !!target?.id && target.id === user?.id;
-  }, [target?.id, user?.id]);
+  const isMe = useMemo(
+    () => !!target?.id && target.id === user?.uid,
+    [target?.id, user?.uid],
+  );
 
-  // 2) Follow edge (am I following / requested?)
   const { data: followEdge, isLoading: loadingEdge } = useQuery({
-    queryKey: ["follow-edge", user?.id, target?.id],
-    enabled: !!user?.id && !!target?.id && !isMe,
+    queryKey: ["follow-edge", user?.uid, target?.id],
+    enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
       const snap = await getDocs(
         query(
@@ -159,12 +149,11 @@ export default function UserProfileScreen() {
   const isFollowing = !!followEdge && followEdge.status === "accepted";
   const isRequested = !!followEdge && followEdge.status === "pending";
 
-  // 2.5) Block edge (either direction)
   const { data: blockEdge } = useQuery({
-    queryKey: ["block-edge", user?.id, target?.id],
-    enabled: !!user?.id && !!target?.id && !isMe,
+    queryKey: ["block-edge", user?.uid, target?.id],
+    enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
-      const [snap1, snap2] = await Promise.all([
+      const [s1, s2] = await Promise.all([
         getDocs(
           query(
             collection(db, "user_blocks"),
@@ -180,15 +169,15 @@ export default function UserProfileScreen() {
           ),
         ),
       ]);
-      if (!snap1.empty) {
-        const d = snap1.docs[0].data() as any;
+      if (!s1.empty) {
+        const d = s1.docs[0].data() as any;
         return {
           blocker_id: d.blocker_id,
           blocked_id: d.blocked_id,
         } as BlockEdge;
       }
-      if (!snap2.empty) {
-        const d = snap2.docs[0].data() as any;
+      if (!s2.empty) {
+        const d = s2.docs[0].data() as any;
         return {
           blocker_id: d.blocker_id,
           blocked_id: d.blocked_id,
@@ -199,8 +188,6 @@ export default function UserProfileScreen() {
   });
 
   const isBlocked = !!blockEdge;
-
-  // 3) Can view posts?
   const isPrivate = !!target?.is_private;
   const canViewPosts = useMemo(() => {
     if (!target?.id) return false;
@@ -209,9 +196,8 @@ export default function UserProfileScreen() {
     return isFollowing;
   }, [target?.id, isMe, isPrivate, isFollowing]);
 
-  // 4) Privacy flags via RPC (your function maps from is_private)
-  const { data: privacyFlags, isLoading: loadingFlags } = useQuery({
-    queryKey: ["profile-privacy-flags", target?.id, user?.id],
+  const { data: privacyFlags } = useQuery({
+    queryKey: ["profile-privacy-flags", target?.id, user?.uid],
     enabled: !!target?.id,
     queryFn: async () => {
       if (isMe) return { hide_followers: false, hide_following: false };
@@ -226,17 +212,12 @@ export default function UserProfileScreen() {
     },
   });
 
-  const hideFollowers = !!privacyFlags?.hide_followers;
-  const hideFollowing = !!privacyFlags?.hide_following;
-
-  // 5) Stats
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", target?.id],
     enabled: !!target?.id,
     queryFn: async (): Promise<UserStats> => {
       const uid = target!.id;
-
-      const [postsSnap, followersSnap, followingSnap] = await Promise.all([
+      const [p, fo, fi] = await Promise.all([
         getCountFromServer(
           query(collection(db, "posts"), where("user_id", "==", uid)),
         ),
@@ -256,14 +237,13 @@ export default function UserProfileScreen() {
         ),
       ]);
       return {
-        posts: postsSnap.data().count,
-        followers: followersSnap.data().count,
-        following: followingSnap.data().count,
+        posts: p.data().count,
+        followers: fo.data().count,
+        following: fi.data().count,
       };
     },
   });
 
-  // 6) Posts (only fetch if allowed)
   const { data: posts, isLoading: loadingPosts } = useQuery({
     queryKey: ["user-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
@@ -271,15 +251,27 @@ export default function UserProfileScreen() {
       const snap = await getDocs(
         query(collection(db, "posts"), where("user_id", "==", target!.id)),
       );
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PostRow[];
+      return snap.docs.map((d) => {
+        const x = d.data() as any;
+        return {
+          id: d.id,
+          content: x.content ?? "",
+          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+          created_at: x.created_at ?? "",
+          post_type: x.post_type ?? null,
+        };
+      }) as PostRow[];
     },
   });
 
-  // 7) Optimistic follow/unfollow
+  const mediaPosts = useMemo(
+    () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
+    [posts],
+  );
+
   const followMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.id || !target?.id) throw new Error("Missing ids");
-
+      if (!user?.uid || !target?.id) throw new Error("Missing ids");
       if (followEdge) {
         const snap = await getDocs(
           query(
@@ -289,13 +281,12 @@ export default function UserProfileScreen() {
           ),
         );
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
-        return { next: null as FollowEdge | null };
+        return { next: null };
       }
-
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
-      const ref = await addDoc(collection(db, "follows"), {
+      await addDoc(collection(db, "follows"), {
         follower_id: user.uid,
         following_id: target.id,
         status,
@@ -310,78 +301,61 @@ export default function UserProfileScreen() {
       };
     },
     onMutate: async () => {
-      if (!user?.id || !target?.id) return;
-
-      const edgeKey = ["follow-edge", user.id, target.id];
+      if (!user?.uid || !target?.id) return;
+      const edgeKey = ["follow-edge", user.uid, target.id];
       const statsKey = ["user-stats", target.id];
-
       await Promise.all([
         qc.cancelQueries({ queryKey: edgeKey }),
         qc.cancelQueries({ queryKey: statsKey }),
       ]);
-
       const prevEdge = qc.getQueryData<FollowEdge | null>(edgeKey);
       const prevStats = qc.getQueryData<UserStats>(statsKey);
-
       if (prevEdge) {
         qc.setQueryData(edgeKey, null);
-
-        if (prevStats && prevEdge.status === "accepted") {
+        if (prevStats && prevEdge.status === "accepted")
           qc.setQueryData<UserStats>(statsKey, {
             ...prevStats,
             followers: Math.max(0, prevStats.followers - 1),
           });
-        }
       } else {
         const guessedStatus: FollowEdge["status"] = target.is_private
           ? "pending"
           : "accepted";
-
         qc.setQueryData<FollowEdge>(edgeKey, {
-          follower_id: user.id,
+          follower_id: user.uid,
           following_id: target.id,
           status: guessedStatus,
         });
-
-        if (prevStats && guessedStatus === "accepted") {
+        if (prevStats && guessedStatus === "accepted")
           qc.setQueryData<UserStats>(statsKey, {
             ...prevStats,
             followers: prevStats.followers + 1,
           });
-        }
       }
-
       return { prevEdge, prevStats };
     },
-    onError: (err, _vars, ctx) => {
-      if (!user?.id || !target?.id) return;
-
-      const edgeKey = ["follow-edge", user.id, target.id];
-      const statsKey = ["user-stats", target.id];
-
-      if (ctx?.prevEdge !== undefined) qc.setQueryData(edgeKey, ctx.prevEdge);
+    onError: (_err, _vars, ctx) => {
+      if (!user?.uid || !target?.id) return;
+      if (ctx?.prevEdge !== undefined)
+        qc.setQueryData(["follow-edge", user.uid, target.id], ctx.prevEdge);
       if (ctx?.prevStats !== undefined)
-        qc.setQueryData(statsKey, ctx.prevStats);
-
-      Alert.alert("Error", String(err));
+        qc.setQueryData(["user-stats", target.id], ctx.prevStats);
+      Alert.alert("Error", "Could not update follow status.");
     },
-    onSettled: async () => {
-      if (!user?.id || !target?.id) return;
-
-      qc.invalidateQueries({ queryKey: ["follow-edge", user.id, target.id] });
+    onSettled: () => {
+      if (!user?.uid || !target?.id) return;
+      qc.invalidateQueries({ queryKey: ["follow-edge", user.uid, target.id] });
       qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
       qc.invalidateQueries({ queryKey: ["user-posts", target.id] });
       qc.invalidateQueries({
-        queryKey: ["profile-privacy-flags", target.id, user.id],
+        queryKey: ["profile-privacy-flags", target.id, user.uid],
       });
     },
   });
 
-  // 8) Block mutation
   const blockMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.id || !target?.id) throw new Error("Missing ids");
-
+      if (!user?.uid || !target?.id) throw new Error("Missing ids");
       await addDoc(collection(db, "user_blocks"), {
         blocker_id: user.uid,
         blocked_id: target.id,
@@ -390,803 +364,874 @@ export default function UserProfileScreen() {
       return target.id;
     },
     onSuccess: (targetId) => {
-      invalidateAfterBlock(qc, user!.id, targetId);
-
-      qc.invalidateQueries({ queryKey: ["user-profile", username] });
-      qc.invalidateQueries({ queryKey: ["user-stats", targetId] });
-      qc.invalidateQueries({ queryKey: ["user-posts", targetId] });
-      qc.invalidateQueries({ queryKey: ["follow-edge", user!.id, targetId] });
-      qc.invalidateQueries({
-        queryKey: ["profile-privacy-flags", targetId, user?.id],
-      });
-
+      invalidateAfterBlock(qc, user!.uid, targetId);
       router.back();
     },
-    onError: (err) => {
-      Alert.alert("Error", String(err));
-    },
+    onError: (err) => Alert.alert("Error", String(err)),
   });
-
-  const followBtnText = isFollowing
-    ? "Following"
-    : isRequested
-      ? "Requested"
-      : "Follow";
-
-  const followBtnStyle =
-    isFollowing || isRequested ? styles.followingButton : styles.followButton;
-
-  const followBtnTextStyle =
-    isFollowing || isRequested
-      ? styles.followingButtonText
-      : styles.followButtonText;
 
   const handleShareProfile = async () => {
     try {
       await Share.share({ message: `Check out @${username} on NebulaNet!` });
-    } catch (e) {
-      console.error(e);
-    }
+    } catch {}
   };
 
-  const goFollowers = () => {
-    if (!target) return;
-
-    if (!isMe && hideFollowers) {
-      Alert.alert("Hidden", "This user has hidden their followers list.");
-      return;
-    }
-
-    router.push(`/user/${target.username}/followers`);
-  };
-
-  const goFollowing = () => {
-    if (!target) return;
-
-    if (!isMe && hideFollowing) {
-      Alert.alert("Hidden", "This user has hidden their following list.");
-      return;
-    }
-
-    router.push(`/user/${target.username}/following`);
-  };
-
-  // DM rules: blocked OR (private + not following) => no message
   const canMessage = !isBlocked && (!isPrivate || isFollowing);
 
   const handleMessage = async () => {
-    if (!user?.id || !target?.id) return;
-
+    if (!user?.uid || !target?.id) return;
     if (isBlocked) {
-      Alert.alert("Message unavailable", "You can’t message this user.");
+      Alert.alert("Message unavailable", "You can't message this user.");
       return;
     }
-
     if (isPrivate && !isFollowing) {
       Alert.alert("Private account", "Follow this user to message them.");
       return;
     }
-
     try {
-      // ✅ Firestore: create/open conversation in `conversations` + `participant_ids`
-      const conversationId = await createOrOpenChat(user.id, target.id);
-
-      // ✅ go to chat screen
+      const conversationId = await createOrOpenChat(user.uid, target.id);
       router.push(`/chat/${conversationId}`);
-    } catch (err) {
-      console.error(err);
+    } catch {
       Alert.alert("Error", "Could not start conversation.");
     }
   };
 
-  // --------------------------
-  // LOADING STATE
-  // --------------------------
-  if (loadingProfile) {
-    return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
-      >
-        <View style={[styles.header, { backgroundColor: colors.background }]}>
-          <View
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.08,
-              },
-            ]}
-          />
-          <Skeleton style={{ height: 14, width: 160, borderRadius: 10 }} />
-          <View
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.08,
-              },
-            ]}
-          />
-        </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.profileCard, { backgroundColor: colors.card }]}>
-            <View style={styles.profileTopRow}>
-              <Skeleton style={{ width: 80, height: 80, borderRadius: 40 }} />
-              <View style={styles.statsRow}>
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <View key={i} style={styles.statItem}>
-                    <Skeleton
-                      style={{ width: 44, height: 18, borderRadius: 10 }}
-                    />
-                    <Skeleton
-                      style={{
-                        width: 60,
-                        height: 10,
-                        borderRadius: 10,
-                        marginTop: 8,
-                      }}
-                    />
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <Skeleton style={{ width: 180, height: 14, borderRadius: 10 }} />
-            <Skeleton
-              style={{
-                width: 260,
-                height: 12,
-                borderRadius: 10,
-                marginTop: 10,
-              }}
-            />
-            <Skeleton
-              style={{ width: 220, height: 12, borderRadius: 10, marginTop: 8 }}
-            />
-
-            <View style={[styles.actionButtons, { marginTop: 16 }]}>
-              <Skeleton style={{ flex: 1, height: 40, borderRadius: 8 }} />
-              <Skeleton style={{ flex: 1, height: 40, borderRadius: 8 }} />
-              <Skeleton style={{ width: 40, height: 40, borderRadius: 8 }} />
-            </View>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  // --------------------------
-  // NOT FOUND
-  // --------------------------
-  if (!target) {
-    return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
-      >
-        <View style={[styles.header, { backgroundColor: colors.background }]}>
-          <TouchableOpacity
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.08,
-              },
-            ]}
-            onPress={() => router.back()}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-
-          <Text style={[styles.headerTitle, { color: colors.text }]}>
-            Not Found
-          </Text>
-
-          <View
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: "transparent",
-                borderColor: "transparent",
-                shadowOpacity: 0,
-                borderWidth: 0,
-              },
-            ]}
-          />
-        </View>
-
-        <View style={styles.emptyState}>
-          <Ionicons
-            name="person-outline"
-            size={64}
-            color={colors.textTertiary}
-          />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            User Not Found
-          </Text>
-          <Text
-            style={[styles.emptyDescription, { color: colors.textTertiary }]}
-          >
-            This user doesn&apos;t exist or has been deleted.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
+  const hideFollowers = !!privacyFlags?.hide_followers;
+  const hideFollowing = !!privacyFlags?.hide_following;
   const followersDisplay =
     !isMe && hideFollowers ? "—" : formatNumber(stats?.followers || 0);
   const followingDisplay =
     !isMe && hideFollowing ? "—" : formatNumber(stats?.following || 0);
 
-  return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
-      {/* ✅ THEME HEADER (fixes back button + username visibility) */}
-      <View style={[styles.header, { backgroundColor: colors.background }]}>
-        <TouchableOpacity
-          style={[
-            styles.headerBtn,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              shadowOpacity: isDark ? 0.22 : 0.08,
-            },
-          ]}
-          onPress={() => router.back()}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.text} />
-        </TouchableOpacity>
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
-        {/* ✅ username now uses theme text color so it is visible in dark mode */}
-        <Text
-          style={[styles.headerTitle, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          @{target.username}
-        </Text>
-
-        {!isMe ? (
-          <TouchableOpacity
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.08,
-              },
-            ]}
-            onPress={() => sheetRef.current?.snapToIndex(0)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="ellipsis-vertical" size={20} color={colors.text} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[
-              styles.headerBtn,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.08,
-              },
-            ]}
-            onPress={handleShareProfile}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="share-outline" size={20} color={colors.text} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
+  if (loadingProfile) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <View
-          style={[
-            styles.profileCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.profileTopRow}>
-            <View style={styles.profileImageContainer}>
-              {target.avatar_url ? (
-                <Image
-                  source={{ uri: target.avatar_url }}
-                  style={styles.profileImage}
-                />
-              ) : (
-                <View
-                  style={[
-                    styles.profileImagePlaceholder,
-                    { backgroundColor: colors.primary },
-                  ]}
-                >
-                  <Text style={styles.profileImageText}>
-                    {(target.username?.charAt(0) || "U").toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: colors.text }]}>
-                  {loadingStats ? "…" : formatNumber(stats?.posts || 0)}
-                </Text>
-                <Text
-                  style={[styles.statLabel, { color: colors.textTertiary }]}
-                >
-                  Post
-                </Text>
-              </View>
-
-              <Pressable style={styles.statItem} onPress={goFollowers}>
-                <Text style={[styles.statValue, { color: colors.text }]}>
-                  {loadingStats || loadingFlags ? "…" : followersDisplay}
-                </Text>
-                <Text
-                  style={[styles.statLabel, { color: colors.textTertiary }]}
-                >
-                  Followers {!isMe && hideFollowers ? "• Hidden" : ""}
-                </Text>
-              </Pressable>
-
-              <Pressable style={styles.statItem} onPress={goFollowing}>
-                <Text style={[styles.statValue, { color: colors.text }]}>
-                  {loadingStats || loadingFlags ? "…" : followingDisplay}
-                </Text>
-                <Text
-                  style={[styles.statLabel, { color: colors.textTertiary }]}
-                >
-                  Following {!isMe && hideFollowing ? "• Hidden" : ""}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <Text style={[styles.displayName, { color: colors.text }]}>
-            {target.full_name || target.username}
-          </Text>
-
-          {!!target.bio && (
-            <Text style={[styles.bio, { color: colors.textTertiary }]}>
-              {target.bio}
-            </Text>
-          )}
-
-          {target.is_private ? (
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <View style={[styles.header, { backgroundColor: "transparent" }]}>
             <View
-              style={[styles.privatePill, { backgroundColor: colors.surface }]}
+              style={[
+                styles.headerBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            />
+            <Skeleton style={{ height: 14, width: 160, borderRadius: 10 }} />
+            <View
+              style={[
+                styles.headerBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  if (!target) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <View style={[styles.header, { backgroundColor: "transparent" }]}>
+            <TouchableOpacity
+              style={[
+                styles.headerBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              Not Found
+            </Text>
+            <View style={{ width: 40 }} />
+          </View>
+          <View style={styles.emptyState}>
+            <Ionicons
+              name="person-outline"
+              size={64}
+              color={colors.textTertiary}
+            />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              User Not Found
+            </Text>
+            <Text
+              style={[styles.emptyDescription, { color: colors.textTertiary }]}
+            >
+              This user doesn't exist or has been deleted.
+            </Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.42, 1]}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: "transparent" }]}>
+          <TouchableOpacity
+            style={[
+              styles.headerBtn,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+            onPress={() => router.back()}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text
+            style={[styles.headerTitle, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            @{target.username}
+          </Text>
+          {!isMe ? (
+            <TouchableOpacity
+              style={[
+                styles.headerBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => sheetRef.current?.snapToIndex(0)}
+              activeOpacity={0.85}
             >
               <Ionicons
-                name="lock-closed-outline"
-                size={14}
-                color={colors.primary}
+                name="ellipsis-vertical"
+                size={20}
+                color={colors.text}
               />
-              <Text style={[styles.privatePillText, { color: colors.primary }]}>
-                Private account
-              </Text>
-            </View>
-          ) : null}
-
-          {!isMe ? (
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.followButtonBase,
-                  followBtnStyle,
-                  isFollowing || isRequested
-                    ? { backgroundColor: colors.surface }
-                    : { backgroundColor: colors.primary },
-                ]}
-                onPress={() => followMutation.mutate()}
-                activeOpacity={0.9}
-                disabled={followMutation.isPending || loadingEdge}
-              >
-                <Text
-                  style={[
-                    styles.followButtonBaseText,
-                    isFollowing || isRequested
-                      ? { color: colors.textTertiary }
-                      : { color: "#FFFFFF" },
-                  ]}
-                >
-                  {loadingEdge ? "…" : followBtnText}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.messageButton,
-                  { backgroundColor: colors.surface },
-                  !canMessage && { opacity: 0.4 },
-                ]}
-                activeOpacity={0.9}
-                onPress={handleMessage}
-                disabled={!canMessage}
-              >
-                <Text
-                  style={[styles.messageButtonText, { color: colors.text }]}
-                >
-                  Message
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.shareButton,
-                  { backgroundColor: colors.surface },
-                ]}
-                onPress={handleShareProfile}
-                activeOpacity={0.9}
-              >
-                <Ionicons name="share-outline" size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           ) : (
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.messageButton,
-                  { backgroundColor: colors.surface },
-                ]}
-                onPress={() => router.push("/profile/edit")}
-                activeOpacity={0.9}
-              >
-                <Text
-                  style={[styles.messageButtonText, { color: colors.text }]}
-                >
-                  Edit Profile
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.messageButton,
-                  { backgroundColor: colors.surface },
-                ]}
-                onPress={() => router.push("/settings")}
-                activeOpacity={0.9}
-              >
-                <Text
-                  style={[styles.messageButtonText, { color: colors.text }]}
-                >
-                  Settings
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.shareButton,
-                  { backgroundColor: colors.surface },
-                ]}
-                onPress={handleShareProfile}
-              >
-                <Ionicons name="share-outline" size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={[
+                styles.headerBtn,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={handleShareProfile}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="share-outline" size={20} color={colors.text} />
+            </TouchableOpacity>
           )}
         </View>
 
-        {/* Tabs */}
-        <View style={[styles.tabsContainer, { backgroundColor: colors.card }]}>
-          {profileTabs.map((tab) => {
-            const active = activeTab === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[
-                  styles.tab,
-                  active && { backgroundColor: colors.primary },
-                ]}
-                onPress={() => setActiveTab(tab)}
-                activeOpacity={0.9}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    { color: colors.textTertiary },
-                    active && { color: "#FFFFFF", fontWeight: "800" },
-                  ]}
-                >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Content */}
-        <View style={styles.contentSection}>
-          {activeTab === "Activity" && (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="pulse-outline"
-                size={64}
-                color={colors.textTertiary}
-              />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No Activity Yet
-              </Text>
-              <Text
-                style={[
-                  styles.emptyDescription,
-                  { color: colors.textTertiary },
-                ]}
-              >
-                This user&apos;s recent activity will appear here
-              </Text>
-            </View>
-          )}
-
-          {activeTab === "Post" && (
-            <>
-              {!canViewPosts ? (
-                <View
-                  style={[styles.lockedCard, { backgroundColor: colors.card }]}
-                >
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={28}
-                    color={colors.primary}
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Profile Card */}
+          <View
+            style={[
+              styles.profileCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={styles.profileTopRow}>
+              <View style={styles.profileImageContainer}>
+                {target.avatar_url ? (
+                  <Image
+                    source={{ uri: target.avatar_url }}
+                    style={styles.profileImage}
                   />
-                  <Text style={[styles.lockedTitle, { color: colors.text }]}>
-                    This account is private
-                  </Text>
-                  <Text
-                    style={[styles.lockedDesc, { color: colors.textTertiary }]}
-                  >
-                    Follow to see posts from @{target.username}.
-                  </Text>
-                </View>
-              ) : loadingPosts ? (
-                <View style={{ gap: 12 }}>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <View
-                      key={i}
-                      style={[
-                        styles.postCard,
-                        { backgroundColor: colors.card },
-                      ]}
-                    >
-                      <Skeleton
-                        style={{ height: 12, width: "75%", borderRadius: 10 }}
-                      />
-                      <Skeleton
-                        style={{
-                          height: 12,
-                          width: "92%",
-                          borderRadius: 10,
-                          marginTop: 10,
-                        }}
-                      />
-                      <Skeleton
-                        style={{
-                          height: 12,
-                          width: "58%",
-                          borderRadius: 10,
-                          marginTop: 10,
-                        }}
-                      />
-                    </View>
-                  ))}
-                </View>
-              ) : posts && posts.length > 0 ? (
-                <View style={{ gap: 12 }}>
-                  {posts.map((p) => (
-                    <View
-                      key={p.id}
-                      style={[
-                        styles.postCard,
-                        { backgroundColor: colors.card },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.postContent, { color: colors.text }]}
-                      >
-                        {p.content}
-                      </Text>
-
-                      {!!p.media_urls?.[0] && (
-                        <Image
-                          source={{ uri: p.media_urls[0] }}
-                          style={[
-                            styles.postImage,
-                            { backgroundColor: colors.surface },
-                          ]}
-                          resizeMode="cover"
-                        />
-                      )}
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons
-                    name="document-text-outline"
-                    size={64}
-                    color={colors.textTertiary}
-                  />
-                  <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                    No Posts Yet
-                  </Text>
-                  <Text
+                ) : (
+                  <View
                     style={[
-                      styles.emptyDescription,
-                      { color: colors.textTertiary },
+                      styles.profileImagePlaceholder,
+                      { backgroundColor: colors.primary },
                     ]}
                   >
-                    This user hasn&apos;t posted anything yet
+                    <Text style={styles.profileImageText}>
+                      {(target.username?.charAt(0) || "U").toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {loadingStats ? "…" : formatNumber(stats?.posts || 0)}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Post
                   </Text>
                 </View>
-              )}
-            </>
-          )}
+                <Pressable
+                  style={styles.statItem}
+                  onPress={() => {
+                    if (!isMe && hideFollowers) {
+                      Alert.alert(
+                        "Hidden",
+                        "This user has hidden their followers list.",
+                      );
+                      return;
+                    }
+                    router.push(`/user/${target.username}/followers`);
+                  }}
+                >
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {loadingStats ? "…" : followersDisplay}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Followers
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.statItem}
+                  onPress={() => {
+                    if (!isMe && hideFollowing) {
+                      Alert.alert(
+                        "Hidden",
+                        "This user has hidden their following list.",
+                      );
+                      return;
+                    }
+                    router.push(`/user/${target.username}/following`);
+                  }}
+                >
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {loadingStats ? "…" : followingDisplay}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Following
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
 
-          {activeTab === "Tagged" && (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="pricetag-outline"
-                size={64}
-                color={colors.textTertiary}
-              />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No Tags Yet
+            <Text style={[styles.displayName, { color: colors.text }]}>
+              {target.full_name || target.username}
+            </Text>
+            {!!target.bio && (
+              <Text style={[styles.bio, { color: colors.textTertiary }]}>
+                {target.bio}
               </Text>
-              <Text
+            )}
+
+            {target.is_private && (
+              <View
                 style={[
-                  styles.emptyDescription,
-                  { color: colors.textTertiary },
+                  styles.privatePill,
+                  { backgroundColor: colors.surface },
                 ]}
               >
-                Posts where this user is tagged will appear here
-              </Text>
-            </View>
-          )}
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={14}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[styles.privatePillText, { color: colors.primary }]}
+                >
+                  Private account
+                </Text>
+              </View>
+            )}
 
-          {activeTab === "Media" && (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="images-outline"
-                size={64}
-                color={colors.textTertiary}
-              />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No Media
-              </Text>
-              <Text
-                style={[
-                  styles.emptyDescription,
-                  { color: colors.textTertiary },
-                ]}
+            {/* Action Buttons */}
+            {!isMe ? (
+              <View style={styles.actionButtons}>
+                {/* ✅ Follow button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followBtn,
+                    isFollowing || isRequested
+                      ? {
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }
+                      : { backgroundColor: colors.primary },
+                  ]}
+                  onPress={() => followMutation.mutate()}
+                  activeOpacity={0.85}
+                  disabled={followMutation.isPending || loadingEdge}
+                >
+                  <Text
+                    style={[
+                      styles.followBtnText,
+                      {
+                        color:
+                          isFollowing || isRequested ? colors.text : "#fff",
+                      },
+                    ]}
+                  >
+                    {loadingEdge
+                      ? "…"
+                      : isFollowing
+                        ? "Following"
+                        : isRequested
+                          ? "Requested"
+                          : "Follow"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.messageBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                    !canMessage && { opacity: 0.4 },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={handleMessage}
+                  disabled={!canMessage}
+                >
+                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                    Message
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.shareBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={handleShareProfile}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="share-outline"
+                    size={18}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.messageBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push("/profile/edit")}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                    Edit Profile
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.messageBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push("/settings")}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                    Settings
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.shareBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={handleShareProfile}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="share-outline"
+                    size={18}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Tabs */}
+          <View
+            style={[styles.tabsContainer, { backgroundColor: colors.card }]}
+          >
+            {profileTabs.map((tab) => {
+              const active = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  style={[
+                    styles.tab,
+                    active && { backgroundColor: colors.primary },
+                  ]}
+                  onPress={() => setActiveTab(tab)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      { color: colors.textTertiary },
+                      active && { color: "#fff", fontWeight: "800" },
+                    ]}
+                  >
+                    {tab}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Content */}
+          <View style={styles.contentSection}>
+            {activeTab === "Activity" && (
+              <View
+                style={[styles.emptyCard, { backgroundColor: colors.card }]}
               >
-                Photos and videos will appear here
-              </Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
+                <Ionicons
+                  name="pulse-outline"
+                  size={40}
+                  color={colors.textTertiary}
+                />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No Activity Yet
+                </Text>
+                <Text
+                  style={[
+                    styles.emptyDescription,
+                    { color: colors.textTertiary },
+                  ]}
+                >
+                  This user's recent activity will appear here
+                </Text>
+              </View>
+            )}
 
-      {!isMe ? (
-        <UserActionsSheet
-          ref={sheetRef}
-          username={target.username}
-          onRemove={async () => {
-            sheetRef.current?.close();
-            if (!user?.id || !target?.id) return;
-            if (!followEdge) return;
+            {activeTab === "Post" && (
+              <>
+                {!canViewPosts ? (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={40}
+                      color={colors.primary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      Private Account
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Follow to see posts from @{target.username}.
+                    </Text>
+                  </View>
+                ) : loadingPosts ? (
+                  <View style={{ gap: 12 }}>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.postCard,
+                          { backgroundColor: colors.card },
+                        ]}
+                      >
+                        <Skeleton
+                          style={{ height: 12, width: "75%", borderRadius: 10 }}
+                        />
+                        <Skeleton
+                          style={{
+                            height: 12,
+                            width: "55%",
+                            borderRadius: 10,
+                            marginTop: 10,
+                          }}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : posts && posts.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {posts.map((p) => {
+                      const img = p.media_urls?.[0];
+                      const isVid = isVideoUrl(img) || p.post_type === "video";
+                      return (
+                        <TouchableOpacity
+                          key={p.id}
+                          style={[
+                            styles.postCard,
+                            { backgroundColor: colors.card },
+                          ]}
+                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          activeOpacity={0.9}
+                        >
+                          {!!p.content && (
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={4}
+                            >
+                              {p.content}
+                            </Text>
+                          )}
+                          {!!img && (
+                            <View
+                              style={[
+                                styles.postMediaWrap,
+                                { backgroundColor: colors.surface },
+                              ]}
+                            >
+                              <Image
+                                source={{ uri: img }}
+                                style={styles.postMedia}
+                                resizeMode="cover"
+                              />
+                              {isVid && (
+                                <View style={styles.videoOverlay}>
+                                  <Ionicons
+                                    name="play-circle"
+                                    size={32}
+                                    color="#fff"
+                                  />
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={40}
+                      color={colors.textTertiary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      No Posts Yet
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      This user hasn't posted anything yet
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
 
-            const snap = await getDocs(
-              query(
-                collection(db, "follows"),
-                where("follower_id", "==", user.uid),
-                where("following_id", "==", target.id),
-              ),
-            );
-            await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
-            const error = null;
-            if (!error) {
+            {activeTab === "Tagged" && (
+              <View
+                style={[styles.emptyCard, { backgroundColor: colors.card }]}
+              >
+                <Ionicons
+                  name="pricetag-outline"
+                  size={40}
+                  color={colors.textTertiary}
+                />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No Tags Yet
+                </Text>
+                <Text
+                  style={[
+                    styles.emptyDescription,
+                    { color: colors.textTertiary },
+                  ]}
+                >
+                  Posts where this user is tagged will appear here
+                </Text>
+              </View>
+            )}
+
+            {/* ✅ Media tab — live 3-column grid */}
+            {activeTab === "Media" && (
+              <>
+                {!canViewPosts ? (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={40}
+                      color={colors.primary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      Private Account
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Follow to see media from @{target.username}.
+                    </Text>
+                  </View>
+                ) : loadingPosts ? (
+                  <View style={{ gap: GRID_GAP }}>
+                    {Array.from({ length: 2 }).map((_, ri) => (
+                      <View
+                        key={ri}
+                        style={{ flexDirection: "row", gap: GRID_GAP }}
+                      >
+                        {Array.from({ length: 3 }).map((_, ci) => (
+                          <View
+                            key={ci}
+                            style={{
+                              width: CELL_SIZE,
+                              height: CELL_SIZE,
+                              backgroundColor: colors.surface,
+                              opacity: 0.5,
+                            }}
+                          />
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                ) : mediaPosts.length > 0 ? (
+                  <View
+                    style={{
+                      gap: GRID_GAP,
+                      borderRadius: 18,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {(() => {
+                      const rows: PostRow[][] = [];
+                      for (let i = 0; i < mediaPosts.length; i += 3)
+                        rows.push(mediaPosts.slice(i, i + 3));
+                      return rows.map((row, ri) => (
+                        <View
+                          key={ri}
+                          style={{ flexDirection: "row", gap: GRID_GAP }}
+                        >
+                          {row.map((post) => {
+                            const img = post.media_urls![0];
+                            const isVid =
+                              isVideoUrl(img) || post.post_type === "video";
+                            return (
+                              <TouchableOpacity
+                                key={post.id}
+                                style={{
+                                  width: CELL_SIZE,
+                                  height: CELL_SIZE,
+                                  backgroundColor: colors.surface,
+                                  overflow: "hidden",
+                                  position: "relative",
+                                }}
+                                activeOpacity={0.85}
+                                onPress={() =>
+                                  router.push(`/post/${post.id}` as any)
+                                }
+                              >
+                                <Image
+                                  source={{ uri: img }}
+                                  style={{ width: "100%", height: "100%" }}
+                                  resizeMode="cover"
+                                />
+                                {isVid && (
+                                  <View
+                                    style={{
+                                      position: "absolute",
+                                      top: 6,
+                                      right: 6,
+                                      backgroundColor: "rgba(0,0,0,0.55)",
+                                      borderRadius: 8,
+                                      paddingHorizontal: 5,
+                                      paddingVertical: 3,
+                                    }}
+                                  >
+                                    <Ionicons
+                                      name="play"
+                                      size={10}
+                                      color="#fff"
+                                    />
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
+                          {row.length < 3 &&
+                            Array(3 - row.length)
+                              .fill(null)
+                              .map((_, i) => (
+                                <View
+                                  key={`sp-${i}`}
+                                  style={{
+                                    width: CELL_SIZE,
+                                    height: CELL_SIZE,
+                                    backgroundColor: "transparent",
+                                  }}
+                                />
+                              ))}
+                        </View>
+                      ));
+                    })()}
+                  </View>
+                ) : (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="images-outline"
+                      size={40}
+                      color={colors.textTertiary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      No Media Yet
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Photos and videos from posts will appear here
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </ScrollView>
+
+        {!isMe && (
+          <UserActionsSheet
+            ref={sheetRef}
+            username={target.username}
+            onRemove={async () => {
+              sheetRef.current?.close();
+              if (!user?.uid || !target?.id || !followEdge) return;
+              const snap = await getDocs(
+                query(
+                  collection(db, "follows"),
+                  where("follower_id", "==", user.uid),
+                  where("following_id", "==", target.id),
+                ),
+              );
+              await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
               qc.invalidateQueries({
-                queryKey: ["follow-edge", user.id, target.id],
+                queryKey: ["follow-edge", user.uid, target.id],
               });
               qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
-              qc.invalidateQueries({ queryKey: ["user-posts", target.id] });
-            }
-          }}
-          onBlock={async () => {
-            sheetRef.current?.close();
-
-            Alert.alert(
-              "Block user?",
-              `You won't see @${target.username} and they won't see you.`,
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: blockMutation.isPending ? "Blocking..." : "Block",
-                  style: "destructive",
-                  onPress: () => blockMutation.mutate(),
-                },
-              ],
-            );
-          }}
-        />
-      ) : null}
-    </SafeAreaView>
+            }}
+            onBlock={async () => {
+              sheetRef.current?.close();
+              Alert.alert(
+                "Block user?",
+                `You won't see @${target.username} and they won't see you.`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Block",
+                    style: "destructive",
+                    onPress: () => blockMutation.mutate(),
+                  },
+                ],
+              );
+            }}
+          />
+        )}
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollView: { flex: 1 },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
     elevation: 3,
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    maxWidth: "70%",
-  },
-
+  headerTitle: { fontSize: 16, fontWeight: "800", maxWidth: "65%" },
   profileCard: {
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 22,
+    padding: 18,
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 12,
     marginBottom: 12,
     borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
   profileTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  profileImageContainer: { marginRight: 20 },
-  profileImage: { width: 80, height: 80, borderRadius: 40 },
+  profileImageContainer: { marginRight: 18 },
+  profileImage: { width: 76, height: 76, borderRadius: 38 },
   profileImagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     justifyContent: "center",
     alignItems: "center",
   },
-  profileImageText: { fontSize: 32, fontWeight: "bold", color: "#FFFFFF" },
-
+  profileImageText: { fontSize: 30, fontWeight: "800", color: "#fff" },
   statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
   statItem: { alignItems: "center" },
-  statValue: { fontSize: 20, fontWeight: "800" },
-  statLabel: { fontSize: 13, marginTop: 4, textAlign: "center" },
-
-  displayName: { fontSize: 18, fontWeight: "800", marginBottom: 8 },
-  bio: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-
+  statValue: { fontSize: 18, fontWeight: "900" },
+  statLabel: { fontSize: 12, marginTop: 3, fontWeight: "700" },
+  displayName: { fontSize: 17, fontWeight: "900", marginBottom: 6 },
+  bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 10 },
   privatePill: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -1195,82 +1240,94 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  privatePillText: { fontSize: 12, fontWeight: "900" },
-
-  actionButtons: { flexDirection: "row", gap: 8 },
-
-  followButtonBase: {
+  privatePillText: { fontSize: 12, fontWeight: "800" },
+  actionButtons: { flexDirection: "row", gap: 8, marginTop: 4 },
+  followBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 22,
     alignItems: "center",
   },
-  followButtonBaseText: { fontSize: 14, fontWeight: "800" },
-  followButton: {},
-  followButtonText: {},
-  followingButton: {},
-  followingButtonText: {},
-
-  messageButton: {
+  followBtnText: { fontSize: 14, fontWeight: "800" },
+  messageBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 22,
     alignItems: "center",
   },
-  messageButtonText: { fontSize: 14, fontWeight: "800" },
-
-  shareButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
+  messageBtnText: { fontSize: 14, fontWeight: "800" },
+  shareBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-
   tabsContainer: {
     flexDirection: "row",
-    borderRadius: 25,
-    padding: 4,
+    borderRadius: 22,
+    padding: 5,
     marginHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 22 },
-  tabText: { fontSize: 14, fontWeight: "700" },
-
-  contentSection: { paddingHorizontal: 16, paddingBottom: 20 },
-
-  postCard: { borderRadius: 16, padding: 16 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 18 },
+  tabText: { fontSize: 13, fontWeight: "700" },
+  contentSection: { paddingHorizontal: 16, paddingBottom: 32 },
+  postCard: {
+    borderRadius: 18,
+    padding: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
   postContent: { fontSize: 14, lineHeight: 20 },
-  postImage: { width: "100%", height: 200, borderRadius: 12, marginTop: 12 },
-
+  postMediaWrap: {
+    width: "100%",
+    height: 180,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginTop: 10,
+    position: "relative",
+  },
+  postMedia: { width: "100%", height: "100%" },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  emptyCard: {
+    borderRadius: 22,
+    paddingVertical: 32,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
+  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 60,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyDescription: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-
-  lockedCard: {
-    borderRadius: 16,
-    padding: 18,
-    alignItems: "center",
-    gap: 8,
-  },
-  lockedTitle: { marginTop: 4, fontSize: 16, fontWeight: "900" },
-  lockedDesc: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 12,
+    marginBottom: 6,
     textAlign: "center",
-    lineHeight: 18,
   },
-
+  emptyDescription: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   skel: { backgroundColor: "#E5E7EB" },
 });
