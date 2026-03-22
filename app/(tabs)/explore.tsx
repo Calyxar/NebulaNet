@@ -44,7 +44,13 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -72,7 +78,8 @@ const GRID_H_PAD = 36; // paddingHorizontal: 18 * 2
 const GRID_GAP = 2;
 const GRID_COLS = 3;
 // Each grid cell width = (available width - gaps between cols) / num cols
-const GRID_CELL = (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+const GRID_CELL =
+  (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
 /* =========================
    TYPES
@@ -224,13 +231,7 @@ function SuggestedUserRow({
    Single cell in the 3-column media grid
 ========================= */
 
-function GridCell({
-  post,
-  colors,
-}: {
-  post: DiscoveryPost;
-  colors: any;
-}) {
+function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -392,9 +393,7 @@ function RecentSearchesPanel({
     >
       {/* Header */}
       <View style={styles.recentHeader}>
-        <Text style={[styles.recentTitle, { color: colors.text }]}>
-          Recent
-        </Text>
+        <Text style={[styles.recentTitle, { color: colors.text }]}>Recent</Text>
         <TouchableOpacity onPress={onClearAll} activeOpacity={0.8}>
           <Text style={[styles.recentClear, { color: colors.primary }]}>
             Clear all
@@ -418,7 +417,11 @@ function RecentSearchesPanel({
               { backgroundColor: colors.surface },
             ]}
           >
-            <Ionicons name="time-outline" size={16} color={colors.textTertiary} />
+            <Ionicons
+              name="time-outline"
+              size={16}
+              color={colors.textTertiary}
+            />
           </View>
           <Text
             style={[styles.recentTerm, { color: colors.text }]}
@@ -460,7 +463,9 @@ export default function ExploreScreen() {
   const inputRef = useRef<TextInput>(null);
 
   // Trending hashtags
-  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>([]);
+  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
+    [],
+  );
   const [trendingLoading, setTrendingLoading] = useState(true);
 
   // Suggested users
@@ -472,8 +477,12 @@ export default function ExploreScreen() {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
 
   // Recent searches
-  const { recents, add: addRecent, remove: removeRecent, clear: clearRecents } =
-    useRecentSearches();
+  const {
+    recents,
+    add: addRecent,
+    remove: removeRecent,
+    clear: clearRecents,
+  } = useRecentSearches();
 
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
@@ -750,84 +759,9 @@ export default function ExploreScreen() {
             {/* ===== TRENDING TAB ===== */}
             {activeCategory === "trending" && (
               <>
-                {/* -- Suggested Users -- */}
+                {/* -- Trending Topics (Twitter-style) -- */}
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                  Suggested for you
-                </Text>
-
-                {suggestedLoading ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {Array(4)
-                      .fill(null)
-                      .map((_, i) => (
-                        <View
-                          key={i}
-                          style={
-                            i !== 0
-                              ? [
-                                  styles.rowBorder,
-                                  { borderTopColor: colors.border },
-                                ]
-                              : undefined
-                          }
-                        >
-                          <SearchRowSkeleton />
-                        </View>
-                      ))}
-                  </View>
-                ) : suggestedUsers.length > 0 ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {suggestedUsers.map((u, idx) => (
-                      <SuggestedUserRow
-                        key={u.id}
-                        user={u}
-                        idx={idx}
-                        colors={colors}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-
-                {/* -- Discovery Grid -- */}
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
-                  ]}
-                >
-                  Discover
-                </Text>
-
-                {discoveryLoading ? (
-                  <GridSkeleton colors={colors} />
-                ) : discoveryPosts.length > 0 ? (
-                  <DiscoveryGrid posts={discoveryPosts} colors={colors} />
-                ) : null}
-
-                {/* -- Trending Hashtags -- */}
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
-                  ]}
-                >
-                  Trending Hashtags
+                  Trending
                 </Text>
 
                 {trendingLoading ? (
@@ -840,7 +774,7 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
-                    {Array(8)
+                    {Array(6)
                       .fill(null)
                       .map((_, i) => (
                         <View
@@ -873,7 +807,7 @@ export default function ExploreScreen() {
                         key={h.tag}
                         activeOpacity={0.85}
                         style={[
-                          styles.row,
+                          styles.trendingRow,
                           idx !== 0 && [
                             styles.rowBorder,
                             { borderTopColor: colors.border },
@@ -881,43 +815,43 @@ export default function ExploreScreen() {
                         ]}
                         onPress={() => router.push(`/hashtag/${h.tag}` as any)}
                       >
-                        <View
-                          style={[
-                            styles.hashtagBadge,
-                            { backgroundColor: colors.primary + "18" },
-                          ]}
-                        >
+                        <View style={styles.trendingLeft}>
                           <Text
                             style={[
-                              styles.hashtagSymbol,
-                              { color: colors.primary },
-                            ]}
-                          >
-                            #
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text
-                            style={[styles.rowTitle, { color: colors.text }]}
-                            numberOfLines={1}
-                          >
-                            {h.tag}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.rowSubtitle,
+                              styles.trendingCategory,
                               { color: colors.textTertiary },
                             ]}
                           >
-                            {h.post_count.toLocaleString()}{" "}
+                            Trending · {h.post_count.toLocaleString()}{" "}
                             {h.post_count === 1 ? "post" : "posts"}
                           </Text>
+                          <Text
+                            style={[
+                              styles.trendingTopic,
+                              { color: colors.text },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            #{h.tag}
+                          </Text>
                         </View>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.trendingMore,
+                            { backgroundColor: colors.surface },
+                          ]}
+                          onPress={() =>
+                            router.push(`/hashtag/${h.tag}` as any)
+                          }
+                          activeOpacity={0.85}
+                          hitSlop={8}
+                        >
+                          <Ionicons
+                            name="ellipsis-horizontal"
+                            size={16}
+                            color={colors.textTertiary}
+                          />
+                        </TouchableOpacity>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -925,10 +859,85 @@ export default function ExploreScreen() {
                   <EmptyState
                     colors={colors}
                     icon="trending-up-outline"
-                    title="No trending hashtags yet"
-                    subtitle="As people post with #hashtags, they'll appear here."
+                    title="Nothing trending yet"
+                    subtitle="Topics trending in your network will appear here."
                   />
                 )}
+
+                {/* -- Who to Follow -- */}
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
+                  Who to follow
+                </Text>
+
+                {suggestedLoading ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(3)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <SearchRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
+                ) : suggestedUsers.length > 0 ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {suggestedUsers.slice(0, 4).map((u, idx) => (
+                      <SuggestedUserRow
+                        key={u.id}
+                        user={u}
+                        idx={idx}
+                        colors={colors}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* -- Discover (media grid) -- */}
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
+                  Discover
+                </Text>
+
+                {discoveryLoading ? (
+                  <GridSkeleton colors={colors} />
+                ) : discoveryPosts.length > 0 ? (
+                  <DiscoveryGrid posts={discoveryPosts} colors={colors} />
+                ) : null}
               </>
             )}
 
@@ -1742,6 +1751,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
+  },
+
+  // Twitter-style trending rows
+  trendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  trendingLeft: { flex: 1, minWidth: 0 },
+  trendingCategory: { fontSize: 12, fontWeight: "600", marginBottom: 3 },
+  trendingTopic: { fontSize: 15, fontWeight: "900" },
+  trendingMore: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Empty state

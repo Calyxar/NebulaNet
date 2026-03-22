@@ -1,7 +1,8 @@
-// providers/ThemeProvider.tsx — COMPLETED + UPDATED (no Supabase query; syncs with AuthProvider)
-
+// providers/ThemeProvider.tsx — UPDATED ✅ font scale + reduce animations
+import { db } from "@/lib/firebase";
 import { Colors, storage, type Theme } from "@/lib/theme";
 import { useAuth } from "@/providers/AuthProvider";
+import { doc, getDoc } from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -15,12 +16,24 @@ import { ActivityIndicator, View, useColorScheme } from "react-native";
 
 type ThemeColors = (typeof Colors)["light"] | (typeof Colors)["dark"];
 
+// Font size → scale multiplier
+const FONT_SCALE: Record<string, number> = {
+  small: 0.85,
+  medium: 1.0,
+  large: 1.15,
+};
+
 interface ThemeContextType {
-  theme: Theme; // "light" | "dark" | "system" (user preference)
-  isDark: boolean; // effective
+  theme: Theme;
+  isDark: boolean;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   colors: ThemeColors;
+  // ✅ New — font scale + animation toggle
+  fontScale: number; // 0.85 | 1.0 | 1.15
+  fs: (size: number) => number; // helper: fs(14) → scaled font size
+  reduceAnimations: boolean; // if true, skip/shorten animations
+  animDuration: (ms: number) => number; // helper: animDuration(300) → 0 if reduced
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -37,25 +50,23 @@ function isTheme(v: any): v is Theme {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemColorScheme = useColorScheme();
-
   const {
     user,
-    themePreference, // comes from user_settings.theme_preference
-    setThemePreference, // writes to DB via AuthProvider.updateSettings
+    themePreference,
+    setThemePreference,
     isLoading,
     isUserSettingsLoading,
   } = useAuth();
 
   const [theme, setThemeState] = useState<Theme>("system");
   const [localHydrated, setLocalHydrated] = useState(false);
-
-  // prevents writing back during initial hydration
+  const [fontSizePref, setFontSizePref] = useState<string>("medium");
+  const [reduceAnimations, setReduceAnimations] = useState(false);
   const hasSyncedFromRemoteRef = useRef(false);
 
-  // 1) Always hydrate from local storage for instant UI
+  // 1) Hydrate theme from local storage
   useEffect(() => {
     let alive = true;
-
     (async () => {
       try {
         const saved = await storage.getTheme();
@@ -65,48 +76,58 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         if (alive) setLocalHydrated(true);
       }
     })();
-
     return () => {
       alive = false;
     };
   }, []);
 
-  // 2) When logged in + user_settings finished loading, prefer remote themePreference
+  // 2) Sync theme from remote when user settings load
   useEffect(() => {
     if (!user?.id) {
-      // optional policy: reset on logout
       setThemeState("system");
       void storage.setTheme("system");
       hasSyncedFromRemoteRef.current = false;
       return;
     }
-
     if (isLoading || isUserSettingsLoading) return;
-
-    // themePreference can be null in DB initially
     if (isTheme(themePreference)) {
       setThemeState(themePreference);
       void storage.setTheme(themePreference);
-      hasSyncedFromRemoteRef.current = true;
-    } else {
-      // if remote empty, we keep local and later the user can set it.
-      hasSyncedFromRemoteRef.current = true;
     }
+    hasSyncedFromRemoteRef.current = true;
   }, [user?.id, isLoading, isUserSettingsLoading, themePreference]);
+
+  // 3) ✅ Load font_size + reduce_animations from Firestore preferences
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "profiles", user.uid));
+        if (!snap.exists() || !alive) return;
+        const prefs = (snap.data() as any)?.preferences ?? {};
+        if (prefs.font_size) setFontSizePref(prefs.font_size);
+        if (typeof prefs.reduce_animations === "boolean") {
+          setReduceAnimations(prefs.reduce_animations);
+        }
+      } catch {
+        /* silent */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [user?.uid]);
 
   const setTheme = useCallback(
     async (newTheme: Theme) => {
       setThemeState(newTheme);
       await storage.setTheme(newTheme);
-
-      // Only write to DB if:
-      // - user is logged in
-      // - we've already synced from remote once (so we don't clobber remote during boot)
       if (user?.id && hasSyncedFromRemoteRef.current) {
         try {
           await setThemePreference(newTheme);
-        } catch (e) {
-          console.warn("Failed to persist theme_preference:", e);
+        } catch {
+          /* silent */
         }
       }
     },
@@ -128,13 +149,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           ? "dark"
           : "light"
         : theme;
-
-    const next: Theme = effective === "light" ? "dark" : "light";
-    void setTheme(next);
+    void setTheme(effective === "light" ? "dark" : "light");
   }, [theme, systemColorScheme, setTheme]);
 
-  // Only gate render until local hydration is done
-  // (don’t block UI waiting for remote)
+  // ✅ Derived font scale helpers
+  const fontScale = FONT_SCALE[fontSizePref] ?? 1.0;
+  const fs = useCallback(
+    (size: number) => Math.round(size * fontScale),
+    [fontScale],
+  );
+  const animDuration = useCallback(
+    (ms: number) => (reduceAnimations ? 0 : ms),
+    [reduceAnimations],
+  );
+
   if (!localHydrated) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -145,7 +173,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider
-      value={{ theme, isDark, toggleTheme, setTheme, colors }}
+      value={{
+        theme,
+        isDark,
+        toggleTheme,
+        setTheme,
+        colors,
+        fontScale,
+        fs,
+        reduceAnimations,
+        animDuration,
+      }}
     >
       {children}
     </ThemeContext.Provider>

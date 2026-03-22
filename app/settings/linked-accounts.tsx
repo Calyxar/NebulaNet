@@ -64,7 +64,7 @@ export default function LinkedAccountsScreen() {
   const content = (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: "transparent" }}
-      edges={["left", "right"]}
+      edges={["top", "left", "right"]}
     >
       <StatusBar
         barStyle={isDark ? "light-content" : "dark-content"}
@@ -237,7 +237,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingTop: 6,
+    paddingBottom: 10,
   },
   backBtn: {
     width: 44,
