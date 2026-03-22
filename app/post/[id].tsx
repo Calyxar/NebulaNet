@@ -1,4 +1,4 @@
-// app/post/[id].tsx — COMPLETED + UPDATED ✅ full theme support
+// app/post/[id].tsx — UPDATED ✅ LinearGradient + edges fix + dark mode
 import { PostCardSkeleton } from "@/components/Skeleton";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
@@ -18,6 +18,7 @@ import { sharePost } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
@@ -74,14 +75,13 @@ function Avatar({
   size: number;
   fallbackColor?: string;
 }) {
-  if (uri) {
+  if (uri)
     return (
       <Image
         source={{ uri }}
         style={{ width: size, height: size, borderRadius: size / 2 }}
       />
     );
-  }
   return (
     <View
       style={{
@@ -108,8 +108,6 @@ export default function PostDetailScreen() {
     () => coerceParamToString((params as any)?.id),
     [params],
   );
-
-  // ✅ FIX: destructure profile so comment input bar shows correct avatar/name
   const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
 
@@ -123,11 +121,9 @@ export default function PostDetailScreen() {
     isLoading: isLoadingPost,
     error: postError,
   } = usePost(postId ?? "");
-
   const { data: comments = [], isLoading: isLoadingComments } = useComments(
     postId ?? "",
   );
-
   const toggleLikeMutation = useToggleLike();
   const toggleBookmarkMutation = useToggleBookmark();
   const addCommentMutation = useAddComment();
@@ -148,6 +144,10 @@ export default function PostDetailScreen() {
     () => !!post?.user_id && !!viewerId && post.user_id === viewerId,
     [post?.user_id, viewerId],
   );
+
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const handleLike = async () => {
     if (!post) return;
@@ -254,13 +254,12 @@ export default function PostDetailScreen() {
   const openMenu = () => {
     if (!post) return;
     const buttons: AlertButton[] = [];
-    if (isOwner) {
+    if (isOwner)
       buttons.push({
         text: isDeleting ? "Deleting…" : "Delete Post",
         style: "destructive",
         onPress: confirmDelete,
       });
-    }
     buttons.push(
       { text: "Share", onPress: handleShare },
       { text: "Cancel", style: "cancel" },
@@ -276,7 +275,6 @@ export default function PostDetailScreen() {
   const isVideo =
     typeof mediaUrl === "string" &&
     /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(mediaExt);
-
   const isPoll = (post as any)?.post_type === "poll";
 
   const HeaderBar = ({ showMenu = true }: { showMenu?: boolean }) => (
@@ -284,7 +282,7 @@ export default function PostDetailScreen() {
       style={[
         styles.header,
         {
-          backgroundColor: colors.card,
+          backgroundColor: colors.background,
           borderBottomColor: colors.border,
         },
       ]}
@@ -311,70 +309,91 @@ export default function PostDetailScreen() {
 
   if (!postId) {
     return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <HeaderBar showMenu={false} />
-        <View style={styles.centeredBox}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={64}
-            color={colors.border}
-          />
-          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
-            Invalid post link
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
-          >
-            <Text style={styles.pillBtnText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView
+          style={[styles.container, { backgroundColor: "transparent" }]}
+          edges={["top", "left", "right"]}
+        >
+          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+          <HeaderBar showMenu={false} />
+          <View style={styles.centeredBox}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={64}
+              color={colors.border}
+            />
+            <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+              Invalid post link
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={[styles.pillBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.pillBtnText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
   if (isLoadingPost) {
     return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <HeaderBar showMenu={false} />
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <PostCardSkeleton />
-          <PostCardSkeleton />
-        </ScrollView>
-      </SafeAreaView>
+        <SafeAreaView
+          style={[styles.container, { backgroundColor: "transparent" }]}
+          edges={["top", "left", "right"]}
+        >
+          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+          <HeaderBar showMenu={false} />
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <PostCardSkeleton />
+            <PostCardSkeleton />
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
   if (postError || !post) {
     return (
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <HeaderBar showMenu={false} />
-        <View style={styles.centeredBox}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={64}
-            color={colors.border}
-          />
-          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
-            {postError ? "Failed to load post" : "Post not found"}
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
-          >
-            <Text style={styles.pillBtnText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView
+          style={[styles.container, { backgroundColor: "transparent" }]}
+          edges={["top", "left", "right"]}
+        >
+          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+          <HeaderBar showMenu={false} />
+          <View style={styles.centeredBox}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={64}
+              color={colors.border}
+            />
+            <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+              {postError ? "Failed to load post" : "Post not found"}
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={[styles.pillBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.pillBtnText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
@@ -382,495 +401,512 @@ export default function PostDetailScreen() {
     post.user?.full_name?.trim() || post.user?.username?.trim() || "Unknown";
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.42, 1]}
+      style={{ flex: 1 }}
     >
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      <HeaderBar />
-
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: "transparent" }]}
+        edges={["top", "left", "right"]}
       >
-        <ScrollView
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <HeaderBar />
+
+        <KeyboardAvoidingView
           style={styles.flex}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
         >
-          {/* ── Post card ── */}
-          <View
-            style={[
-              styles.postCard,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.06,
-              },
-            ]}
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
-            {/* Author */}
-            <Pressable
-              style={styles.authorRow}
-              onPress={() =>
-                post.user?.username
-                  ? router.push(`/user/${post.user.username}` as any)
-                  : undefined
-              }
+            {/* ── Post card ── */}
+            <View
+              style={[
+                styles.postCard,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.25 : 0.06,
+                },
+              ]}
             >
-              <Avatar
-                uri={post.user?.avatar_url}
-                name={postAuthorName}
-                size={44}
-                fallbackColor={colors.primary}
-              />
-              <View style={styles.authorInfo}>
-                <Text style={[styles.authorName, { color: colors.text }]}>
-                  {postAuthorName}
+              {/* Author */}
+              <Pressable
+                style={styles.authorRow}
+                onPress={() =>
+                  post.user?.username
+                    ? router.push(`/user/${post.user.username}` as any)
+                    : undefined
+                }
+              >
+                <Avatar
+                  uri={post.user?.avatar_url}
+                  name={postAuthorName}
+                  size={44}
+                  fallbackColor={colors.primary}
+                />
+                <View style={styles.authorInfo}>
+                  <Text style={[styles.authorName, { color: colors.text }]}>
+                    {postAuthorName}
+                  </Text>
+                  {post.user?.username && (
+                    <Text
+                      style={[
+                        styles.authorUsername,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      @{post.user.username}
+                    </Text>
+                  )}
+                </View>
+                <Text
+                  style={[styles.timestamp, { color: colors.textTertiary }]}
+                >
+                  {formatTime(post.created_at)}
                 </Text>
-                {post.user?.username && (
+              </Pressable>
+
+              {/* Community badge */}
+              {post.community && (
+                <Pressable
+                  style={[
+                    styles.communityBadge,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                  onPress={() =>
+                    router.push(`/community/${post.community!.slug}` as any)
+                  }
+                >
+                  <Ionicons name="people" size={13} color={colors.primary} />
+                  <Text
+                    style={[styles.communityText, { color: colors.primary }]}
+                  >
+                    {post.community.name}
+                  </Text>
+                </Pressable>
+              )}
+
+              {!!post.title && !isPoll && (
+                <Text style={[styles.postTitle, { color: colors.text }]}>
+                  {post.title}
+                </Text>
+              )}
+              {isPoll && (
+                <Text style={[styles.pollQuestion, { color: colors.text }]}>
+                  {post.title || post.content}
+                </Text>
+              )}
+              {!isPoll && !!post.content && (
+                <HashtagText
+                  text={post.content}
+                  style={
+                    [styles.postBody, { color: colors.textSecondary }] as any
+                  }
+                />
+              )}
+              {isPoll && (post as any).poll && (
+                <PollCard
+                  postId={post.id}
+                  poll={(post as any).poll}
+                  accentColor={colors.primary}
+                  textColor={colors.text}
+                  subColor={colors.textTertiary}
+                  cardBg={colors.surface}
+                  borderColor={colors.border}
+                />
+              )}
+              {isImage && mediaUrl && (
+                <Image
+                  source={{ uri: mediaUrl }}
+                  style={[styles.media, { backgroundColor: colors.surface }]}
+                  resizeMode="cover"
+                />
+              )}
+              {isVideo && mediaUrl && (
+                <View style={styles.videoBadgeWrap}>
+                  <Ionicons name="videocam" size={20} color="#fff" />
+                  <Text style={styles.videoBadgeText}>Video attachment</Text>
+                </View>
+              )}
+              {(post.media_urls?.length ?? 0) > 1 && (
+                <Text
+                  style={[styles.moreMedia, { color: colors.textTertiary }]}
+                >
+                  +{post.media_urls.length - 1} more{" "}
+                  {post.media_urls.length - 1 === 1 ? "file" : "files"}
+                </Text>
+              )}
+
+              {/* Stats */}
+              <View
+                style={[styles.statsRow, { borderTopColor: colors.border }]}
+              >
+                <Text
+                  style={[styles.statText, { color: colors.textSecondary }]}
+                >
+                  <Text style={[styles.statNum, { color: colors.text }]}>
+                    {(post.like_count ?? 0).toLocaleString()}
+                  </Text>{" "}
+                  {post.like_count === 1 ? "like" : "likes"}
+                </Text>
+                <Text
+                  style={[styles.statText, { color: colors.textSecondary }]}
+                >
+                  <Text style={[styles.statNum, { color: colors.text }]}>
+                    {(post.comment_count ?? 0).toLocaleString()}
+                  </Text>{" "}
+                  {post.comment_count === 1 ? "comment" : "comments"}
+                </Text>
+                <Text
+                  style={[styles.statText, { color: colors.textSecondary }]}
+                >
+                  <Text style={[styles.statNum, { color: colors.text }]}>
+                    {(post.share_count ?? 0).toLocaleString()}
+                  </Text>{" "}
+                  {post.share_count === 1 ? "share" : "shares"}
+                </Text>
+              </View>
+
+              {/* Actions */}
+              <View
+                style={[styles.actionRow, { borderTopColor: colors.border }]}
+              >
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={handleLike}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name={post.is_liked ? "heart" : "heart-outline"}
+                    size={22}
+                    color={post.is_liked ? colors.like : colors.textSecondary}
+                  />
                   <Text
                     style={[
-                      styles.authorUsername,
+                      styles.actionLabel,
+                      {
+                        color: post.is_liked
+                          ? colors.like
+                          : colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    Like
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => commentInputRef.current?.focus()}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name="chatbubble-outline"
+                    size={22}
+                    color={colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.actionLabel,
                       { color: colors.textSecondary },
                     ]}
                   >
-                    @{post.user.username}
+                    Comment
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={handleShare}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name="arrow-redo-outline"
+                    size={22}
+                    color={colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.actionLabel,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Share
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={handleBookmark}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name={post.is_saved ? "bookmark" : "bookmark-outline"}
+                    size={22}
+                    color={post.is_saved ? colors.save : colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.actionLabel,
+                      {
+                        color: post.is_saved
+                          ? colors.save
+                          : colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    Save
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ── Comments ── */}
+            <View
+              style={[
+                styles.commentsSection,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.25 : 0.05,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.commentsSectionTitle, { color: colors.text }]}
+              >
+                Comments
+                {comments.length > 0 && (
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "600" }}
+                  >
+                    {" "}
+                    ({comments.length})
                   </Text>
                 )}
-              </View>
-              <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-                {formatTime(post.created_at)}
               </Text>
-            </Pressable>
 
-            {/* Community badge */}
-            {post.community && (
-              <Pressable
-                style={[
-                  styles.communityBadge,
-                  { backgroundColor: colors.primary + "18" },
-                ]}
-                onPress={() =>
-                  router.push(`/community/${post.community!.slug}` as any)
-                }
-              >
-                <Ionicons name="people" size={13} color={colors.primary} />
-                <Text style={[styles.communityText, { color: colors.primary }]}>
-                  {post.community.name}
-                </Text>
-              </Pressable>
-            )}
-
-            {/* Title */}
-            {!!post.title && !isPoll && (
-              <Text style={[styles.postTitle, { color: colors.text }]}>
-                {post.title}
-              </Text>
-            )}
-
-            {/* Poll title */}
-            {isPoll && (
-              <Text style={[styles.pollQuestion, { color: colors.text }]}>
-                {post.title || post.content}
-              </Text>
-            )}
-
-            {/* Body */}
-            {!isPoll && !!post.content && (
-              <HashtagText
-                text={post.content}
-                style={
-                  [styles.postBody, { color: colors.textSecondary }] as any
-                }
-              />
-            )}
-
-            {/* Poll card */}
-            {isPoll && (post as any).poll && (
-              <PollCard
-                postId={post.id}
-                poll={(post as any).poll}
-                accentColor={colors.primary}
-                textColor={colors.text}
-                subColor={colors.textTertiary}
-                cardBg={colors.surface}
-                borderColor={colors.border}
-              />
-            )}
-
-            {/* Image */}
-            {isImage && mediaUrl && (
-              <Image
-                source={{ uri: mediaUrl }}
-                style={[styles.media, { backgroundColor: colors.surface }]}
-                resizeMode="cover"
-              />
-            )}
-
-            {/* Video badge */}
-            {isVideo && mediaUrl && (
-              <View style={styles.videoBadgeWrap}>
-                <Ionicons name="videocam" size={20} color="#fff" />
-                <Text style={styles.videoBadgeText}>Video attachment</Text>
-              </View>
-            )}
-
-            {(post.media_urls?.length ?? 0) > 1 && (
-              <Text style={[styles.moreMedia, { color: colors.textTertiary }]}>
-                +{post.media_urls.length - 1} more{" "}
-                {post.media_urls.length - 1 === 1 ? "file" : "files"}
-              </Text>
-            )}
-
-            {/* Stats */}
-            <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
-              <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                <Text style={[styles.statNum, { color: colors.text }]}>
-                  {(post.like_count ?? 0).toLocaleString()}
-                </Text>{" "}
-                {post.like_count === 1 ? "like" : "likes"}
-              </Text>
-              <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                <Text style={[styles.statNum, { color: colors.text }]}>
-                  {(post.comment_count ?? 0).toLocaleString()}
-                </Text>{" "}
-                {post.comment_count === 1 ? "comment" : "comments"}
-              </Text>
-              <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                <Text style={[styles.statNum, { color: colors.text }]}>
-                  {(post.share_count ?? 0).toLocaleString()}
-                </Text>{" "}
-                {post.share_count === 1 ? "share" : "shares"}
-              </Text>
+              {isLoadingComments ? (
+                <View style={styles.commentsLoading}>
+                  {Array(3)
+                    .fill(null)
+                    .map((_, i) => (
+                      <View key={i} style={styles.commentSkeletonRow}>
+                        <View
+                          style={[
+                            styles.commentSkeletonAvatar,
+                            { backgroundColor: colors.border },
+                          ]}
+                        />
+                        <View style={styles.commentSkeletonLines}>
+                          <View
+                            style={[
+                              styles.commentSkeletonName,
+                              { backgroundColor: colors.border },
+                            ]}
+                          />
+                          <View
+                            style={[
+                              styles.commentSkeletonBody,
+                              { backgroundColor: colors.border },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    ))}
+                </View>
+              ) : comments.length === 0 ? (
+                <View style={styles.noComments}>
+                  <Ionicons
+                    name="chatbubble-outline"
+                    size={32}
+                    color={colors.border}
+                  />
+                  <Text
+                    style={[
+                      styles.noCommentsText,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    No comments yet. Be first!
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {displayedComments.map(
+                    (c: CommentWithAuthor, idx: number) => {
+                      const authorName =
+                        c.author?.full_name?.trim() ||
+                        c.author?.username?.trim() ||
+                        "User";
+                      return (
+                        <View
+                          key={c.id}
+                          style={[
+                            styles.commentRow,
+                            idx !== 0 && [
+                              styles.commentBorder,
+                              { borderTopColor: colors.border },
+                            ],
+                          ]}
+                        >
+                          <Avatar
+                            uri={c.author?.avatar_url}
+                            name={authorName}
+                            size={34}
+                            fallbackColor={colors.primary}
+                          />
+                          <View style={styles.commentBody}>
+                            <View style={styles.commentHeader}>
+                              <Text
+                                style={[
+                                  styles.commentAuthor,
+                                  { color: colors.text },
+                                ]}
+                              >
+                                {authorName}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.commentTime,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                {formatTime(c.created_at)}
+                              </Text>
+                            </View>
+                            <HashtagText
+                              text={c.content}
+                              style={StyleSheet.flatten([
+                                styles.commentText,
+                                { color: colors.textSecondary },
+                              ])}
+                            />
+                            <TouchableOpacity
+                              style={styles.commentLikeBtn}
+                              onPress={() => handleCommentLike(c.id)}
+                              activeOpacity={0.75}
+                            >
+                              <Ionicons
+                                name={
+                                  c.user_has_liked ? "heart" : "heart-outline"
+                                }
+                                size={14}
+                                color={
+                                  c.user_has_liked
+                                    ? colors.like
+                                    : colors.textTertiary
+                                }
+                              />
+                              {(c.likes_count ?? 0) > 0 && (
+                                <Text
+                                  style={[
+                                    styles.commentLikeCount,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  {c.likes_count}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    },
+                  )}
+                  {comments.length > 3 && (
+                    <TouchableOpacity
+                      style={styles.showMoreBtn}
+                      onPress={() => setShowAllComments((v) => !v)}
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[styles.showMoreText, { color: colors.primary }]}
+                      >
+                        {showAllComments
+                          ? "Show less"
+                          : `Show ${comments.length - 3} more comment${comments.length - 3 === 1 ? "" : "s"}`}
+                      </Text>
+                      <Ionicons
+                        name={showAllComments ? "chevron-up" : "chevron-down"}
+                        size={14}
+                        color={colors.primary}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
             </View>
 
-            {/* Actions */}
-            <View style={[styles.actionRow, { borderTopColor: colors.border }]}>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={handleLike}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name={post.is_liked ? "heart" : "heart-outline"}
-                  size={22}
-                  color={post.is_liked ? colors.like : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      color: post.is_liked ? colors.like : colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Like
-                </Text>
-              </TouchableOpacity>
+            <View style={{ height: 80 }} />
+          </ScrollView>
 
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => commentInputRef.current?.focus()}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="chatbubble-outline"
-                  size={22}
-                  color={colors.textSecondary}
-                />
-                <Text
-                  style={[styles.actionLabel, { color: colors.textSecondary }]}
-                >
-                  Comment
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={handleShare}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="arrow-redo-outline"
-                  size={22}
-                  color={colors.textSecondary}
-                />
-                <Text
-                  style={[styles.actionLabel, { color: colors.textSecondary }]}
-                >
-                  Share
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={handleBookmark}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name={post.is_saved ? "bookmark" : "bookmark-outline"}
-                  size={22}
-                  color={post.is_saved ? colors.save : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      color: post.is_saved ? colors.save : colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Save
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* ── Comments ── */}
+          {/* ── Comment input ── */}
           <View
             style={[
-              styles.commentsSection,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.05,
-              },
+              styles.commentInputBar,
+              { backgroundColor: colors.card, borderTopColor: colors.border },
             ]}
           >
-            <Text style={[styles.commentsSectionTitle, { color: colors.text }]}>
-              Comments
-              {comments.length > 0 && (
-                <Text style={{ color: colors.textTertiary, fontWeight: "600" }}>
-                  {" "}
-                  ({comments.length})
-                </Text>
-              )}
-            </Text>
-
-            {isLoadingComments ? (
-              <View style={styles.commentsLoading}>
-                {Array(3)
-                  .fill(null)
-                  .map((_, i) => (
-                    <View key={i} style={styles.commentSkeletonRow}>
-                      <View
-                        style={[
-                          styles.commentSkeletonAvatar,
-                          { backgroundColor: colors.border },
-                        ]}
-                      />
-                      <View style={styles.commentSkeletonLines}>
-                        <View
-                          style={[
-                            styles.commentSkeletonName,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                        <View
-                          style={[
-                            styles.commentSkeletonBody,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  ))}
-              </View>
-            ) : comments.length === 0 ? (
-              <View style={styles.noComments}>
-                <Ionicons
-                  name="chatbubble-outline"
-                  size={32}
-                  color={colors.border}
-                />
-                <Text
-                  style={[
-                    styles.noCommentsText,
-                    { color: colors.textTertiary },
-                  ]}
-                >
-                  No comments yet. Be first!
-                </Text>
-              </View>
-            ) : (
-              <>
-                {displayedComments.map((c: CommentWithAuthor, idx: number) => {
-                  const authorName =
-                    c.author?.full_name?.trim() ||
-                    c.author?.username?.trim() ||
-                    "User";
-
-                  return (
-                    <View
-                      key={c.id}
-                      style={[
-                        styles.commentRow,
-                        idx !== 0 && [
-                          styles.commentBorder,
-                          { borderTopColor: colors.border },
-                        ],
-                      ]}
-                    >
-                      <Avatar
-                        uri={c.author?.avatar_url}
-                        name={authorName}
-                        size={34}
-                        fallbackColor={colors.primary}
-                      />
-                      <View style={styles.commentBody}>
-                        <View style={styles.commentHeader}>
-                          <Text
-                            style={[
-                              styles.commentAuthor,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {authorName}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.commentTime,
-                              { color: colors.textTertiary },
-                            ]}
-                          >
-                            {formatTime(c.created_at)}
-                          </Text>
-                        </View>
-                        <HashtagText
-                          text={c.content}
-                          style={StyleSheet.flatten([
-                            styles.commentText,
-                            { color: colors.textSecondary },
-                          ])}
-                        />
-                        <TouchableOpacity
-                          style={styles.commentLikeBtn}
-                          onPress={() => handleCommentLike(c.id)}
-                          activeOpacity={0.75}
-                        >
-                          <Ionicons
-                            name={c.user_has_liked ? "heart" : "heart-outline"}
-                            size={14}
-                            color={
-                              c.user_has_liked
-                                ? colors.like
-                                : colors.textTertiary
-                            }
-                          />
-                          {(c.likes_count ?? 0) > 0 && (
-                            <Text
-                              style={[
-                                styles.commentLikeCount,
-                                { color: colors.textTertiary },
-                              ]}
-                            >
-                              {c.likes_count}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  );
-                })}
-
-                {comments.length > 3 && (
-                  <TouchableOpacity
-                    style={styles.showMoreBtn}
-                    onPress={() => setShowAllComments((v) => !v)}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[styles.showMoreText, { color: colors.primary }]}
-                    >
-                      {showAllComments
-                        ? "Show less"
-                        : `Show ${comments.length - 3} more comment${
-                            comments.length - 3 === 1 ? "" : "s"
-                          }`}
-                    </Text>
-                    <Ionicons
-                      name={showAllComments ? "chevron-up" : "chevron-down"}
-                      size={14}
-                      color={colors.primary}
-                    />
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-          </View>
-
-          <View style={{ height: 80 }} />
-        </ScrollView>
-
-        {/* ── Comment input ── */}
-        <View
-          style={[
-            styles.commentInputBar,
-            {
-              backgroundColor: colors.card,
-              borderTopColor: colors.border,
-            },
-          ]}
-        >
-          {/* ✅ FIX: use profile instead of user for avatar/name */}
-          <Avatar
-            uri={profile?.avatar_url}
-            name={
-              profile?.full_name || profile?.username || user?.email || "Me"
-            }
-            size={32}
-            fallbackColor={colors.primary}
-          />
-          <TextInput
-            ref={commentInputRef}
-            style={[
-              styles.commentInput,
-              {
-                backgroundColor: colors.inputBackground,
-                borderColor: colors.border,
-                color: colors.text,
-              },
-            ]}
-            placeholder="Write a comment…"
-            placeholderTextColor={colors.placeholder}
-            value={comment}
-            onChangeText={setComment}
-            multiline
-            maxLength={500}
-            returnKeyType="send"
-            onSubmitEditing={handlePostComment}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendBtn,
-              { backgroundColor: colors.primary + "20" },
-              (!comment.trim() || addCommentMutation.isPending) &&
-                styles.sendBtnDisabled,
-            ]}
-            onPress={handlePostComment}
-            disabled={!comment.trim() || addCommentMutation.isPending}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={
-                comment.trim() && !addCommentMutation.isPending
-                  ? colors.primary
-                  : colors.border
+            <Avatar
+              uri={profile?.avatar_url}
+              name={
+                profile?.full_name || profile?.username || user?.email || "Me"
               }
+              size={32}
+              fallbackColor={colors.primary}
             />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            <TextInput
+              ref={commentInputRef}
+              style={[
+                styles.commentInput,
+                {
+                  backgroundColor: colors.inputBackground,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="Write a comment…"
+              placeholderTextColor={colors.placeholder}
+              value={comment}
+              onChangeText={setComment}
+              multiline
+              maxLength={500}
+              returnKeyType="send"
+              onSubmitEditing={handlePostComment}
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendBtn,
+                { backgroundColor: colors.primary + "20" },
+                (!comment.trim() || addCommentMutation.isPending) &&
+                  styles.sendBtnDisabled,
+              ]}
+              onPress={handlePostComment}
+              disabled={!comment.trim() || addCommentMutation.isPending}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="send"
+                size={18}
+                color={
+                  comment.trim() && !addCommentMutation.isPending
+                    ? colors.primary
+                    : colors.border
+                }
+              />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1 },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -881,7 +917,6 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: "700" },
-
   centeredBox: {
     flex: 1,
     justifyContent: "center",
@@ -897,9 +932,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   pillBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-
   scrollContent: { paddingTop: 12, paddingHorizontal: 14 },
-
   postCard: {
     borderRadius: 20,
     padding: 16,
@@ -909,7 +942,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   authorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -920,7 +952,6 @@ const styles = StyleSheet.create({
   authorName: { fontSize: 15, fontWeight: "700" },
   authorUsername: { fontSize: 13, marginTop: 1 },
   timestamp: { fontSize: 12 },
-
   communityBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -932,7 +963,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   communityText: { fontSize: 12, fontWeight: "700" },
-
   postTitle: {
     fontSize: 20,
     fontWeight: "800",
@@ -946,13 +976,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
-
-  media: {
-    width: "100%",
-    height: 240,
-    borderRadius: 14,
-    marginTop: 12,
-  },
+  media: { width: "100%", height: 240, borderRadius: 14, marginTop: 12 },
   videoBadgeWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -966,7 +990,6 @@ const styles = StyleSheet.create({
   },
   videoBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   moreMedia: { marginTop: 6, fontSize: 12, fontWeight: "600" },
-
   statsRow: {
     flexDirection: "row",
     gap: 16,
@@ -976,7 +999,6 @@ const styles = StyleSheet.create({
   },
   statText: { fontSize: 13 },
   statNum: { fontWeight: "700" },
-
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -990,7 +1012,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   actionLabel: { fontSize: 11, fontWeight: "600" },
-
   commentsSection: {
     borderRadius: 20,
     padding: 16,
@@ -1001,7 +1022,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   commentsSectionTitle: { fontSize: 16, fontWeight: "800", marginBottom: 14 },
-
   commentsLoading: { gap: 16 },
   commentSkeletonRow: {
     flexDirection: "row",
@@ -1012,10 +1032,8 @@ const styles = StyleSheet.create({
   commentSkeletonLines: { flex: 1, gap: 6 },
   commentSkeletonName: { height: 12, width: "35%", borderRadius: 6 },
   commentSkeletonBody: { height: 12, width: "80%", borderRadius: 6 },
-
   noComments: { alignItems: "center", paddingVertical: 24, gap: 8 },
   noCommentsText: { fontSize: 14, fontWeight: "500" },
-
   commentRow: {
     flexDirection: "row",
     gap: 10,
@@ -1041,7 +1059,6 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   commentLikeCount: { fontSize: 11, fontWeight: "600" },
-
   showMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1050,7 +1067,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   showMoreText: { fontSize: 13, fontWeight: "700" },
-
   commentInputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
