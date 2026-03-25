@@ -1,0 +1,1112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NebulaNet</title>
+    <meta
+      name="description"
+      content="A social platform built for real connection. Posts, stories, communities, chat — all in one place."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --p: #7c3aed;
+        --p2: #a78bfa;
+        --pk: #ec4899;
+        --bg: #08050f;
+        --bg2: #0f0a1e;
+        --t: #f0ecf8;
+        --m: #7b6fa0;
+        --m2: #5a5175;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: "Instrument Sans", sans-serif;
+        background: var(--bg);
+        color: var(--t);
+        overflow-x: hidden;
+      }
+
+      /* ─── GRAIN overlay ─── */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 9999;
+        opacity: 0.35;
+      }
+
+      /* ─── NAV ─── */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 52px;
+        mix-blend-mode: difference;
+      }
+
+      .nav-logo {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 22px;
+        letter-spacing: 3px;
+        color: #fff;
+        text-decoration: none;
+      }
+
+      nav ul {
+        display: flex;
+        gap: 36px;
+        list-style: none;
+      }
+
+      nav ul a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.55);
+        text-decoration: none;
+        letter-spacing: 0.5px;
+        transition: color 0.2s;
+      }
+      nav ul a:hover {
+        color: #fff;
+      }
+
+      /* ─── HERO ─── */
+      .hero {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        align-items: center;
+        padding: 0 52px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* big nebula blob */
+      .hero-blob {
+        position: absolute;
+        top: -20%;
+        right: -10%;
+        width: 700px;
+        height: 700px;
+        border-radius: 50%;
+        background: radial-gradient(
+          ellipse at 40% 40%,
+          rgba(124, 58, 237, 0.35) 0%,
+          rgba(236, 72, 153, 0.12) 50%,
+          transparent 70%
+        );
+        filter: blur(60px);
+        pointer-events: none;
+      }
+
+      .hero-blob2 {
+        position: absolute;
+        bottom: -30%;
+        left: -5%;
+        width: 500px;
+        height: 500px;
+        border-radius: 50%;
+        background: radial-gradient(
+          ellipse,
+          rgba(124, 58, 237, 0.18) 0%,
+          transparent 65%
+        );
+        filter: blur(80px);
+        pointer-events: none;
+      }
+
+      .hero-left {
+        position: relative;
+        z-index: 2;
+        padding: 120px 0 80px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 11px;
+        letter-spacing: 2.5px;
+        text-transform: uppercase;
+        color: var(--p2);
+        margin-bottom: 28px;
+        font-weight: 500;
+      }
+
+      .eyebrow::before {
+        content: "";
+        display: block;
+        width: 28px;
+        height: 1px;
+        background: var(--p2);
+      }
+
+      h1 {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(80px, 10vw, 148px);
+        line-height: 0.88;
+        letter-spacing: -1px;
+        margin-bottom: 36px;
+      }
+
+      h1 em {
+        font-style: normal;
+        display: block;
+        -webkit-text-stroke: 1px var(--p2);
+        color: transparent;
+      }
+
+      .hero-desc {
+        font-size: 16px;
+        color: var(--m);
+        max-width: 380px;
+        line-height: 1.75;
+        margin-bottom: 48px;
+        font-weight: 400;
+      }
+
+      .dl-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--p);
+        color: #fff;
+        text-decoration: none;
+        padding: 15px 30px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        transition: all 0.2s;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .dl-btn::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.08),
+          transparent
+        );
+        transform: translateX(-100%);
+        transition: transform 0.5s;
+      }
+      .dl-btn:hover::after {
+        transform: translateX(100%);
+      }
+      .dl-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 40px rgba(124, 58, 237, 0.4);
+      }
+
+      /* ─── RIGHT SIDE — abstract grid ─── */
+      .hero-right {
+        position: relative;
+        z-index: 2;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 120px 0 80px;
+      }
+
+      .abstract-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-rows: auto auto auto;
+        gap: 8px;
+        width: 420px;
+      }
+
+      .ag-cell {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(124, 58, 237, 0.15);
+        position: relative;
+      }
+
+      .ag-cell.tall {
+        grid-row: span 2;
+      }
+      .ag-cell.wide {
+        grid-column: span 2;
+      }
+
+      .ag-cell.c1 {
+        background: var(--bg2);
+        padding: 20px;
+        min-height: 130px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .ag-cell.c2 {
+        background: rgba(124, 58, 237, 0.12);
+        padding: 20px;
+        min-height: 130px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .ag-cell.c3 {
+        background: linear-gradient(
+          135deg,
+          rgba(124, 58, 237, 0.25),
+          rgba(236, 72, 153, 0.15)
+        );
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100px;
+      }
+
+      .ag-cell.c4 {
+        background: var(--bg2);
+        padding: 18px;
+        min-height: 100px;
+      }
+
+      .ag-cell.c5 {
+        background: rgba(236, 72, 153, 0.1);
+        padding: 20px;
+        min-height: 160px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .ag-cell.c6 {
+        background: var(--bg2);
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 80px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 36px;
+        color: var(--p2);
+        letter-spacing: 1px;
+      }
+
+      .cell-tag {
+        font-size: 10px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--p2);
+        font-weight: 500;
+      }
+
+      .cell-val {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 42px;
+        color: var(--t);
+        line-height: 1;
+      }
+
+      .cell-label {
+        font-size: 11px;
+        color: var(--m);
+        font-weight: 400;
+      }
+
+      /* mini story rings */
+      .mini-rings {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .mini-ring {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #833ab4, #c13584, #f77737);
+        padding: 2px;
+        flex-shrink: 0;
+      }
+
+      .mini-ring-inner {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: var(--bg2);
+        border: 1.5px solid var(--bg2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--p2);
+      }
+
+      .mini-ring.seen {
+        background: #3d3550;
+      }
+
+      /* hashtag pill */
+      .htag {
+        display: inline-block;
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 99px;
+        background: rgba(124, 58, 237, 0.2);
+        color: var(--p2);
+        border: 1px solid rgba(124, 58, 237, 0.25);
+        margin: 2px;
+        font-weight: 500;
+      }
+
+      /* post preview in cell */
+      .mini-post-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+      }
+      .mini-post-row:last-child {
+        border-bottom: none;
+      }
+
+      .mpavatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--p), var(--pk));
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .mpname {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--t);
+        line-height: 1.2;
+      }
+      .mptime {
+        font-size: 10px;
+        color: var(--m);
+        margin-left: auto;
+      }
+      .mplikes {
+        font-size: 10px;
+        color: var(--pk);
+      }
+
+      /* ─── DIVIDER ─── */
+      .divider {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 52px;
+        border-top: 1px solid rgba(124, 58, 237, 0.12);
+      }
+
+      /* ─── FEATURES ─── */
+      .features {
+        padding: 120px 52px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .feat-header {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        align-items: end;
+        margin-bottom: 80px;
+      }
+
+      .feat-header h2 {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(56px, 7vw, 96px);
+        line-height: 0.9;
+        letter-spacing: -0.5px;
+      }
+
+      .feat-header h2 span {
+        display: block;
+        -webkit-text-stroke: 1px var(--m2);
+        color: transparent;
+      }
+
+      .feat-header p {
+        font-size: 16px;
+        color: var(--m);
+        line-height: 1.75;
+        max-width: 400px;
+        align-self: end;
+      }
+
+      /* Features list */
+      .feat-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        background: rgba(124, 58, 237, 0.1);
+        border: 1px solid rgba(124, 58, 237, 0.1);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+
+      .feat-item {
+        background: var(--bg);
+        padding: 36px 32px;
+        transition: background 0.2s;
+      }
+      .feat-item:hover {
+        background: var(--bg2);
+      }
+
+      .feat-num {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 13px;
+        color: var(--m2);
+        letter-spacing: 2px;
+        margin-bottom: 20px;
+      }
+
+      .feat-name {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: var(--t);
+      }
+
+      .feat-desc {
+        font-size: 14px;
+        color: var(--m);
+        line-height: 1.7;
+        font-weight: 400;
+      }
+
+      /* ─── MARQUEE ─── */
+      .marquee-wrap {
+        overflow: hidden;
+        padding: 32px 0;
+        border-top: 1px solid rgba(124, 58, 237, 0.1);
+        border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+        background: var(--bg2);
+      }
+
+      .marquee-track {
+        display: flex;
+        gap: 0;
+        animation: marquee 22s linear infinite;
+        width: max-content;
+      }
+
+      @keyframes marquee {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(-50%);
+        }
+      }
+
+      .marquee-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 40px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 22px;
+        letter-spacing: 2px;
+        color: var(--m2);
+        white-space: nowrap;
+      }
+
+      .marquee-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--p);
+        flex-shrink: 0;
+      }
+
+      /* ─── CTA ─── */
+      .cta {
+        padding: 160px 52px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .cta-blob {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 800px;
+        height: 400px;
+        background: radial-gradient(
+          ellipse,
+          rgba(124, 58, 237, 0.18) 0%,
+          transparent 65%
+        );
+        filter: blur(40px);
+        pointer-events: none;
+      }
+
+      .cta h2 {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(64px, 10vw, 130px);
+        line-height: 0.88;
+        letter-spacing: -1px;
+        margin-bottom: 32px;
+        position: relative;
+      }
+
+      .cta h2 .outline {
+        display: block;
+        -webkit-text-stroke: 1px rgba(167, 139, 250, 0.5);
+        color: transparent;
+      }
+
+      .cta p {
+        font-size: 17px;
+        color: var(--m);
+        margin-bottom: 52px;
+        font-weight: 400;
+        position: relative;
+      }
+
+      /* ─── FOOTER ─── */
+      footer {
+        padding: 32px 52px;
+        border-top: 1px solid rgba(124, 58, 237, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      .footer-logo {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 18px;
+        letter-spacing: 3px;
+        color: var(--m2);
+      }
+
+      footer nav a {
+        font-size: 12px;
+        color: var(--m2);
+        text-decoration: none;
+        margin-left: 28px;
+        letter-spacing: 0.3px;
+        transition: color 0.2s;
+      }
+      footer nav a:hover {
+        color: var(--t);
+      }
+
+      footer p {
+        font-size: 12px;
+        color: var(--m2);
+        letter-spacing: 0.3px;
+      }
+
+      /* ─── RESPONSIVE ─── */
+      @media (max-width: 860px) {
+        nav {
+          padding: 18px 24px;
+        }
+        nav ul {
+          display: none;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+          padding: 0 24px;
+        }
+        .hero-right {
+          display: none;
+        }
+        .hero-left {
+          padding: 120px 0 80px;
+        }
+        .features {
+          padding: 80px 24px;
+        }
+        .feat-header {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        .feat-list {
+          grid-template-columns: 1fr 1fr;
+        }
+        .cta {
+          padding: 100px 24px;
+        }
+        footer {
+          padding: 28px 24px;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        footer nav a:first-child {
+          margin-left: 0;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .feat-list {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* ─── FADE-IN ─── */
+      .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        animation: reveal 0.8s ease forwards;
+      }
+      @keyframes reveal {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .d1 {
+        animation-delay: 0.05s;
+      }
+      .d2 {
+        animation-delay: 0.15s;
+      }
+      .d3 {
+        animation-delay: 0.28s;
+      }
+      .d4 {
+        animation-delay: 0.42s;
+      }
+      .d5 {
+        animation-delay: 0.58s;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="#" class="nav-logo">NEBULANET</a>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li>
+          <a
+            href="https://play.google.com/apps/internaltest/4701647059064388022"
+            target="_blank"
+            style="color: var(--p2)"
+            >Download</a
+          >
+        </li>
+      </ul>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-blob"></div>
+      <div class="hero-blob2"></div>
+
+      <div class="hero-left">
+        <div class="eyebrow reveal d1">Now on Android</div>
+
+        <h1 class="reveal d2">
+          YOUR
+          <em>SPACE</em>
+          TO LIVE.
+        </h1>
+
+        <p class="hero-desc reveal d3">
+          Posts, stories, communities, real-time chat, GIFs, polls — everything
+          you need to connect with the people and ideas that move you.
+        </p>
+
+        <a
+          href="https://play.google.com/apps/internaltest/4701647059064388022"
+          class="dl-btn reveal d4"
+          target="_blank"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M3 20.5v-17c0-.83 1.01-1.3 1.7-.78l14 8.5c.63.38.63 1.18 0 1.56l-14 8.5c-.69.52-1.7.05-1.7-.78z"
+            />
+          </svg>
+          Get it on Android
+        </a>
+      </div>
+
+      <!-- Abstract data grid — no phone -->
+      <div class="hero-right reveal d3">
+        <div class="abstract-grid">
+          <!-- Cell: Live users stat -->
+          <div class="ag-cell c1 tall">
+            <div class="cell-tag">stories</div>
+            <div>
+              <div class="mini-rings">
+                <div class="mini-ring">
+                  <div class="mini-ring-inner">A</div>
+                </div>
+                <div class="mini-ring">
+                  <div class="mini-ring-inner">J</div>
+                </div>
+                <div class="mini-ring">
+                  <div class="mini-ring-inner">M</div>
+                </div>
+                <div class="mini-ring seen">
+                  <div class="mini-ring-inner" style="color: var(--m)">K</div>
+                </div>
+              </div>
+              <div class="cell-label" style="margin-top: 10px">
+                4 new stories
+              </div>
+            </div>
+          </div>
+
+          <!-- Cell: Trending -->
+          <div class="ag-cell c2 wide">
+            <div class="cell-tag">trending now</div>
+            <div>
+              <span class="htag">#NebulaNet</span>
+              <span class="htag">#MondayVibes</span>
+              <span class="htag">#DevLife</span>
+              <span class="htag">#SpaceArt</span>
+            </div>
+          </div>
+
+          <!-- Cell: Notif count -->
+          <div class="ag-cell c6">24h</div>
+
+          <!-- Cell: Post preview -->
+          <div class="ag-cell c5 wide">
+            <div class="cell-tag">feed</div>
+            <div class="mini-post-row">
+              <div class="mpavatar">S</div>
+              <div style="flex: 1; min-width: 0">
+                <div class="mpname">sofia_creates</div>
+              </div>
+              <div class="mplikes">♥ 128</div>
+              <div class="mptime">2m</div>
+            </div>
+            <div class="mini-post-row">
+              <div
+                class="mpavatar"
+                style="background: linear-gradient(135deg, #0ea5e9, #6366f1)"
+              >
+                R
+              </div>
+              <div style="flex: 1; min-width: 0">
+                <div class="mpname">ryu.dev</div>
+              </div>
+              <div class="mplikes">♥ 56</div>
+              <div class="mptime">8m</div>
+            </div>
+            <div class="mini-post-row">
+              <div
+                class="mpavatar"
+                style="background: linear-gradient(135deg, #f59e0b, #ef4444)"
+              >
+                N
+              </div>
+              <div style="flex: 1; min-width: 0">
+                <div class="mpname">nova.art</div>
+              </div>
+              <div class="mplikes">♥ 341</div>
+              <div class="mptime">15m</div>
+            </div>
+          </div>
+
+          <!-- Cell: Communities -->
+          <div class="ag-cell c4">
+            <div class="cell-tag">communities</div>
+            <div
+              style="
+                margin-top: 8px;
+                font-size: 12px;
+                color: var(--m);
+                line-height: 1.8;
+              "
+            >
+              Photography<br />Dev &amp; Tech<br />Space Lovers
+            </div>
+          </div>
+
+          <!-- Cell: big number -->
+          <div class="ag-cell c3">
+            <div style="text-align: center">
+              <div
+                style="
+                  font-family: &quot;Bebas Neue&quot;, sans-serif;
+                  font-size: 52px;
+                  color: var(--p2);
+                  line-height: 1;
+                "
+              >
+                FREE
+              </div>
+              <div
+                style="
+                  font-size: 11px;
+                  color: var(--m);
+                  letter-spacing: 1px;
+                  text-transform: uppercase;
+                  margin-top: 4px;
+                "
+              >
+                Always
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARQUEE -->
+    <div class="marquee-wrap">
+      <div class="marquee-track">
+        <div class="marquee-item"><span class="marquee-dot"></span> POSTS</div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> STORIES
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> COMMUNITIES
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> REAL-TIME CHAT
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> GIF SUPPORT
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> DARK MODE
+        </div>
+        <div class="marquee-item"><span class="marquee-dot"></span> POLLS</div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> PRIVACY CONTROLS
+        </div>
+        <div class="marquee-item"><span class="marquee-dot"></span> POSTS</div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> STORIES
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> COMMUNITIES
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> REAL-TIME CHAT
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> GIF SUPPORT
+        </div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> DARK MODE
+        </div>
+        <div class="marquee-item"><span class="marquee-dot"></span> POLLS</div>
+        <div class="marquee-item">
+          <span class="marquee-dot"></span> PRIVACY CONTROLS
+        </div>
+      </div>
+    </div>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+      <div class="feat-header">
+        <h2>
+          BUILT<br />
+          <span>DIFFERENT</span>
+        </h2>
+        <p>
+          Every feature was chosen with one goal — making real connection feel
+          effortless. No algorithm tricks. No dark patterns. Just the people and
+          content you actually care about.
+        </p>
+      </div>
+
+      <div class="feat-list">
+        <div class="feat-item">
+          <div class="feat-num">01</div>
+          <div class="feat-name">Posts & stories</div>
+          <p class="feat-desc">
+            Photos, videos, GIFs, and polls. Stories vanish after 24 hours —
+            gradient rings show you who posted before you've even tapped.
+          </p>
+        </div>
+        <div class="feat-item">
+          <div class="feat-num">02</div>
+          <div class="feat-name">Real-time chat</div>
+          <p class="feat-desc">
+            Direct messages with media sharing, read receipts, and reactions.
+            Start a conversation from any profile in seconds.
+          </p>
+        </div>
+        <div class="feat-item">
+          <div class="feat-num">03</div>
+          <div class="feat-name">Communities</div>
+          <p class="feat-desc">
+            Interest-based groups with their own feeds. Find your people —
+            whether that's dev, art, gaming, or anything in between.
+          </p>
+        </div>
+        <div class="feat-item">
+          <div class="feat-num">04</div>
+          <div class="feat-name">Trending topics</div>
+          <p class="feat-desc">
+            See what's moving in your network right now. Tap any hashtag to dive
+            into the conversation happening around it.
+          </p>
+        </div>
+        <div class="feat-item">
+          <div class="feat-num">05</div>
+          <div class="feat-name">Privacy controls</div>
+          <p class="feat-desc">
+            Private accounts, follow requests, block, mute, and granular
+            settings for who sees what. Your data, your rules.
+          </p>
+        </div>
+        <div class="feat-item">
+          <div class="feat-num">06</div>
+          <div class="feat-name">Boost your reach</div>
+          <p class="feat-desc">
+            Got something worth sharing? Boost a post to reach new audiences.
+            Set your budget and duration — we handle the rest.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+      <div class="cta-blob"></div>
+      <h2>
+        JOIN THE
+        <span class="outline">NEBULA</span>
+      </h2>
+      <p>Free to download. Free to use. Always.</p>
+      <a
+        href="https://play.google.com/apps/internaltest/4701647059064388022"
+        class="dl-btn"
+        target="_blank"
+        style="font-size: 15px; padding: 16px 36px; position: relative"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M3 20.5v-17c0-.83 1.01-1.3 1.7-.78l14 8.5c.63.38.63 1.18 0 1.56l-14 8.5c-.69.52-1.7.05-1.7-.78z"
+          />
+        </svg>
+        Download on Android
+      </a>
+    </section>
+
+    <footer>
+      <div
+        style="
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 16px;
+          margin-bottom: 20px;
+        "
+      >
+        <span class="footer-logo">NEBULANET</span>
+        <nav>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Support</a>
+        </nav>
+      </div>
+      <div
+        style="
+          width: 100%;
+          border-top: 1px solid rgba(124, 58, 237, 0.1);
+          padding-top: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+        "
+      >
+        <p>© 2026 NebulaNet · nebulanet.space</p>
+        <div style="display: flex; gap: 20px; align-items: center">
+          <a
+            href="https://bsky.app/profile/alybak.bsky.social"
+            target="_blank"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-size: 12px;
+              color: var(--m2);
+              text-decoration: none;
+              transition: color 0.2s;
+            "
+            onmouseover="this.style.color = 'var(--t)'"
+            onmouseout="this.style.color = 'var(--m2)'"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.5 7.5c0 2.485-2.015 4.5-4.5 4.5S7.5 11.985 7.5 9.5 9.515 5 12 5s4.5 2.015 4.5 4.5zM12 19c-2.21 0-4.2-.896-5.657-2.343C7.579 15.099 9.685 14 12 14s4.421 1.099 5.657 2.657C16.2 18.104 14.21 19 12 19z"
+              />
+            </svg>
+            Bluesky
+          </a>
+          <a
+            href="https://www.reddit.com/r/NebulaNetApp"
+            target="_blank"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-size: 12px;
+              color: var(--m2);
+              text-decoration: none;
+              transition: color 0.2s;
+            "
+            onmouseover="this.style.color = 'var(--t)'"
+            onmouseout="this.style.color = 'var(--m2)'"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"
+              />
+            </svg>
+            Reddit
+          </a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
