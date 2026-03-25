@@ -2,6 +2,7 @@
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
+import StoryAvatar from "@/components/StoryAvatar";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
@@ -222,50 +223,26 @@ export default function HomeScreen() {
                 );
               }
 
+              // ✅ StoryAvatar — gradient ring for unseen, gray for seen, none if no story
               const p = item.profiles;
               const label = p?.username || p?.full_name || "User";
-              const avatar = p?.avatar_url;
 
               return (
-                <TouchableOpacity
-                  style={styles.storyItem}
-                  onPress={() => router.push(`/story/${item.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  {avatar ? (
-                    <Image
-                      source={{ uri: avatar }}
-                      style={[
-                        styles.storyAvatar,
-                        { borderColor: colors.primary },
-                      ]}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        styles.storyAvatar,
-                        {
-                          backgroundColor: colors.surface,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          borderColor: colors.primary,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={{ color: colors.primary, fontWeight: "900" }}
-                      >
-                        {label[0]?.toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
+                <View style={styles.storyItem}>
+                  <StoryAvatar
+                    userId={item.user_id}
+                    avatarUrl={p?.avatar_url}
+                    name={label}
+                    size={64}
+                    onPress={() => router.push(`/story/${item.id}` as any)}
+                  />
                   <Text
                     style={[styles.storyLabel, { color: colors.text }]}
                     numberOfLines={1}
                   >
                     {label}
                   </Text>
-                </TouchableOpacity>
+                </View>
               );
             }}
           />
@@ -763,7 +740,7 @@ const styles = StyleSheet.create({
   badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 
   storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
-  storyItem: { alignItems: "center", marginRight: 16, width: 72 },
+  storyItem: { alignItems: "center", marginRight: 16, width: 76 },
   addStoryCircle: {
     width: 68,
     height: 68,
@@ -774,18 +751,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 6,
   },
-  storyAvatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    marginBottom: 6,
-    borderWidth: 2,
-  },
   storyLabel: {
     fontSize: 12,
     fontWeight: "700",
-    maxWidth: 72,
+    maxWidth: 76,
     textAlign: "center",
+    marginTop: 6,
   },
 
   segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
