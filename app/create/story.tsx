@@ -1,4 +1,5 @@
-// app/create/story.tsx — UPDATED ✅ dark mode + video/gif support
+// app/create/story.tsx — UPDATED ✅ GIF picker wired in
+import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
 import { createStory, uploadStoryMedia } from "@/lib/queries/stories";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -24,7 +25,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type MediaType = "image" | "video" | "gif";
-
 const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
@@ -36,6 +36,7 @@ export default function CreateStoryScreen() {
   const [mediaType, setMediaType] = useState<MediaType | null>(null);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
   const canPost = useMemo(
@@ -49,33 +50,35 @@ export default function CreateStoryScreen() {
       Alert.alert("Permission required", "Allow access to your photos/videos.");
       return;
     }
-
     const mediaTypes =
       type === "image"
         ? PickerMedia.Images
         : type === "video"
           ? PickerMedia.Videos
           : PickerMedia.All;
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes,
       allowsEditing: false,
       quality: 1,
     });
-
     if (result.canceled) return;
     const asset = result.assets?.[0];
     if (!asset?.uri) {
       Alert.alert("Error", "Could not read selected media.");
       return;
     }
-
-    // Detect GIF by filename
     const isGif =
       asset.uri.toLowerCase().endsWith(".gif") ||
       asset.mimeType === "image/gif";
     setMediaUri(asset.uri);
     setMediaType(isGif ? "gif" : asset.type === "video" ? "video" : "image");
+  };
+
+  // ✅ GIF selected from Klipy
+  const handleGifSelect = (url: string) => {
+    setMediaUri(url);
+    setMediaType("gif");
+    setShowGifPicker(false);
   };
 
   const handlePost = async () => {
@@ -105,10 +108,8 @@ export default function CreateStoryScreen() {
 
   const mediaTypeIcon = () => {
     if (mediaType === "video") return "videocam";
-    if (mediaType === "gif") return "image";
     return "image";
   };
-
   const mediaTypeBadge = () => {
     if (mediaType === "video") return "VIDEO";
     if (mediaType === "gif") return "GIF";
@@ -126,7 +127,6 @@ export default function CreateStoryScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -137,11 +137,9 @@ export default function CreateStoryScreen() {
             Cancel
           </Text>
         </TouchableOpacity>
-
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           New Story
         </Text>
-
         <TouchableOpacity
           style={[
             styles.postBtn,
@@ -169,7 +167,6 @@ export default function CreateStoryScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Composer row */}
           <View style={styles.composerRow}>
             <View style={styles.avatarCol}>
               {profile?.avatar_url ? (
@@ -196,7 +193,6 @@ export default function CreateStoryScreen() {
                 />
               )}
             </View>
-
             <View style={styles.inputCol}>
               <View
                 style={[
@@ -216,7 +212,6 @@ export default function CreateStoryScreen() {
                   Disappears in 24h
                 </Text>
               </View>
-
               <TextInput
                 style={[styles.captionInput, { color: colors.text }]}
                 placeholder="Add a caption..."
@@ -227,7 +222,6 @@ export default function CreateStoryScreen() {
                 maxLength={200}
                 editable={!uploading}
               />
-
               {caption.length > 0 && (
                 <Text
                   style={[styles.charCount, { color: colors.textTertiary }]}
@@ -238,7 +232,6 @@ export default function CreateStoryScreen() {
             </View>
           </View>
 
-          {/* Media section */}
           <View style={styles.mediaSection}>
             <View style={styles.avatarSpacer} />
             <View style={styles.mediaCol}>
@@ -257,8 +250,6 @@ export default function CreateStoryScreen() {
                     style={styles.preview}
                     resizeMode="cover"
                   />
-
-                  {/* Type badge */}
                   {mediaTypeBadge() && (
                     <View style={styles.typeBadge}>
                       <Ionicons
@@ -271,7 +262,6 @@ export default function CreateStoryScreen() {
                       </Text>
                     </View>
                   )}
-
                   {!uploading && (
                     <TouchableOpacity
                       style={styles.changeBtn}
@@ -281,7 +271,6 @@ export default function CreateStoryScreen() {
                       <Text style={styles.changeBtnText}>Change</Text>
                     </TouchableOpacity>
                   )}
-
                   {uploading && (
                     <View style={styles.uploadingOverlay}>
                       <ActivityIndicator color="#fff" size="large" />
@@ -290,68 +279,113 @@ export default function CreateStoryScreen() {
                   )}
                 </TouchableOpacity>
               ) : (
-                /* Picker buttons */
                 <View style={styles.pickerGrid}>
-                  {[
-                    {
-                      label: "Photo",
-                      icon: "image-outline",
-                      type: "image" as const,
-                    },
-                    {
-                      label: "Video",
-                      icon: "videocam-outline",
-                      type: "video" as const,
-                    },
-                    {
-                      label: "GIF",
-                      icon: "sparkles-outline",
-                      type: "image" as const,
-                    },
-                  ].map(({ label, icon, type }) => (
-                    <TouchableOpacity
-                      key={label}
+                  <TouchableOpacity
+                    style={[
+                      styles.pickBtn,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      },
+                    ]}
+                    onPress={() => pickMedia("image")}
+                    activeOpacity={0.8}
+                  >
+                    <View
                       style={[
-                        styles.pickBtn,
-                        {
-                          borderColor: colors.border,
-                          backgroundColor: colors.surface,
-                        },
+                        styles.pickBtnIcon,
+                        { backgroundColor: colors.primary + "18" },
                       ]}
-                      onPress={() => pickMedia(type)}
-                      activeOpacity={0.8}
                     >
-                      <View
-                        style={[
-                          styles.pickBtnIcon,
-                          { backgroundColor: colors.primary + "18" },
-                        ]}
-                      >
-                        <Ionicons
-                          name={icon as any}
-                          size={22}
-                          color={colors.primary}
-                        />
-                      </View>
-                      <Text
-                        style={[styles.pickBtnText, { color: colors.text }]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                      <Ionicons
+                        name="image-outline"
+                        size={22}
+                        color={colors.primary}
+                      />
+                    </View>
+                    <Text style={[styles.pickBtnText, { color: colors.text }]}>
+                      Photo
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.pickBtn,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      },
+                    ]}
+                    onPress={() => pickMedia("video")}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.pickBtnIcon,
+                        { backgroundColor: colors.primary + "18" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="videocam-outline"
+                        size={22}
+                        color={colors.primary}
+                      />
+                    </View>
+                    <Text style={[styles.pickBtnText, { color: colors.text }]}>
+                      Video
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* ✅ GIF button now opens GifPicker instead of image picker */}
+                  <TouchableOpacity
+                    style={[
+                      styles.pickBtn,
+                      {
+                        borderColor: colors.primary + "50",
+                        backgroundColor: colors.primary + "10",
+                      },
+                    ]}
+                    onPress={() => setShowGifPicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.pickBtnIcon,
+                        { backgroundColor: colors.primary + "18" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="sparkles-outline"
+                        size={22}
+                        color={colors.primary}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.pickBtnText,
+                        { color: colors.primary, fontWeight: "700" },
+                      ]}
+                    >
+                      GIF
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
-
               <Text style={[styles.helperText, { color: colors.textTertiary }]}>
                 Stories are visible to your followers for 24 hours.
               </Text>
-
               <View style={{ height: 32 }} />
             </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ✅ GIF Picker modal */}
+      <GifPicker
+        visible={showGifPicker}
+        onSelect={handleGifSelect}
+        onClose={() => setShowGifPicker(false)}
+      />
     </SafeAreaView>
   );
 
