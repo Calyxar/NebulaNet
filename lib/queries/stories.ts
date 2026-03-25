@@ -1,16 +1,20 @@
-// lib/queries/stories.ts — UPDATED ✅ added "gif" to media_type
-
+// lib/queries/stories.ts — UPDATED ✅ removed orderBy to avoid index requirement, sort in JS
 import { auth, db, storage } from "@/lib/firebase";
 import {
-  Timestamp, addDoc, collection, doc, documentId,
-  getDoc, getDocs, orderBy, query, serverTimestamp,
-  setDoc, where,
+  Timestamp,
+  addDoc,
+  collection,
+  doc,
+  documentId,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-
-/* =========================================================
-   TYPES
-========================================================= */
 
 export type StoryProfile = {
   username: string | null;
@@ -22,25 +26,17 @@ export type StoryRow = {
   id: string;
   user_id: string;
   media_url: string;
-  media_type: "image" | "video" | "gif"; // ✅ added gif
+  media_type: "image" | "video" | "gif";
   caption: string | null;
   created_at: string;
   expires_at: string;
   profiles: StoryProfile | null;
 };
 
-/* =========================================================
-   COLLECTIONS
-========================================================= */
-
 const STORIES = collection(db, "stories");
 const STORY_SEEN = collection(db, "story_seen");
 const STORY_COMMENTS = collection(db, "story_comments");
 const PROFILES = collection(db, "profiles");
-
-/* =========================================================
-   HELPERS
-========================================================= */
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
@@ -54,11 +50,12 @@ function chunk<T>(arr: T[], size: number) {
   return out;
 }
 
-async function batchGetProfiles(userIds: string[]): Promise<Map<string, StoryProfile>> {
+async function batchGetProfiles(
+  userIds: string[],
+): Promise<Map<string, StoryProfile>> {
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   if (!ids.length) return map;
-
   for (const group of chunk(ids, 30)) {
     const q = query(PROFILES, where(documentId(), "in", group));
     const snap = await getDocs(q);
@@ -71,7 +68,6 @@ async function batchGetProfiles(userIds: string[]): Promise<Map<string, StoryPro
       });
     });
   }
-
   return map;
 }
 
@@ -100,18 +96,14 @@ async function uriToBlob(uri: string): Promise<Blob> {
   return await res.blob();
 }
 
-/* =========================================================
-   FETCH
-========================================================= */
-
-export async function fetchStoryById(storyId: string): Promise<StoryRow | null> {
+export async function fetchStoryById(
+  storyId: string,
+): Promise<StoryRow | null> {
   const snap = await getDoc(doc(db, "stories", storyId));
   if (!snap.exists()) return null;
-
   const d = snap.data() as any;
   const profileSnap = await getDoc(doc(db, "profiles", d.user_id));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
-
   return {
     id: snap.id,
     user_id: d.user_id,
@@ -120,83 +112,110 @@ export async function fetchStoryById(storyId: string): Promise<StoryRow | null> 
     caption: d.caption ?? null,
     created_at: tsToIso(d.created_at_ts),
     expires_at: tsToIso(d.expires_at_ts),
-    profiles: p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null,
+    profiles: p
+      ? {
+          username: p.username ?? null,
+          full_name: p.full_name ?? null,
+          avatar_url: p.avatar_url ?? null,
+        }
+      : null,
   };
 }
 
+// ✅ No orderBy — sort in JS to avoid composite index requirement
 export async function fetchActiveStories(): Promise<StoryRow[]> {
   const now = Timestamp.fromDate(new Date());
-  const q = query(STORIES, where("expires_at_ts", ">", now), orderBy("expires_at_ts", "desc"));
+  const q = query(STORIES, where("expires_at_ts", ">", now), limit(200));
   const snap = await getDocs(q);
   if (snap.empty) return [];
-
   const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
   const profilesMap = await batchGetProfiles(docs.map((d) => d.user_id));
-
-  return docs.map((d) => ({
-    id: d.id,
-    user_id: d.user_id,
-    media_url: d.media_url,
-    media_type: d.media_type,
-    caption: d.caption ?? null,
-    created_at: tsToIso(d.created_at_ts),
-    expires_at: tsToIso(d.expires_at_ts),
-    profiles: profilesMap.get(d.user_id) ?? null,
-  }));
+  return (
+    docs
+      .map((d) => ({
+        id: d.id,
+        user_id: d.user_id,
+        media_url: d.media_url,
+        media_type: d.media_type,
+        caption: d.caption ?? null,
+        created_at: tsToIso(d.created_at_ts),
+        expires_at: tsToIso(d.expires_at_ts),
+        profiles: profilesMap.get(d.user_id) ?? null,
+      }))
+      // ✅ Sort newest first in JS
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
+  );
 }
 
-export async function fetchActiveStoriesByUser(userId: string): Promise<StoryRow[]> {
+// ✅ No orderBy — sort in JS to avoid composite index requirement
+export async function fetchActiveStoriesByUser(
+  userId: string,
+): Promise<StoryRow[]> {
   const now = Timestamp.fromDate(new Date());
-  const q = query(STORIES, where("user_id", "==", userId), where("expires_at_ts", ">", now), orderBy("expires_at_ts", "desc"));
+  const q = query(
+    STORIES,
+    where("user_id", "==", userId),
+    where("expires_at_ts", ">", now),
+    limit(100),
+  );
   const snap = await getDocs(q);
   if (snap.empty) return [];
-
   const profileSnap = await getDoc(doc(db, "profiles", userId));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
-  const profile: StoryProfile | null = p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null;
-
-  return snap.docs.map((docSnap) => {
-    const d = docSnap.data() as any;
-    return {
-      id: docSnap.id,
-      user_id: d.user_id,
-      media_url: d.media_url,
-      media_type: d.media_type,
-      caption: d.caption ?? null,
-      created_at: tsToIso(d.created_at_ts),
-      expires_at: tsToIso(d.expires_at_ts),
-      profiles: profile,
-    };
-  });
+  const profile: StoryProfile | null = p
+    ? {
+        username: p.username ?? null,
+        full_name: p.full_name ?? null,
+        avatar_url: p.avatar_url ?? null,
+      }
+    : null;
+  return (
+    snap.docs
+      .map((docSnap) => {
+        const d = docSnap.data() as any;
+        return {
+          id: docSnap.id,
+          user_id: d.user_id,
+          media_url: d.media_url,
+          media_type: d.media_type,
+          caption: d.caption ?? null,
+          created_at: tsToIso(d.created_at_ts),
+          expires_at: tsToIso(d.expires_at_ts),
+          profiles: profile,
+        };
+      })
+      // ✅ Sort newest first in JS
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
+  );
 }
-
-/* =========================================================
-   SEEN
-========================================================= */
 
 export async function markStorySeen(storyId: string) {
   const user = auth.currentUser;
   if (!user) return;
-
   const key = `${storyId}_${user.uid}`;
-  await setDoc(doc(db, "story_seen", key), {
-    story_id: storyId,
-    viewer_id: user.uid,
-    seen_at_ts: serverTimestamp(),
-  }, { merge: true });
+  await setDoc(
+    doc(db, "story_seen", key),
+    {
+      story_id: storyId,
+      viewer_id: user.uid,
+      seen_at_ts: serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
-
-/* =========================================================
-   UPLOAD
-========================================================= */
 
 export async function uploadStoryMedia(
   uri: string,
-  mediaType: "image" | "video" | "gif", // ✅ added gif
+  mediaType: "image" | "video" | "gif",
 ): Promise<{ publicUrl: string; path: string }> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-
   const ext = guessExt(uri, mediaType);
   const contentType = guessContentType(ext, mediaType);
   const path = `stories/${user.uid}/${Date.now()}.${ext}`;
@@ -207,21 +226,17 @@ export async function uploadStoryMedia(
   return { publicUrl, path };
 }
 
-/* =========================================================
-   CREATE
-========================================================= */
-
 export async function createStory(params: {
   media_url: string;
-  media_type: "image" | "video" | "gif"; // ✅ added gif
+  media_type: "image" | "video" | "gif";
   caption?: string | null;
   expires_in_hours?: number;
 }): Promise<StoryRow> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-
-  const expiresAt = new Date(Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000);
-
+  const expiresAt = new Date(
+    Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000,
+  );
   const refDoc = await addDoc(STORIES, {
     user_id: user.uid,
     media_url: params.media_url,
@@ -230,10 +245,8 @@ export async function createStory(params: {
     created_at_ts: serverTimestamp(),
     expires_at_ts: Timestamp.fromDate(expiresAt),
   });
-
   const profileSnap = await getDoc(doc(db, "profiles", user.uid));
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
-
   return {
     id: refDoc.id,
     user_id: user.uid,
@@ -242,18 +255,22 @@ export async function createStory(params: {
     caption: params.caption ?? null,
     created_at: new Date().toISOString(),
     expires_at: expiresAt.toISOString(),
-    profiles: p ? { username: p.username ?? null, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : null,
+    profiles: p
+      ? {
+          username: p.username ?? null,
+          full_name: p.full_name ?? null,
+          avatar_url: p.avatar_url ?? null,
+        }
+      : null,
   };
 }
 
-/* =========================================================
-   REPLIES
-========================================================= */
-
-export async function sendStoryReply(storyId: string, content: string): Promise<void> {
+export async function sendStoryReply(
+  storyId: string,
+  content: string,
+): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-
   await addDoc(STORY_COMMENTS, {
     story_id: storyId,
     user_id: user.uid,

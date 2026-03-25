@@ -1,10 +1,11 @@
-// app/create/community.tsx — REDESIGNED ✅ matches Twitter-style composer
-// ✅ uploadString base64 — Expo Go + Android content:// safe
+// app/create/community.tsx — UPDATED ✅ dark mode + LinearGradient + useTheme
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import {
   addDoc,
@@ -79,18 +80,14 @@ async function uploadCommunityImage(
   const extGuess = uri.split("?")[0]?.split(".").pop()?.toLowerCase();
   const ext = extGuess && extGuess.length <= 5 ? extGuess : "jpg";
   const path = `community/${userId}/${Date.now()}-${randomSuffix(8)}.${ext}`;
-
   const storage = getStorage();
   const fileRef = storageRef(storage, path);
-
-  // ✅ Copy content:// URIs first (Android), then upload as base64
   let readUri = uri;
   if (uri.startsWith("content://")) {
     const localPath = `${FileSystemLegacy.cacheDirectory}community-upload-${Date.now()}.${ext}`;
     await FileSystemLegacy.copyAsync({ from: uri, to: localPath });
     readUri = localPath;
   }
-
   const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
     encoding: "base64" as any,
   });
@@ -100,6 +97,7 @@ async function uploadCommunityImage(
 
 export default function CreateCommunityScreen() {
   const { profile } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -112,6 +110,10 @@ export default function CreateCommunityScreen() {
     () => name.trim().length >= 3 && !isSubmitting,
     [name, isSubmitting],
   );
+
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -142,11 +144,9 @@ export default function CreateCommunityScreen() {
       );
       return;
     }
-
     setIsSubmitting(true);
     try {
       const slug = await ensureUniqueSlug(slugify(trimmedName));
-
       let image_url: string | null = null;
       if (imageUri) {
         try {
@@ -158,7 +158,6 @@ export default function CreateCommunityScreen() {
           console.warn("Image upload skipped:", e);
         }
       }
-
       const ref = await addDoc(collection(db, "communities"), {
         name: trimmedName,
         slug,
@@ -170,14 +169,12 @@ export default function CreateCommunityScreen() {
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       });
-
       await addDoc(collection(db, "community_members"), {
         community_id: ref.id,
         user_id: auth.currentUser.uid,
         role: "owner",
         joined_at: serverTimestamp(),
       });
-
       router.replace(`/community/${slug}` as any);
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to create community.");
@@ -186,206 +183,295 @@ export default function CreateCommunityScreen() {
     }
   };
 
-  return (
-    <>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+  const content = (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["top", "left", "right"]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* Header */}
+        <View
+          style={[
+            styles.header,
+            {
+              borderBottomColor: colors.border,
+              backgroundColor: "transparent",
+            },
+          ]}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.cancelBtn}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.postBtn, !canSubmit && styles.postBtnDisabled]}
-              onPress={handleCreate}
-              disabled={!canSubmit}
-            >
-              <Text style={styles.postBtnText}>
-                {isSubmitting ? "Creating..." : "Create"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            style={styles.scroll}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.cancelBtn}
           >
-            {/* Composer row */}
-            <View style={styles.composerRow}>
-              {/* Avatar */}
-              <View style={styles.avatarCol}>
-                {profile?.avatar_url ? (
-                  <Image
-                    source={{ uri: profile.avatar_url }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={styles.avatarLetter}>{avatarLetter}</Text>
-                  </View>
-                )}
-                <View style={styles.avatarLine} />
-              </View>
+            <Text style={[styles.cancelText, { color: colors.text }]}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            New Community
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.createBtn,
+              {
+                backgroundColor: canSubmit
+                  ? colors.primary
+                  : colors.primary + "60",
+              },
+            ]}
+            onPress={handleCreate}
+            disabled={!canSubmit}
+          >
+            <Text style={styles.createBtnText}>
+              {isSubmitting ? "Creating..." : "Create"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-              {/* Name + description */}
-              <View style={styles.inputCol}>
-                <TextInput
-                  style={styles.nameInput}
-                  placeholder="Community name"
-                  placeholderTextColor="#9CA3AF"
-                  value={name}
-                  onChangeText={setName}
-                  autoFocus
-                  maxLength={50}
+        <ScrollView
+          style={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Composer row */}
+          <View style={styles.composerRow}>
+            <View style={styles.avatarCol}>
+              {profile?.avatar_url ? (
+                <Image
+                  source={{ uri: profile.avatar_url }}
+                  style={styles.avatar}
                 />
-                <TextInput
-                  style={styles.descInput}
-                  placeholder="What is this community about? (optional)"
-                  placeholderTextColor="#9CA3AF"
-                  value={description}
-                  onChangeText={setDescription}
-                  multiline
-                  maxLength={200}
-                />
-                {name.trim().length > 0 && (
-                  <Text style={styles.slugPreview}>
-                    nebulanet.space/community/{slugify(name)}
-                  </Text>
-                )}
-              </View>
+              ) : (
+                <View
+                  style={[
+                    styles.avatarFallback,
+                    { backgroundColor: colors.primary },
+                  ]}
+                >
+                  <Text style={styles.avatarLetter}>{avatarLetter}</Text>
+                </View>
+              )}
+              <View
+                style={[styles.avatarLine, { backgroundColor: colors.border }]}
+              />
             </View>
 
-            {/* Settings section */}
-            <View style={styles.settingsSection}>
-              <View style={styles.avatarColSpacer} />
-              <View style={styles.settingsCol}>
-                {/* Community image */}
-                <Text style={styles.sectionLabel}>Community image</Text>
+            <View style={styles.inputCol}>
+              <TextInput
+                style={[styles.nameInput, { color: colors.text }]}
+                placeholder="Community name"
+                placeholderTextColor={colors.textTertiary}
+                value={name}
+                onChangeText={setName}
+                autoFocus
+                maxLength={50}
+              />
+              <TextInput
+                style={[styles.descInput, { color: colors.text }]}
+                placeholder="What is this community about? (optional)"
+                placeholderTextColor={colors.textTertiary}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                maxLength={200}
+              />
+              {name.trim().length > 0 && (
+                <Text
+                  style={[styles.slugPreview, { color: colors.textTertiary }]}
+                >
+                  nebulanet.space/community/{slugify(name)}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* Settings */}
+          <View style={styles.settingsSection}>
+            <View style={styles.avatarColSpacer} />
+            <View style={styles.settingsCol}>
+              {/* Community image */}
+              <Text
+                style={[styles.sectionLabel, { color: colors.textTertiary }]}
+              >
+                Community image
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.imagePicker,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+                onPress={pickImage}
+                activeOpacity={0.8}
+              >
+                {imageUri ? (
+                  <>
+                    <Image
+                      source={{ uri: imageUri }}
+                      style={styles.imagePreview}
+                    />
+                    <View style={styles.imageOverlay}>
+                      <Ionicons name="camera" size={20} color="#fff" />
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <Ionicons
+                      name="image-outline"
+                      size={24}
+                      color={colors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.imagePlaceholderText,
+                        { color: colors.primary },
+                      ]}
+                    >
+                      Add image
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {/* Privacy */}
+              <Text
+                style={[
+                  styles.sectionLabel,
+                  { color: colors.textTertiary, marginTop: 20 },
+                ]}
+              >
+                Privacy
+              </Text>
+              <View
+                style={[
+                  styles.settingsCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
                 <TouchableOpacity
-                  style={styles.imagePicker}
-                  onPress={pickImage}
+                  style={styles.settingRow}
+                  onPress={() => setIsPrivate(false)}
                   activeOpacity={0.8}
                 >
-                  {imageUri ? (
-                    <>
-                      <Image
-                        source={{ uri: imageUri }}
-                        style={styles.imagePreview}
-                      />
-                      <View style={styles.imageOverlay}>
-                        <Ionicons name="camera" size={20} color="#fff" />
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.imagePlaceholder}>
-                      <Ionicons
-                        name="image-outline"
-                        size={24}
-                        color="#7C3AED"
-                      />
-                      <Text style={styles.imagePlaceholderText}>Add image</Text>
-                    </View>
+                  <View
+                    style={[
+                      styles.settingIconWrap,
+                      { backgroundColor: colors.primary + "18" },
+                    ]}
+                  >
+                    <Ionicons
+                      name="earth-outline"
+                      size={18}
+                      color={colors.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingTitle, { color: colors.text }]}>
+                      Public
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Anyone can see and join
+                    </Text>
+                  </View>
+                  {!isPrivate && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={22}
+                      color={colors.primary}
+                    />
                   )}
                 </TouchableOpacity>
 
-                {/* Privacy */}
-                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>
-                  Privacy
-                </Text>
-                <View style={styles.settingsCard}>
-                  <TouchableOpacity
-                    style={styles.settingRow}
-                    onPress={() => setIsPrivate(false)}
-                    activeOpacity={0.7}
+                <View
+                  style={[styles.divider, { backgroundColor: colors.border }]}
+                />
+
+                <TouchableOpacity
+                  style={styles.settingRow}
+                  onPress={() => setIsPrivate(true)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.settingIconWrap,
+                      { backgroundColor: colors.surface },
+                    ]}
                   >
-                    <View
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={18}
+                      color={colors.textTertiary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingTitle, { color: colors.text }]}>
+                      Private
+                    </Text>
+                    <Text
                       style={[
-                        styles.settingIconWrap,
-                        { backgroundColor: "#EDE9FE" },
+                        styles.settingSubtitle,
+                        { color: colors.textTertiary },
                       ]}
                     >
-                      <Ionicons
-                        name="earth-outline"
-                        size={18}
-                        color="#7C3AED"
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.settingTitle}>Public</Text>
-                      <Text style={styles.settingSubtitle}>
-                        Anyone can see and join
-                      </Text>
-                    </View>
-                    {!isPrivate && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color="#7C3AED"
-                      />
-                    )}
-                  </TouchableOpacity>
-
-                  <View style={styles.divider} />
-
-                  <TouchableOpacity
-                    style={styles.settingRow}
-                    onPress={() => setIsPrivate(true)}
-                    activeOpacity={0.7}
-                  >
-                    <View
-                      style={[
-                        styles.settingIconWrap,
-                        { backgroundColor: "#F3F4F6" },
-                      ]}
-                    >
-                      <Ionicons
-                        name="lock-closed-outline"
-                        size={18}
-                        color="#6B7280"
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.settingTitle}>Private</Text>
-                      <Text style={styles.settingSubtitle}>
-                        Content locked until user joins
-                      </Text>
-                    </View>
-                    {isPrivate && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color="#7C3AED"
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={styles.helperText}>
-                  You'll be the first member and moderator.
-                </Text>
-
-                <View style={{ height: 32 }} />
+                      Content locked until user joins
+                    </Text>
+                  </View>
+                  {isPrivate && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={22}
+                      color={colors.primary}
+                    />
+                  )}
+                </TouchableOpacity>
               </View>
+
+              <Text style={[styles.helperText, { color: colors.textTertiary }]}>
+                You'll be the first member and moderator.
+              </Text>
+              <View style={{ height: 40 }} />
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -393,21 +479,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
   },
-  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4 },
-  cancelText: { fontSize: 16, color: "#374151", fontWeight: "500" },
-  postBtn: {
-    backgroundColor: "#7C3AED",
+  headerTitle: { fontSize: 16, fontWeight: "800" },
+  cancelBtn: { paddingVertical: 6, paddingHorizontal: 4, minWidth: 60 },
+  cancelText: { fontSize: 16, fontWeight: "500" },
+  createBtn: {
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 999,
+    minWidth: 80,
+    alignItems: "center",
   },
-  postBtnDisabled: { backgroundColor: "#C4B5FD" },
-  postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-
+  createBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   scroll: { flex: 1 },
-
   composerRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -420,7 +504,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -429,33 +512,18 @@ const styles = StyleSheet.create({
     width: 2,
     flex: 1,
     minHeight: 20,
-    backgroundColor: "#E5E7EB",
     marginTop: 8,
     borderRadius: 1,
   },
-
   inputCol: { flex: 1, paddingBottom: 8 },
   nameInput: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111827",
     paddingTop: 0,
     marginBottom: 8,
   },
-  descInput: {
-    fontSize: 15,
-    color: "#374151",
-    lineHeight: 22,
-    minHeight: 60,
-    paddingTop: 0,
-  },
-  slugPreview: {
-    fontSize: 12,
-    color: "#9CA3AF",
-    marginTop: 6,
-    fontWeight: "500",
-  },
-
+  descInput: { fontSize: 15, lineHeight: 22, minHeight: 60, paddingTop: 0 },
+  slugPreview: { fontSize: 12, marginTop: 6, fontWeight: "500" },
   settingsSection: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -464,21 +532,14 @@ const styles = StyleSheet.create({
   },
   avatarColSpacer: { width: 44 },
   settingsCol: { flex: 1 },
-
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-    marginBottom: 10,
-  },
-
+  sectionLabel: { fontSize: 13, fontWeight: "700", marginBottom: 10 },
   imagePicker: {
     width: 80,
     height: 80,
     borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: "#F3F4F6",
-    position: "relative",
+    borderWidth: 1,
+    borderStyle: "dashed",
   },
   imagePreview: { width: "100%", height: "100%" },
   imageOverlay: {
@@ -493,23 +554,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderStyle: "dashed",
-    borderRadius: 20,
   },
-  imagePlaceholderText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#7C3AED",
-  },
-
-  settingsCard: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
+  imagePlaceholderText: { fontSize: 11, fontWeight: "600" },
+  settingsCard: { borderWidth: 1, borderRadius: 16, overflow: "hidden" },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -523,14 +570,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  settingTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  settingSubtitle: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
-  divider: { height: 1, backgroundColor: "#F3F4F6", marginHorizontal: 14 },
-
-  helperText: {
-    fontSize: 12,
-    color: "#9CA3AF",
-    marginTop: 12,
-    lineHeight: 16,
-  },
+  settingTitle: { fontSize: 14, fontWeight: "700" },
+  settingSubtitle: { fontSize: 12, marginTop: 2 },
+  divider: { height: 1, marginHorizontal: 14 },
+  helperText: { fontSize: 12, marginTop: 12, lineHeight: 16 },
 });

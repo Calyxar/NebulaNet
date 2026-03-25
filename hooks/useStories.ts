@@ -1,11 +1,14 @@
+// hooks/useStories.ts — UPDATED ✅ + useDeleteStory
+import { auth, db } from "@/lib/firebase";
 import {
-    fetchActiveStories,
-    fetchActiveStoriesByUser,
-    fetchStoryById,
-    markStorySeen,
-    type StoryRow,
+  fetchActiveStories,
+  fetchActiveStoriesByUser,
+  fetchStoryById,
+  markStorySeen,
+  type StoryRow,
 } from "@/lib/queries/stories";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { deleteDoc, doc } from "firebase/firestore";
 
 export const storyKeys = {
   all: ["stories"] as const,
@@ -49,6 +52,23 @@ export function useMarkStorySeen() {
     mutationFn: (storyId: string) => markStorySeen(storyId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: storyKeys.active() });
+    },
+  });
+}
+
+// ✅ Delete story — only works if current user owns it
+export function useDeleteStory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (storyId: string) => {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Not authenticated");
+      const storyRef = doc(db, "stories", storyId);
+      await deleteDoc(storyRef);
+    },
+    onSuccess: () => {
+      // Invalidate all story queries so home feed + profile update instantly
+      qc.invalidateQueries({ queryKey: storyKeys.all });
     },
   });
 }
