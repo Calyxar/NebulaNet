@@ -1,4 +1,5 @@
-// app/create/post.tsx — UPDATED ✅ inline hashtags (no chips)
+// app/create/post.tsx — UPDATED ✅ GIF picker wired in
+import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { createPost } from "@/lib/firestore/posts";
@@ -8,17 +9,29 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
 import {
-  Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
-  StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type MediaType = "image" | "video" | "gif";
 type Visibility = "public" | "followers" | "private";
+interface LocalMediaItem {
+  uri: string;
+  type: MediaType;
+}
 
-interface LocalMediaItem { uri: string; type: MediaType }
-
-const PickerMedia: any = (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
+const PickerMedia: any =
+  (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
 export default function CreatePostScreen() {
   const { user, profile } = useAuth();
@@ -31,9 +44,14 @@ export default function CreatePostScreen() {
   const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
   const [isPosting, setIsPosting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   const canPost = useMemo(
-    () => (title.trim().length > 0 || bodyText.trim().length > 0 || mediaItems.length > 0) && !isPosting,
+    () =>
+      (title.trim().length > 0 ||
+        bodyText.trim().length > 0 ||
+        mediaItems.length > 0) &&
+      !isPosting,
     [title, bodyText, mediaItems, isPosting],
   );
 
@@ -45,7 +63,10 @@ export default function CreatePostScreen() {
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission required", "We need photo library access to attach media.");
+      Alert.alert(
+        "Permission required",
+        "We need photo library access to attach media.",
+      );
       return false;
     }
     return true;
@@ -54,17 +75,26 @@ export default function CreatePostScreen() {
   const pickImages = async () => {
     if (!(await ensureLibraryPermission())) return;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: PickerMedia.Images, allowsMultipleSelection: true, selectionLimit: 4, quality: 0.9,
+      mediaTypes: PickerMedia.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 4,
+      quality: 0.9,
     });
     if (result.canceled || !result.assets?.length) return;
-    const picked: LocalMediaItem[] = result.assets.map((a) => ({ uri: a.uri, type: "image" as const }));
+    const picked: LocalMediaItem[] = result.assets.map((a) => ({
+      uri: a.uri,
+      type: "image" as const,
+    }));
     setMediaItems((prev) => [...prev, ...picked].slice(0, 4));
   };
 
   const pickVideos = async () => {
     if (!(await ensureLibraryPermission())) return;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: PickerMedia.Videos, selectionLimit: 1, quality: 1, videoMaxDuration: 60,
+      mediaTypes: PickerMedia.Videos,
+      selectionLimit: 1,
+      quality: 1,
+      videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.length) return;
     setMediaItems([{ uri: result.assets[0].uri, type: "video" as const }]);
@@ -72,24 +102,54 @@ export default function CreatePostScreen() {
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") { Alert.alert("Permission required", "We need camera access."); return; }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: PickerMedia.Images, quality: 0.9 });
+    if (status !== "granted") {
+      Alert.alert("Permission required", "We need camera access.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: PickerMedia.Images,
+      quality: 0.9,
+    });
     if (result.canceled || !result.assets?.length) return;
-    setMediaItems((prev) => [...prev, { uri: result.assets[0].uri, type: "image" as const }].slice(0, 4));
+    setMediaItems((prev) =>
+      [...prev, { uri: result.assets[0].uri, type: "image" as const }].slice(
+        0,
+        4,
+      ),
+    );
   };
 
-  const removeMedia = (index: number) => setMediaItems((prev) => prev.filter((_, i) => i !== index));
+  // ✅ GIF selected from Klipy — add as gif media item
+  const handleGifSelect = (url: string) => {
+    setMediaItems((prev) =>
+      [...prev, { uri: url, type: "gif" as const }].slice(0, 4),
+    );
+    setShowGifPicker(false);
+  };
+
+  const removeMedia = (index: number) =>
+    setMediaItems((prev) => prev.filter((_, i) => i !== index));
 
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
-    if (!user?.uid) { Alert.alert("Not logged in", "Please log in again."); return; }
+    if (!user?.uid) {
+      Alert.alert("Not logged in", "Please log in again.");
+      return;
+    }
     setIsPosting(true);
     try {
-      if (mediaItems.length > 0) setUploadProgress(`Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}...`);
+      if (mediaItems.length > 0)
+        setUploadProgress(
+          `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}...`,
+        );
       await createPost({
         title: title.trim() || undefined,
         content: bodyText.trim(),
-        media: mediaItems.map((m, i) => ({ id: `${Date.now()}_${i}`, uri: m.uri, type: m.type })) as any,
+        media: mediaItems.map((m, i) => ({
+          id: `${Date.now()}_${i}`,
+          uri: m.uri,
+          type: m.type,
+        })) as any,
         visibility,
       });
       router.back();
@@ -105,21 +165,36 @@ export default function CreatePostScreen() {
 
   return (
     <>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           {/* Header */}
           <View style={[styles.header, { backgroundColor: colors.background }]}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backBtn}
+            >
               <Ionicons name="arrow-back" size={22} color={colors.text} />
             </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Create Post</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              Create Post
+            </Text>
             <View style={{ width: 36 }} />
           </View>
 
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
+          <ScrollView
+            style={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {/* Main composer card */}
             <View style={[styles.card, { backgroundColor: colors.card }]}>
               <TextInput
@@ -143,7 +218,6 @@ export default function CreatePostScreen() {
                 maxLength={charLimit + 50}
               />
 
-              {/* ✅ Inline hashtags — no chips, just colored text */}
               {detectedHashtags.length > 0 && (
                 <Text style={[styles.hashtagInline, { color: colors.primary }]}>
                   {detectedHashtags.map((t) => `#${t}`).join("  ")}
@@ -154,14 +228,36 @@ export default function CreatePostScreen() {
               {mediaItems.length > 0 && (
                 <View style={styles.mediaGrid}>
                   {mediaItems.map((m, idx) => (
-                    <View key={`${m.uri}-${idx}`} style={[styles.mediaThumb, mediaItems.length === 1 && styles.mediaThumbFull]}>
-                      <Image source={{ uri: m.uri }} style={styles.mediaImage} />
+                    <View
+                      key={`${m.uri}-${idx}`}
+                      style={[
+                        styles.mediaThumb,
+                        mediaItems.length === 1 && styles.mediaThumbFull,
+                      ]}
+                    >
+                      <Image
+                        source={{ uri: m.uri }}
+                        style={styles.mediaImage}
+                      />
                       {m.type === "video" && (
                         <View style={styles.videoBadge}>
                           <Ionicons name="play-circle" size={28} color="#fff" />
                         </View>
                       )}
-                      <TouchableOpacity style={styles.removeBtn} onPress={() => removeMedia(idx)}>
+                      {m.type === "gif" && (
+                        <View
+                          style={[
+                            styles.gifBadge,
+                            { backgroundColor: colors.primary },
+                          ]}
+                        >
+                          <Text style={styles.gifBadgeText}>GIF</Text>
+                        </View>
+                      )}
+                      <TouchableOpacity
+                        style={styles.removeBtn}
+                        onPress={() => removeMedia(idx)}
+                      >
                         <Ionicons name="close-circle" size={22} color="#fff" />
                       </TouchableOpacity>
                     </View>
@@ -173,127 +269,365 @@ export default function CreatePostScreen() {
               <View style={[styles.toolbar, { borderTopColor: colors.border }]}>
                 <View style={styles.toolbarLeft}>
                   <TouchableOpacity style={styles.toolBtn} onPress={pickImages}>
-                    <Ionicons name="happy-outline" size={22} color={colors.textSecondary} />
+                    <Ionicons
+                      name="image-outline"
+                      size={22}
+                      color={colors.textSecondary}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.toolBtn} onPress={takePhoto}>
-                    <Ionicons name="camera-outline" size={22} color={colors.textSecondary} />
+                    <Ionicons
+                      name="camera-outline"
+                      size={22}
+                      color={colors.textSecondary}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.toolBtn} onPress={pickVideos}>
-                    <Ionicons name="musical-notes-outline" size={22} color={colors.textSecondary} />
+                    <Ionicons
+                      name="videocam-outline"
+                      size={22}
+                      color={colors.textSecondary}
+                    />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.toolBtn} onPress={pickImages}>
-                    <Ionicons name="image-outline" size={22} color={colors.textSecondary} />
+                  {/* ✅ GIF button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.toolBtn,
+                      styles.gifBtn,
+                      { borderColor: colors.primary + "50" },
+                    ]}
+                    onPress={() => setShowGifPicker(true)}
+                  >
+                    <Text
+                      style={[styles.gifBtnText, { color: colors.primary }]}
+                    >
+                      GIF
+                    </Text>
                   </TouchableOpacity>
                 </View>
                 <TouchableOpacity
                   style={[styles.communityPill, { borderColor: colors.border }]}
-                  onPress={() => Alert.alert("Communities", "Community selection coming soon.")}
+                  onPress={() =>
+                    Alert.alert(
+                      "Communities",
+                      "Community selection coming soon.",
+                    )
+                  }
                 >
-                  <Text style={[styles.communityPillText, { color: colors.textSecondary }]}>Community</Text>
+                  <Text
+                    style={[
+                      styles.communityPillText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Community
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Options */}
-            <View style={[styles.optionsCard, { backgroundColor: colors.card }]}>
+            <View
+              style={[styles.optionsCard, { backgroundColor: colors.card }]}
+            >
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                onPress={() => Alert.alert("Location", "Location feature coming soon.")}
+                onPress={() =>
+                  Alert.alert("Location", "Location feature coming soon.")
+                }
               >
-                <View style={[styles.optionIcon, { backgroundColor: colors.primary + "18" }]}>
-                  <Ionicons name="location-outline" size={18} color={colors.primary} />
+                <View
+                  style={[
+                    styles.optionIcon,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  <Ionicons
+                    name="location-outline"
+                    size={18}
+                    color={colors.primary}
+                  />
                 </View>
-                <Text style={[styles.optionLabel, { color: colors.text }]}>Add Location</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                <Text style={[styles.optionLabel, { color: colors.text }]}>
+                  Add Location
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                onPress={() => setVisibility((v) => v === "public" ? "followers" : v === "followers" ? "private" : "public")}
+                onPress={() =>
+                  setVisibility((v) =>
+                    v === "public"
+                      ? "followers"
+                      : v === "followers"
+                        ? "private"
+                        : "public",
+                  )
+                }
               >
-                <View style={[styles.optionIcon, { backgroundColor: colors.primary + "18" }]}>
-                  <Ionicons name="lock-open-outline" size={18} color={colors.primary} />
+                <View
+                  style={[
+                    styles.optionIcon,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-open-outline"
+                    size={18}
+                    color={colors.primary}
+                  />
                 </View>
                 <Text style={[styles.optionLabel, { color: colors.text }]}>
-                  {visibility === "public" ? "Share Post to Public" : visibility === "followers" ? "Share with Followers" : "Only Me"}
+                  {visibility === "public"
+                    ? "Share Post to Public"
+                    : visibility === "followers"
+                      ? "Share with Followers"
+                      : "Only Me"}
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.optionRow}
-                onPress={() => Alert.alert("Boost", "Finish writing your post first, then boost after publishing.")}
+                onPress={() =>
+                  Alert.alert(
+                    "Boost",
+                    "Finish writing your post first, then boost after publishing.",
+                  )
+                }
               >
-                <View style={[styles.optionIcon, { backgroundColor: colors.primary + "18" }]}>
-                  <Ionicons name="rocket-outline" size={18} color={colors.primary} />
+                <View
+                  style={[
+                    styles.optionIcon,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  <Ionicons
+                    name="rocket-outline"
+                    size={18}
+                    color={colors.primary}
+                  />
                 </View>
-                <Text style={[styles.optionLabel, { color: colors.text }]}>Boost Post</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                <Text style={[styles.optionLabel, { color: colors.text }]}>
+                  Boost Post
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
             </View>
 
             {uploadProgress !== "" && (
-              <Text style={[styles.uploadProgress, { color: colors.textSecondary }]}>{uploadProgress}</Text>
+              <Text
+                style={[styles.uploadProgress, { color: colors.textSecondary }]}
+              >
+                {uploadProgress}
+              </Text>
             )}
 
             <View style={{ height: 120 }} />
           </ScrollView>
 
           {/* Bottom buttons */}
-          <View style={[styles.bottomBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                backgroundColor: colors.background,
+                borderTopColor: colors.border,
+              },
+            ]}
+          >
             <TouchableOpacity
-              style={[styles.draftBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
-              onPress={() => Alert.alert("Drafts", "Save as draft coming soon.")}
+              style={[
+                styles.draftBtn,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+              onPress={() =>
+                Alert.alert("Drafts", "Save as draft coming soon.")
+              }
               disabled={isPosting}
             >
-              <Text style={[styles.draftBtnText, { color: colors.text }]}>Save as Draft</Text>
+              <Text style={[styles.draftBtnText, { color: colors.text }]}>
+                Save as Draft
+              </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
-              style={[styles.postBtn, (!canPost || isOverLimit) && styles.postBtnDisabled]}
+              style={[
+                styles.postBtn,
+                (!canPost || isOverLimit) && styles.postBtnDisabled,
+              ]}
               onPress={handlePost}
               disabled={!canPost || isOverLimit || isPosting}
             >
-              <Text style={styles.postBtnText}>{isPosting ? "Posting..." : "Post"}</Text>
+              <Text style={styles.postBtnText}>
+                {isPosting ? "Posting..." : "Post"}
+              </Text>
             </TouchableOpacity>
           </View>
-
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* ✅ GIF Picker modal */}
+      <GifPicker
+        visible={showGifPicker}
+        onSelect={handleGifSelect}
+        onClose={() => setShowGifPicker(false)}
+      />
     </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: { fontSize: 18, fontWeight: "700" },
   scroll: { flex: 1, paddingHorizontal: 16 },
   card: { borderRadius: 16, padding: 16, marginBottom: 12, marginTop: 8 },
-  titleInput: { fontSize: 18, fontWeight: "700", paddingVertical: 8, marginBottom: 4 },
+  titleInput: {
+    fontSize: 18,
+    fontWeight: "700",
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
   bodyInput: { fontSize: 15, lineHeight: 22, minHeight: 100, paddingTop: 4 },
-  hashtagInline: { fontSize: 13, fontWeight: "600", marginTop: 6, lineHeight: 18, letterSpacing: 0.2 },
+  hashtagInline: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 6,
+    lineHeight: 18,
+    letterSpacing: 0.2,
+  },
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 12 },
-  mediaThumb: { width: "48%", height: 120, borderRadius: 10, overflow: "hidden", position: "relative" },
+  mediaThumb: {
+    width: "48%",
+    height: 120,
+    borderRadius: 10,
+    overflow: "hidden",
+    position: "relative",
+  },
   mediaThumbFull: { width: "100%", height: 200 },
   mediaImage: { width: "100%", height: "100%" },
-  videoBadge: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.3)" },
+  videoBadge: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  gifBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  gifBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
   removeBtn: { position: "absolute", top: 6, right: 6 },
-  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 12, borderTopWidth: 1 },
-  toolbarLeft: { flexDirection: "row", gap: 4 },
-  toolBtn: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
-  communityPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 },
+  toolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  toolbarLeft: { flexDirection: "row", gap: 4, alignItems: "center" },
+  toolBtn: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gifBtn: { borderWidth: 1, borderRadius: 8, width: 42, height: 30 },
+  gifBtnText: { fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
+  communityPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
   communityPillText: { fontSize: 13, fontWeight: "500" },
-  optionsCard: { borderRadius: 16, paddingHorizontal: 16, marginBottom: 12, overflow: "hidden" },
-  optionRow: { flexDirection: "row", alignItems: "center", paddingVertical: 14, gap: 12, borderBottomWidth: 1 },
-  optionIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  optionsCard: {
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  optionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+  },
+  optionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   optionLabel: { flex: 1, fontSize: 15, fontWeight: "500" },
-  uploadProgress: { textAlign: "center", fontSize: 13, marginBottom: 8, fontWeight: "500" },
-  bottomBar: { flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 24, borderTopWidth: 1 },
-  draftBtn: { flex: 1, paddingVertical: 16, borderRadius: 999, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  uploadProgress: {
+    textAlign: "center",
+    fontSize: 13,
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  bottomBar: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+  },
+  draftBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
   draftBtnText: { fontSize: 15, fontWeight: "700" },
-  postBtn: { flex: 1, paddingVertical: 16, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "#7C3AED" },
+  postBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7C3AED",
+  },
   postBtnDisabled: { opacity: 0.5 },
   postBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });
