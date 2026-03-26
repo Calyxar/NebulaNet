@@ -1,4 +1,6 @@
-// app/(auth)/login.tsx — COMPLETED + UPDATED ✅
+// app/(auth)/login.tsx — UPDATED ✅ phone OTP working
+import { usePhoneAuth } from "@/hooks/usePhoneAuth";
+import { firebaseConfig } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,8 +8,9 @@ import {
   GoogleSignin,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { Link, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -22,45 +25,73 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// ✅ Configure Google Sign-In once on module load
 GoogleSignin.configure({
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
   offlineAccess: false,
   forceCodeForRefreshToken: false,
 });
 
+// Country codes list (expand as needed)
+const COUNTRY_CODES = [
+  { flag: "🇺🇸", code: "+1", label: "US" },
+  { flag: "🇬🇧", code: "+44", label: "UK" },
+  { flag: "🇨🇦", code: "+1", label: "CA" },
+  { flag: "🇦🇺", code: "+61", label: "AU" },
+  { flag: "🇩🇪", code: "+49", label: "DE" },
+  { flag: "🇫🇷", code: "+33", label: "FR" },
+  { flag: "🇮🇳", code: "+91", label: "IN" },
+  { flag: "🇧🇷", code: "+55", label: "BR" },
+  { flag: "🇲🇽", code: "+52", label: "MX" },
+  { flag: "🇳🇬", code: "+234", label: "NG" },
+];
+
 export default function LoginScreen() {
   const { user, isLoading: authLoading, login, googleLogin } = useAuth();
   const { colors, isDark } = useTheme();
+  const { sendOTP, state: phoneState, error: phoneError } = usePhoneAuth();
 
+  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null);
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState(COUNTRY_CODES[0]);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sign out of Google on mount to force account picker each time
   useEffect(() => {
     GoogleSignin.signOut().catch(() => {});
   }, []);
+  useEffect(() => {
+    if (phoneError) Alert.alert("Error", phoneError);
+  }, [phoneError]);
 
   const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-  const validatePhone = (v: string) =>
-    /^[\+]?[1-9][\d]{0,17}$/.test(v.replace(/\D/g, ""));
 
   const handleLogin = async () => {
     if (user) return;
-    if (activeTab === "email" && !validateEmail(email)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address");
-      return;
-    }
+
     if (activeTab === "phone") {
-      if (!validatePhone(phone)) {
-        Alert.alert("Invalid Phone", "Please enter a valid phone number");
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 7) {
+        Alert.alert("Invalid number", "Enter a valid phone number.");
         return;
       }
-      Alert.alert("Not supported yet", "Use email login for now.");
+      const fullNumber = `${selectedCountry.code}${digits}`;
+      if (!recaptchaRef.current) return;
+      const ok = await sendOTP(fullNumber, recaptchaRef.current);
+      if (ok) {
+        router.push({
+          pathname: "/(auth)/phone-otp",
+          params: { phoneNumber: fullNumber },
+        } as any);
+      }
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
     if (!password) {
@@ -84,8 +115,8 @@ export default function LoginScreen() {
       }
     } catch (error: any) {
       const lower = (error?.message || "").toLowerCase();
-      let title = "Login Failed";
-      let message = error?.message || "Login failed";
+      let title = "Login Failed",
+        message = error?.message || "Login failed";
       if (
         lower.includes("auth/wrong-password") ||
         lower.includes("auth/invalid-credential")
@@ -94,13 +125,10 @@ export default function LoginScreen() {
         message = "The email or password you entered is incorrect.";
       } else if (lower.includes("auth/user-not-found")) {
         title = "Account Not Found";
-        message = "No account found for this email. Please sign up.";
+        message = "No account found for this email.";
       } else if (lower.includes("auth/too-many-requests")) {
         title = "Too Many Attempts";
-        message = "Too many failed attempts. Please wait and try again.";
-      } else if (lower.includes("auth/invalid-email")) {
-        title = "Invalid Email";
-        message = "Please enter a valid email address.";
+        message = "Too many failed attempts. Please wait.";
       }
       Alert.alert(title, message);
     } finally {
@@ -116,18 +144,14 @@ export default function LoginScreen() {
         showPlayServicesUpdateDialog: true,
       });
       const signInResult = await GoogleSignin.signIn();
-
-      // ✅ Support both old and new SDK response shapes
       const idToken =
         (signInResult as any).data?.idToken ??
         (signInResult as any).idToken ??
         null;
-
       if (!idToken) {
-        Alert.alert("Google Login Failed", "No ID token received from Google.");
+        Alert.alert("Google Login Failed", "No ID token received.");
         return;
       }
-
       await googleLogin.mutateAsync({ idToken });
     } catch (error: any) {
       if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
@@ -136,15 +160,22 @@ export default function LoginScreen() {
         Alert.alert("Error", "Google Play Services not available.");
         return;
       }
-      const msg = error?.message || "Unable to sign in with Google.";
-      Alert.alert("Google Login Failed", msg);
+      Alert.alert(
+        "Google Login Failed",
+        error?.message || "Unable to sign in with Google.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const isSendingOTP = phoneState === "sending";
   const disabled =
-    isSubmitting || authLoading || login.isPending || googleLogin.isPending;
+    isSubmitting ||
+    authLoading ||
+    login.isPending ||
+    googleLogin.isPending ||
+    isSendingOTP;
 
   return (
     <>
@@ -152,6 +183,16 @@ export default function LoginScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
+
+      {/* ✅ RecaptchaVerifier — invisible, required for phone auth */}
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaRef}
+        firebaseConfig={firebaseConfig}
+        attemptInvisibleVerification
+        title="Verify you are human"
+        cancelLabel="Cancel"
+      />
+
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
       >
@@ -205,8 +246,8 @@ export default function LoginScreen() {
               ))}
             </View>
 
-            {/* Email / Phone input */}
-            {activeTab === "email" ? (
+            {/* Email input */}
+            {activeTab === "email" && (
               <View
                 style={[
                   styles.inputContainer,
@@ -224,86 +265,142 @@ export default function LoginScreen() {
                   editable={!disabled}
                 />
               </View>
-            ) : (
-              <View
-                style={[
-                  styles.phoneInputContainer,
-                  { backgroundColor: colors.card },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.countrySelector,
-                    { borderRightColor: colors.border },
-                  ]}
-                >
-                  <Text style={styles.flagEmoji}>🇺🇸</Text>
-                  <Text style={[styles.countryCode, { color: colors.text }]}>
-                    +1
-                  </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={16}
-                    color={colors.textTertiary}
-                  />
-                </View>
-                <TextInput
-                  style={[styles.phoneInput, { color: colors.text }]}
-                  placeholder="882 9983 2233"
-                  placeholderTextColor={colors.placeholder}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  editable={!disabled}
-                />
-              </View>
             )}
 
-            {/* Password */}
-            <View style={styles.passwordContainer}>
-              <View
-                style={[styles.inputWrapper, { backgroundColor: colors.card }]}
-              >
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={20}
-                  color={colors.textTertiary}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={[styles.passwordInputField, { color: colors.text }]}
-                  placeholder="Password"
-                  placeholderTextColor={colors.placeholder}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  editable={!disabled}
-                />
+            {/* Phone input */}
+            {activeTab === "phone" && (
+              <>
+                <View
+                  style={[
+                    styles.phoneInputContainer,
+                    { backgroundColor: colors.card },
+                  ]}
+                >
+                  {/* Country picker trigger */}
+                  <TouchableOpacity
+                    style={[
+                      styles.countrySelector,
+                      { borderRightColor: colors.border },
+                    ]}
+                    onPress={() => setShowCountryPicker(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.flagEmoji}>{selectedCountry.flag}</Text>
+                    <Text style={[styles.countryCode, { color: colors.text }]}>
+                      {selectedCountry.code}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={14}
+                      color={colors.textTertiary}
+                    />
+                  </TouchableOpacity>
+                  <TextInput
+                    style={[styles.phoneInput, { color: colors.text }]}
+                    placeholder="Phone number"
+                    placeholderTextColor={colors.placeholder}
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                    editable={!disabled}
+                  />
+                </View>
+                {/* Country picker dropdown */}
+                {showCountryPicker && (
+                  <View
+                    style={[
+                      styles.countryDropdown,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    {COUNTRY_CODES.map((c) => (
+                      <TouchableOpacity
+                        key={c.label}
+                        style={[
+                          styles.countryOption,
+                          { borderBottomColor: colors.border },
+                        ]}
+                        onPress={() => {
+                          setSelectedCountry(c);
+                          setShowCountryPicker(false);
+                        }}
+                      >
+                        <Text style={styles.flagEmoji}>{c.flag}</Text>
+                        <Text
+                          style={[
+                            styles.countryOptionText,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {c.label} {c.code}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* Password (email only) */}
+            {activeTab === "email" && (
+              <>
+                <View style={styles.passwordContainer}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      { backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={20}
+                      color={colors.textTertiary}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={[
+                        styles.passwordInputField,
+                        { color: colors.text },
+                      ]}
+                      placeholder="Password"
+                      placeholderTextColor={colors.placeholder}
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      editable={!disabled}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      disabled={disabled}
+                    >
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={20}
+                        color={colors.textTertiary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
                 <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.forgotPassword}
+                  onPress={() => router.push("/(auth)/forgot-password")}
                   disabled={disabled}
                 >
-                  <Ionicons
-                    name={showPassword ? "eye-off-outline" : "eye-outline"}
-                    size={20}
-                    color={colors.textTertiary}
-                  />
+                  <Text
+                    style={[
+                      styles.forgotPasswordText,
+                      { color: colors.primary },
+                    ]}
+                  >
+                    Forgot Password?
+                  </Text>
                 </TouchableOpacity>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.forgotPassword}
-              onPress={() => router.push("/(auth)/forgot-password")}
-              disabled={disabled}
-            >
-              <Text
-                style={[styles.forgotPasswordText, { color: colors.primary }]}
-              >
-                Forgot Password?
-              </Text>
-            </TouchableOpacity>
+              </>
+            )}
 
             <TouchableOpacity
               style={[styles.loginButton, { backgroundColor: colors.primary }]}
@@ -312,7 +409,13 @@ export default function LoginScreen() {
               activeOpacity={0.9}
             >
               <Text style={styles.loginButtonText}>
-                {disabled ? "Signing in..." : "Continue"}
+                {isSendingOTP
+                  ? "Sending code..."
+                  : disabled
+                    ? "Signing in..."
+                    : activeTab === "phone"
+                      ? "Send Code"
+                      : "Continue"}
               </Text>
             </TouchableOpacity>
 
@@ -398,7 +501,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 8,
   },
   countrySelector: {
     flexDirection: "row",
@@ -406,10 +509,26 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     borderRightWidth: 1,
     marginRight: 12,
+    gap: 4,
   },
-  flagEmoji: { fontSize: 20, marginRight: 6 },
-  countryCode: { fontSize: 16, fontWeight: "500", marginRight: 4 },
+  flagEmoji: { fontSize: 20 },
+  countryCode: { fontSize: 15, fontWeight: "600" },
   phoneInput: { flex: 1, fontSize: 16, padding: 0 },
+  countryDropdown: {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  countryOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  countryOptionText: { fontSize: 14, fontWeight: "500" },
   passwordContainer: { marginBottom: 8 },
   inputWrapper: {
     flexDirection: "row",
@@ -444,10 +563,6 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 2,
   },
   signupContainer: {
