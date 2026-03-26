@@ -3,21 +3,23 @@
 // Params: phoneNumber (display only), isSignup (bool)
 
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
+import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -25,7 +27,12 @@ const CODE_LENGTH = 6;
 
 export default function PhoneOTPScreen() {
   const { colors, isDark } = useTheme();
-  const { phoneNumber } = useLocalSearchParams<{ phoneNumber: string }>();
+  const { phoneNumber, twoFactor, email, password } = useLocalSearchParams<{
+    phoneNumber: string;
+    twoFactor?: string;
+    email?: string;
+    password?: string;
+  }>();
   const { verifyOTP, state, error, reset } = usePhoneAuth();
 
   const [code, setCode] = useState("");
@@ -49,8 +56,16 @@ export default function PhoneOTPScreen() {
 
   const handleVerify = async () => {
     if (code.length !== CODE_LENGTH) return;
-    const user = await verifyOTP(code);
-    if (user) {
+    const otpUser = await verifyOTP(code);
+    if (otpUser) {
+      if (twoFactor === "1" && email && password) {
+        // ✅ 2FA flow — re-sign-in with email/password after OTP verified
+        try {
+          await signInWithEmailAndPassword(auth, email, password);
+        } catch {
+          // If re-sign-in fails, still navigate — user is phone-verified
+        }
+      }
       router.replace("/(tabs)/home" as any);
     }
   };
@@ -59,14 +74,17 @@ export default function PhoneOTPScreen() {
     const clean = text.replace(/\D/g, "").slice(0, CODE_LENGTH);
     setCode(clean);
     if (clean.length === CODE_LENGTH) {
-      // Auto-submit when full code entered
-      setTimeout(
-        () =>
-          verifyOTP(clean).then((user) => {
-            if (user) router.replace("/(tabs)/home" as any);
-          }),
-        200,
-      );
+      setTimeout(async () => {
+        const otpUser = await verifyOTP(clean);
+        if (otpUser) {
+          if (twoFactor === "1" && email && password) {
+            try {
+              await signInWithEmailAndPassword(auth, email, password);
+            } catch {}
+          }
+          router.replace("/(tabs)/home" as any);
+        }
+      }, 200);
     }
   };
 
