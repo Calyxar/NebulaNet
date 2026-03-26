@@ -1,4 +1,4 @@
-// app/story/[id].tsx — FIREBASE ✅ COMPLETED + REWRITTEN
+// app/story/[id].tsx — UPDATED ✅ delete story button added for owner
 // ✅ Multi-segment progress bars — one per story in the user's active set
 // ✅ Smooth JS-driven progress (50ms tick, pause-safe elapsed tracking)
 // ✅ Pause on press-and-hold (both nav zones), resume on release
@@ -12,8 +12,10 @@
 // ✅ sendStoryReply connected to Firestore
 // ✅ markStorySeen called on every story index change
 // ✅ ReturnType<typeof setInterval> — no NodeJS.Timeout
+// ✅ Delete story — owner only, with confirmation alert
 
 import HashtagText from "@/components/post/HashtagText";
+import { useDeleteStory } from "@/hooks/useStories";
 import { auth } from "@/lib/firebase";
 import {
   fetchActiveStoriesByUser,
@@ -59,7 +61,6 @@ const { width: W, height: H } = Dimensions.get("window");
 const IMAGE_DURATION_MS = 6000;
 const TICK_MS = 50;
 
-// Gradient palettes for text stories — picked deterministically from story ID
 const TEXT_GRADIENTS: [string, string][] = [
   ["#667eea", "#764ba2"],
   ["#f093fb", "#f5576c"],
@@ -133,19 +134,14 @@ function SeenViewersSheet({
       visible={visible}
       onRequestClose={onClose}
     >
-      {/* Dim backdrop */}
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-
       <Animated.View
         style={[
           styles.sheetContainer,
           { paddingBottom: insetBottom + 16, transform: [{ translateY }] },
         ]}
       >
-        {/* Handle */}
         <View style={styles.sheetHandle} />
-
-        {/* Title */}
         <View style={styles.sheetHeader}>
           <Ionicons name="eye-outline" size={18} color="#fff" />
           <Text style={styles.sheetTitle}>
@@ -154,7 +150,6 @@ function SeenViewersSheet({
               : `${viewers.length} viewer${viewers.length !== 1 ? "s" : ""}`}
           </Text>
         </View>
-
         {loading ? (
           <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
         ) : viewers.length === 0 ? (
@@ -211,42 +206,32 @@ export default function StoryViewerScreen() {
   const storyId = typeof id === "string" ? id.trim() : null;
   const insets = useSafeAreaInsets();
 
-  /* ---------- data state ---------- */
+  const deleteStory = useDeleteStory();
+
   const [loading, setLoading] = useState(true);
   const [stories, setStories] = useState<StoryRow[]>([]);
   const [index, setIndex] = useState(0);
 
-  /* ---------- progress state ---------- */
-  const [segmentProgress, setSegmentProgress] = useState(0); // 0 to 1
+  const [segmentProgress, setSegmentProgress] = useState(0);
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
   const durationRef = useRef(IMAGE_DURATION_MS);
   const lastTickRef = useRef(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /* ---------- video state ---------- */
   const [muted, setMuted] = useState(true);
   const videoDurationRef = useRef<number | null>(null);
 
-  /* ---------- reply state ---------- */
   const [reply, setReply] = useState("");
   const [isSending, setIsSending] = useState(false);
   const replyRef = useRef<TextInput>(null);
 
-  /* ---------- owner / seen viewers ---------- */
   const [isOwner, setIsOwner] = useState(false);
   const [seenOpen, setSeenOpen] = useState(false);
   const [seenLoading, setSeenLoading] = useState(false);
   const [seenViewers, setSeenViewers] = useState<StorySeenViewer[]>([]);
 
   const current = stories[index] ?? null;
-
-  /* =========================
-     PROGRESS TICK
-     Single interval runs for the lifetime of the screen.
-     It reads pausedRef and elapsedRef so it doesn't need to
-     restart on pause/resume — just skips ticking while paused.
-  ========================= */
 
   const stopTick = useCallback(() => {
     if (tickRef.current) {
@@ -258,46 +243,33 @@ export default function StoryViewerScreen() {
   const startTick = useCallback(() => {
     stopTick();
     lastTickRef.current = Date.now();
-
     tickRef.current = setInterval(() => {
       if (pausedRef.current) {
-        // Don't advance, but update lastTick so resume doesn't jump
         lastTickRef.current = Date.now();
         return;
       }
-
       const now = Date.now();
       const delta = now - lastTickRef.current;
       lastTickRef.current = now;
-
       elapsedRef.current = Math.min(
         elapsedRef.current + delta,
         durationRef.current,
       );
-
       const pct = elapsedRef.current / durationRef.current;
       setSegmentProgress(pct);
-
       if (pct >= 1) {
         stopTick();
-        // goNext is defined below — we use a ref to avoid stale closure
         goNextRef.current?.();
       }
     }, TICK_MS);
   }, [stopTick]);
 
-  /* =========================
-     NAVIGATION
-  ========================= */
-
-  // Use a ref so startTick's interval closure can call goNext without stale capture
   const goNextRef = useRef<(() => void) | null>(null);
 
   const goNext = useCallback(() => {
     stopTick();
     setSegmentProgress(0);
     elapsedRef.current = 0;
-
     setIndex((i) => {
       if (i + 1 >= stories.length) {
         router.back();
@@ -314,51 +286,36 @@ export default function StoryViewerScreen() {
     setIndex((i) => Math.max(0, i - 1));
   }, [stopTick]);
 
-  // Keep goNextRef current
   useEffect(() => {
     goNextRef.current = goNext;
   }, [goNext]);
 
-  /* =========================
-     PRESS TO PAUSE / RESUME
-  ========================= */
-
   const handlePressIn = useCallback(() => {
     pausedRef.current = true;
   }, []);
-
   const handlePressOut = useCallback(() => {
     pausedRef.current = false;
-    lastTickRef.current = Date.now(); // prevent elapsed jump
+    lastTickRef.current = Date.now();
   }, []);
-
-  /* =========================
-     LOAD STORIES ON MOUNT
-  ========================= */
 
   useEffect(() => {
     let mounted = true;
-
     const load = async () => {
       if (!storyId) {
         Alert.alert("Invalid story");
         router.back();
         return;
       }
-
       try {
         setLoading(true);
         const story = await fetchStoryById(storyId);
-
         if (!story) {
           Alert.alert("Story not found");
           router.back();
           return;
         }
-
         const list = await fetchActiveStoriesByUser(story.user_id);
         if (!mounted) return;
-
         const idx = list.findIndex((s) => s.id === story.id);
         setStories(list);
         setIndex(idx >= 0 ? idx : 0);
@@ -370,7 +327,6 @@ export default function StoryViewerScreen() {
         if (mounted) setLoading(false);
       }
     };
-
     load();
     return () => {
       mounted = false;
@@ -378,35 +334,49 @@ export default function StoryViewerScreen() {
     };
   }, [storyId, stopTick]);
 
-  /* =========================
-     ON STORY INDEX CHANGE
-  ========================= */
-
   useEffect(() => {
     if (!current) return;
-
-    // Mark seen
     markStorySeen(current.id).catch(() => {});
-
-    // Reset progress
     elapsedRef.current = 0;
     videoDurationRef.current = null;
     setSegmentProgress(0);
     pausedRef.current = false;
-
-    // Images: start immediately. Videos: wait for onLoad to set duration.
     if (current.media_type !== "video") {
       durationRef.current = IMAGE_DURATION_MS;
       startTick();
     }
-    // For video: startTick is called in onLoad handler below
-
     return stopTick;
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* =========================
-     SEEN VIEWERS
-  ========================= */
+  // ✅ Delete story handler
+  const handleDelete = useCallback(() => {
+    if (!current) return;
+    pausedRef.current = true;
+    Alert.alert("Delete story?", "This story will be permanently deleted.", [
+      {
+        text: "Cancel",
+        style: "cancel",
+        onPress: () => {
+          pausedRef.current = false;
+          lastTickRef.current = Date.now();
+        },
+      },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteStory.mutateAsync(current.id);
+            router.back();
+          } catch (e: any) {
+            Alert.alert("Error", e?.message || "Failed to delete story.");
+            pausedRef.current = false;
+            lastTickRef.current = Date.now();
+          }
+        },
+      },
+    ]);
+  }, [current, deleteStory]);
 
   const openSeen = async () => {
     if (!current || !isOwner) return;
@@ -422,10 +392,6 @@ export default function StoryViewerScreen() {
     }
   };
 
-  /* =========================
-     REPLY
-  ========================= */
-
   const handleSendReply = async () => {
     if (!current || !reply.trim() || isSending) return;
     const text = reply.trim();
@@ -434,7 +400,7 @@ export default function StoryViewerScreen() {
       await sendStoryReply(current.id, text);
       setReply("");
     } catch {
-      // silent
+      /* silent */
     } finally {
       setIsSending(false);
     }
@@ -445,13 +411,9 @@ export default function StoryViewerScreen() {
     try {
       await sendStoryReply(current.id, emoji);
     } catch {
-      // silent
+      /* silent */
     }
   };
-
-  /* =========================
-     VIDEO ON LOAD
-  ========================= */
 
   const handleVideoLoad = useCallback(
     (status: any) => {
@@ -469,10 +431,6 @@ export default function StoryViewerScreen() {
     [startTick],
   );
 
-  /* =========================
-     LOADING SCREEN
-  ========================= */
-
   if (loading || !current) {
     return (
       <View style={styles.loadingScreen}>
@@ -488,12 +446,7 @@ export default function StoryViewerScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* =========================
-          FULL-SCREEN MEDIA or TEXT STORY
-      ========================= */}
-
       {isTextStory ? (
-        // Text story: full-screen gradient with centered text
         <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill}>
           <View style={styles.textStoryContent}>
             {current.caption ? (
@@ -525,7 +478,6 @@ export default function StoryViewerScreen() {
         />
       )}
 
-      {/* Dark gradient overlay — top and bottom for readability */}
       <LinearGradient
         colors={[
           "rgba(0,0,0,0.55)",
@@ -537,10 +489,6 @@ export default function StoryViewerScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-
-      {/* =========================
-          CAPTION OVERLAY (image/video stories only)
-      ========================= */}
 
       {!isTextStory && !!current.caption && (
         <View
@@ -554,10 +502,6 @@ export default function StoryViewerScreen() {
           />
         </View>
       )}
-
-      {/* =========================
-          SAFE AREA CHROME (progress bars + header)
-      ========================= */}
 
       <SafeAreaView style={styles.chrome} edges={["top", "left", "right"]}>
         {/* Progress bars */}
@@ -576,7 +520,6 @@ export default function StoryViewerScreen() {
 
         {/* Header */}
         <View style={styles.header}>
-          {/* Avatar */}
           <TouchableOpacity
             style={styles.avatarWrap}
             activeOpacity={0.85}
@@ -602,7 +545,6 @@ export default function StoryViewerScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Name + time */}
           <View style={styles.nameBlock}>
             <Text style={styles.displayName} numberOfLines={1}>
               {displayName}
@@ -610,7 +552,6 @@ export default function StoryViewerScreen() {
             <Text style={styles.timeAgo}>{timeAgo(current.created_at)}</Text>
           </View>
 
-          {/* Right actions */}
           <View style={styles.headerActions}>
             {/* Seen count — owner only */}
             {isOwner && (
@@ -620,6 +561,22 @@ export default function StoryViewerScreen() {
                 activeOpacity={0.85}
               >
                 <Ionicons name="eye-outline" size={22} color="#fff" />
+              </TouchableOpacity>
+            )}
+
+            {/* ✅ Delete button — owner only */}
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.headerBtn}
+                onPress={handleDelete}
+                disabled={deleteStory.isPending}
+                activeOpacity={0.85}
+              >
+                {deleteStory.isPending ? (
+                  <ActivityIndicator size={18} color="#fff" />
+                ) : (
+                  <Ionicons name="trash-outline" size={22} color="#fff" />
+                )}
               </TouchableOpacity>
             )}
 
@@ -650,13 +607,6 @@ export default function StoryViewerScreen() {
         </View>
       </SafeAreaView>
 
-      {/* =========================
-          TAP / HOLD NAVIGATION ZONES
-          Left 30% = prev, Right 70% = next
-          onPressIn pauses, onPressOut resumes
-          onPress navigates
-      ========================= */}
-
       <Pressable
         style={[styles.tapZone, styles.tapZoneLeft]}
         onPressIn={handlePressIn}
@@ -670,10 +620,6 @@ export default function StoryViewerScreen() {
         onPress={goNext}
       />
 
-      {/* =========================
-          REPLY INPUT + QUICK REACTIONS
-      ========================= */}
-
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.replyKAV}
@@ -685,7 +631,6 @@ export default function StoryViewerScreen() {
             { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
           ]}
         >
-          {/* Quick reactions */}
           <View style={styles.reactionsRow}>
             {["❤️", "😂", "😮", "😢", "👏"].map((emoji) => (
               <TouchableOpacity
@@ -699,8 +644,6 @@ export default function StoryViewerScreen() {
               </TouchableOpacity>
             ))}
           </View>
-
-          {/* Text input row */}
           <View style={styles.replyInputRow}>
             <TextInput
               ref={replyRef}
@@ -712,7 +655,6 @@ export default function StoryViewerScreen() {
               returnKeyType="send"
               onSubmitEditing={handleSendReply}
               onFocus={() => {
-                // Pause while keyboard is open
                 pausedRef.current = true;
               }}
               onBlur={() => {
@@ -741,10 +683,6 @@ export default function StoryViewerScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* =========================
-          SEEN VIEWERS BOTTOM SHEET
-      ========================= */}
-
       <SeenViewersSheet
         visible={seenOpen}
         viewers={seenViewers}
@@ -768,11 +706,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  // Chrome (progress + header) — sits on top of media via absolute inside SafeAreaView
   chrome: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
-
-  // Progress bars
   progressRow: {
     flexDirection: "row",
     gap: 4,
@@ -787,8 +721,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   progressFill: { height: 3, backgroundColor: "#fff" },
-
-  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -819,8 +751,6 @@ const styles = StyleSheet.create({
   timeAgo: { color: "rgba(255,255,255,0.65)", fontSize: 11.5, marginTop: 1 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   headerBtn: { padding: 7 },
-
-  // Text story
   textStoryContent: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
@@ -842,8 +772,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textDecorationLine: "underline",
   },
-
-  // Caption overlay
   captionOverlay: {
     position: "absolute",
     left: 16,
@@ -861,20 +789,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   captionHashtag: { color: "#60CDFF", fontWeight: "800" },
-
-  // Tap zones — cover the full screen height, below chrome
   tapZone: { position: "absolute", top: 0, bottom: 0, zIndex: 8 },
   tapZoneLeft: { left: 0, width: W * 0.3 },
   tapZoneRight: { right: 0, width: W * 0.7 },
-
-  // Reply area
-  replyKAV: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-  },
+  replyKAV: { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 },
   replyContainer: {
     backgroundColor: "rgba(0,0,0,0.72)",
     paddingTop: 10,
@@ -900,11 +818,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   reactionText: { fontSize: 21 },
-  replyInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  replyInputRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   replyInput: {
     flex: 1,
     height: 44,
@@ -922,8 +836,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Seen viewers sheet
   sheetBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
