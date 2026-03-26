@@ -1,4 +1,4 @@
-// app/(tabs)/explore.tsx — FIREBASE ✅ (COMPLETED + UPDATED)
+// app/(tabs)/explore.tsx — UPDATED ✅ content filters added
 // ✅ SafeAreaView edges include "top" — prevents camera punch-hole overlap
 // ✅ Full theme support via useTheme
 // ✅ Trending tab: real hashtags from Firestore via getTrendingHashtags()
@@ -18,6 +18,7 @@
 // ✅ Keyboard dismissed on scroll (KeyboardAwareBehavior via scrollView.onScrollBeginDrag)
 // ✅ Back button: router.canGoBack() with /(tabs)/home fallback
 // ✅ Linear gradient background (light mode only, dark stays flat)
+// ✅ Content filters: media type (All/Images/Videos/GIFs) + safety (Safe/All)
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -56,6 +57,7 @@ import {
   Dimensions,
   Image,
   Keyboard,
+  Modal,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -74,10 +76,9 @@ import {
 ========================= */
 
 const SCREEN_W = Dimensions.get("window").width;
-const GRID_H_PAD = 36; // paddingHorizontal: 18 * 2
+const GRID_H_PAD = 36;
 const GRID_GAP = 2;
 const GRID_COLS = 3;
-// Each grid cell width = (available width - gaps between cols) / num cols
 const GRID_CELL =
   (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
@@ -91,6 +92,9 @@ type ExploreCategory =
   | "post"
   | "community"
   | "hashtag";
+
+type MediaFilter = "all" | "images" | "videos" | "gifs";
+type SafetyFilter = "safe" | "all";
 
 /* =========================
    MEDIA TYPE HELPERS
@@ -107,16 +111,332 @@ const isVideoUrl = (url?: string | null) => {
 const isImageUrl = (url?: string | null) => {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
-  return ["jpg", "jpeg", "png", "webp", "gif"].some((e) =>
-    clean.endsWith(`.${e}`),
-  );
+  return ["jpg", "jpeg", "png", "webp"].some((e) => clean.endsWith(`.${e}`));
+};
+
+const isGifUrl = (url?: string | null) => {
+  if (!url) return false;
+  return url.split("?")[0].toLowerCase().endsWith(".gif");
 };
 
 /* =========================
+   FILTER MODAL
+========================= */
+
+function FilterModal({
+  visible,
+  onClose,
+  mediaFilter,
+  safetyFilter,
+  onMediaFilter,
+  onSafetyFilter,
+  colors,
+  isDark,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  mediaFilter: MediaFilter;
+  safetyFilter: SafetyFilter;
+  onMediaFilter: (f: MediaFilter) => void;
+  onSafetyFilter: (f: SafetyFilter) => void;
+  colors: any;
+  isDark: boolean;
+}) {
+  const mediaOptions: { key: MediaFilter; label: string; icon: string }[] = [
+    { key: "all", label: "All media", icon: "apps-outline" },
+    { key: "images", label: "Images", icon: "image-outline" },
+    { key: "videos", label: "Videos", icon: "videocam-outline" },
+    { key: "gifs", label: "GIFs", icon: "sparkles-outline" },
+  ];
+
+  const safetyOptions: {
+    key: SafetyFilter;
+    label: string;
+    desc: string;
+    icon: string;
+  }[] = [
+    {
+      key: "safe",
+      label: "Safe mode",
+      desc: "Hide sensitive content",
+      icon: "shield-checkmark-outline",
+    },
+    {
+      key: "all",
+      label: "All content",
+      desc: "Show everything including NSFW",
+      icon: "eye-outline",
+    },
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <TouchableOpacity
+        style={fStyles.overlay}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={[fStyles.sheet, { backgroundColor: colors.card }]}>
+        {/* Handle */}
+        <View style={[fStyles.handle, { backgroundColor: colors.border }]} />
+
+        <Text style={[fStyles.title, { color: colors.text }]}>
+          Search Filters
+        </Text>
+
+        {/* Media type */}
+        <Text style={[fStyles.sectionLabel, { color: colors.textTertiary }]}>
+          Media type
+        </Text>
+        <View style={fStyles.optionGrid}>
+          {mediaOptions.map((o) => {
+            const active = mediaFilter === o.key;
+            return (
+              <TouchableOpacity
+                key={o.key}
+                style={[
+                  fStyles.optionPill,
+                  {
+                    backgroundColor: active ? colors.primary : colors.surface,
+                    borderColor: active ? colors.primary : colors.border,
+                  },
+                ]}
+                onPress={() => onMediaFilter(o.key)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={o.icon as any}
+                  size={16}
+                  color={active ? "#fff" : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    fStyles.optionLabel,
+                    { color: active ? "#fff" : colors.text },
+                  ]}
+                >
+                  {o.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Safety */}
+        <Text
+          style={[
+            fStyles.sectionLabel,
+            { color: colors.textTertiary, marginTop: 20 },
+          ]}
+        >
+          Safety
+        </Text>
+        <View style={[fStyles.safetyCard, { backgroundColor: colors.surface }]}>
+          {safetyOptions.map((o, i) => {
+            const active = safetyFilter === o.key;
+            return (
+              <TouchableOpacity
+                key={o.key}
+                style={[
+                  fStyles.safetyRow,
+                  i !== 0 && {
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                  },
+                ]}
+                onPress={() => onSafetyFilter(o.key)}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    fStyles.safetyIcon,
+                    {
+                      backgroundColor: active
+                        ? colors.primary + "18"
+                        : colors.card,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={o.icon as any}
+                    size={18}
+                    color={active ? colors.primary : colors.textTertiary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[fStyles.safetyLabel, { color: colors.text }]}>
+                    {o.label}
+                  </Text>
+                  <Text
+                    style={[fStyles.safetyDesc, { color: colors.textTertiary }]}
+                  >
+                    {o.desc}
+                  </Text>
+                </View>
+                {active && (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color={colors.primary}
+                  />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TouchableOpacity
+          style={[fStyles.doneBtn, { backgroundColor: colors.primary }]}
+          onPress={onClose}
+          activeOpacity={0.88}
+        >
+          <Text style={fStyles.doneBtnText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+const fStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  title: { fontSize: 18, fontWeight: "900", marginBottom: 20 },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  optionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  optionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  optionLabel: { fontSize: 14, fontWeight: "700" },
+  safetyCard: { borderRadius: 18, overflow: "hidden" },
+  safetyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+  },
+  safetyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  safetyLabel: { fontSize: 14, fontWeight: "800" },
+  safetyDesc: { fontSize: 12, marginTop: 2, lineHeight: 16 },
+  doneBtn: {
+    marginTop: 24,
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  doneBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+});
+
+/* =========================
+   ACTIVE FILTER CHIPS
+   Shows compact chips when non-default filters are active
+========================= */
+
+function ActiveFilterChips({
+  mediaFilter,
+  safetyFilter,
+  onClearMedia,
+  onClearSafety,
+  colors,
+}: {
+  mediaFilter: MediaFilter;
+  safetyFilter: SafetyFilter;
+  onClearMedia: () => void;
+  onClearSafety: () => void;
+  colors: any;
+}) {
+  const chips = [];
+  if (mediaFilter !== "all")
+    chips.push({
+      label: mediaFilter.charAt(0).toUpperCase() + mediaFilter.slice(1),
+      onRemove: onClearMedia,
+    });
+  if (safetyFilter !== "safe")
+    chips.push({ label: "All content (incl. NSFW)", onRemove: onClearSafety });
+  if (!chips.length) return null;
+
+  return (
+    <View style={chipStyles.row}>
+      {chips.map((c) => (
+        <TouchableOpacity
+          key={c.label}
+          style={[
+            chipStyles.chip,
+            {
+              backgroundColor: colors.primary + "20",
+              borderColor: colors.primary + "40",
+            },
+          ]}
+          onPress={c.onRemove}
+          activeOpacity={0.8}
+        >
+          <Text style={[chipStyles.label, { color: colors.primary }]}>
+            {c.label}
+          </Text>
+          <Ionicons name="close" size={13} color={colors.primary} />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  label: { fontSize: 12, fontWeight: "700" },
+});
+
+/* =========================
    SUGGESTED / ACCOUNT RESULT ROW
-   Used both for the "Suggested for you" section on the Trending tab
-   AND for account search results — so both get inline follow buttons.
-   Each row gets its own useFollowActions(u.id) call (correct hook pattern).
 ========================= */
 
 function SuggestedUserRow({
@@ -144,7 +464,6 @@ function SuggestedUserRow({
           idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
       ]}
     >
-      {/* Avatar + name — tappable */}
       <TouchableOpacity
         activeOpacity={0.85}
         style={styles.rowLeft}
@@ -188,7 +507,6 @@ function SuggestedUserRow({
         </View>
       </TouchableOpacity>
 
-      {/* Follow / Requested / Following button */}
       <TouchableOpacity
         onPress={() => (isFollowing ? unfollow() : follow())}
         disabled={isFollowingBusy}
@@ -228,7 +546,6 @@ function SuggestedUserRow({
 
 /* =========================
    DISCOVERY GRID CELL
-   Single cell in the 3-column media grid
 ========================= */
 
 function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
@@ -239,7 +556,6 @@ function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
       style={[styles.gridCell, { backgroundColor: colors.surface }]}
     >
       {post.is_video ? (
-        // Video: dark overlay with play icon
         <View style={styles.gridVideoOverlay}>
           <View style={styles.gridPlayBadge}>
             <Ionicons name="play" size={10} color="#fff" />
@@ -258,8 +574,6 @@ function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
 
 /* =========================
    DISCOVERY GRID
-   Renders discovery posts in a 3-column grid with 2px gaps.
-   Builds rows of GRID_COLS items; last row gets empty spacers.
 ========================= */
 
 function DiscoveryGrid({
@@ -271,7 +585,6 @@ function DiscoveryGrid({
 }) {
   if (!posts.length) return null;
 
-  // Split into rows of GRID_COLS
   const rows: DiscoveryPost[][] = [];
   for (let i = 0; i < posts.length; i += GRID_COLS) {
     rows.push(posts.slice(i, i + GRID_COLS));
@@ -284,7 +597,6 @@ function DiscoveryGrid({
           {row.map((post) => (
             <GridCell key={post.id} post={post} colors={colors} />
           ))}
-          {/* Spacer cells for incomplete last row */}
           {row.length < GRID_COLS &&
             Array(GRID_COLS - row.length)
               .fill(null)
@@ -301,7 +613,7 @@ function DiscoveryGrid({
 }
 
 /* =========================
-   DISCOVERY GRID SKELETON
+   GRID SKELETON
 ========================= */
 
 function GridSkeleton({ colors }: { colors: any }) {
@@ -360,8 +672,6 @@ function EmptyState({
 
 /* =========================
    RECENT SEARCHES PANEL
-   Shown when search bar is focused and query is empty.
-   Allows tapping a term to re-run it, or swiping/tapping × to remove.
 ========================= */
 
 function RecentSearchesPanel({
@@ -391,7 +701,6 @@ function RecentSearchesPanel({
         },
       ]}
     >
-      {/* Header */}
       <View style={styles.recentHeader}>
         <Text style={[styles.recentTitle, { color: colors.text }]}>Recent</Text>
         <TouchableOpacity onPress={onClearAll} activeOpacity={0.8}>
@@ -460,23 +769,22 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
+  // ✅ Filter state
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+  const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>("safe");
+  const [showFilterModal, setShowFilterModal] = useState(false);
+
   const inputRef = useRef<TextInput>(null);
 
-  // Trending hashtags
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
     [],
   );
   const [trendingLoading, setTrendingLoading] = useState(true);
-
-  // Suggested users
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
   const [suggestedLoading, setSuggestedLoading] = useState(true);
-
-  // Discovery posts (media grid)
   const [discoveryPosts, setDiscoveryPosts] = useState<DiscoveryPost[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
 
-  // Recent searches
   const {
     recents,
     add: addRecent,
@@ -502,13 +810,11 @@ export default function ExploreScreen() {
     : ["#DCEBFF", "#EEF4FF", "#FFFFFF"];
 
   const clearSearch = () => setSearchQuery("");
-
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)/home");
   };
 
-  // Save current query to recents and dismiss keyboard
   const commitSearch = useCallback(() => {
     const t = searchQuery.trim();
     if (t.length >= 2) void addRecent(t);
@@ -516,7 +822,6 @@ export default function ExploreScreen() {
     setIsSearchFocused(false);
   }, [searchQuery, addRecent]);
 
-  // Tap a recent term: set query + save to recents (bumps to top)
   const selectRecent = useCallback(
     (term: string) => {
       setSearchQuery(term);
@@ -527,7 +832,6 @@ export default function ExploreScreen() {
     [addRecent],
   );
 
-  // Save to recents when switching tabs
   const switchCategory = useCallback(
     (key: ExploreCategory) => {
       const t = searchQuery.trim();
@@ -537,7 +841,14 @@ export default function ExploreScreen() {
     [searchQuery, addRecent],
   );
 
-  // Load trending hashtags
+  // Count active non-default filters for the badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (mediaFilter !== "all") count++;
+    if (safetyFilter !== "safe") count++;
+    return count;
+  }, [mediaFilter, safetyFilter]);
+
   useEffect(() => {
     setTrendingLoading(true);
     getTrendingHashtags(15)
@@ -546,7 +857,6 @@ export default function ExploreScreen() {
       .finally(() => setTrendingLoading(false));
   }, []);
 
-  // Load suggested users
   useEffect(() => {
     setSuggestedLoading(true);
     fetchSuggestedUsers(8)
@@ -555,16 +865,32 @@ export default function ExploreScreen() {
       .finally(() => setSuggestedLoading(false));
   }, [user?.id]);
 
-  // Load discovery posts (media grid)
   useEffect(() => {
     setDiscoveryLoading(true);
-    fetchDiscoveryPosts(30)
+    fetchDiscoveryPosts(60)
       .then(setDiscoveryPosts)
       .catch((e) => console.warn("fetchDiscoveryPosts failed:", e))
       .finally(() => setDiscoveryLoading(false));
   }, []);
 
-  // Only trigger useSearch for tabs that query Firestore
+  // ✅ Apply filters to discovery posts
+  const filteredDiscoveryPosts = useMemo(() => {
+    let posts = discoveryPosts;
+    // Safety filter — hide NSFW posts if safe mode
+    if (safetyFilter === "safe") {
+      posts = posts.filter((p) => !(p as any).is_nsfw);
+    }
+    // Media type filter
+    if (mediaFilter === "videos") {
+      posts = posts.filter((p) => p.is_video || isVideoUrl(p.media_url));
+    } else if (mediaFilter === "images") {
+      posts = posts.filter((p) => !p.is_video && isImageUrl(p.media_url));
+    } else if (mediaFilter === "gifs") {
+      posts = posts.filter((p) => isGifUrl(p.media_url));
+    }
+    return posts;
+  }, [discoveryPosts, mediaFilter, safetyFilter]);
+
   const shouldSearch =
     activeCategory !== "trending" && activeCategory !== "hashtag";
 
@@ -588,16 +914,37 @@ export default function ExploreScreen() {
   const posts = (data as any)?.posts ?? [];
   const communities = (data as any)?.communities ?? [];
 
-  // Hashtag tab: filter trending list locally
+  // ✅ Apply safety filter to post search results
+  const filteredPosts = useMemo(() => {
+    let p = posts;
+    if (safetyFilter === "safe") p = p.filter((post: any) => !post.is_nsfw);
+    if (mediaFilter === "images")
+      p = p.filter((post: any) =>
+        post.media_urls?.some((u: string) => isImageUrl(u)),
+      );
+    if (mediaFilter === "videos")
+      p = p.filter((post: any) =>
+        post.media_urls?.some((u: string) => isVideoUrl(u)),
+      );
+    if (mediaFilter === "gifs")
+      p = p.filter((post: any) =>
+        post.media_urls?.some((u: string) => isGifUrl(u)),
+      );
+    return p;
+  }, [posts, mediaFilter, safetyFilter]);
+
   const hashtagResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase().replace(/^#/, "");
     if (!q) return trendingHashtags;
     return trendingHashtags.filter((h) => h.tag.includes(q));
   }, [searchQuery, trendingHashtags]);
 
-  // Show recent panel: bar is focused AND query is empty (or just cleared)
   const showRecents =
     isSearchFocused && !searchQuery.trim() && recents.length > 0;
+
+  // Tabs that support filters
+  const filtersApplicable =
+    activeCategory === "trending" || activeCategory === "post";
 
   return (
     <>
@@ -653,7 +1000,6 @@ export default function ExploreScreen() {
                     onChangeText={setSearchQuery}
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => {
-                      // slight delay so tap-on-recent fires before blur hides panel
                       setTimeout(() => setIsSearchFocused(false), 150);
                     }}
                     onSubmitEditing={commitSearch}
@@ -685,11 +1031,38 @@ export default function ExploreScreen() {
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {/* ✅ Filter button */}
+                <TouchableOpacity
+                  style={[
+                    styles.filterBtn,
+                    {
+                      backgroundColor:
+                        activeFilterCount > 0 ? colors.primary : colors.card,
+                      shadowOpacity: isDark ? 0.22 : 0.08,
+                    },
+                  ]}
+                  onPress={() => setShowFilterModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="options-outline"
+                    size={20}
+                    color={activeFilterCount > 0 ? "#fff" : colors.text}
+                  />
+                  {activeFilterCount > 0 && (
+                    <View style={styles.filterBadge}>
+                      <Text style={styles.filterBadgeText}>
+                        {activeFilterCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               </View>
             }
           />
 
-          {/* Category pill segments — card fixed width, only labels scroll inside ✅ */}
+          {/* Category segments */}
           <View
             style={[
               styles.segmentWrap,
@@ -732,7 +1105,18 @@ export default function ExploreScreen() {
             </ScrollView>
           </View>
 
-          {/* Recent searches panel — shown when focused + empty query */}
+          {/* ✅ Active filter chips */}
+          {filtersApplicable && activeFilterCount > 0 && (
+            <ActiveFilterChips
+              mediaFilter={mediaFilter}
+              safetyFilter={safetyFilter}
+              onClearMedia={() => setMediaFilter("all")}
+              onClearSafety={() => setSafetyFilter("safe")}
+              colors={colors}
+            />
+          )}
+
+          {/* Recent searches panel */}
           {showRecents && (
             <View style={[styles.recentOverlay, { paddingHorizontal: 18 }]}>
               <RecentSearchesPanel
@@ -750,7 +1134,7 @@ export default function ExploreScreen() {
           <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            onScrollBeginDrag={Keyboard.dismiss} // ✅ dismiss keyboard on scroll
+            onScrollBeginDrag={Keyboard.dismiss}
             contentContainerStyle={[
               styles.content,
               { paddingBottom: bottomPad },
@@ -759,7 +1143,6 @@ export default function ExploreScreen() {
             {/* ===== TRENDING TAB ===== */}
             {activeCategory === "trending" && (
               <>
-                {/* -- Trending Topics (Twitter-style) -- */}
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
                   Trending
                 </Text>
@@ -864,7 +1247,6 @@ export default function ExploreScreen() {
                   />
                 )}
 
-                {/* -- Who to Follow -- */}
                 <Text
                   style={[
                     styles.sectionTitle,
@@ -923,7 +1305,6 @@ export default function ExploreScreen() {
                   </View>
                 ) : null}
 
-                {/* -- Discover (media grid) -- */}
                 <Text
                   style={[
                     styles.sectionTitle,
@@ -935,9 +1316,19 @@ export default function ExploreScreen() {
 
                 {discoveryLoading ? (
                   <GridSkeleton colors={colors} />
-                ) : discoveryPosts.length > 0 ? (
-                  <DiscoveryGrid posts={discoveryPosts} colors={colors} />
-                ) : null}
+                ) : filteredDiscoveryPosts.length > 0 ? (
+                  <DiscoveryGrid
+                    posts={filteredDiscoveryPosts}
+                    colors={colors}
+                  />
+                ) : (
+                  <EmptyState
+                    colors={colors}
+                    icon="images-outline"
+                    title="No posts match your filters"
+                    subtitle="Try changing or clearing your filters."
+                  />
+                )}
               </>
             )}
 
@@ -980,7 +1371,6 @@ export default function ExploreScreen() {
                     subtitle="Type at least 2 characters to search accounts."
                   />
                 ) : accounts.length > 0 ? (
-                  // ✅ Reuses SuggestedUserRow so every account result has a follow button
                   <View
                     style={[
                       styles.card,
@@ -1034,9 +1424,9 @@ export default function ExploreScreen() {
                     title="Start typing"
                     subtitle="Type at least 2 characters to search posts."
                   />
-                ) : posts.length > 0 ? (
+                ) : filteredPosts.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {posts.map((p: any) => {
+                    {filteredPosts.map((p: any) => {
                       const author =
                         p.user?.full_name || p.user?.username || "User";
                       const first = p.media_urls?.[0] ?? null;
@@ -1056,7 +1446,21 @@ export default function ExploreScreen() {
                           ]}
                           onPress={() => router.push(`/post/${p.id}`)}
                         >
-                          {/* Author row */}
+                          {/* NSFW badge */}
+                          {p.is_nsfw && (
+                            <View
+                              style={[
+                                styles.nsfwBadge,
+                                {
+                                  backgroundColor: "#EF444420",
+                                  borderColor: "#EF444440",
+                                },
+                              ]}
+                            >
+                              <Text style={styles.nsfwText}>NSFW</Text>
+                            </View>
+                          )}
+
                           <View style={styles.postTop}>
                             <View style={styles.postAuthorRow}>
                               {p.user?.avatar_url ? (
@@ -1114,7 +1518,6 @@ export default function ExploreScreen() {
                             />
                           </View>
 
-                          {/* Content */}
                           {!!p.content && (
                             <Text
                               style={[
@@ -1127,7 +1530,6 @@ export default function ExploreScreen() {
                             </Text>
                           )}
 
-                          {/* Media preview */}
                           {(hasImage || hasVideo) && (
                             <View
                               style={[
@@ -1161,7 +1563,6 @@ export default function ExploreScreen() {
                             </View>
                           )}
 
-                          {/* Reaction counts */}
                           <View style={styles.postStats}>
                             {typeof p.like_count === "number" && (
                               <View style={styles.postStat}>
@@ -1207,7 +1608,11 @@ export default function ExploreScreen() {
                     colors={colors}
                     icon="document-text-outline"
                     title="No matches"
-                    subtitle="Try a different keyword."
+                    subtitle={
+                      activeFilterCount > 0
+                        ? "Try changing or clearing your filters."
+                        : "Try a different keyword."
+                    }
                   />
                 )}
               </>
@@ -1443,6 +1848,18 @@ export default function ExploreScreen() {
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
+
+      {/* ✅ Filter modal */}
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        mediaFilter={mediaFilter}
+        safetyFilter={safetyFilter}
+        onMediaFilter={setMediaFilter}
+        onSafetyFilter={setSafetyFilter}
+        colors={colors}
+        isDark={isDark}
+      />
     </>
   );
 }
@@ -1455,11 +1872,10 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  // Header
   headerLeftWide: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     flex: 1,
     minWidth: 0,
   },
@@ -1497,7 +1913,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Category segments — card is fixed full-width, scroll is inside
+  // ✅ Filter button
+  filterBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 3,
+    position: "relative",
+  },
+  filterBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#EC4899",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
+
   segmentScroll: { marginHorizontal: 18, marginBottom: 0 },
   segmentScrollContent: { flexDirection: "row", gap: 6, padding: 6 },
   segmentWrap: {
@@ -1518,10 +1959,7 @@ const styles = StyleSheet.create({
   },
   segmentText: { fontSize: 13, fontWeight: "700" },
 
-  // Recent searches overlay (floats below search bar, above content)
-  recentOverlay: {
-    zIndex: 100,
-  },
+  recentOverlay: { zIndex: 100 },
   recentPanel: {
     borderRadius: 22,
     paddingVertical: 6,
@@ -1563,7 +2001,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Content area
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
@@ -1572,7 +2009,6 @@ const styles = StyleSheet.create({
   },
   content: { paddingHorizontal: 18, paddingTop: 14 },
 
-  // Generic card + rows
   card: {
     borderRadius: 22,
     paddingVertical: 6,
@@ -1599,7 +2035,6 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14.5, fontWeight: "900" },
   rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
 
-  // Avatars
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: {
     width: 42,
@@ -1610,7 +2045,6 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 16, fontWeight: "900" },
 
-  // Community
   communityBadge: {
     width: 42,
     height: 42,
@@ -1620,7 +2054,6 @@ const styles = StyleSheet.create({
   },
   communityAvatar: { width: 42, height: 42, borderRadius: 21 },
 
-  // Hashtag
   hashtagBadge: {
     width: 42,
     height: 42,
@@ -1630,7 +2063,6 @@ const styles = StyleSheet.create({
   },
   hashtagSymbol: { fontSize: 22, fontWeight: "900" },
 
-  // Follow button
   followBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -1642,7 +2074,22 @@ const styles = StyleSheet.create({
   },
   followBtnText: { fontSize: 13, fontWeight: "900" },
 
-  // Post search cards
+  // ✅ NSFW badge
+  nsfwBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  nsfwText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#EF4444",
+    letterSpacing: 0.5,
+  },
+
   postCard: {
     borderRadius: 22,
     padding: 14,
@@ -1675,11 +2122,7 @@ const styles = StyleSheet.create({
   postAuthor: { fontSize: 14, fontWeight: "900" },
   postHandle: { fontSize: 12, fontWeight: "700", marginTop: 1 },
   postContent: { fontSize: 13.5, lineHeight: 19, marginBottom: 4 },
-  postStats: {
-    flexDirection: "row",
-    gap: 14,
-    marginTop: 10,
-  },
+  postStats: { flexDirection: "row", gap: 14, marginTop: 10 },
   postStat: { flexDirection: "row", alignItems: "center", gap: 4 },
   postStatText: { fontSize: 12, fontWeight: "700" },
   thumbWrap: {
@@ -1716,25 +2159,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
 
-  // Discovery grid
-  gridWrap: {
-    gap: GRID_GAP,
-    borderRadius: 22,
-    overflow: "hidden",
-  },
-  gridRow: {
-    flexDirection: "row",
-    gap: GRID_GAP,
-  },
-  gridCell: {
-    width: GRID_CELL,
-    height: GRID_CELL, // square cells
-    overflow: "hidden",
-  },
-  gridImage: {
-    width: "100%",
-    height: "100%",
-  },
+  gridWrap: { gap: GRID_GAP, borderRadius: 22, overflow: "hidden" },
+  gridRow: { flexDirection: "row", gap: GRID_GAP },
+  gridCell: { width: GRID_CELL, height: GRID_CELL, overflow: "hidden" },
+  gridImage: { width: "100%", height: "100%" },
   gridVideoOverlay: {
     width: "100%",
     height: "100%",
@@ -1753,7 +2181,6 @@ const styles = StyleSheet.create({
     gap: 3,
   },
 
-  // Twitter-style trending rows
   trendingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1773,7 +2200,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Empty state
   emptyWrap: {
     borderRadius: 22,
     paddingVertical: 26,
