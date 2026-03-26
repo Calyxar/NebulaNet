@@ -1,5 +1,6 @@
-// app/_layout.tsx — UPDATED (adds ActionSheetProvider for cross-platform post menus)
-
+// app/_layout.tsx — UPDATED ✅ force update modal wired in
+import ForceUpdateModal from "@/components/ForceUpdateModal";
+import { useForceUpdate } from "@/hooks/useForceUpdate";
 import { startInactivityWatcher } from "@/lib/inactivity";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
@@ -24,6 +25,29 @@ function ThemedStatusBar() {
       backgroundColor="transparent"
       translucent
     />
+  );
+}
+
+// ✅ Separate component so it has access to ThemeProvider context
+function AppWithForceUpdate() {
+  const { forceUpdate, storeUrl } = useForceUpdate();
+
+  return (
+    <>
+      <ThemedStatusBar />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="boost" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+
+      {/* ✅ Force update modal — blocks all interaction if version is outdated */}
+      <ForceUpdateModal visible={forceUpdate} storeUrl={storeUrl} />
+    </>
   );
 }
 
@@ -66,20 +90,9 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <ActionSheetProvider>
           <QueryClientProvider client={queryClient}>
-            {/* ✅ AuthProvider must wrap ThemeProvider (ThemeProvider needs user/settings) */}
             <AuthProvider>
               <ThemeProvider>
-                <ThemedStatusBar />
-
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="profile" />
-                  <Stack.Screen name="boost" />
-                  <Stack.Screen name="settings" />
-                  <Stack.Screen name="+not-found" />
-                </Stack>
+                <AppWithForceUpdate />
               </ThemeProvider>
             </AuthProvider>
           </QueryClientProvider>
