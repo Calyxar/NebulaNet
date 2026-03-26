@@ -1,6 +1,7 @@
 // app/(auth)/login.tsx — UPDATED ✅ phone OTP working
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
-import { firebaseConfig } from "@/lib/firebase";
+import { checkTwoFactorEnabled } from "@/hooks/useTwoFactorAuth";
+import { auth, firebaseConfig } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +11,7 @@ import {
 } from "@react-native-google-signin/google-signin";
 import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { Link, router } from "expo-router";
+import { signOut as firebaseSignOut } from "firebase/auth";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -112,6 +114,29 @@ export default function LoginScreen() {
           [{ text: "OK", onPress: () => router.push("/(auth)/verify-email") }],
         );
         return;
+      }
+      // ✅ Check 2FA — if enabled, sign out and send OTP
+      if (res.user) {
+        const { enabled, phoneNumber } = await checkTwoFactorEnabled(
+          res.user.uid,
+        );
+        if (enabled && phoneNumber) {
+          await firebaseSignOut(auth);
+          if (!recaptchaRef.current) return;
+          const ok = await sendOTP(phoneNumber, recaptchaRef.current);
+          if (ok) {
+            router.push({
+              pathname: "/(auth)/phone-otp",
+              params: {
+                phoneNumber,
+                twoFactor: "1",
+                email: email.trim().toLowerCase(),
+                password,
+              },
+            } as any);
+          }
+          return;
+        }
       }
     } catch (error: any) {
       const lower = (error?.message || "").toLowerCase();
