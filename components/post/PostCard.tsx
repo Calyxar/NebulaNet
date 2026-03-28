@@ -1,9 +1,14 @@
-// components/post/PostCard.tsx — COMPLETED + UPDATED ✅
+// components/post/PostCard.tsx — UPDATED ✅ boost button removed
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
 import Avatar from "@/components/user/Avatar";
 import { type PollData } from "@/lib/firestore/polls";
-import { copyLink, generatePostLink, shareToChat, shareWithOptions } from "@/lib/share";
+import {
+  copyLink,
+  generatePostLink,
+  shareToChat,
+  shareWithOptions,
+} from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,10 +51,27 @@ interface PostCardProps {
 
 export default function PostCard(props: PostCardProps) {
   const {
-    id, title, content, post_type, poll, author, community,
-    timestamp, likes, comments, shares, saves, isLiked, isSaved,
-    media, viewCount, onLikePress, onSharePress, onSavePress,
-    getMoreActions, onVisible,
+    id,
+    title,
+    content,
+    post_type,
+    poll,
+    author,
+    community,
+    timestamp,
+    likes,
+    comments,
+    shares,
+    saves,
+    isLiked,
+    isSaved,
+    media,
+    viewCount,
+    onLikePress,
+    onSharePress,
+    onSavePress,
+    getMoreActions,
+    onVisible,
   } = props;
 
   const { colors, isDark } = useTheme();
@@ -101,31 +123,45 @@ export default function PostCard(props: PostCardProps) {
   };
 
   const handleMoreOptions = () => {
+    // ✅ Boost Post removed from action sheet
     const baseButtons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
-      { text: "Boost Post", onPress: () => router.push(`/boost/${id}` as any) },
       { text: "Share to Chat", onPress: () => void handleShareToChat() },
       { text: "Copy Link", onPress: () => void handleCopyLink() },
-      { text: "Report Post", style: "destructive", onPress: () => Alert.alert("Report", "Reporting will be available soon.") },
+      {
+        text: "Report Post",
+        style: "destructive",
+        onPress: () =>
+          Alert.alert("Report", "Reporting will be available soon."),
+      },
     ];
 
     const extraButtons = getMoreActions?.() ?? [];
     const allButtons = [...baseButtons, ...extraButtons];
     const options = [...allButtons.map((b) => b.text ?? "Option"), "Cancel"];
     const cancelButtonIndex = options.length - 1;
-    const destructiveIndex = allButtons.findIndex((b) => b.style === "destructive");
+    const destructiveIndex = allButtons.findIndex(
+      (b) => b.style === "destructive",
+    );
 
     showActionSheetWithOptions(
-      { options, cancelButtonIndex, destructiveButtonIndex: destructiveIndex >= 0 ? destructiveIndex : undefined },
+      {
+        options,
+        cancelButtonIndex,
+        destructiveButtonIndex:
+          destructiveIndex >= 0 ? destructiveIndex : undefined,
+      },
       (selectedIndex) => {
-        if (selectedIndex == null || selectedIndex === cancelButtonIndex) return;
+        if (selectedIndex == null || selectedIndex === cancelButtonIndex)
+          return;
         allButtons[selectedIndex]?.onPress?.();
       },
     );
   };
 
   const isTruncated = !isPoll && content.length > 150;
-  const displayContent = expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
+  const displayContent =
+    expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
   return (
     <Pressable
@@ -152,11 +188,15 @@ export default function PostCard(props: PostCardProps) {
               <Text style={[styles.authorName, { color: colors.text }]}>
                 {author.name}
               </Text>
-              <Text style={[styles.authorUsername, { color: colors.textSecondary }]}>
+              <Text
+                style={[styles.authorUsername, { color: colors.textSecondary }]}
+              >
                 @{author.username}
               </Text>
               {community && (
-                <Text style={[styles.community, { color: colors.textSecondary }]}>
+                <Text
+                  style={[styles.community, { color: colors.textSecondary }]}
+                >
                   in {community.name}
                 </Text>
               )}
@@ -169,12 +209,19 @@ export default function PostCard(props: PostCardProps) {
             {timestamp}
           </Text>
           <TouchableOpacity
-            onPress={(e) => { e.stopPropagation?.(); handleMoreOptions(); }}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              handleMoreOptions();
+            }}
             style={styles.moreButton}
             hitSlop={12}
             activeOpacity={0.8}
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textTertiary} />
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color={colors.textTertiary}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -183,7 +230,10 @@ export default function PostCard(props: PostCardProps) {
       <View style={styles.content}>
         {isPoll ? (
           <>
-            <Text style={[styles.pollQuestion, { color: colors.text }]} numberOfLines={3}>
+            <Text
+              style={[styles.pollQuestion, { color: colors.text }]}
+              numberOfLines={3}
+            >
               {title || content}
             </Text>
             <PollCard
@@ -199,29 +249,42 @@ export default function PostCard(props: PostCardProps) {
         ) : (
           <>
             {title && (
-              <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+              <Text style={[styles.title, { color: colors.text }]}>
+                {title}
+              </Text>
             )}
-
             <HashtagText
               text={displayContent}
               style={StyleSheet.flatten([styles.text, { color: colors.text }])}
               onPress={openPost}
             />
-
             {isTruncated && (
               <Text
                 style={[styles.readMore, { color: colors.primary }]}
-                onPress={(e) => { e.stopPropagation?.(); setExpanded((v) => !v); }}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setExpanded((v) => !v);
+                }}
               >
                 {expanded ? " Show less" : " Read more"}
               </Text>
             )}
-
             {media && media.length > 0 && (
               <View style={styles.mediaContainer}>
-                <View style={[styles.mediaPreview, { backgroundColor: colors.surface }]}>
-                  <Ionicons name="image-outline" size={40} color={colors.textTertiary} />
-                  <Text style={[styles.mediaText, { color: colors.textTertiary }]}>
+                <View
+                  style={[
+                    styles.mediaPreview,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons
+                    name="image-outline"
+                    size={40}
+                    color={colors.textTertiary}
+                  />
+                  <Text
+                    style={[styles.mediaText, { color: colors.textTertiary }]}
+                  >
                     {media.length} {media.length === 1 ? "photo" : "photos"}
                   </Text>
                 </View>
@@ -241,9 +304,24 @@ export default function PostCard(props: PostCardProps) {
       {/* Stats */}
       <View style={[styles.stats, { borderColor: colors.border }]}>
         <Stat icon="heart" value={likes} label="like" color="#FF375F" />
-        <Stat icon="chatbubble-outline" value={comments} label="comment" color={colors.textSecondary} />
-        <Stat icon="arrow-redo-outline" value={shares} label="share" color={colors.textSecondary} />
-        <Stat icon="bookmark-outline" value={saves} label="save" color={colors.textSecondary} />
+        <Stat
+          icon="chatbubble-outline"
+          value={comments}
+          label="comment"
+          color={colors.textSecondary}
+        />
+        <Stat
+          icon="arrow-redo-outline"
+          value={shares}
+          label="share"
+          color={colors.textSecondary}
+        />
+        <Stat
+          icon="bookmark-outline"
+          value={saves}
+          label="save"
+          color={colors.textSecondary}
+        />
       </View>
 
       {/* Actions */}
@@ -278,7 +356,17 @@ export default function PostCard(props: PostCardProps) {
   );
 }
 
-function Stat({ icon, value, label, color }: { icon: any; value: number; label: string; color: string }) {
+function Stat({
+  icon,
+  value,
+  label,
+  color,
+}: {
+  icon: any;
+  value: number;
+  label: string;
+  color: string;
+}) {
   return (
     <View style={styles.statItem}>
       <Ionicons name={icon} size={16} color={color} />
@@ -289,13 +377,26 @@ function Stat({ icon, value, label, color }: { icon: any; value: number; label: 
   );
 }
 
-function Action({ icon, label, color, disabled, onPress }: {
-  icon: any; label: string; color: string; disabled?: boolean; onPress?: () => void;
+function Action({
+  icon,
+  label,
+  color,
+  disabled,
+  onPress,
+}: {
+  icon: any;
+  label: string;
+  color: string;
+  disabled?: boolean;
+  onPress?: () => void;
 }) {
   return (
     <TouchableOpacity
       style={styles.actionButton}
-      onPress={(e) => { e.stopPropagation?.(); onPress?.(); }}
+      onPress={(e) => {
+        e.stopPropagation?.();
+        onPress?.();
+      }}
       disabled={disabled}
       activeOpacity={0.85}
     >
@@ -316,7 +417,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  header: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
   authorInfo: { flexDirection: "row", flex: 1 },
   authorDetails: { marginLeft: 12, flex: 1 },
   authorName: { fontSize: 16, fontWeight: "600" },
@@ -326,13 +431,23 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: 12 },
   moreButton: { padding: 4 },
   content: { marginBottom: 12 },
-  pollQuestion: { fontSize: 17, fontWeight: "700", marginBottom: 4, lineHeight: 23 },
+  pollQuestion: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 4,
+    lineHeight: 23,
+  },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
   mediaContainer: { marginTop: 12 },
-  mediaPreview: { height: 150, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  mediaPreview: {
+    height: 150,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mediaText: { marginTop: 8 },
   stats: {
     flexDirection: "row",
