@@ -1,8 +1,9 @@
-// app/(tabs)/home.tsx — COMPLETED + UPDATED ✅
+// app/(tabs)/home.tsx — UPDATED ✅ AdMob banner ads in feed, interstitial on post open
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
 import StoryAvatar from "@/components/StoryAvatar";
+import { BANNER_AD_UNIT_ID, useInterstitialAd } from "@/hooks/useAdMob";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useInfiniteFeedPosts } from "@/hooks/usePosts";
@@ -32,14 +33,18 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
+  useWindowDimensions
 } from "react-native";
+import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
 type FeedTab = "for-you" | "following" | "my-community";
+
+// ✅ Insert a banner ad every N posts
+const AD_EVERY_N_POSTS = 5;
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -70,10 +75,48 @@ const isVideoPost = (post: any) => {
   return isVideoUrl(post?.media_urls?.[0]);
 };
 
+// ✅ Banner ad component — rendered inline in the feed
+function FeedBannerAd({ colors }: { colors: any }) {
+  return (
+    <View style={[adStyles.wrap, { backgroundColor: colors.card }]}>
+      <Text style={[adStyles.label, { color: colors.textTertiary }]}>
+        Sponsored
+      </Text>
+      <BannerAd
+        unitId={BANNER_AD_UNIT_ID}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        requestOptions={{ requestNonPersonalizedAdsOnly: false }}
+      />
+    </View>
+  );
+}
+
+const adStyles = StyleSheet.create({
+  wrap: {
+    marginHorizontal: 14,
+    marginBottom: 12,
+    borderRadius: 22,
+    overflow: "hidden",
+    alignItems: "center",
+    paddingTop: 6,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+});
+
+// ✅ Feed item type — either a post or an ad slot
+type FeedItem = Post | { __type: "ad"; id: string };
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { colors, isDark } = useTheme();
+  const { maybeShowInterstitial } = useInterstitialAd();
 
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
@@ -107,10 +150,26 @@ export default function HomeScreen() {
     [data],
   );
 
+  // ✅ Interleave ad slots into the feed every AD_EVERY_N_POSTS posts
+  const feedItems = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [];
+    posts.forEach((post, i) => {
+      items.push(post);
+      if ((i + 1) % AD_EVERY_N_POSTS === 0) {
+        items.push({ __type: "ad", id: `ad_${i}` });
+      }
+    });
+    return items;
+  }, [posts]);
+
   const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
     useFeedInteractions();
 
-  const openPost = (postId: string) => router.push(`/post/${postId}` as any);
+  // ✅ Show interstitial ad periodically when opening posts
+  const openPost = (postId: string) => {
+    maybeShowInterstitial();
+    router.push(`/post/${postId}` as any);
+  };
 
   const stories = useMemo(() => {
     const list = storiesRaw ?? [];
@@ -222,11 +281,8 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 );
               }
-
-              // ✅ StoryAvatar — gradient ring for unseen, gray for seen, none if no story
               const p = item.profiles;
               const label = p?.username || p?.full_name || "User";
-
               return (
                 <View style={styles.storyItem}>
                   <StoryAvatar
@@ -402,18 +458,24 @@ export default function HomeScreen() {
     communitySearch,
   ]);
 
-  const renderPost = useCallback(
-    ({ item }: { item: Post }) => {
-      const author = item.user?.full_name || item.user?.username || "User";
-      const avatar = item.user?.avatar_url;
-      const media = item.media_urls?.[0];
-      const video = isVideoPost(item);
-      const isPoll = item.post_type === "poll" && !!(item as any).poll;
+  const renderItem = useCallback(
+    ({ item }: { item: FeedItem }) => {
+      // ✅ Render banner ad slot
+      if ("__type" in item && item.__type === "ad") {
+        return <FeedBannerAd colors={colors} />;
+      }
+
+      const post = item as Post;
+      const author = post.user?.full_name || post.user?.username || "User";
+      const avatar = post.user?.avatar_url;
+      const media = post.media_urls?.[0];
+      const video = isVideoPost(post);
+      const isPoll = post.post_type === "poll" && !!(post as any).poll;
 
       return (
         <TouchableOpacity
           activeOpacity={isPoll ? 1 : 0.92}
-          onPress={() => !isPoll && openPost(item.id)}
+          onPress={() => !isPoll && openPost(post.id)}
           style={[
             styles.card,
             {
@@ -426,8 +488,8 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={styles.authorRow}
               onPress={() =>
-                item.user?.username &&
-                router.push(`/user/${item.user.username}` as any)
+                post.user?.username &&
+                router.push(`/user/${post.user.username}` as any)
               }
               activeOpacity={0.85}
             >
@@ -460,14 +522,14 @@ export default function HomeScreen() {
                   {author}
                 </Text>
                 <Text style={[styles.time, { color: colors.textTertiary }]}>
-                  {timeAgo(item.created_at)}
+                  {timeAgo(post.created_at)}
                 </Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => openPost(item.id)}
+              onPress={() => openPost(post.id)}
             >
               <MoreVertical size={20} color={colors.textTertiary} />
             </TouchableOpacity>
@@ -475,17 +537,17 @@ export default function HomeScreen() {
 
           {isPoll ? (
             <>
-              {!!item.title && (
+              {!!post.title && (
                 <Text
                   style={[styles.pollQuestion, { color: colors.text }]}
                   numberOfLines={3}
                 >
-                  {item.title}
+                  {post.title}
                 </Text>
               )}
               <PollCard
-                postId={item.id}
-                poll={(item as any).poll}
+                postId={post.id}
+                poll={(post as any).poll}
                 accentColor={colors.primary}
                 textColor={colors.text}
                 subColor={colors.textTertiary}
@@ -495,15 +557,14 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
-              {!!item.content && (
+              {!!post.content && (
                 <Text
                   style={[styles.content, { color: colors.text }]}
                   numberOfLines={6}
                 >
-                  {item.content}
+                  {post.content}
                 </Text>
               )}
-
               {!!media && (
                 <View
                   style={[
@@ -556,7 +617,7 @@ export default function HomeScreen() {
               style={styles.actionBtn}
               onPress={(e) => {
                 e.stopPropagation?.();
-                onLike(item.id);
+                onLike(post.id);
               }}
               activeOpacity={0.7}
             >
@@ -567,43 +628,40 @@ export default function HomeScreen() {
                 strokeWidth={2.5}
               />
               <Text style={[styles.actionText, { color: colors.text }]}>
-                {item.like_count ?? 0}
+                {post.like_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
                 e.stopPropagation?.();
-                openPost(item.id);
+                openPost(post.id);
               }}
               activeOpacity={0.7}
             >
               <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
               <Text style={[styles.actionText, { color: colors.text }]}>
-                {item.comment_count ?? 0}
+                {post.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
                 e.stopPropagation?.();
-                openPost(item.id);
+                openPost(post.id);
               }}
               activeOpacity={0.7}
             >
               <Repeat2 size={20} color={colors.text} strokeWidth={2.5} />
               <Text style={[styles.actionText, { color: colors.text }]}>
-                {item.share_count ?? 0}
+                {post.share_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
                 e.stopPropagation?.();
-                onSave(item.id);
+                onSave(post.id);
               }}
               activeOpacity={0.7}
             >
@@ -618,7 +676,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       );
     },
-    [onLike, onSave, mediaHeight, colors, isDark],
+    [onLike, onSave, mediaHeight, colors, isDark, maybeShowInterstitial],
   );
 
   if (isLoading) {
@@ -639,10 +697,10 @@ export default function HomeScreen() {
     >
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id}
+        data={feedItems}
+        keyExtractor={(item) => ("__type" in item ? item.id : item.id)}
         ListHeaderComponent={Header}
-        renderItem={renderPost}
+        renderItem={renderItem}
         onEndReached={() => hasNextPage && fetchNextPage()}
         onEndReachedThreshold={0.45}
         refreshControl={
@@ -701,7 +759,6 @@ function SegBtn({
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -715,7 +772,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     flexShrink: 1,
   },
-
   bellWrap: {
     width: 44,
     height: 44,
@@ -738,7 +794,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
-
   storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
   storyItem: { alignItems: "center", marginRight: 16, width: 76 },
   addStoryCircle: {
@@ -758,7 +813,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 6,
   },
-
   segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
   segment: {
     borderRadius: 24,
@@ -778,7 +832,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segText: { fontSize: 13, fontWeight: "800" },
-
   myCommunityPanel: { paddingBottom: 10 },
   communitySearchWrap: {
     marginHorizontal: 14,
@@ -824,7 +877,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: 86,
   },
-
   card: {
     marginHorizontal: 14,
     marginBottom: 12,
@@ -852,7 +904,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-
   mediaWrap: {
     width: "100%",
     borderRadius: 18,
@@ -886,7 +937,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-
   actions: {
     flexDirection: "row",
     alignItems: "center",
