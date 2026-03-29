@@ -3,28 +3,26 @@
 
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import {
-    useDisableTwoFactor,
-    useEnableTwoFactor,
-    useTwoFactorStatus,
+  useDisableTwoFactor,
+  useEnableTwoFactor,
+  useTwoFactorStatus,
 } from "@/hooks/useTwoFactorAuth";
-import { firebaseConfig } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -57,7 +55,6 @@ export default function TwoFactorScreen() {
     error: phoneError,
     reset,
   } = usePhoneAuth();
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null);
 
   const [step, setStep] = useState<Step>("overview");
   const [selectedCountry, setSelectedCountry] = useState(COUNTRY_CODES[0]);
@@ -78,8 +75,7 @@ export default function TwoFactorScreen() {
       return;
     }
     const num = `${selectedCountry.code}${digits}`;
-    if (!recaptchaRef.current) return;
-    const ok = await sendOTP(num, recaptchaRef.current);
+    const ok = await sendOTP(num);
     if (ok) {
       setFullNumber(num);
       setStep("enter_otp");
@@ -139,14 +135,6 @@ export default function TwoFactorScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor="transparent"
         translucent
-      />
-
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification
-        title="Verify you are human"
-        cancelLabel="Cancel"
       />
 
       {/* Header */}

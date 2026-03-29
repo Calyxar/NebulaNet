@@ -17,26 +17,21 @@
         "backgroundColor": "#000000"
       }
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nebulanet.app",
       "buildNumber": "1",
-      "associatedDomains": [
-        "applinks:nebulanet.space"
-      ],
+      "associatedDomains": ["applinks:nebulanet.space"],
       "infoPlist": {
-        "UIBackgroundModes": [
-          "remote-notification"
-        ],
+        "UIBackgroundModes": ["remote-notification"],
         "NSPhotoLibraryUsageDescription": "Allow NebulaNet to access your photo library to upload profile pictures and posts.",
         "NSCameraUsageDescription": "Allow NebulaNet to use your camera to take photos and videos for posts.",
         "NSMicrophoneUsageDescription": "Allow NebulaNet to use your microphone for video posts."
       },
       "config": {
-        "usesNonExemptEncryption": false
+        "usesNonExemptEncryption": false,
+        "googleMobileAdsAppId": "ca-app-pub-7224753372359384~7108691257"
       }
     },
     "android": {
@@ -48,10 +43,7 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ],
+          "category": ["BROWSABLE", "DEFAULT"],
           "data": [
             {
               "scheme": "https",
@@ -136,9 +128,7 @@
         {
           "icon": "./assets/images/nebulanet-icon.png",
           "color": "#6D8BFF",
-          "sounds": [
-            "./assets/sounds/notification.wav"
-          ]
+          "sounds": ["./assets/sounds/notification.wav"]
         }
       ],
       "@react-native-google-signin/google-signin",
@@ -146,7 +136,13 @@
       "expo-build-properties",
       "@react-native-firebase/app",
       "@react-native-firebase/app-check",
-      "react-native-google-mobile-ads"
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-7224753372359384~7108691257",
+          "iosAppId": "ca-app-pub-7224753372359384~7108691257"
+        }
+      ]
     ],
     "extra": {
       "eas": {
@@ -156,7 +152,7 @@
       "appUrl": "https://nebulanet.space",
       "enableAnalytics": false,
       "enableDebug": true,
-      "appVersion": "1.0.0"
+      "appVersion": "1.0.4"
     },
     "experiments": {
       "typedRoutes": true,

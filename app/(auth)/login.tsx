@@ -1,7 +1,7 @@
-// app/(auth)/login.tsx — UPDATED ✅ phone OTP working
+// app/(auth)/login.tsx — UPDATED ✅ expo-firebase-recaptcha removed
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { checkTwoFactorEnabled } from "@/hooks/useTwoFactorAuth";
-import { auth, firebaseConfig } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,10 +9,9 @@ import {
   GoogleSignin,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { Link, router } from "expo-router";
 import { signOut as firebaseSignOut } from "firebase/auth";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -33,7 +32,6 @@ GoogleSignin.configure({
   forceCodeForRefreshToken: false,
 });
 
-// Country codes list (expand as needed)
 const COUNTRY_CODES = [
   { flag: "🇺🇸", code: "+1", label: "US" },
   { flag: "🇬🇧", code: "+44", label: "UK" },
@@ -52,7 +50,6 @@ export default function LoginScreen() {
   const { colors, isDark } = useTheme();
   const { sendOTP, state: phoneState, error: phoneError } = usePhoneAuth();
 
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null);
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -81,8 +78,7 @@ export default function LoginScreen() {
         return;
       }
       const fullNumber = `${selectedCountry.code}${digits}`;
-      if (!recaptchaRef.current) return;
-      const ok = await sendOTP(fullNumber, recaptchaRef.current);
+      const ok = await sendOTP(fullNumber);
       if (ok) {
         router.push({
           pathname: "/(auth)/phone-otp",
@@ -115,15 +111,14 @@ export default function LoginScreen() {
         );
         return;
       }
-      // ✅ Check 2FA — if enabled, sign out and send OTP
+      // ✅ Check 2FA
       if (res.user) {
         const { enabled, phoneNumber } = await checkTwoFactorEnabled(
           res.user.uid,
         );
         if (enabled && phoneNumber) {
           await firebaseSignOut(auth);
-          if (!recaptchaRef.current) return;
-          const ok = await sendOTP(phoneNumber, recaptchaRef.current);
+          const ok = await sendOTP(phoneNumber);
           if (ok) {
             router.push({
               pathname: "/(auth)/phone-otp",
@@ -208,16 +203,6 @@ export default function LoginScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
-
-      {/* ✅ RecaptchaVerifier — invisible, required for phone auth */}
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification
-        title="Verify you are human"
-        cancelLabel="Cancel"
-      />
-
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
       >
@@ -238,7 +223,6 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* Tab selector */}
             <View
               style={[
                 styles.tabContainer,
@@ -271,7 +255,6 @@ export default function LoginScreen() {
               ))}
             </View>
 
-            {/* Email input */}
             {activeTab === "email" && (
               <View
                 style={[
@@ -292,7 +275,6 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* Phone input */}
             {activeTab === "phone" && (
               <>
                 <View
@@ -301,7 +283,6 @@ export default function LoginScreen() {
                     { backgroundColor: colors.card },
                   ]}
                 >
-                  {/* Country picker trigger */}
                   <TouchableOpacity
                     style={[
                       styles.countrySelector,
@@ -330,7 +311,6 @@ export default function LoginScreen() {
                     editable={!disabled}
                   />
                 </View>
-                {/* Country picker dropdown */}
                 {showCountryPicker && (
                   <View
                     style={[
@@ -369,7 +349,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* Password (email only) */}
             {activeTab === "email" && (
               <>
                 <View style={styles.passwordContainer}>
