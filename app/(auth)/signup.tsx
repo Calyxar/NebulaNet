@@ -1,13 +1,11 @@
-// app/(auth)/signup.tsx — UPDATED ✅ phone OTP working
+// app/(auth)/signup.tsx — UPDATED ✅ expo-firebase-recaptcha removed
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
-import { firebaseConfig } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { Link, router } from "expo-router";
 import { sendEmailVerification } from "firebase/auth";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -46,7 +44,6 @@ export default function SignUpScreen() {
   } = useAuth();
   const { colors, isDark } = useTheme();
   const { sendOTP, state: phoneState, error: phoneError } = usePhoneAuth();
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null);
 
   const [activeTab, setActiveTab] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
@@ -73,7 +70,6 @@ export default function SignUpScreen() {
     if (user) return;
 
     if (activeTab === "phone") {
-      // For phone signup — collect name/username first then send OTP
       const uname = username.trim().toLowerCase();
       const name = fullName.trim();
       if (!uname) {
@@ -97,8 +93,7 @@ export default function SignUpScreen() {
         return;
       }
       const fullNumber = `${selectedCountry.code}${digits}`;
-      if (!recaptchaRef.current) return;
-      const ok = await sendOTP(fullNumber, recaptchaRef.current);
+      const ok = await sendOTP(fullNumber);
       if (ok) {
         router.push({
           pathname: "/(auth)/phone-otp",
@@ -203,15 +198,6 @@ export default function SignUpScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
-
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification
-        title="Verify you are human"
-        cancelLabel="Cancel"
-      />
-
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
       >
@@ -264,7 +250,6 @@ export default function SignUpScreen() {
               ))}
             </View>
 
-            {/* Full name + username always shown */}
             {[
               {
                 value: fullName,
@@ -299,7 +284,6 @@ export default function SignUpScreen() {
               </View>
             ))}
 
-            {/* Email input */}
             {activeTab === "email" && (
               <View
                 style={[
@@ -320,7 +304,6 @@ export default function SignUpScreen() {
               </View>
             )}
 
-            {/* Phone input */}
             {activeTab === "phone" && (
               <>
                 <View
@@ -395,7 +378,6 @@ export default function SignUpScreen() {
               </>
             )}
 
-            {/* Password fields (email only) */}
             {activeTab === "email" &&
               [
                 {
