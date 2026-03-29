@@ -1,4 +1,4 @@
-// app/create/post.tsx — UPDATED ✅ GIF picker wired in
+// app/create/post.tsx — UPDATED ✅ location picker added, boost removed
 import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
 import { extractHashtags } from "@/lib/firestore/hashtags";
@@ -10,8 +10,10 @@ import { router } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
+  FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StatusBar,
@@ -25,13 +27,247 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 type MediaType = "image" | "video" | "gif";
 type Visibility = "public" | "followers" | "private";
+
 interface LocalMediaItem {
   uri: string;
   type: MediaType;
 }
+interface PlaceResult {
+  place_id: string;
+  description: string;
+  structured_formatting: {
+    main_text: string;
+    secondary_text: string;
+  };
+}
 
 const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
+
+const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
+
+/* =========================
+   LOCATION PICKER MODAL
+========================= */
+
+function LocationPicker({
+  visible,
+  onSelect,
+  onClose,
+  colors,
+}: {
+  visible: boolean;
+  onSelect: (place: { name: string; place_id: string }) => void;
+  onClose: () => void;
+  colors: any;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlaceResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = async (text: string) => {
+    if (text.length < 2) {
+      setResults([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${PLACES_API_KEY}&types=(cities)|establishment`;
+      const res = await fetch(url);
+      const json = await res.json();
+      setResults(json.predictions ?? []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (text: string) => {
+    setQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => search(text), 350);
+  };
+
+  const handleClose = () => {
+    setQuery("");
+    setResults([]);
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={handleClose}
+    >
+      <TouchableOpacity
+        style={lpStyles.overlay}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
+      <View style={[lpStyles.sheet, { backgroundColor: colors.card }]}>
+        <View style={[lpStyles.handle, { backgroundColor: colors.border }]} />
+        <Text style={[lpStyles.title, { color: colors.text }]}>
+          Add Location
+        </Text>
+
+        {/* Search input */}
+        <View
+          style={[
+            lpStyles.searchRow,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <Ionicons name="search" size={18} color={colors.textTertiary} />
+          <TextInput
+            style={[lpStyles.searchInput, { color: colors.text }]}
+            placeholder="Search places..."
+            placeholderTextColor={colors.textTertiary}
+            value={query}
+            onChangeText={handleChange}
+            autoFocus
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {!!query && (
+            <TouchableOpacity
+              onPress={() => {
+                setQuery("");
+                setResults([]);
+              }}
+            >
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={colors.textTertiary}
+              />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {loading && (
+          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+            Searching...
+          </Text>
+        )}
+
+        {!loading && query.length >= 2 && results.length === 0 && (
+          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+            No results found.
+          </Text>
+        )}
+
+        <FlatList
+          data={results}
+          keyExtractor={(item) => item.place_id}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              style={[
+                lpStyles.resultRow,
+                { borderTopColor: colors.border },
+                index === 0 && { borderTopWidth: 0 },
+              ]}
+              onPress={() => {
+                onSelect({
+                  name: item.structured_formatting.main_text,
+                  place_id: item.place_id,
+                });
+                handleClose();
+              }}
+              activeOpacity={0.85}
+            >
+              <View
+                style={[
+                  lpStyles.pinCircle,
+                  { backgroundColor: colors.primary + "18" },
+                ]}
+              >
+                <Ionicons name="location" size={16} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text
+                  style={[lpStyles.mainText, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {item.structured_formatting.main_text}
+                </Text>
+                <Text
+                  style={[
+                    lpStyles.secondaryText,
+                    { color: colors.textTertiary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.structured_formatting.secondary_text}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          style={{ maxHeight: 320 }}
+        />
+      </View>
+    </Modal>
+  );
+}
+
+const lpStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: { fontSize: 17, fontWeight: "800", marginBottom: 14 },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  searchInput: { flex: 1, fontSize: 15 },
+  hint: {
+    fontSize: 13,
+    textAlign: "center",
+    paddingVertical: 12,
+    fontWeight: "600",
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  pinCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainText: { fontSize: 14, fontWeight: "700" },
+  secondaryText: { fontSize: 12, marginTop: 2 },
+});
+
+/* =========================
+   MAIN SCREEN
+========================= */
 
 export default function CreatePostScreen() {
   const { user, profile } = useAuth();
@@ -45,6 +281,11 @@ export default function CreatePostScreen() {
   const [isPosting, setIsPosting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [location, setLocation] = useState<{
+    name: string;
+    place_id: string;
+  } | null>(null);
 
   const canPost = useMemo(
     () =>
@@ -119,7 +360,6 @@ export default function CreatePostScreen() {
     );
   };
 
-  // ✅ GIF selected from Klipy — add as gif media item
   const handleGifSelect = (url: string) => {
     setMediaItems((prev) =>
       [...prev, { uri: url, type: "gif" as const }].slice(0, 4),
@@ -151,6 +391,8 @@ export default function CreatePostScreen() {
           type: m.type,
         })) as any,
         visibility,
+        // ✅ Pass location to createPost if selected
+        location: location ?? undefined,
       });
       router.back();
     } catch (e: any) {
@@ -160,8 +402,6 @@ export default function CreatePostScreen() {
       setUploadProgress("");
     }
   };
-
-  const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
 
   return (
     <>
@@ -195,7 +435,7 @@ export default function CreatePostScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Main composer card */}
+            {/* Composer card */}
             <View style={[styles.card, { backgroundColor: colors.card }]}>
               <TextInput
                 style={[styles.titleInput, { color: colors.text }]}
@@ -206,7 +446,6 @@ export default function CreatePostScreen() {
                 returnKeyType="next"
                 onSubmitEditing={() => inputRef.current?.focus()}
               />
-
               <TextInput
                 ref={inputRef}
                 style={[styles.bodyInput, { color: colors.text }]}
@@ -289,7 +528,6 @@ export default function CreatePostScreen() {
                       color={colors.textSecondary}
                     />
                   </TouchableOpacity>
-                  {/* ✅ GIF button */}
                   <TouchableOpacity
                     style={[
                       styles.toolBtn,
@@ -330,11 +568,10 @@ export default function CreatePostScreen() {
             <View
               style={[styles.optionsCard, { backgroundColor: colors.card }]}
             >
+              {/* ✅ Location — now opens real picker */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                onPress={() =>
-                  Alert.alert("Location", "Location feature coming soon.")
-                }
+                onPress={() => setShowLocationPicker(true)}
               >
                 <View
                   style={[
@@ -349,17 +586,39 @@ export default function CreatePostScreen() {
                   />
                 </View>
                 <Text style={[styles.optionLabel, { color: colors.text }]}>
-                  Add Location
+                  {location ? location.name : "Add Location"}
                 </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textTertiary}
-                />
+                <View style={styles.optionRight}>
+                  {location && (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        setLocation(null);
+                      }}
+                      hitSlop={8}
+                      style={[
+                        styles.clearLocation,
+                        { backgroundColor: colors.surface },
+                      ]}
+                    >
+                      <Ionicons
+                        name="close"
+                        size={14}
+                        color={colors.textTertiary}
+                      />
+                    </TouchableOpacity>
+                  )}
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textTertiary}
+                  />
+                </View>
               </TouchableOpacity>
 
+              {/* Visibility */}
               <TouchableOpacity
-                style={[styles.optionRow, { borderBottomColor: colors.border }]}
+                style={[styles.optionRow, { borderBottomWidth: 0 }]}
                 onPress={() =>
                   setVisibility((v) =>
                     v === "public"
@@ -388,37 +647,6 @@ export default function CreatePostScreen() {
                     : visibility === "followers"
                       ? "Share with Followers"
                       : "Only Me"}
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textTertiary}
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.optionRow}
-                onPress={() =>
-                  Alert.alert(
-                    "Boost",
-                    "Finish writing your post first, then boost after publishing.",
-                  )
-                }
-              >
-                <View
-                  style={[
-                    styles.optionIcon,
-                    { backgroundColor: colors.primary + "18" },
-                  ]}
-                >
-                  <Ionicons
-                    name="rocket-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </View>
-                <Text style={[styles.optionLabel, { color: colors.text }]}>
-                  Boost Post
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -479,11 +707,19 @@ export default function CreatePostScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ✅ GIF Picker modal */}
+      {/* GIF Picker */}
       <GifPicker
         visible={showGifPicker}
         onSelect={handleGifSelect}
         onClose={() => setShowGifPicker(false)}
+      />
+
+      {/* ✅ Location Picker */}
+      <LocationPicker
+        visible={showLocationPicker}
+        onSelect={(place) => setLocation(place)}
+        onClose={() => setShowLocationPicker(false)}
+        colors={colors}
       />
     </>
   );
@@ -597,6 +833,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionLabel: { flex: 1, fontSize: 15, fontWeight: "500" },
+  optionRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  clearLocation: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   uploadProgress: {
     textAlign: "center",
     fontSize: 13,
