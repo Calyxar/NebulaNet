@@ -1,22 +1,42 @@
-// hooks/usePosts.ts — UPDATED ✅ language filter wired into feed
+// hooks/usePosts.ts — UPDATED ✅ show_nsfw, default_sort, feed_density wired in
+import { useAuth } from "@/hooks/useAuth";
+import { useSettings } from "@/hooks/useSettings";
+import { auth, db } from "@/lib/firebase";
 import {
-  createPost, deletePost, getPostById, getPosts, updatePost,
-  type CreatePostData, type PaginatedPosts, type Post,
-  type PostFilters, type UpdatePostData,
+  addComment,
+  getComments,
+  toggleCommentLike,
+  type CommentWithAuthor,
+} from "@/lib/firestore/comments";
+import {
+  createPost,
+  deletePost,
+  getPostById,
+  getPosts,
+  updatePost,
+  type CreatePostData,
+  type PaginatedPosts,
+  type Post,
+  type PostFilters,
+  type UpdatePostData,
 } from "@/lib/firestore/posts";
 import {
-  useInfiniteQuery, useMutation, useQuery, useQueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
 import {
-  addComment, getComments, toggleCommentLike,
-  type CommentWithAuthor,
-} from "@/lib/firestore/comments";
-import { auth, db } from "@/lib/firebase";
-import { useAuth } from "@/hooks/useAuth";
-import {
-  addDoc, collection, deleteDoc, doc, getDocs,
-  increment, query, updateDoc, where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  increment,
+  query,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 
 export type { CommentWithAuthor };
@@ -28,7 +48,8 @@ export type { CommentWithAuthor };
 export const postKeys = {
   all: ["posts"] as const,
   lists: () => [...postKeys.all, "list"] as const,
-  list: (filters: Omit<PostFilters, "cursor">) => [...postKeys.lists(), filters] as const,
+  list: (filters: Omit<PostFilters, "cursor">) =>
+    [...postKeys.lists(), filters] as const,
   details: () => [...postKeys.all, "detail"] as const,
   detail: (id: string) => [...postKeys.details(), id] as const,
 };
@@ -74,7 +95,10 @@ export function usePost(postId: string | undefined) {
   const id = (postId ?? "").trim();
   return useQuery<Post | null>({
     queryKey: postKeys.detail(id || "no-id"),
-    queryFn: async () => { if (!id) return null; return getPostById(id); },
+    queryFn: async () => {
+      if (!id) return null;
+      return getPostById(id);
+    },
     enabled: !!id,
     retry: 1,
     staleTime: 15_000,
@@ -82,7 +106,7 @@ export function usePost(postId: string | undefined) {
 }
 
 /* =============================================================================
-   INFINITE FEED — with language filter ✅
+   INFINITE FEED — ✅ show_nsfw, default_sort, feed_density
 ============================================================================= */
 
 export function useInfinitePosts(filters: Omit<PostFilters, "cursor">) {
@@ -91,7 +115,11 @@ export function useInfinitePosts(filters: Omit<PostFilters, "cursor">) {
     queryKey: postKeys.list(filters),
     initialPageParam: null as PostFilters["cursor"],
     queryFn: ({ pageParam }) =>
-      getPosts({ ...(filters as PostFilters), limit, cursor: pageParam ?? null }),
+      getPosts({
+        ...(filters as PostFilters),
+        limit,
+        cursor: pageParam ?? null,
+      }),
     getNextPageParam: (lastPage) => {
       if (!lastPage.hasMore) return undefined;
       return lastPage.nextCursor ?? undefined;
@@ -99,18 +127,40 @@ export function useInfinitePosts(filters: Omit<PostFilters, "cursor">) {
   });
 }
 
+// ✅ Export feed density so home.tsx can read it for spacing
+export function useFeedDensity() {
+  const { settings } = useSettings();
+  return settings?.preferences?.feed_density ?? "normal";
+}
+
 export function useInfiniteFeedPosts(
   activeTab: "for-you" | "following" | "my-community",
   opts?: { communityIds?: string[] },
 ) {
   const { userSettings } = useAuth();
+  const { settings } = useSettings();
 
-  // ✅ Read saved language preference — only filter if non-English
+  // ✅ Language preference
   const savedLanguage = (userSettings as any)?.language ?? null;
-  const languageFilter = savedLanguage && savedLanguage !== "en" ? savedLanguage : null;
+  const languageFilter =
+    savedLanguage && savedLanguage !== "en" ? savedLanguage : null;
+
+  // ✅ Sort preference — map settings value to PostFilters sortBy
+  const prefSort = settings?.preferences?.default_sort ?? "best";
+  const sortBy: PostFilters["sortBy"] =
+    prefSort === "hot"
+      ? "trending"
+      : prefSort === "top"
+        ? "popular"
+        : prefSort === "new"
+          ? "newest"
+          : "newest"; // "best" defaults to newest
+
+  // ✅ NSFW filter — if show_nsfw is false, exclude nsfw posts (filtered in JS after fetch)
+  const showNsfw = settings?.preferences?.show_nsfw ?? false;
 
   const base: Omit<PostFilters, "cursor"> = {
-    sortBy: "newest",
+    sortBy,
     limit: 20,
     language: languageFilter,
   };
@@ -122,11 +172,30 @@ export function useInfiniteFeedPosts(
         ? { ...base, communityIds: opts?.communityIds ?? [] }
         : base;
 
-  return useInfinitePosts(filters);
+  const query = useInfinitePosts(filters);
+
+  // ✅ Filter NSFW posts in JS if show_nsfw is off
+  const data = showNsfw
+    ? query.data
+    : query.data
+      ? {
+          ...query.data,
+          pages: query.data.pages.map((page) => ({
+            ...page,
+            posts: page.posts.filter((p) => !(p as any).is_nsfw),
+          })),
+        }
+      : query.data;
+
+  return { ...query, data };
 }
 
 export function useInfiniteCommunityFeed(communitySlug: string | undefined) {
-  return useInfinitePosts({ limit: 20, sortBy: "newest", communitySlug: communitySlug ?? "" });
+  return useInfinitePosts({
+    limit: 20,
+    sortBy: "newest",
+    communitySlug: communitySlug ?? "",
+  });
 }
 
 /* =============================================================================
@@ -148,37 +217,60 @@ export function useCreatePost() {
     },
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: postKeys.lists() });
-      const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({ queryKey: postKeys.lists() });
+      const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
+        queryKey: postKeys.lists(),
+      });
       const tempId = `temp-${Date.now()}`;
       const uid = auth.currentUser?.uid ?? "me";
       const optimistic: Post = {
-        id: tempId, user_id: uid, title: input.title ?? null, content: input.content,
-        media_urls: input.media?.map((m) => m.uri) ?? [], visibility: input.visibility,
-        community_id: input.community_id ?? null, like_count: 0, comment_count: 0, share_count: 0,
-        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-        user: null, community: null, is_liked: false, is_saved: false, is_owned: true,
-        post_type: "text", is_visible: true,
+        id: tempId,
+        user_id: uid,
+        title: input.title ?? null,
+        content: input.content,
+        media_urls: input.media?.map((m) => m.uri) ?? [],
+        visibility: input.visibility,
+        community_id: input.community_id ?? null,
+        like_count: 0,
+        comment_count: 0,
+        share_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        user: null,
+        community: null,
+        is_liked: false,
+        is_saved: false,
+        is_owned: true,
+        post_type: "text",
+        is_visible: true,
       };
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
-        (old) => updateInfiniteLists(old, (posts) => upsertPostAtTop(posts, optimistic)),
+        (old) =>
+          updateInfiniteLists(old, (posts) =>
+            upsertPostAtTop(posts, optimistic),
+          ),
       );
       return { previous, tempId };
     },
     onError: (_err, _input, ctx) => {
-      ctx?.previous?.forEach(([key, data]) => { qc.setQueryData(key as any, data); });
+      ctx?.previous?.forEach(([key, data]) => {
+        qc.setQueryData(key as any, data);
+      });
     },
     onSuccess: (created, _input, ctx) => {
       if (!ctx?.tempId) return;
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
-        (old) => updateInfiniteLists(old, (posts) => {
-          const withoutTemp = posts.filter((p) => p.id !== ctx.tempId);
-          return upsertPostAtTop(withoutTemp, created);
-        }),
+        (old) =>
+          updateInfiniteLists(old, (posts) => {
+            const withoutTemp = posts.filter((p) => p.id !== ctx.tempId);
+            return upsertPostAtTop(withoutTemp, created);
+          }),
       );
     },
-    onSettled: () => { qc.invalidateQueries({ queryKey: postKeys.lists() }); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
+    },
   });
 }
 
@@ -199,7 +291,9 @@ export function useUpdatePost() {
 
 export function useDeletePost() {
   const qc = useQueryClient();
-  type Ctx = { previous: [unknown, InfiniteData<PaginatedPosts> | undefined][] };
+  type Ctx = {
+    previous: [unknown, InfiniteData<PaginatedPosts> | undefined][];
+  };
   return useMutation<string, Error, string, Ctx>({
     mutationFn: async (postId) => {
       const ok = await deletePost(postId);
@@ -208,17 +302,26 @@ export function useDeletePost() {
     },
     onMutate: async (postId) => {
       await qc.cancelQueries({ queryKey: postKeys.lists() });
-      const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({ queryKey: postKeys.lists() });
+      const previous = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
+        queryKey: postKeys.lists(),
+      });
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
-        (old) => updateInfiniteLists(old, (posts) => removePostById(posts, postId), { allPages: true }),
+        (old) =>
+          updateInfiniteLists(old, (posts) => removePostById(posts, postId), {
+            allPages: true,
+          }),
       );
       return { previous };
     },
     onError: (_err, _id, ctx) => {
-      ctx?.previous?.forEach(([key, data]) => { qc.setQueryData(key as any, data); });
+      ctx?.previous?.forEach(([key, data]) => {
+        qc.setQueryData(key as any, data);
+      });
     },
-    onSettled: () => { qc.invalidateQueries({ queryKey: postKeys.lists() }); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
+    },
   });
 }
 
@@ -235,21 +338,38 @@ export function useToggleLike() {
       const ref = doc(db, "posts", vars.postId);
       if (vars.isLiked) {
         await updateDoc(ref, { like_count: increment(-1) });
-        const snap = await getDocs(query(collection(db, "post_likes"), where("post_id", "==", vars.postId), where("user_id", "==", uid)));
+        const snap = await getDocs(
+          query(
+            collection(db, "post_likes"),
+            where("post_id", "==", vars.postId),
+            where("user_id", "==", uid),
+          ),
+        );
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       } else {
         await updateDoc(ref, { like_count: increment(1) });
-        await addDoc(collection(db, "post_likes"), { post_id: vars.postId, user_id: uid, created_at: new Date().toISOString() });
+        await addDoc(collection(db, "post_likes"), {
+          post_id: vars.postId,
+          user_id: uid,
+          created_at: new Date().toISOString(),
+        });
       }
       return vars;
     },
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
       const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
-      if (prev) qc.setQueryData<Post>(postKeys.detail(vars.postId), { ...prev, is_liked: !vars.isLiked, like_count: (prev.like_count ?? 0) + (vars.isLiked ? -1 : 1) });
+      if (prev)
+        qc.setQueryData<Post>(postKeys.detail(vars.postId), {
+          ...prev,
+          is_liked: !vars.isLiked,
+          like_count: (prev.like_count ?? 0) + (vars.isLiked ? -1 : 1),
+        });
       return { prev };
     },
-    onError: (_err, vars, ctx: any) => { if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev); },
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+    },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
       qc.invalidateQueries({ queryKey: postKeys.lists() });
@@ -264,21 +384,39 @@ export function useToggleBookmark() {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not signed in");
       if (vars.isSaved) {
-        const snap = await getDocs(query(collection(db, "saved_posts"), where("post_id", "==", vars.postId), where("user_id", "==", uid)));
+        const snap = await getDocs(
+          query(
+            collection(db, "saved_posts"),
+            where("post_id", "==", vars.postId),
+            where("user_id", "==", uid),
+          ),
+        );
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       } else {
-        await addDoc(collection(db, "saved_posts"), { post_id: vars.postId, user_id: uid, saved_at: new Date().toISOString() });
+        await addDoc(collection(db, "saved_posts"), {
+          post_id: vars.postId,
+          user_id: uid,
+          saved_at: new Date().toISOString(),
+        });
       }
       return vars;
     },
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
       const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
-      if (prev) qc.setQueryData<Post>(postKeys.detail(vars.postId), { ...prev, is_saved: !vars.isSaved });
+      if (prev)
+        qc.setQueryData<Post>(postKeys.detail(vars.postId), {
+          ...prev,
+          is_saved: !vars.isSaved,
+        });
       return { prev };
     },
-    onError: (_err, vars, ctx: any) => { if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev); },
-    onSettled: (_data, _err, vars) => { qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) }); },
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
   });
 }
 
@@ -290,7 +428,10 @@ export function useComments(postId: string | undefined) {
   const id = (postId ?? "").trim();
   return useQuery<CommentWithAuthor[]>({
     queryKey: commentKeys.post(id || "no-id"),
-    queryFn: async () => { if (!id) return []; return getComments(id); },
+    queryFn: async () => {
+      if (!id) return [];
+      return getComments(id);
+    },
     enabled: !!id,
     retry: 1,
   });
@@ -299,7 +440,11 @@ export function useComments(postId: string | undefined) {
 export function useAddComment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { post_id: string; content: string; parent_id?: string | null }) => addComment(vars),
+    mutationFn: async (vars: {
+      post_id: string;
+      content: string;
+      parent_id?: string | null;
+    }) => addComment(vars),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: commentKeys.post(vars.post_id) });
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.post_id) });
@@ -311,11 +456,17 @@ export function useAddComment() {
 export function useToggleCommentLike() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { commentId: string; postId: string; isLiked: boolean }) => {
+    mutationFn: async (vars: {
+      commentId: string;
+      postId: string;
+      isLiked: boolean;
+    }) => {
       await toggleCommentLike(vars);
       return vars;
     },
-    onSuccess: (_res, vars) => { qc.invalidateQueries({ queryKey: commentKeys.post(vars.postId) }); },
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: commentKeys.post(vars.postId) });
+    },
   });
 }
 
