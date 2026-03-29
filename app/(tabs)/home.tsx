@@ -6,7 +6,7 @@ import StoryAvatar from "@/components/StoryAvatar";
 import { BANNER_AD_UNIT_ID, useInterstitialAd } from "@/hooks/useAdMob";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
-import { useInfiniteFeedPosts } from "@/hooks/usePosts";
+import { useFeedDensity, useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useActiveStories } from "@/hooks/useStories";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
 import type { Post } from "@/lib/firestore/posts";
@@ -117,6 +117,7 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const { colors, isDark } = useTheme();
   const { maybeShowInterstitial } = useInterstitialAd();
+  const feedDensity = useFeedDensity();
 
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
@@ -481,6 +482,18 @@ export default function HomeScreen() {
             {
               backgroundColor: colors.card,
               shadowOpacity: isDark ? 0.22 : 0.05,
+              padding:
+                feedDensity === "compact"
+                  ? 10
+                  : feedDensity === "relaxed"
+                    ? 20
+                    : 14,
+              marginBottom:
+                feedDensity === "compact"
+                  ? 6
+                  : feedDensity === "relaxed"
+                    ? 18
+                    : 12,
             },
           ]}
         >
