@@ -1,4 +1,7 @@
 // hooks/usePosts.ts — UPDATED ✅ show_nsfw, default_sort, feed_density wired in
+// ✅ FIXED: useToggleLike now uses "likes" collection (was "post_likes")
+// ✅ FIXED: useToggleBookmark now uses "saves" collection (was "saved_posts")
+// ✅ FIXED: optimistic updates now apply to both detail query AND infinite feed list
 import { useAuth } from "@/hooks/useAuth";
 import { useSettings } from "@/hooks/useSettings";
 import { auth, db } from "@/lib/firebase";
@@ -140,12 +143,10 @@ export function useInfiniteFeedPosts(
   const { userSettings } = useAuth();
   const { settings } = useSettings();
 
-  // ✅ Language preference
   const savedLanguage = (userSettings as any)?.language ?? null;
   const languageFilter =
     savedLanguage && savedLanguage !== "en" ? savedLanguage : null;
 
-  // ✅ Sort preference — map settings value to PostFilters sortBy
   const prefSort = settings?.preferences?.default_sort ?? "best";
   const sortBy: PostFilters["sortBy"] =
     prefSort === "hot"
@@ -154,9 +155,8 @@ export function useInfiniteFeedPosts(
         ? "popular"
         : prefSort === "new"
           ? "newest"
-          : "newest"; // "best" defaults to newest
+          : "newest";
 
-  // ✅ NSFW filter — if show_nsfw is false, exclude nsfw posts (filtered in JS after fetch)
   const showNsfw = settings?.preferences?.show_nsfw ?? false;
 
   const base: Omit<PostFilters, "cursor"> = {
@@ -174,7 +174,6 @@ export function useInfiniteFeedPosts(
 
   const query = useInfinitePosts(filters);
 
-  // ✅ Filter NSFW posts in JS if show_nsfw is off
   const data = showNsfw
     ? query.data
     : query.data
@@ -327,6 +326,9 @@ export function useDeletePost() {
 
 /* =============================================================================
    LIKE / BOOKMARK
+   ✅ FIXED: "post_likes" → "likes" (matches Firestore rules + fetchMyLikeSaveFlags)
+   ✅ FIXED: "saved_posts" → "saves" (matches Firestore rules + fetchMyLikeSaveFlags)
+   ✅ FIXED: optimistic updates now apply to both detail query AND infinite feed
 ============================================================================= */
 
 export function useToggleLike() {
@@ -335,20 +337,22 @@ export function useToggleLike() {
     mutationFn: async (vars: { postId: string; isLiked: boolean }) => {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not signed in");
-      const ref = doc(db, "posts", vars.postId);
+      const postRef = doc(db, "posts", vars.postId);
       if (vars.isLiked) {
-        await updateDoc(ref, { like_count: increment(-1) });
+        // ✅ FIXED: was "post_likes", now "likes"
+        await updateDoc(postRef, { like_count: increment(-1) });
         const snap = await getDocs(
           query(
-            collection(db, "post_likes"),
+            collection(db, "likes"),
             where("post_id", "==", vars.postId),
             where("user_id", "==", uid),
           ),
         );
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       } else {
-        await updateDoc(ref, { like_count: increment(1) });
-        await addDoc(collection(db, "post_likes"), {
+        await updateDoc(postRef, { like_count: increment(1) });
+        // ✅ FIXED: was "post_likes", now "likes"
+        await addDoc(collection(db, "likes"), {
           post_id: vars.postId,
           user_id: uid,
           created_at: new Date().toISOString(),
@@ -358,17 +362,50 @@ export function useToggleLike() {
     },
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
-      const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
-      if (prev)
+      await qc.cancelQueries({ queryKey: postKeys.lists() });
+
+      const prevDetail = qc.getQueryData<Post>(postKeys.detail(vars.postId));
+      const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
+        queryKey: postKeys.lists(),
+      });
+
+      // ✅ Optimistic update on detail
+      if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
-          ...prev,
+          ...prevDetail,
           is_liked: !vars.isLiked,
-          like_count: (prev.like_count ?? 0) + (vars.isLiked ? -1 : 1),
+          like_count: (prevDetail.like_count ?? 0) + (vars.isLiked ? -1 : 1),
         });
-      return { prev };
+      }
+
+      // ✅ Optimistic update on feed list
+      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
+        { queryKey: postKeys.lists() },
+        (old) =>
+          updateInfiniteLists(
+            old,
+            (posts) =>
+              posts.map((p) =>
+                p.id !== vars.postId
+                  ? p
+                  : {
+                      ...p,
+                      is_liked: !vars.isLiked,
+                      like_count: (p.like_count ?? 0) + (vars.isLiked ? -1 : 1),
+                    },
+              ),
+            { allPages: true },
+          ),
+      );
+
+      return { prevDetail, prevLists };
     },
     onError: (_err, vars, ctx: any) => {
-      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+      if (ctx?.prevDetail)
+        qc.setQueryData(postKeys.detail(vars.postId), ctx.prevDetail);
+      ctx?.prevLists?.forEach(([key, data]: any) => {
+        qc.setQueryData(key, data);
+      });
     },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
@@ -384,16 +421,18 @@ export function useToggleBookmark() {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not signed in");
       if (vars.isSaved) {
+        // ✅ FIXED: was "saved_posts", now "saves"
         const snap = await getDocs(
           query(
-            collection(db, "saved_posts"),
+            collection(db, "saves"),
             where("post_id", "==", vars.postId),
             where("user_id", "==", uid),
           ),
         );
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       } else {
-        await addDoc(collection(db, "saved_posts"), {
+        // ✅ FIXED: was "saved_posts", now "saves"
+        await addDoc(collection(db, "saves"), {
           post_id: vars.postId,
           user_id: uid,
           saved_at: new Date().toISOString(),
@@ -403,19 +442,47 @@ export function useToggleBookmark() {
     },
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
-      const prev = qc.getQueryData<Post>(postKeys.detail(vars.postId));
-      if (prev)
+      await qc.cancelQueries({ queryKey: postKeys.lists() });
+
+      const prevDetail = qc.getQueryData<Post>(postKeys.detail(vars.postId));
+      const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
+        queryKey: postKeys.lists(),
+      });
+
+      // ✅ Optimistic update on detail
+      if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
-          ...prev,
+          ...prevDetail,
           is_saved: !vars.isSaved,
         });
-      return { prev };
+      }
+
+      // ✅ Optimistic update on feed list
+      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
+        { queryKey: postKeys.lists() },
+        (old) =>
+          updateInfiniteLists(
+            old,
+            (posts) =>
+              posts.map((p) =>
+                p.id !== vars.postId ? p : { ...p, is_saved: !vars.isSaved },
+              ),
+            { allPages: true },
+          ),
+      );
+
+      return { prevDetail, prevLists };
     },
     onError: (_err, vars, ctx: any) => {
-      if (ctx?.prev) qc.setQueryData(postKeys.detail(vars.postId), ctx.prev);
+      if (ctx?.prevDetail)
+        qc.setQueryData(postKeys.detail(vars.postId), ctx.prevDetail);
+      ctx?.prevLists?.forEach(([key, data]: any) => {
+        qc.setQueryData(key, data);
+      });
     },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
     },
   });
 }
@@ -481,6 +548,29 @@ export function useIncrementShareCount() {
       const ref = doc(db, "posts", postId);
       await updateDoc(ref, { share_count: increment(1) });
       return postId;
+    },
+    onMutate: async (postId) => {
+      const prevDetail = qc.getQueryData<Post>(postKeys.detail(postId));
+      if (prevDetail) {
+        qc.setQueryData<Post>(postKeys.detail(postId), {
+          ...prevDetail,
+          share_count: (prevDetail.share_count ?? 0) + 1,
+        });
+      }
+      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
+        { queryKey: postKeys.lists() },
+        (old) =>
+          updateInfiniteLists(
+            old,
+            (posts) =>
+              posts.map((p) =>
+                p.id !== postId
+                  ? p
+                  : { ...p, share_count: (p.share_count ?? 0) + 1 },
+              ),
+            { allPages: true },
+          ),
+      );
     },
     onSuccess: (postId) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(postId) });
