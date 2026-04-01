@@ -1,7 +1,8 @@
-// app/user/[username].tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails
+// app/user/[username].tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
+import { shareProfileLink } from "@/lib/shareProfile";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
@@ -25,7 +26,6 @@ import {
   Image,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -370,9 +370,14 @@ export default function UserProfileScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
+  // ✅ FIXED: uses shareProfileLink for proper nebulanet.space/u/<username> links
   const handleShareProfile = async () => {
     try {
-      await Share.share({ message: `Check out @${username} on NebulaNet!` });
+      await shareProfileLink({
+        username: target?.username ?? username,
+        userId: target?.id ?? "",
+        fullName: target?.full_name ?? null,
+      });
     } catch {}
   };
 
@@ -651,7 +656,6 @@ export default function UserProfileScreen() {
             {/* Action Buttons */}
             {!isMe ? (
               <View style={styles.actionButtons}>
-                {/* ✅ Follow button */}
                 <TouchableOpacity
                   style={[
                     styles.followBtn,

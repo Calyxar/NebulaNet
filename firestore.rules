@@ -28,9 +28,10 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
-    // ✅ REMOVED isSuspended() — recursive get() → permission-denied on writes
-    // ✅ FIXED profiles read — no longer calls profileDoc() which broke collection queries
-    //    (e.g. username uniqueness check in updateProfile). Privacy enforced at app layer.
+    function isCounterUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count']);
+    }
 
     match /profiles/{userId} {
       allow read: if signedIn();
@@ -50,10 +51,15 @@ service cloud.firestore {
       allow create: if signedIn();
     }
 
+    // ✅ FIXED: allow counter updates (likes, comments, reposts, saves) by any signed-in user
     match /posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+      allow update: if signedIn() && (
+        resource.data.user_id == uid() ||
+        isAdmin() ||
+        isCounterUpdate()
+      );
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
@@ -74,6 +80,13 @@ service cloud.firestore {
       allow create: if signedIn();
       allow update: if signedIn() && resource.data.user_id == uid();
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    // ✅ ADDED: reposts/shares collection
+    match /reposts/{repostId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
     match /communities/{communityId} {
@@ -133,10 +146,26 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.blocker_id == uid();
     }
 
+    // ✅ FIXED: poll votes subcollection added
     match /polls/{pollId} {
       allow read: if signedIn();
       allow create: if signedIn();
       allow update: if signedIn();
+
+      match /votes/{voteId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.user_id == uid();
+        allow update: if signedIn() && resource.data.user_id == uid();
+        allow delete: if signedIn() && resource.data.user_id == uid();
+      }
+    }
+
+    // ✅ ADDED: events collection
+    match /events/{eventId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && (resource.data.creator_id == uid() || isAdmin());
+      allow delete: if signedIn() && (resource.data.creator_id == uid() || isAdmin());
     }
 
     match /hashtags/{hashtagId} {

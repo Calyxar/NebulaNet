@@ -1,5 +1,6 @@
-// components/post/PostCard.tsx — UPDATED ✅ boost button removed
+// components/post/PostCard.tsx — UPDATED ✅ real media rendering + MediaGallery
 import HashtagText from "@/components/post/HashtagText";
+import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import Avatar from "@/components/user/Avatar";
 import { type PollData } from "@/lib/firestore/polls";
@@ -123,7 +124,6 @@ export default function PostCard(props: PostCardProps) {
   };
 
   const handleMoreOptions = () => {
-    // ✅ Boost Post removed from action sheet
     const baseButtons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
       { text: "Share to Chat", onPress: () => void handleShareToChat() },
@@ -269,26 +269,26 @@ export default function PostCard(props: PostCardProps) {
                 {expanded ? " Show less" : " Read more"}
               </Text>
             )}
+            {/* ✅ FIXED: render actual images via MediaGallery */}
             {media && media.length > 0 && (
-              <View style={styles.mediaContainer}>
-                <View
-                  style={[
-                    styles.mediaPreview,
-                    { backgroundColor: colors.surface },
-                  ]}
-                >
-                  <Ionicons
-                    name="image-outline"
-                    size={40}
-                    color={colors.textTertiary}
-                  />
-                  <Text
-                    style={[styles.mediaText, { color: colors.textTertiary }]}
-                  >
-                    {media.length} {media.length === 1 ? "photo" : "photos"}
-                  </Text>
-                </View>
-              </View>
+              <MediaGallery
+                media={media}
+                onMediaPress={(index) => {
+                  // Video tap — navigate to post for video playback
+                  const url = media[index];
+                  const isVid = [
+                    "mp4",
+                    "mov",
+                    "m4v",
+                    "webm",
+                    "mkv",
+                    "avi",
+                  ].some((e) =>
+                    url.split("?")[0].toLowerCase().endsWith(`.${e}`),
+                  );
+                  if (isVid) openPost();
+                }}
+              />
             )}
           </>
         )}
@@ -441,14 +441,6 @@ const styles = StyleSheet.create({
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
-  mediaContainer: { marginTop: 12 },
-  mediaPreview: {
-    height: 150,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mediaText: { marginTop: 8 },
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",

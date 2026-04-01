@@ -1,6 +1,7 @@
-// app/post/[id].tsx — UPDATED ✅ LinearGradient + edges fix + dark mode
+// app/post/[id].tsx — UPDATED ✅ LinearGradient + edges fix + dark mode + bottom safe area fix + MediaGallery
 import { PostCardSkeleton } from "@/components/Skeleton";
 import HashtagText from "@/components/post/HashtagText";
+import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -37,7 +38,10 @@ import {
   View,
   type AlertButton,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 function coerceParamToString(v: unknown): string | null {
   if (typeof v === "string" && v.trim().length) return v;
@@ -110,6 +114,8 @@ export default function PostDetailScreen() {
   );
   const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
+  // ✅ FIXED: get bottom inset to lift comment bar above phone controls
+  const { bottom: bottomInset } = useSafeAreaInsets();
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
@@ -267,15 +273,11 @@ export default function PostDetailScreen() {
     Alert.alert("Post Options", undefined, buttons);
   };
 
-  const mediaUrl = post?.media_urls?.[0];
-  const mediaExt = typeof mediaUrl === "string" ? mediaUrl.split("?")[0] : "";
-  const isImage =
-    typeof mediaUrl === "string" &&
-    /\.(png|jpg|jpeg|webp|gif|heic)$/i.test(mediaExt);
-  const isVideo =
-    typeof mediaUrl === "string" &&
-    /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(mediaExt);
   const isPoll = (post as any)?.post_type === "poll";
+  const hasMedia = (post?.media_urls?.length ?? 0) > 0;
+  const isVideo =
+    typeof post?.media_urls?.[0] === "string" &&
+    /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(post.media_urls[0].split("?")[0]);
 
   const HeaderBar = ({ showMenu = true }: { showMenu?: boolean }) => (
     <View
@@ -520,32 +522,31 @@ export default function PostDetailScreen() {
                   borderColor={colors.border}
                 />
               )}
-              {isImage && mediaUrl && (
-                <Image
-                  source={{ uri: mediaUrl }}
-                  style={[styles.media, { backgroundColor: colors.surface }]}
-                  resizeMode="cover"
-                />
-              )}
-              {isVideo && mediaUrl && (
-                <View style={styles.videoBadgeWrap}>
-                  <Ionicons name="videocam" size={20} color="#fff" />
-                  <Text style={styles.videoBadgeText}>Video attachment</Text>
-                </View>
-              )}
-              {(post.media_urls?.length ?? 0) > 1 && (
-                <Text
-                  style={[styles.moreMedia, { color: colors.textTertiary }]}
-                >
-                  +{post.media_urls.length - 1} more{" "}
-                  {post.media_urls.length - 1 === 1 ? "file" : "files"}
-                </Text>
-              )}
 
-              {/* Stats */}
-              <View
-                style={[styles.statsRow, { borderTopColor: colors.border }]}
-              >
+              {/* ✅ UPDATED: use MediaGallery for all media (images + multi-image support + zoom) */}
+              {hasMedia &&
+                !isPoll &&
+                (isVideo ? (
+                  <View style={styles.videoBadgeWrap}>
+                    <Ionicons name="videocam" size={20} color="#fff" />
+                    <Text style={styles.videoBadgeText}>Video attachment</Text>
+                  </View>
+                ) : (
+                  <MediaGallery media={post.media_urls} />
+                ))}
+            </View>
+
+            {/* ── Stats ── */}
+            <View
+              style={[
+                styles.statsCard,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.25 : 0.06,
+                },
+              ]}
+            >
+              <View style={styles.statsRow}>
                 <Text
                   style={[styles.statText, { color: colors.textSecondary }]}
                 >
@@ -843,10 +844,15 @@ export default function PostDetailScreen() {
           </ScrollView>
 
           {/* ── Comment input ── */}
+          {/* ✅ FIXED: paddingBottom accounts for phone bottom nav controls */}
           <View
             style={[
               styles.commentInputBar,
-              { backgroundColor: colors.card, borderTopColor: colors.border },
+              {
+                backgroundColor: colors.card,
+                borderTopColor: colors.border,
+                paddingBottom: bottomInset > 0 ? bottomInset : 12,
+              },
             ]}
           >
             <Avatar
@@ -942,6 +948,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  statsCard: {
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
   authorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -976,7 +991,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
-  media: { width: "100%", height: 240, borderRadius: 14, marginTop: 12 },
   videoBadgeWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -989,13 +1003,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   videoBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  moreMedia: { marginTop: 6, fontSize: 12, fontWeight: "600" },
   statsRow: {
     flexDirection: "row",
     gap: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    marginTop: 12,
+    paddingBottom: 12,
   },
   statText: { fontSize: 13 },
   statNum: { fontWeight: "700" },
@@ -1072,7 +1083,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: 10,
     borderTopWidth: 1,
   },
   commentInput: {
