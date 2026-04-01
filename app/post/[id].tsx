@@ -280,31 +280,34 @@ export default function PostDetailScreen() {
     /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(post.media_urls[0].split("?")[0]);
 
   const HeaderBar = ({ showMenu = true }: { showMenu?: boolean }) => (
-    <View
-      style={[
-        styles.header,
-        {
-          backgroundColor: colors.background,
-          borderBottomColor: colors.border,
-        },
-      ]}
-    >
+    <View style={[styles.header, { backgroundColor: "transparent" }]}>
       <TouchableOpacity
         onPress={() => router.back()}
-        style={styles.backButton}
-        hitSlop={8}
+        style={[
+          styles.headerBtn,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+        activeOpacity={0.85}
       >
-        <Ionicons name="arrow-back" size={24} color={colors.text} />
+        <Ionicons name="arrow-back" size={22} color={colors.text} />
       </TouchableOpacity>
       <Text style={[styles.headerTitle, { color: colors.text }]}>
         {isPoll ? "Poll" : "Post"}
       </Text>
       {showMenu ? (
-        <TouchableOpacity onPress={openMenu} disabled={isDeleting} hitSlop={8}>
-          <Ionicons name="ellipsis-horizontal" size={24} color={colors.text} />
+        <TouchableOpacity
+          onPress={openMenu}
+          disabled={isDeleting}
+          style={[
+            styles.headerBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color={colors.text} />
         </TouchableOpacity>
       ) : (
-        <View style={{ width: 32 }} />
+        <View style={styles.headerBtn} />
       )}
     </View>
   );
@@ -918,11 +921,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    paddingVertical: 10,
   },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: "700" },
+  headerBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  headerTitle: { fontSize: 16, fontWeight: "800" },
   centeredBox: {
     flex: 1,
     justifyContent: "center",
