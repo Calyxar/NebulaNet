@@ -19,11 +19,6 @@
     }
   },
   "submit": {
-    "production": {
-      "android": {
-        "serviceAccountKeyPath": "./credentials.json",
-        "track": "alpha"
-      }
-    }
+    "production": {}
   }
 }
