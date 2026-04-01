@@ -1,7 +1,5 @@
 // components/stories/StoryViewer.tsx — UPDATED ✅
-// Embeddable story viewer used from home feed / story rings.
-// For the full-screen story route, see app/story/[id].tsx
-//
+// ✅ Pinch-to-zoom on image stories via long-press (react-native-image-viewing)
 // ✅ Smooth progress bar (JS interval, pause-safe elapsed tracking)
 // ✅ Pause on press-and-hold
 // ✅ Text stories with gradient backgrounds + HashtagText
@@ -30,6 +28,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import ImageViewing from "react-native-image-viewing";
 
 const { width: W, height: H } = Dimensions.get("window");
 const IMAGE_DURATION_MS = 6000;
@@ -73,8 +72,8 @@ export interface StoryViewerStory {
   username: string;
   avatar_url?: string | null;
   full_name?: string | null;
-  story_content?: string | null; // text content
-  story_image?: string | null; // URL or Firebase Storage path
+  story_content?: string | null;
+  story_image?: string | null;
   story_type?: "text" | "image" | "video";
   created_at?: string;
 }
@@ -85,11 +84,8 @@ interface StoryViewerProps {
   onNext: () => void;
   onPrev: () => void;
   onComment: (comment: string) => Promise<boolean>;
-  /** 0 to 100 — override external progress (optional; internal if omitted) */
   progress?: number;
-  /** Total number of stories for this user (for segment bar) */
   totalStories?: number;
-  /** Index of this story in the set */
   storyIndex?: number;
 }
 
@@ -115,8 +111,11 @@ export default function StoryViewer({
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
 
-  /* ---------- internal progress (used if externalProgress not provided) ---------- */
-  const [internalProgress, setInternalProgress] = useState(0); // 0 to 1
+  /* ---------- pinch-to-zoom lightbox ---------- */
+  const [zoomVisible, setZoomVisible] = useState(false);
+
+  /* ---------- internal progress ---------- */
+  const [internalProgress, setInternalProgress] = useState(0);
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
   const durationRef = useRef(IMAGE_DURATION_MS);
@@ -150,7 +149,6 @@ export default function StoryViewer({
       return;
     }
 
-    // Storage path — resolve to download URL
     setMediaLoading(true);
     getDownloadURL(ref(getStorage(), raw))
       .then((url) => {
@@ -215,12 +213,13 @@ export default function StoryViewer({
   const handlePressIn = useCallback(() => {
     pausedRef.current = true;
   }, []);
+
   const handlePressOut = useCallback(() => {
     pausedRef.current = false;
     lastTickRef.current = Date.now();
   }, []);
 
-  /* ---------- progress value to display ---------- */
+  /* ---------- progress value ---------- */
   const fillPct =
     externalProgress !== undefined ? externalProgress / 100 : internalProgress;
 
@@ -247,7 +246,7 @@ export default function StoryViewer({
   const displayName = story.full_name || story.username || "Story";
   const hasCaption = !!story.story_content && !!story.story_image;
 
-  /* ---------- build segment bar ---------- */
+  /* ---------- segment bar ---------- */
   const segments = Array(totalStories)
     .fill(null)
     .map((_, i) => {
@@ -292,16 +291,42 @@ export default function StoryViewer({
           />
         )
       ) : mediaUrl ? (
-        <Image
-          source={{ uri: mediaUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-        />
+        // ✅ Image story — long-press to open pinch-to-zoom lightbox
+        <>
+          <TouchableOpacity
+            activeOpacity={1}
+            onLongPress={() => {
+              pausedRef.current = true;
+              setZoomVisible(true);
+            }}
+            style={StyleSheet.absoluteFill}
+          >
+            <Image
+              source={{ uri: mediaUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
+
+          <ImageViewing
+            images={[{ uri: mediaUrl }]}
+            imageIndex={0}
+            visible={zoomVisible}
+            onRequestClose={() => {
+              setZoomVisible(false);
+              pausedRef.current = false;
+              lastTickRef.current = Date.now();
+            }}
+            swipeToCloseEnabled
+            doubleTapToZoomEnabled
+            presentationStyle="overFullScreen"
+          />
+        </>
       ) : (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
       )}
 
-      {/* Dark gradient top + bottom */}
+      {/* Dark gradient overlay top + bottom */}
       <LinearGradient
         colors={[
           "rgba(0,0,0,0.55)",
@@ -314,7 +339,7 @@ export default function StoryViewer({
         pointerEvents="none"
       />
 
-      {/* Media loading overlay */}
+      {/* Media loading/error overlay */}
       {(mediaLoading || !!mediaError) && (
         <View style={styles.mediaOverlay}>
           {mediaLoading ? (
@@ -339,9 +364,8 @@ export default function StoryViewer({
         </View>
       )}
 
-      {/* Chrome */}
+      {/* Chrome: progress + header */}
       <View style={styles.chrome}>
-        {/* Segment progress bars */}
         <View style={styles.progressRow}>
           {segments.map((fill, i) => (
             <View key={i} style={styles.progressTrack}>
@@ -352,7 +376,6 @@ export default function StoryViewer({
           ))}
         </View>
 
-        {/* Header */}
         <View style={styles.header}>
           <View style={styles.avatarRing}>
             {story.avatar_url ? (
@@ -383,19 +406,23 @@ export default function StoryViewer({
         </View>
       </View>
 
-      {/* Tap zones */}
-      <Pressable
-        style={[styles.tapZone, { left: 0, width: W * 0.3 }]}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        onPress={onPrev}
-      />
-      <Pressable
-        style={[styles.tapZone, { right: 0, width: W * 0.7 }]}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        onPress={onNext}
-      />
+      {/* Tap zones — only active when zoom is not open */}
+      {!zoomVisible && (
+        <>
+          <Pressable
+            style={[styles.tapZone, { left: 0, width: W * 0.3 }]}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            onPress={onPrev}
+          />
+          <Pressable
+            style={[styles.tapZone, { right: 0, width: W * 0.7 }]}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            onPress={onNext}
+          />
+        </>
+      )}
 
       {/* Reply input */}
       <KeyboardAvoidingView

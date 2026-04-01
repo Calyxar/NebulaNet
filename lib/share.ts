@@ -12,11 +12,15 @@ export const generatePostLink = (postId: string): string => {
 };
 
 export const generateUserLink = (username: string): string => {
-  return `https://nebulanet.space/user/${username}`;
+  return `https://nebulanet.space/u/${encodeURIComponent(username.trim())}`;
 };
 
 export const generateCommunityLink = (slug: string): string => {
   return `https://nebulanet.space/community/${slug}`;
+};
+
+export const generateEventLink = (eventId: string): string => {
+  return `https://nebulanet.space/event/${eventId}`;
 };
 
 /* -------------------- FIRESTORE SHARE COUNT -------------------- */
@@ -77,7 +81,6 @@ export async function sharePost(postData: {
       ? `\nPosted in ${postData.community.name}`
       : "";
 
-    // Always include link in message so Android shows it
     const message = `${postData.author.name}: ${preview}...${communityLine}\n\n${postLink}`;
 
     const result = await shareContent({
@@ -202,6 +205,34 @@ export async function shareCommunity(communityData: {
   }
 }
 
+/* -------------------- SHARE EVENT -------------------- */
+
+export async function shareEvent(eventData: {
+  id: string;
+  title: string;
+  description?: string;
+  creator: { name: string };
+}) {
+  try {
+    const eventLink = generateEventLink(eventData.id);
+
+    const message = `${eventData.creator.name} invited you to ${eventData.title} on NebulaNet:\n${
+      eventData.description
+        ? eventData.description.substring(0, 100) + "..."
+        : ""
+    }\n\n${eventLink}`;
+
+    return await shareContent({
+      title: `${eventData.title} | NebulaNet`,
+      message,
+      url: eventLink,
+    });
+  } catch (error) {
+    console.error("Error sharing event:", error);
+    throw error;
+  }
+}
+
 /* -------------------- SHARE WITH OPTIONS -------------------- */
 
 export async function shareWithOptions(postData: {
@@ -213,7 +244,6 @@ export async function shareWithOptions(postData: {
   try {
     const postLink = generatePostLink(postData.id);
     const preview = postData.title || postData.content.substring(0, 100);
-    // Always include link in message for Android
     const message = `${postData.author.name}: ${preview}...\n\n${postLink}`;
 
     if (Platform.OS === "ios") {
@@ -263,7 +293,7 @@ export function isNebulaNetLink(url: string): boolean {
 }
 
 export function parseNebulaNetLink(url: string): {
-  type: "post" | "user" | "community" | "unknown";
+  type: "post" | "user" | "community" | "event" | "unknown";
   id: string;
 } {
   try {
@@ -280,10 +310,15 @@ export function parseNebulaNetLink(url: string): {
 
       if (path.startsWith("/post/")) {
         return { type: "post", id: path.replace("/post/", "") };
-      } else if (path.startsWith("/user/")) {
-        return { type: "user", id: path.replace("/user/", "") };
+      } else if (path.startsWith("/user/") || path.startsWith("/u/")) {
+        const id = path.startsWith("/u/")
+          ? path.replace("/u/", "")
+          : path.replace("/user/", "");
+        return { type: "user", id };
       } else if (path.startsWith("/community/")) {
         return { type: "community", id: path.replace("/community/", "") };
+      } else if (path.startsWith("/event/")) {
+        return { type: "event", id: path.replace("/event/", "") };
       }
     }
 
