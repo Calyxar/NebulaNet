@@ -1,7 +1,9 @@
-// app/user/[username]/following.tsx — FIREBASE ✅
+// app/user/[username]/following.tsx — FIXED ✅
+// ✅ FIXED: user?.id → user?.uid (Firebase auth uses uid not id)
 
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
@@ -51,26 +53,11 @@ function Skeleton({ style }: { style: any }) {
   return <View style={[styles.skel, style]} />;
 }
 
-function Header({ title }: { title: string }) {
-  return (
-    <View style={styles.header}>
-      <TouchableOpacity
-        style={styles.headerBtn}
-        onPress={() => router.back()}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="arrow-back" size={22} color="#111827" />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle}>{title}</Text>
-      <View style={styles.headerBtn} />
-    </View>
-  );
-}
-
 export default function UserFollowingScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile-lite", username],
@@ -95,14 +82,15 @@ export default function UserFollowingScreen() {
     },
   });
 
+  // ✅ FIXED: user?.uid not user?.id
   const isMe = useMemo(
-    () => !!target?.id && target.id === user?.id,
-    [target?.id, user?.id],
+    () => !!target?.id && target.id === user?.uid,
+    [target?.id, user?.uid],
   );
 
   const { data: edge } = useQuery({
-    queryKey: ["follow-edge", user?.id, target?.id],
-    enabled: !!user?.id && !!target?.id && !isMe,
+    queryKey: ["follow-edge", user?.uid, target?.id],
+    enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
       const snap = await getDocs(
         query(
@@ -164,13 +152,32 @@ export default function UserFollowingScreen() {
     },
   });
 
+  const bg = isDark ? colors.background : "#E8EAF6";
+  const cardBg = isDark ? colors.card : "#FFFFFF";
+  const textColor = isDark ? colors.text : "#111827";
+  const subColor = isDark ? colors.textTertiary : "#6B7280";
+
+  const Header = () => (
+    <View style={[styles.header, { backgroundColor: bg }]}>
+      <TouchableOpacity
+        style={[styles.headerBtn, { backgroundColor: cardBg }]}
+        onPress={() => router.back()}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="arrow-back" size={22} color={textColor} />
+      </TouchableOpacity>
+      <Text style={[styles.headerTitle, { color: textColor }]}>Following</Text>
+      <View style={styles.headerBtn} />
+    </View>
+  );
+
   if (loadingProfile) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Header title="Following" />
+      <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
+        <Header />
         <View style={{ padding: 16, gap: 10 }}>
           {Array.from({ length: 8 }).map((_, i) => (
-            <View key={i} style={styles.row}>
+            <View key={i} style={[styles.row, { backgroundColor: cardBg }]}>
               <Skeleton style={{ width: 44, height: 44, borderRadius: 22 }} />
               <View style={{ flex: 1 }}>
                 <Skeleton
@@ -185,7 +192,6 @@ export default function UserFollowingScreen() {
                   }}
                 />
               </View>
-              <Skeleton style={{ width: 18, height: 18, borderRadius: 6 }} />
             </View>
           ))}
         </View>
@@ -195,12 +201,13 @@ export default function UserFollowingScreen() {
 
   if (!target) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Header title="Following" />
+      <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
+        <Header />
         <View style={styles.empty}>
           <Ionicons name="person-outline" size={56} color="#C5CAE9" />
-          <Text style={styles.emptyTitle}>User not found</Text>
-          <Text style={styles.emptyDesc}>This user doesn&apos;t exist.</Text>
+          <Text style={[styles.emptyTitle, { color: textColor }]}>
+            User not found
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -208,14 +215,20 @@ export default function UserFollowingScreen() {
 
   if (!canViewProfile) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Header title="Following" />
+      <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
+        <Header />
         <View style={styles.lockWrap}>
-          <View style={styles.lockIcon}>
-            <Ionicons name="lock-closed-outline" size={22} color="#7C3AED" />
+          <View style={[styles.lockIcon, { backgroundColor: cardBg }]}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={22}
+              color={colors.primary}
+            />
           </View>
-          <Text style={styles.lockTitle}>Private account</Text>
-          <Text style={styles.lockDesc}>
+          <Text style={[styles.lockTitle, { color: textColor }]}>
+            Private account
+          </Text>
+          <Text style={[styles.lockDesc, { color: subColor }]}>
             Follow @{target.username} to view who they follow.
           </Text>
         </View>
@@ -223,28 +236,34 @@ export default function UserFollowingScreen() {
     );
   }
 
-  const isHiddenByOwner = !isMe && (following?.length ?? 0) === 0 && !isLoading;
-
   const renderItem = ({ item }: { item: UserRow }) => (
     <TouchableOpacity
       activeOpacity={0.85}
-      style={styles.row}
+      style={[
+        styles.row,
+        {
+          backgroundColor: cardBg,
+          borderColor: isDark ? colors.border : "#EEF2FF",
+        },
+      ]}
       onPress={() => router.push(`/user/${item.username}`)}
     >
       {item.avatar_url ? (
         <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
       ) : (
-        <View style={styles.avatarFallback}>
+        <View
+          style={[styles.avatarFallback, { backgroundColor: colors.primary }]}
+        >
           <Text style={styles.avatarFallbackText}>
             {(item.username?.[0] || "U").toUpperCase()}
           </Text>
         </View>
       )}
       <View style={{ flex: 1 }}>
-        <Text style={styles.name} numberOfLines={1}>
+        <Text style={[styles.name, { color: textColor }]} numberOfLines={1}>
           {item.full_name || item.username}
         </Text>
-        <Text style={styles.handle} numberOfLines={1}>
+        <Text style={[styles.handle, { color: subColor }]} numberOfLines={1}>
           @{item.username}
         </Text>
       </View>
@@ -253,12 +272,12 @@ export default function UserFollowingScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Header title="Following" />
+    <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
+      <Header />
       {isLoading ? (
         <View style={{ padding: 16, gap: 10 }}>
           {Array.from({ length: 8 }).map((_, i) => (
-            <View key={i} style={styles.row}>
+            <View key={i} style={[styles.row, { backgroundColor: cardBg }]}>
               <Skeleton style={{ width: 44, height: 44, borderRadius: 22 }} />
               <View style={{ flex: 1 }}>
                 <Skeleton
@@ -273,19 +292,8 @@ export default function UserFollowingScreen() {
                   }}
                 />
               </View>
-              <Skeleton style={{ width: 18, height: 18, borderRadius: 6 }} />
             </View>
           ))}
-        </View>
-      ) : isHiddenByOwner ? (
-        <View style={styles.lockWrap}>
-          <View style={styles.lockIcon}>
-            <Ionicons name="lock-closed-outline" size={22} color="#7C3AED" />
-          </View>
-          <Text style={styles.lockTitle}>Following list is hidden</Text>
-          <Text style={styles.lockDesc}>
-            @{target.username} has hidden their following list.
-          </Text>
         </View>
       ) : (
         <FlatList
@@ -297,16 +305,17 @@ export default function UserFollowingScreen() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor="#7C3AED"
+              tintColor={colors.primary}
             />
           }
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="person-add-outline" size={56} color="#C5CAE9" />
-              <Text style={styles.emptyTitle}>Not following anyone</Text>
-              <Text style={styles.emptyDesc}>
-                When @{target.username} follows people, they&apos;ll show up
-                here.
+              <Text style={[styles.emptyTitle, { color: textColor }]}>
+                Not following anyone
+              </Text>
+              <Text style={[styles.emptyDesc, { color: subColor }]}>
+                When @{target.username} follows people, they'll show up here.
               </Text>
             </View>
           }
@@ -319,26 +328,23 @@ export default function UserFollowingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E8EAF6" },
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#E8EAF6",
   },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  headerTitle: { fontSize: 16, fontWeight: "800" },
   row: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     paddingVertical: 12,
     paddingHorizontal: 12,
@@ -346,37 +352,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderWidth: 1,
-    borderColor: "#EEF2FF",
   },
   avatar: { width: 44, height: 44, borderRadius: 22 },
   avatarFallback: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
   },
   avatarFallbackText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  name: { fontSize: 14, fontWeight: "900", color: "#111827" },
-  handle: { fontSize: 12, fontWeight: "800", color: "#6B7280", marginTop: 2 },
-  empty: {
-    paddingTop: 80,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    marginTop: 12,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#111827",
-  },
+  name: { fontSize: 14, fontWeight: "900" },
+  handle: { fontSize: 12, fontWeight: "800", marginTop: 2 },
+  empty: { paddingTop: 80, alignItems: "center", paddingHorizontal: 24 },
+  emptyTitle: { marginTop: 12, fontSize: 18, fontWeight: "900" },
   emptyDesc: {
     marginTop: 6,
     fontSize: 13,
     fontWeight: "700",
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
   },
@@ -390,7 +383,6 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -400,12 +392,11 @@ const styles = StyleSheet.create({
     elevation: 2,
     marginBottom: 14,
   },
-  lockTitle: { fontSize: 18, fontWeight: "900", color: "#111827" },
+  lockTitle: { fontSize: 18, fontWeight: "900" },
   lockDesc: {
     marginTop: 8,
     fontSize: 13,
     fontWeight: "700",
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 18,
   },

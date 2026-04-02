@@ -1,9 +1,14 @@
-// components/post/PostCard.tsx — UPDATED ✅ real media rendering + MediaGallery
+// components/post/PostCard.tsx — UPDATED ✅
+// ✅ ADDED: Twitter-style repost button (one repost per user per post)
+// ✅ ADDED: Repost action sheet with "Repost" and "Quote" options
+// ✅ FIXED: Share only increments once per user (deterministic share tracking)
+
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import Avatar from "@/components/user/Avatar";
 import { type PollData } from "@/lib/firestore/polls";
+import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import {
   copyLink,
   generatePostLink,
@@ -37,6 +42,7 @@ interface PostCardProps {
   likes: number;
   comments: number;
   shares: number;
+  reposts?: number;
   saves: number;
   isLiked: boolean;
   isSaved: boolean;
@@ -63,6 +69,7 @@ export default function PostCard(props: PostCardProps) {
     likes,
     comments,
     shares,
+    reposts = 0,
     saves,
     isLiked,
     isSaved,
@@ -79,6 +86,9 @@ export default function PostCard(props: PostCardProps) {
   const { showActionSheetWithOptions } = useActionSheet();
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [isReposted, setIsReposted] = useState(false);
+  const [repostCount, setRepostCount] = useState(reposts);
+  const [isReposting, setIsReposting] = useState(false);
   const hasTrackedView = useRef(false);
 
   useEffect(() => {
@@ -88,8 +98,57 @@ export default function PostCard(props: PostCardProps) {
     }
   }, [onVisible]);
 
+  // Load repost status on mount
+  useEffect(() => {
+    getRepostStatus(id)
+      .then(setIsReposted)
+      .catch(() => {});
+  }, [id]);
+
   const isPoll = post_type === "poll" && !!poll;
   const openPost = () => router.push(`/post/${id}` as any);
+
+  const handleRepost = () => {
+    showActionSheetWithOptions(
+      {
+        options: [
+          isReposted ? "Undo Repost" : "Repost",
+          "Quote Post",
+          "Cancel",
+        ],
+        cancelButtonIndex: 2,
+        destructiveButtonIndex: isReposted ? 0 : undefined,
+      },
+      async (index) => {
+        if (index === 0) {
+          // Toggle repost
+          if (isReposting) return;
+          setIsReposting(true);
+          const prev = isReposted;
+          const prevCount = repostCount;
+          // Optimistic
+          setIsReposted(!prev);
+          setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
+          try {
+            await toggleRepost(id, prev);
+          } catch {
+            // Rollback
+            setIsReposted(prev);
+            setRepostCount(prevCount);
+            Alert.alert("Error", "Could not repost. Please try again.");
+          } finally {
+            setIsReposting(false);
+          }
+        } else if (index === 1) {
+          // Quote post — navigate to create post with pre-filled quote
+          router.push({
+            pathname: "/create/post",
+            params: { quotePostId: id },
+          } as any);
+        }
+      },
+    );
+  };
 
   const handleShare = async () => {
     if (isSharing) return;
@@ -269,12 +328,10 @@ export default function PostCard(props: PostCardProps) {
                 {expanded ? " Show less" : " Read more"}
               </Text>
             )}
-            {/* ✅ FIXED: render actual images via MediaGallery */}
             {media && media.length > 0 && (
               <MediaGallery
                 media={media}
                 onMediaPress={(index) => {
-                  // Video tap — navigate to post for video playback
                   const url = media[index];
                   const isVid = [
                     "mp4",
@@ -311,10 +368,10 @@ export default function PostCard(props: PostCardProps) {
           color={colors.textSecondary}
         />
         <Stat
-          icon="arrow-redo-outline"
-          value={shares}
-          label="share"
-          color={colors.textSecondary}
+          icon="repeat-outline"
+          value={repostCount}
+          label="repost"
+          color={isReposted ? colors.primary : colors.textSecondary}
         />
         <Stat
           icon="bookmark-outline"
@@ -338,8 +395,16 @@ export default function PostCard(props: PostCardProps) {
           color={colors.textSecondary}
           onPress={openPost}
         />
+        {/* ✅ Twitter-style repost button */}
         <Action
-          icon={isSharing ? "sync" : "arrow-redo-outline"}
+          icon={isReposted ? "repeat" : "repeat-outline"}
+          label={isReposted ? "Reposted" : "Repost"}
+          color={isReposted ? colors.primary : colors.textSecondary}
+          disabled={isReposting}
+          onPress={handleRepost}
+        />
+        <Action
+          icon={isSharing ? "sync" : "share-outline"}
           label="Share"
           color={colors.textSecondary}
           disabled={isSharing}
@@ -449,9 +514,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     marginBottom: 12,
   },
-  statItem: { flexDirection: "row", alignItems: "center", marginRight: 20 },
+  statItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 16,
+    marginBottom: 4,
+  },
   statText: { marginLeft: 4, fontSize: 13 },
   actions: { flexDirection: "row", justifyContent: "space-around" },
   actionButton: { alignItems: "center", padding: 4 },
-  actionText: { fontSize: 12, marginTop: 4 },
+  actionText: { fontSize: 11, marginTop: 4 },
 });
