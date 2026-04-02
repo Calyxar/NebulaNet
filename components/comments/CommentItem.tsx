@@ -1,6 +1,15 @@
-// components/comments/CommentItem.tsx
+// components/comments/CommentItem.tsx — UPDATED ✅ Twitter-style
+// ✅ Avatar + thread line on left like Twitter
+// ✅ Name bold, @username gray, timestamp gray on same line
+// ✅ Tappable #hashtags and @mentions via HashtagText
+// ✅ Heart turns pink/red when liked like Twitter
+// ✅ Replies show with thread line connecting them
+
+import HashtagText from "@/components/post/HashtagText";
 import Avatar from "@/components/user/Avatar";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { Link } from "expo-router";
 import React, { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -14,13 +23,13 @@ interface CommentItemProps {
     avatar?: string;
   };
   timestamp: string;
-  likeCount: number;
+  likes: number;
   isLiked: boolean;
   replies?: CommentItemProps[];
   isReply?: boolean;
-  onLikePress?: (commentId: string) => void;
-  onReplyPress?: (commentId: string, authorName: string) => void;
-  onMorePress?: (commentId: string) => void;
+  onLikePress?: () => void;
+  onReplyPress?: () => void;
+  onMorePress?: () => void;
 }
 
 export default function CommentItem({
@@ -28,7 +37,7 @@ export default function CommentItem({
   content,
   author,
   timestamp,
-  likeCount,
+  likes,
   isLiked,
   replies = [],
   isReply = false,
@@ -36,181 +45,211 @@ export default function CommentItem({
   onReplyPress,
   onMorePress,
 }: CommentItemProps) {
+  const { colors, isDark } = useTheme();
   const [showReplies, setShowReplies] = useState(false);
+  const hasReplies = replies.length > 0;
 
-  const handleLike = () => {
-    if (onLikePress) {
-      onLikePress(id);
-    }
-  };
-
-  const handleReply = () => {
-    if (onReplyPress) {
-      onReplyPress(id, author.name);
-    }
-  };
-
-  const handleMore = () => {
-    if (onMorePress) {
-      onMorePress(id);
-    }
-  };
+  const threadColor = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)";
+  const metaColor = isDark ? "#8b98a5" : "#8b98a5";
+  const nameColor = isDark ? "#e7e9ea" : "#0f1419";
+  const contentColor = isDark ? "#e7e9ea" : "#0f1419";
+  const dividerColor = isDark ? "rgba(255,255,255,0.08)" : "#eff3f4";
 
   return (
-    <View style={[styles.container, isReply && styles.replyContainer]}>
-      <View style={styles.commentHeader}>
-        <Avatar
-          size={isReply ? 28 : 32}
-          name={author.name}
-          image={author.avatar}
-        />
-        <View style={styles.commentInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.authorName}>{author.name}</Text>
-            <Text style={styles.timestamp}>{timestamp}</Text>
-          </View>
-          <Text style={styles.content}>{content}</Text>
-        </View>
-        <TouchableOpacity onPress={handleMore} style={styles.moreButton}>
-          <Ionicons name="ellipsis-horizontal" size={16} color="#666" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.commentActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-          <Ionicons
-            name={isLiked ? "heart" : "heart-outline"}
-            size={16}
-            color={isLiked ? "#ff375f" : "#666"}
-          />
-          <Text style={[styles.actionText, isLiked && styles.likedText]}>
-            {likeCount > 0 ? likeCount : ""}{" "}
-            {likeCount === 1 ? "Like" : likeCount > 1 ? "Likes" : "Like"}
-          </Text>
-        </TouchableOpacity>
-
-        {!isReply && onReplyPress && (
-          <TouchableOpacity style={styles.actionButton} onPress={handleReply}>
-            <Ionicons name="arrow-undo-outline" size={16} color="#666" />
-            <Text style={styles.actionText}>Reply</Text>
+    <View style={styles.wrapper}>
+      {/* Left column: avatar + thread line */}
+      <View style={styles.leftCol}>
+        <Link href={`/user/${author.username}`} asChild>
+          <TouchableOpacity activeOpacity={0.85}>
+            <Avatar
+              size={isReply ? 32 : 40}
+              name={author.name}
+              image={author.avatar}
+            />
           </TouchableOpacity>
+        </Link>
+        {(hasReplies || isReply) && (
+          <View style={[styles.threadLine, { backgroundColor: threadColor }]} />
         )}
       </View>
 
-      {replies.length > 0 && !isReply && (
-        <View style={styles.repliesContainer}>
+      {/* Right column */}
+      <View style={styles.rightCol}>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <Link href={`/user/${author.username}`} asChild>
+            <TouchableOpacity style={styles.authorRow} activeOpacity={0.85}>
+              <Text
+                style={[styles.authorName, { color: nameColor }]}
+                numberOfLines={1}
+              >
+                {author.name}
+              </Text>
+              <Text
+                style={[styles.authorUsername, { color: metaColor }]}
+                numberOfLines={1}
+              >
+                @{author.username}
+              </Text>
+              <Text style={[styles.dot, { color: metaColor }]}>·</Text>
+              <Text style={[styles.timestamp, { color: metaColor }]}>
+                {timestamp}
+              </Text>
+            </TouchableOpacity>
+          </Link>
+          <TouchableOpacity onPress={onMorePress} hitSlop={8}>
+            <Ionicons name="ellipsis-horizontal" size={16} color={metaColor} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Content */}
+        <HashtagText
+          text={content}
+          style={[styles.content, { color: contentColor }]}
+        />
+
+        {/* Actions */}
+        <View style={styles.actions}>
           <TouchableOpacity
-            style={styles.showRepliesButton}
-            onPress={() => setShowReplies(!showReplies)}
+            style={styles.actionBtn}
+            onPress={onLikePress}
+            activeOpacity={0.7}
           >
-            <View style={styles.replyLine} />
-            <Text style={styles.showRepliesText}>
-              {showReplies ? "Hide" : "Show"} {replies.length}{" "}
-              {replies.length === 1 ? "reply" : "replies"}
-            </Text>
+            <Ionicons
+              name={isLiked ? "heart" : "heart-outline"}
+              size={17}
+              color={isLiked ? "#F91880" : metaColor}
+            />
+            {likes > 0 && (
+              <Text
+                style={[
+                  styles.actionText,
+                  { color: isLiked ? "#F91880" : metaColor },
+                ]}
+              >
+                {likes}
+              </Text>
+            )}
           </TouchableOpacity>
 
-          {showReplies && (
-            <View style={styles.repliesList}>
-              {replies.map((reply) => (
-                <CommentItem
-                  key={reply.id}
-                  {...reply}
-                  isReply={true}
-                  onLikePress={onLikePress}
-                  onReplyPress={onReplyPress}
-                  onMorePress={onMorePress}
-                />
-              ))}
-            </View>
+          {!isReply && (
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={onReplyPress}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chatbubble-outline" size={16} color={metaColor} />
+              {replies.length > 0 && (
+                <Text style={[styles.actionText, { color: metaColor }]}>
+                  {replies.length}
+                </Text>
+              )}
+            </TouchableOpacity>
           )}
         </View>
-      )}
+
+        {/* Show/hide replies */}
+        {hasReplies && !isReply && (
+          <TouchableOpacity
+            style={styles.showRepliesBtn}
+            onPress={() => setShowReplies((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.showRepliesText}>
+              {showReplies
+                ? "Hide replies"
+                : `Show ${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {showReplies && hasReplies && (
+          <View style={styles.repliesWrap}>
+            {replies.map((reply) => (
+              <CommentItem
+                key={reply.id}
+                {...reply}
+                isReply
+                onLikePress={reply.onLikePress}
+                onReplyPress={onReplyPress}
+                onMorePress={onMorePress}
+              />
+            ))}
+          </View>
+        )}
+
+        <View
+          style={[styles.bottomSpacer, { borderBottomColor: dividerColor }]}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  replyContainer: {
-    paddingLeft: 36,
-    paddingVertical: 8,
-    borderBottomWidth: 0,
-  },
-  commentHeader: {
+  wrapper: {
     flexDirection: "row",
-    marginBottom: 8,
+    paddingTop: 12,
+    paddingHorizontal: 16,
   },
-  commentInfo: {
+  leftCol: {
+    alignItems: "center",
+    marginRight: 12,
+    width: 40,
+  },
+  threadLine: {
+    width: 2,
     flex: 1,
-    marginLeft: 12,
+    minHeight: 12,
+    marginTop: 4,
+    borderRadius: 1,
   },
-  nameRow: {
+  rightCol: { flex: 1 },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 4,
+  },
+  authorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 4,
+    flexWrap: "nowrap",
   },
   authorName: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-    marginRight: 8,
+    fontWeight: "700",
+    flexShrink: 1,
   },
-  timestamp: {
-    fontSize: 12,
-    color: "#666",
+  authorUsername: {
+    fontSize: 13,
+    flexShrink: 1,
   },
+  dot: { fontSize: 13 },
+  timestamp: { fontSize: 13, flexShrink: 0 },
   content: {
-    fontSize: 14,
-    color: "#000",
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 10,
   },
-  moreButton: {
-    padding: 4,
-  },
-  commentActions: {
-    flexDirection: "row",
-    marginLeft: 44,
-    marginTop: 4,
-  },
-  actionButton: {
+  actions: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 16,
+    gap: 20,
+    marginBottom: 4,
   },
-  actionText: {
-    fontSize: 12,
-    color: "#666",
-    marginLeft: 4,
-  },
-  likedText: {
-    color: "#ff375f",
-  },
-  repliesContainer: {
-    marginTop: 8,
-    marginLeft: 44,
-  },
-  showRepliesButton: {
+  actionBtn: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 5,
     paddingVertical: 4,
+    paddingRight: 8,
   },
-  replyLine: {
-    width: 24,
-    height: 1,
-    backgroundColor: "#666",
-    marginRight: 8,
-  },
-  showRepliesText: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "500",
-  },
-  repliesList: {
-    marginTop: 8,
-  },
+  actionText: { fontSize: 13 },
+  showRepliesBtn: { marginTop: 6, marginBottom: 4 },
+  showRepliesText: { fontSize: 13, color: "#1D9BF0", fontWeight: "600" },
+  repliesWrap: { marginTop: 4 },
+  bottomSpacer: { height: 12, borderBottomWidth: 1 },
 });
