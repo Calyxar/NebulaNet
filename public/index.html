@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NebulaNet</title>
+    <title>NebulaNet — Your Space to Connect</title>
     <meta
       name="description"
-      content="A social platform built for real connection. Posts, stories, communities, chat — all in one place."
+      content="A social platform built for real connection. Posts, stories, communities, chat — all in one place. Free, always."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
@@ -44,7 +44,7 @@
         overflow-x: hidden;
       }
 
-      /* ─── GRAIN overlay ─── */
+      /* grain */
       body::after {
         content: "";
         position: fixed;
@@ -81,6 +81,7 @@
         display: flex;
         gap: 36px;
         list-style: none;
+        align-items: center;
       }
 
       nav ul a {
@@ -94,6 +95,21 @@
         color: #fff;
       }
 
+      .nav-cta {
+        background: var(--p) !important;
+        color: #fff !important;
+        padding: 8px 18px;
+        border-radius: 6px;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        letter-spacing: 0.3px !important;
+        transition: all 0.2s !important;
+      }
+      .nav-cta:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 24px rgba(124, 58, 237, 0.45) !important;
+      }
+
       /* ─── HERO ─── */
       .hero {
         min-height: 100vh;
@@ -105,7 +121,6 @@
         overflow: hidden;
       }
 
-      /* big nebula blob */
       .hero-blob {
         position: absolute;
         top: -20%;
@@ -156,13 +171,48 @@
         margin-bottom: 28px;
         font-weight: 500;
       }
-
       .eyebrow::before {
         content: "";
         display: block;
         width: 28px;
         height: 1px;
         background: var(--p2);
+      }
+
+      /* ✅ UPDATED: live beta badge */
+      .beta-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(124, 58, 237, 0.15);
+        border: 1px solid rgba(167, 139, 250, 0.3);
+        border-radius: 99px;
+        padding: 5px 14px 5px 8px;
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--p2);
+        margin-bottom: 28px;
+        font-weight: 500;
+      }
+      .beta-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 8px #22c55e;
+        animation: pulse 2s ease infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.6;
+          transform: scale(0.85);
+        }
       }
 
       h1 {
@@ -185,8 +235,17 @@
         color: var(--m);
         max-width: 380px;
         line-height: 1.75;
-        margin-bottom: 48px;
+        margin-bottom: 40px;
         font-weight: 400;
+      }
+
+      /* ✅ UPDATED: button group */
+      .btn-group {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 28px;
       }
 
       .dl-btn {
@@ -205,7 +264,6 @@
         position: relative;
         overflow: hidden;
       }
-
       .dl-btn::after {
         content: "";
         position: absolute;
@@ -227,7 +285,55 @@
         box-shadow: 0 12px 40px rgba(124, 58, 237, 0.4);
       }
 
-      /* ─── RIGHT SIDE — abstract grid ─── */
+      .ghost-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--p2);
+        text-decoration: none;
+        padding: 15px 24px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.2px;
+        border: 1px solid rgba(167, 139, 250, 0.25);
+        transition: all 0.2s;
+      }
+      .ghost-btn:hover {
+        border-color: rgba(167, 139, 250, 0.5);
+        background: rgba(124, 58, 237, 0.08);
+        transform: translateY(-1px);
+      }
+
+      /* ✅ UPDATED: social proof strip */
+      .social-proof {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 12px;
+        color: var(--m);
+      }
+      .proof-avatars {
+        display: flex;
+      }
+      .proof-avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 2px solid var(--bg);
+        margin-left: -8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .proof-avatar:first-child {
+        margin-left: 0;
+      }
+
+      /* ─── RIGHT SIDE ─── */
       .hero-right {
         position: relative;
         z-index: 2;
@@ -251,8 +357,11 @@
         overflow: hidden;
         border: 1px solid rgba(124, 58, 237, 0.15);
         position: relative;
+        transition: border-color 0.3s;
       }
-
+      .ag-cell:hover {
+        border-color: rgba(124, 58, 237, 0.35);
+      }
       .ag-cell.tall {
         grid-row: span 2;
       }
@@ -268,7 +377,6 @@
         flex-direction: column;
         justify-content: space-between;
       }
-
       .ag-cell.c2 {
         background: rgba(124, 58, 237, 0.12);
         padding: 20px;
@@ -277,7 +385,6 @@
         flex-direction: column;
         justify-content: space-between;
       }
-
       .ag-cell.c3 {
         background: linear-gradient(
           135deg,
@@ -290,13 +397,11 @@
         justify-content: center;
         min-height: 100px;
       }
-
       .ag-cell.c4 {
         background: var(--bg2);
         padding: 18px;
         min-height: 100px;
       }
-
       .ag-cell.c5 {
         background: rgba(236, 72, 153, 0.1);
         padding: 20px;
@@ -305,7 +410,6 @@
         flex-direction: column;
         gap: 8px;
       }
-
       .ag-cell.c6 {
         background: var(--bg2);
         padding: 20px;
@@ -326,27 +430,23 @@
         color: var(--p2);
         font-weight: 500;
       }
-
       .cell-val {
         font-family: "Bebas Neue", sans-serif;
         font-size: 42px;
         color: var(--t);
         line-height: 1;
       }
-
       .cell-label {
         font-size: 11px;
         color: var(--m);
         font-weight: 400;
       }
 
-      /* mini story rings */
       .mini-rings {
         display: flex;
         gap: 6px;
         align-items: center;
       }
-
       .mini-ring {
         width: 32px;
         height: 32px;
@@ -355,7 +455,6 @@
         padding: 2px;
         flex-shrink: 0;
       }
-
       .mini-ring-inner {
         width: 100%;
         height: 100%;
@@ -369,12 +468,10 @@
         font-weight: 600;
         color: var(--p2);
       }
-
       .mini-ring.seen {
         background: #3d3550;
       }
 
-      /* hashtag pill */
       .htag {
         display: inline-block;
         font-size: 11px;
@@ -387,7 +484,6 @@
         font-weight: 500;
       }
 
-      /* post preview in cell */
       .mini-post-row {
         display: flex;
         align-items: center;
@@ -398,7 +494,6 @@
       .mini-post-row:last-child {
         border-bottom: none;
       }
-
       .mpavatar {
         width: 26px;
         height: 26px;
@@ -412,7 +507,6 @@
         font-weight: 600;
         color: #fff;
       }
-
       .mpname {
         font-size: 11px;
         font-weight: 500;
@@ -435,6 +529,47 @@
         margin: 0 auto;
         padding: 0 52px;
         border-top: 1px solid rgba(124, 58, 237, 0.12);
+      }
+
+      /* ─── MARQUEE ─── */
+      .marquee-wrap {
+        overflow: hidden;
+        padding: 32px 0;
+        border-top: 1px solid rgba(124, 58, 237, 0.1);
+        border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+        background: var(--bg2);
+      }
+      .marquee-track {
+        display: flex;
+        gap: 0;
+        animation: marquee 22s linear infinite;
+        width: max-content;
+      }
+      @keyframes marquee {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(-50%);
+        }
+      }
+      .marquee-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 40px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 22px;
+        letter-spacing: 2px;
+        color: var(--m2);
+        white-space: nowrap;
+      }
+      .marquee-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--p);
+        flex-shrink: 0;
       }
 
       /* ─── FEATURES ─── */
@@ -473,7 +608,6 @@
         align-self: end;
       }
 
-      /* Features list */
       .feat-list {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -488,6 +622,7 @@
         background: var(--bg);
         padding: 36px 32px;
         transition: background 0.2s;
+        cursor: default;
       }
       .feat-item:hover {
         background: var(--bg2);
@@ -500,14 +635,12 @@
         letter-spacing: 2px;
         margin-bottom: 20px;
       }
-
       .feat-name {
         font-size: 18px;
         font-weight: 600;
         margin-bottom: 10px;
         color: var(--t);
       }
-
       .feat-desc {
         font-size: 14px;
         color: var(--m);
@@ -515,49 +648,119 @@
         font-weight: 400;
       }
 
-      /* ─── MARQUEE ─── */
-      .marquee-wrap {
-        overflow: hidden;
-        padding: 32px 0;
+      /* ✅ NEW: built by section */
+      .built-by {
+        padding: 80px 52px;
+        max-width: 1100px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 60px;
+        align-items: center;
         border-top: 1px solid rgba(124, 58, 237, 0.1);
-        border-bottom: 1px solid rgba(124, 58, 237, 0.1);
-        background: var(--bg2);
       }
 
-      .marquee-track {
+      .built-by h3 {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(40px, 5vw, 72px);
+        line-height: 0.9;
+        letter-spacing: -0.5px;
+        margin-bottom: 20px;
+      }
+
+      .built-by h3 span {
+        -webkit-text-stroke: 1px var(--m2);
+        color: transparent;
+      }
+
+      .built-by p {
+        font-size: 15px;
+        color: var(--m);
+        line-height: 1.8;
+        margin-bottom: 28px;
+      }
+
+      .stat-row {
         display: flex;
-        gap: 0;
-        animation: marquee 22s linear infinite;
-        width: max-content;
+        gap: 32px;
       }
 
-      @keyframes marquee {
-        from {
-          transform: translateX(0);
-        }
-        to {
-          transform: translateX(-50%);
-        }
+      .stat-box {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
       }
 
-      .marquee-item {
+      .stat-num {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 42px;
+        color: var(--p2);
+        line-height: 1;
+      }
+
+      .stat-label {
+        font-size: 11px;
+        color: var(--m);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-weight: 500;
+      }
+
+      .quote-card {
+        background: var(--bg2);
+        border: 1px solid rgba(124, 58, 237, 0.18);
+        border-radius: 16px;
+        padding: 32px;
+        position: relative;
+      }
+
+      .quote-card::before {
+        content: '"';
+        position: absolute;
+        top: -16px;
+        left: 24px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 80px;
+        color: var(--p);
+        line-height: 1;
+      }
+
+      .quote-text {
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--t);
+        margin-bottom: 20px;
+        font-style: italic;
+      }
+
+      .quote-author {
         display: flex;
         align-items: center;
-        gap: 16px;
-        padding: 0 40px;
-        font-family: "Bebas Neue", sans-serif;
-        font-size: 22px;
-        letter-spacing: 2px;
-        color: var(--m2);
-        white-space: nowrap;
+        gap: 10px;
       }
 
-      .marquee-dot {
-        width: 6px;
-        height: 6px;
+      .quote-avatar {
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
-        background: var(--p);
-        flex-shrink: 0;
+        background: linear-gradient(135deg, var(--p), var(--pk));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .quote-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--t);
+      }
+
+      .quote-handle {
+        font-size: 12px;
+        color: var(--m);
       }
 
       /* ─── CTA ─── */
@@ -604,6 +807,15 @@
         color: var(--m);
         margin-bottom: 52px;
         font-weight: 400;
+        position: relative;
+      }
+
+      .cta-btns {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
         position: relative;
       }
 
@@ -671,6 +883,11 @@
         .feat-list {
           grid-template-columns: 1fr 1fr;
         }
+        .built-by {
+          grid-template-columns: 1fr;
+          padding: 60px 24px;
+          gap: 40px;
+        }
         .cta {
           padding: 100px 24px;
         }
@@ -687,6 +904,9 @@
       @media (max-width: 560px) {
         .feat-list {
           grid-template-columns: 1fr;
+        }
+        .stat-row {
+          gap: 20px;
         }
       }
 
@@ -720,20 +940,24 @@
     </style>
   </head>
   <body>
+    <!-- NAV -->
     <nav>
       <a href="#" class="nav-logo">NEBULANET</a>
       <ul>
         <li><a href="#features">Features</a></li>
+        <li><a href="#built-by">About</a></li>
         <li>
           <a
             href="https://nebulanet.beehiiv.com/"
             target="_blank"
-            style="color: var(--p2)"
-            >Join waitlist</a
+            class="nav-cta"
           >
+            Get Early Access
+          </a>
         </li>
       </ul>
     </nav>
+    <!-- Terms/Privacy are in the footer only -->
 
     <!-- HERO -->
     <section class="hero">
@@ -741,42 +965,71 @@
       <div class="hero-blob2"></div>
 
       <div class="hero-left">
-        <div class="eyebrow reveal d1">Now on Android</div>
+        <!-- ✅ Live beta badge instead of plain eyebrow -->
+        <div class="beta-badge reveal d1">
+          <span class="beta-dot"></span>
+          Beta is live on Android
+        </div>
 
         <h1 class="reveal d2">
           YOUR
           <em>SPACE</em>
-          TO LIVE.
+          TO CONNECT.
         </h1>
 
         <p class="hero-desc reveal d3">
           Posts, stories, communities, real-time chat, GIFs, polls — everything
-          you need to connect with the people and ideas that move you.
+          you need to connect with the people and ideas that move you. Free,
+          always.
         </p>
 
-        <a
-          href="https://nebulanet.beehiiv.com/"
-          class="dl-btn reveal d4"
-          target="_blank"
-        >
-          Join the waitlist
-        </a>
-        <p
-          style="
-            font-size: 12px;
-            color: var(--m);
-            margin-top: 14px;
-            position: relative;
-          "
-        >
-          Android app coming soon — be first to know when it launches.
-        </p>
+        <!-- ✅ Two buttons: primary CTA + learn more -->
+        <div class="btn-group reveal d4">
+          <a
+            href="https://nebulanet.beehiiv.com/"
+            class="dl-btn"
+            target="_blank"
+          >
+            Get Early Access
+          </a>
+          <a href="#features" class="ghost-btn"> See features → </a>
+        </div>
+
+        <!-- ✅ Social proof -->
+        <div class="social-proof reveal d5">
+          <div class="proof-avatars">
+            <div
+              class="proof-avatar"
+              style="background: linear-gradient(135deg, #7c3aed, #ec4899)"
+            >
+              A
+            </div>
+            <div
+              class="proof-avatar"
+              style="background: linear-gradient(135deg, #0ea5e9, #6366f1)"
+            >
+              J
+            </div>
+            <div
+              class="proof-avatar"
+              style="background: linear-gradient(135deg, #f59e0b, #ef4444)"
+            >
+              M
+            </div>
+            <div
+              class="proof-avatar"
+              style="background: linear-gradient(135deg, #10b981, #3b82f6)"
+            >
+              K
+            </div>
+          </div>
+          <span>Join early testers already on the platform</span>
+        </div>
       </div>
 
-      <!-- Abstract data grid — no phone -->
+      <!-- Abstract data grid -->
       <div class="hero-right reveal d3">
         <div class="abstract-grid">
-          <!-- Cell: Live users stat -->
           <div class="ag-cell c1 tall">
             <div class="cell-tag">stories</div>
             <div>
@@ -800,21 +1053,18 @@
             </div>
           </div>
 
-          <!-- Cell: Trending -->
           <div class="ag-cell c2 wide">
             <div class="cell-tag">trending now</div>
             <div>
               <span class="htag">#NebulaNet</span>
-              <span class="htag">#MondayVibes</span>
+              <span class="htag">#BuildInPublic</span>
               <span class="htag">#DevLife</span>
-              <span class="htag">#SpaceArt</span>
+              <span class="htag">#AndroidDev</span>
             </div>
           </div>
 
-          <!-- Cell: Notif count -->
           <div class="ag-cell c6">24h</div>
 
-          <!-- Cell: Post preview -->
           <div class="ag-cell c5 wide">
             <div class="cell-tag">feed</div>
             <div class="mini-post-row">
@@ -853,7 +1103,6 @@
             </div>
           </div>
 
-          <!-- Cell: Communities -->
           <div class="ag-cell c4">
             <div class="cell-tag">communities</div>
             <div
@@ -868,7 +1117,6 @@
             </div>
           </div>
 
-          <!-- Cell: big number -->
           <div class="ag-cell c3">
             <div style="text-align: center">
               <div
@@ -921,6 +1169,7 @@
         <div class="marquee-item">
           <span class="marquee-dot"></span> PRIVACY CONTROLS
         </div>
+        <div class="marquee-item"><span class="marquee-dot"></span> EVENTS</div>
         <div class="marquee-item"><span class="marquee-dot"></span> POSTS</div>
         <div class="marquee-item">
           <span class="marquee-dot"></span> STORIES
@@ -941,6 +1190,7 @@
         <div class="marquee-item">
           <span class="marquee-dot"></span> PRIVACY CONTROLS
         </div>
+        <div class="marquee-item"><span class="marquee-dot"></span> EVENTS</div>
       </div>
     </div>
 
@@ -985,10 +1235,10 @@
         </div>
         <div class="feat-item">
           <div class="feat-num">04</div>
-          <div class="feat-name">Trending topics</div>
+          <div class="feat-name">Events</div>
           <p class="feat-desc">
-            See what's moving in your network right now. Tap any hashtag to dive
-            into the conversation happening around it.
+            Create public or private events, set capacity, invite your
+            community. In-person or online — all in one place.
           </p>
         </div>
         <div class="feat-item">
@@ -1001,11 +1251,58 @@
         </div>
         <div class="feat-item">
           <div class="feat-num">06</div>
-          <div class="feat-name">Boost your reach</div>
+          <div class="feat-name">Trending topics</div>
           <p class="feat-desc">
-            Got something worth sharing? Boost a post to reach new audiences.
-            Set your budget and duration — we handle the rest.
+            See what's moving in your network right now. Tap any hashtag or
+            @mention to dive into the conversation happening around it.
           </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ✅ NEW: Built by one person section -->
+    <section class="built-by" id="built-by">
+      <div>
+        <h3>
+          BUILT BY<br />
+          <span>ONE PERSON</span>
+        </h3>
+        <p>
+          NebulaNet was built solo over the past year — no team, no funding, no
+          shortcuts. Every screen, every feature, every bug fix shipped by one
+          indie developer.
+        </p>
+        <p>
+          It's live now on Android in closed beta. Join early, shape what it
+          becomes.
+        </p>
+        <div class="stat-row">
+          <div class="stat-box">
+            <span class="stat-num">1</span>
+            <span class="stat-label">Developer</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-num">1yr</span>
+            <span class="stat-label">In the making</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-num">∞</span>
+            <span class="stat-label">Free, always</span>
+          </div>
+        </div>
+      </div>
+      <div class="quote-card">
+        <p class="quote-text">
+          Spent the last year building NebulaNet from scratch. Posts, stories,
+          communities, real-time chat, GIFs, polls, events — all of it. No team.
+          No funding. Just code and too much coffee.
+        </p>
+        <div class="quote-author">
+          <div class="quote-avatar">A</div>
+          <div>
+            <div class="quote-name">Alyssa B</div>
+            <div class="quote-handle">@a_bakdev · Founder, NebulaNet</div>
+          </div>
         </div>
       </div>
     </section>
@@ -1017,14 +1314,25 @@
         JOIN THE
         <span class="outline">NEBULA</span>
       </h2>
-      <p>Free to download. Free to use. Always.</p>
-      <a
-        href="https://nebulanet.beehiiv.com/"
-        class="dl-btn"
-        target="_blank"
-        style="font-size: 15px; padding: 16px 36px; position: relative"
-        >Join the waitlist</a
-      >
+      <p>Free to use. Free forever. Beta is open now.</p>
+      <div class="cta-btns">
+        <a
+          href="https://nebulanet.beehiiv.com/"
+          class="dl-btn"
+          target="_blank"
+          style="font-size: 15px; padding: 16px 36px"
+        >
+          Get Early Access
+        </a>
+        <a
+          href="https://bsky.app/profile/alybak.bsky.social"
+          class="ghost-btn"
+          target="_blank"
+          style="font-size: 14px"
+        >
+          Follow updates →
+        </a>
+      </div>
     </section>
 
     <footer>
@@ -1041,7 +1349,7 @@
       >
         <span class="footer-logo">NEBULANET</span>
         <nav>
-          <a href="#">Privacy</a>
+          <a href="/privacy">Privacy</a>
           <a href="#">Terms</a>
           <a href="#">Support</a>
         </nav>
@@ -1083,7 +1391,7 @@
             Bluesky
           </a>
           <a
-            href="https://www.reddit.com/r/NebulaNetApp"
+            href="https://producthunt.com/products/nebulanet"
             target="_blank"
             style="
               display: flex;
@@ -1099,10 +1407,10 @@
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path
-                d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"
+                d="M13.604 8.4h-3.405V12h3.405c.995 0 1.801-.806 1.801-1.8 0-.994-.806-1.8-1.801-1.8zM12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm1.604 13.8H10.2V18H8.4V6H13.604c1.985 0 3.601 1.616 3.601 3.6 0 1.985-1.616 3.6-3.601 3.6z"
               />
             </svg>
-            Reddit
+            Product Hunt
           </a>
         </div>
       </div>
