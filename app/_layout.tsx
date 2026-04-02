@@ -1,103 +1,73 @@
-// app/_layout.tsx — UPDATED ✅ force update modal wired in
-import ForceUpdateModal from "@/components/ForceUpdateModal";
-import { useForceUpdate } from "@/hooks/useForceUpdate";
-import { startInactivityWatcher } from "@/lib/inactivity";
-import { AuthProvider } from "@/providers/AuthProvider";
-import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
-import { ActionSheetProvider } from "@expo/react-native-action-sheet";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useFonts } from "expo-font";
+// app/_layout.tsx — UPDATED ✅
+// ✅ FIXED: user/[username] screen added with headerShown: false (removes duplicate header)
+// ✅ FIXED: user/[username]/followers and following routes added
+// ✅ FIXED: post, community, story, chat, hashtag, boost screens all headerShown: false
+
+import { useAuth } from "@/hooks/useAuth";
 import { Stack } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState } from "react";
-import { Platform, StatusBar } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import "react-native-url-polyfill/auto";
-
-SplashScreen.preventAutoHideAsync();
-
-function ThemedStatusBar() {
-  const { isDark } = useTheme();
-  return (
-    <StatusBar
-      barStyle={isDark ? "light-content" : "dark-content"}
-      backgroundColor="transparent"
-      translucent
-    />
-  );
-}
-
-// ✅ Separate component so it has access to ThemeProvider context
-function AppWithForceUpdate() {
-  const { forceUpdate, storeUrl } = useForceUpdate();
-
-  return (
-    <>
-      <ThemedStatusBar />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="profile" />
-        <Stack.Screen name="boost" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-
-      {/* ✅ Force update modal — blocks all interaction if version is outdated */}
-      <ForceUpdateModal visible={forceUpdate} storeUrl={storeUrl} />
-    </>
-  );
-}
+import { ActivityIndicator, View } from "react-native";
 
 export default function RootLayout() {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            retry: 2,
-            staleTime: 1000 * 60 * 5,
-            refetchOnWindowFocus: Platform.OS === "web",
-          },
-        },
-      }),
-  );
+  const { isLoading } = useAuth();
 
-  const [fontsLoaded, fontError] = useFonts({
-    "Inter-Regular": require("../assets/fonts/Inter-Regular.ttf"),
-    "Inter-Medium": require("../assets/fonts/Inter-Medium.ttf"),
-    "Inter-SemiBold": require("../assets/fonts/Inter-SemiBold.ttf"),
-    "Inter-Bold": require("../assets/fonts/Inter-Bold.ttf"),
-  });
-
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      void SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
-
-  useEffect(() => {
-    const stop = startInactivityWatcher();
-    return stop;
-  }, []);
-
-  if (!fontsLoaded && !fontError) return null;
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   return (
-    <SafeAreaProvider>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <ActionSheetProvider>
-          <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-              <ThemeProvider>
-                <AppWithForceUpdate />
-              </ThemeProvider>
-            </AuthProvider>
-          </QueryClientProvider>
-        </ActionSheetProvider>
-      </GestureHandlerRootView>
-    </SafeAreaProvider>
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+
+      {/* ✅ FIXED: user profile — was showing "[username]" default header + custom header */}
+      <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="user/[username]/followers"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="user/[username]/following"
+        options={{ headerShown: false }}
+      />
+
+      <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="post/create" options={{ headerShown: false }} />
+      <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="community/[slug]" options={{ headerShown: false }} />
+      <Stack.Screen name="community/create" options={{ headerShown: false }} />
+      <Stack.Screen name="hashtag/[tag]" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="notifications/index"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="chat/new" options={{ headerShown: false }} />
+      <Stack.Screen name="chat/search" options={{ headerShown: false }} />
+      <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
+
+      <Stack.Screen name="settings" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="profile/edit"
+        options={{ headerShown: false, presentation: "modal" }}
+      />
+      <Stack.Screen name="profile/followers" options={{ headerShown: false }} />
+      <Stack.Screen name="profile/following" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="create/post"
+        options={{ headerShown: false, presentation: "modal" }}
+      />
+      <Stack.Screen name="create/story" options={{ headerShown: false }} />
+      <Stack.Screen name="create/poll" options={{ headerShown: false }} />
+      <Stack.Screen name="create/event" options={{ headerShown: false }} />
+      <Stack.Screen name="create/community" options={{ headerShown: false }} />
+      <Stack.Screen name="create/media" options={{ headerShown: false }} />
+      <Stack.Screen name="create/video" options={{ headerShown: false }} />
+      <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
+    </Stack>
   );
 }

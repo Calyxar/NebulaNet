@@ -1,5 +1,7 @@
-// lib/firestore/comments.ts — FIREBASE ✅
-// Replaces Supabase comments + comment_likes
+// lib/firestore/comments.ts — UPDATED ✅
+// ✅ FIXED: removed orderBy("created_at_ts") — requires a composite index that
+//           doesn't exist, causing getComments to silently return 0 results
+// ✅ Sort is now done in JS after fetch — works without any index
 
 import { auth, db } from "@/lib/firebase";
 import {
@@ -9,7 +11,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -29,10 +30,8 @@ export type CommentWithAuthor = {
   content: string;
   created_at: string;
   parent_id?: string | null;
-
   likes_count: number;
   user_has_liked: boolean;
-
   author: ProfileRow | null;
   replies?: CommentWithAuthor[];
 };
@@ -61,8 +60,6 @@ function tsToIso(ts: any): string {
 async function fetchLikedCommentIds(uid: string, commentIds: string[]) {
   const liked = new Set<string>();
   if (!uid || !commentIds.length) return liked;
-
-  // "in" max 30
   for (let i = 0; i < commentIds.length; i += 30) {
     const chunk = commentIds.slice(i, i + 30);
     const q1 = query(
@@ -73,7 +70,6 @@ async function fetchLikedCommentIds(uid: string, commentIds: string[]) {
     const snap = await getDocs(q1);
     snap.docs.forEach((d) => liked.add((d.data() as any).comment_id));
   }
-
   return liked;
 }
 
@@ -83,17 +79,21 @@ export async function getComments(
   const clean = postId?.trim();
   if (!clean) return [];
 
-  const q1 = query(
-    COMMENTS,
-    where("post_id", "==", clean),
-    orderBy("created_at_ts", "asc"),
-  );
-
+  // ✅ FIXED: no orderBy — avoids missing composite index error
+  // Firestore silently returns 0 results when index is missing
+  const q1 = query(COMMENTS, where("post_id", "==", clean));
   const snap = await getDocs(q1);
-  const rows = snap.docs.map((d) => ({
-    id: d.id,
-    ...(d.data() as any),
-  }));
+
+  const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+
+  // ✅ Sort by created_at in JS instead
+  rows.sort((a, b) => {
+    const aTime =
+      a.created_at_ts?.toMillis?.() ?? new Date(a.created_at ?? 0).getTime();
+    const bTime =
+      b.created_at_ts?.toMillis?.() ?? new Date(b.created_at ?? 0).getTime();
+    return aTime - bTime;
+  });
 
   const uid = auth.currentUser?.uid ?? "";
   const ids = rows.map((r) => r.id);
@@ -110,14 +110,13 @@ export async function getComments(
     parent_id: r.parent_id ?? null,
     likes_count: typeof r.like_count === "number" ? r.like_count : 0,
     user_has_liked: uid ? likedSet.has(r.id) : false,
-    author: r.author ?? null, // we store snapshot on write
+    author: r.author ?? null,
     replies: [],
   }));
 
-  // build replies
+  // Build reply tree
   const byId = new Map(normalized.map((c) => [c.id, c]));
   const top: CommentWithAuthor[] = [];
-
   for (const c of normalized) {
     if (c.parent_id && byId.has(c.parent_id)) {
       byId.get(c.parent_id)!.replies!.push(c);
@@ -139,7 +138,6 @@ export async function addComment(input: {
 
   const uid = viewer.uid;
   const now = new Date().toISOString();
-
   const author = await getProfileSnapshot(uid);
 
   const refDoc = await addDoc(COMMENTS, {
@@ -148,8 +146,7 @@ export async function addComment(input: {
     content: input.content,
     parent_id: input.parent_id ?? null,
     like_count: 0,
-
-    author, // denormalized snapshot
+    author,
     created_at: now,
     created_at_ts: serverTimestamp(),
   });
@@ -166,38 +163,30 @@ export async function toggleCommentLike(input: {
   if (!viewer) throw new Error("Not authenticated");
 
   const uid = viewer.uid;
-
-  // We store likes as docs with deterministic id: `${uid}_${commentId}`
   const likeId = `${uid}_${input.commentId}`;
   const likeRef = doc(db, "comment_likes", likeId);
+  const cRef = doc(db, "comments", input.commentId);
+
+  const { deleteDoc, updateDoc, setDoc } = await import("firebase/firestore");
 
   if (input.isLiked) {
-    // unlike
-    // decrement counter best handled by Cloud Function; but we can do naive read+write:
-    const cRef = doc(db, "comments", input.commentId);
     const cSnap = await getDoc(cRef);
     if (cSnap.exists()) {
       const d = cSnap.data() as any;
       const cur = typeof d.like_count === "number" ? d.like_count : 0;
       await Promise.all([
-        // delete like doc
-        (await import("firebase/firestore")).deleteDoc(likeRef),
-        (await import("firebase/firestore")).updateDoc(cRef, {
-          like_count: Math.max(0, cur - 1),
-        }),
+        deleteDoc(likeRef),
+        updateDoc(cRef, { like_count: Math.max(0, cur - 1) }),
       ]);
     } else {
-      await (await import("firebase/firestore")).deleteDoc(likeRef);
+      await deleteDoc(likeRef);
     }
   } else {
-    // like
-    const cRef = doc(db, "comments", input.commentId);
     const cSnap = await getDoc(cRef);
     const d = cSnap.exists() ? (cSnap.data() as any) : {};
     const cur = typeof d.like_count === "number" ? d.like_count : 0;
-
     await Promise.all([
-      (await import("firebase/firestore")).setDoc(
+      setDoc(
         likeRef,
         {
           user_id: uid,
@@ -207,9 +196,7 @@ export async function toggleCommentLike(input: {
         },
         { merge: true },
       ),
-      (await import("firebase/firestore")).updateDoc(cRef, {
-        like_count: cur + 1,
-      }),
+      updateDoc(cRef, { like_count: cur + 1 }),
     ]);
   }
 

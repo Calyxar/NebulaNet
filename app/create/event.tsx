@@ -1,6 +1,10 @@
 // app/create/event.tsx — UPDATED ✅ dark mode + app design
+// ✅ FIXED: use user from useAuth() instead of auth.currentUser directly
+// ✅ FIXED: added creator_id field to match Firestore rules
+// ✅ FIXED: guard against null user before submitting
+
 import { useAuth } from "@/hooks/useAuth";
-import { auth, db } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -26,7 +30,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 type EventType = "public" | "private" | "invite";
 
 export default function CreateEventScreen() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [title, setTitle] = useState("");
@@ -57,6 +61,10 @@ export default function CreateEventScreen() {
 
   const handlePost = async () => {
     if (!canPost) return;
+    if (!user?.uid) {
+      Alert.alert("Error", "You must be logged in to create an event.");
+      return;
+    }
     if (endDate <= startDate) {
       Alert.alert("Error", "End time must be after start time.");
       return;
@@ -69,7 +77,8 @@ export default function CreateEventScreen() {
     setIsLoading(true);
     try {
       await addDoc(collection(db, "events"), {
-        user_id: auth.currentUser!.uid,
+        user_id: user.uid,
+        creator_id: user.uid, // ✅ required by Firestore rules
         title: title.trim(),
         description: description.trim() || null,
         location: location.trim() || null,
@@ -103,7 +112,6 @@ export default function CreateEventScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {/* Header */}
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -140,7 +148,6 @@ export default function CreateEventScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Composer row */}
           <View style={styles.composerRow}>
             <View style={styles.avatarCol}>
               {profile?.avatar_url ? (
@@ -184,11 +191,9 @@ export default function CreateEventScreen() {
             </View>
           </View>
 
-          {/* Settings */}
           <View style={styles.settingsSection}>
             <View style={styles.avatarColSpacer} />
             <View style={styles.settingsCol}>
-              {/* Date & Time */}
               <Text
                 style={[styles.sectionLabel, { color: colors.textSecondary }]}
               >
@@ -302,7 +307,6 @@ export default function CreateEventScreen() {
                 />
               )}
 
-              {/* Location */}
               <Text
                 style={[
                   styles.sectionLabel,
@@ -375,7 +379,6 @@ export default function CreateEventScreen() {
                 />
               </View>
 
-              {/* Visibility */}
               <Text
                 style={[
                   styles.sectionLabel,
@@ -431,7 +434,6 @@ export default function CreateEventScreen() {
                 })}
               </View>
 
-              {/* Capacity */}
               <Text
                 style={[
                   styles.sectionLabel,
@@ -461,7 +463,6 @@ export default function CreateEventScreen() {
                   keyboardType="numeric"
                 />
               </View>
-
               <View style={{ height: 32 }} />
             </View>
           </View>

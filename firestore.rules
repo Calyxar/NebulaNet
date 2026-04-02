@@ -28,9 +28,10 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
+    // ✅ Allows any signed-in user to increment counters on posts
     function isCounterUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count']);
+        .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count', 'view_count']);
     }
 
     match /profiles/{userId} {
@@ -51,7 +52,7 @@ service cloud.firestore {
       allow create: if signedIn();
     }
 
-    // ✅ FIXED: allow counter updates (likes, comments, reposts, saves) by any signed-in user
+    // ✅ FIXED: allow counter updates by any signed-in user
     match /posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -181,6 +182,19 @@ service cloud.firestore {
     match /support_reports/{reportId} {
       allow create: if signedIn() && request.resource.data.user_id == uid();
       allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    // ✅ ADDED: comment likes collection
+    match /comment_likes/{likeId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    // ✅ ADDED: post views tracking
+    match /post_views/{viewId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
     }
 
     match /{document=**} {
