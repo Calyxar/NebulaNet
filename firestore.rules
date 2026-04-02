@@ -28,7 +28,6 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
-    // ✅ Allows any signed-in user to increment counters on posts
     function isCounterUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count', 'view_count']);
@@ -52,7 +51,6 @@ service cloud.firestore {
       allow create: if signedIn();
     }
 
-    // ✅ FIXED: allow counter updates by any signed-in user
     match /posts/{postId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -70,8 +68,16 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
+    // ✅ saves collection (used by useToggleBookmark and saved-content screen)
     match /saves/{saveId} {
       allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    // ✅ hidden_posts collection
+    match /hidden_posts/{hiddenId} {
+      allow read: if signedIn() && resource.data.user_id == uid();
       allow create: if signedIn() && request.resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
@@ -83,7 +89,6 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
-    // ✅ ADDED: reposts/shares collection
     match /reposts/{repostId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.user_id == uid();
@@ -147,7 +152,6 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.blocker_id == uid();
     }
 
-    // ✅ FIXED: poll votes subcollection added
     match /polls/{pollId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -161,7 +165,6 @@ service cloud.firestore {
       }
     }
 
-    // ✅ ADDED: events collection
     match /events/{eventId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -184,14 +187,12 @@ service cloud.firestore {
       allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
-    // ✅ ADDED: comment likes collection
     match /comment_likes/{likeId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
-    // ✅ ADDED: post views tracking
     match /post_views/{viewId} {
       allow read: if signedIn();
       allow write: if signedIn();
