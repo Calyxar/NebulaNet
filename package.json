@@ -1,7 +1,7 @@
 {
   "name": "nebulanet",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "type": "commonjs",
   "scripts": {
     "start": "expo start",
@@ -113,6 +113,9 @@
     "react-native-svg-transformer": "^1.5.3",
     "react-test-renderer": "19.1.0",
     "typescript": "~5.9.2"
+  },
+  "browser": {
+    "react-native-google-mobile-ads": "./mocks/react-native-google-mobile-ads.js"
   },
   "engines": {
     "node": ">=18.0.0",
