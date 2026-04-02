@@ -1,21 +1,20 @@
-// hooks/useFeedInteractions.ts — FIREBASE ✅
+// hooks/useFeedInteractions.ts — UPDATED ✅
+// ✅ FIXED: onLike now uses useToggleLike (checks is_liked state before toggling)
+// ✅ FIXED: onSave now uses useToggleBookmark (checks is_saved state before toggling)
+// ✅ Previously used useLikePost/useSavePost which blindly added likes without checking
 
 import { useCallback, useRef } from "react";
 import type { ViewToken } from "react-native";
 
 import { useAuth } from "@/hooks/useAuth";
+import { postKeys, useToggleBookmark, useToggleLike } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
 import type { Post } from "@/lib/firestore/posts";
+import { useQueryClient } from "@tanstack/react-query";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
-import { useLikePost } from "@/hooks/useLikes";
-import { useSavePost } from "@/hooks/useSaves";
-
-// Store views as deterministic doc id so it's idempotent:
-// post_views/{viewerId_postId}
 async function trackPostView(postId: string, viewerId: string) {
   if (!postId || !viewerId) return;
-
   const id = `${viewerId}_${postId}`;
   await setDoc(
     doc(db, "post_views", id),
@@ -27,9 +26,11 @@ async function trackPostView(postId: string, viewerId: string) {
 export function useFeedInteractions() {
   const { user } = useAuth();
   const viewerId = user?.uid ?? "";
+  const qc = useQueryClient();
 
-  const likeMutation = useLikePost();
-  const saveMutation = useSavePost();
+  // ✅ FIXED: use proper toggle mutations from usePosts
+  const toggleLikeMutation = useToggleLike();
+  const toggleBookmarkMutation = useToggleBookmark();
 
   const viewedRef = useRef<Set<string>>(new Set());
 
@@ -41,30 +42,59 @@ export function useFeedInteractions() {
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       if (!viewerId) return;
-
       for (const v of viewableItems) {
         if (!v.isViewable) continue;
-
         const post = v.item as Post | undefined;
         if (!post?.id) continue;
-
         if (viewedRef.current.has(post.id)) continue;
         viewedRef.current.add(post.id);
-
         trackPostView(post.id, viewerId).catch(() => {});
       }
     },
     [viewerId],
   );
 
+  // ✅ FIXED: look up current is_liked state from cache before toggling
   const onLike = useCallback(
-    (postId: string) => likeMutation.mutate(postId),
-    [likeMutation],
+    (postId: string) => {
+      // Find the post in the infinite feed cache to get current is_liked state
+      const allListData = qc.getQueriesData({ queryKey: postKeys.lists() });
+      let isLiked = false;
+      for (const [, data] of allListData) {
+        if (!data) continue;
+        const pages = (data as any)?.pages ?? [];
+        for (const page of pages) {
+          const post = (page?.posts ?? []).find((p: Post) => p.id === postId);
+          if (post) {
+            isLiked = !!post.is_liked;
+            break;
+          }
+        }
+      }
+      toggleLikeMutation.mutate({ postId, isLiked });
+    },
+    [toggleLikeMutation, qc],
   );
 
+  // ✅ FIXED: look up current is_saved state from cache before toggling
   const onSave = useCallback(
-    (postId: string) => saveMutation.mutate(postId),
-    [saveMutation],
+    (postId: string) => {
+      const allListData = qc.getQueriesData({ queryKey: postKeys.lists() });
+      let isSaved = false;
+      for (const [, data] of allListData) {
+        if (!data) continue;
+        const pages = (data as any)?.pages ?? [];
+        for (const page of pages) {
+          const post = (page?.posts ?? []).find((p: Post) => p.id === postId);
+          if (post) {
+            isSaved = !!post.is_saved;
+            break;
+          }
+        }
+      }
+      toggleBookmarkMutation.mutate({ postId, isSaved });
+    },
+    [toggleBookmarkMutation, qc],
   );
 
   return {
@@ -72,7 +102,7 @@ export function useFeedInteractions() {
     onSave,
     viewabilityConfig,
     onViewableItemsChanged,
-    likeMutation,
-    saveMutation,
+    likeMutation: toggleLikeMutation,
+    saveMutation: toggleBookmarkMutation,
   };
 }
