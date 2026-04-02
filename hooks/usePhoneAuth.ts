@@ -1,12 +1,9 @@
-// hooks/usePhoneAuth.ts ✅ UPDATED — no expo-firebase-recaptcha dependency
-// Firebase handles reCAPTCHA automatically on Android via Play Integrity
-// No external verifier modal needed
+// hooks/usePhoneAuth.ts — FIXED ✅
+// ✅ FIXED: use @react-native-firebase/auth instead of firebase/auth (web SDK)
+// firebase/auth requires a real RecaptchaVerifier — returns error with SilentRecaptcha mock
+// @react-native-firebase/auth handles Play Integrity/SafetyNet natively on Android
+// No reCAPTCHA, no verifier needed at all
 
-import { auth } from "@/lib/firebase";
-import {
-  type ApplicationVerifier,
-  signInWithPhoneNumber
-} from "firebase/auth";
 import { useRef, useState } from "react";
 
 export type PhoneAuthState =
@@ -17,22 +14,10 @@ export type PhoneAuthState =
   | "success"
   | "error";
 
-// ✅ Minimal ApplicationVerifier — Firebase handles actual verification
-// natively on Android via Play Integrity / SafetyNet
-class SilentRecaptcha implements ApplicationVerifier {
-  readonly type = "recaptcha";
-  async verify(): Promise<string> {
-    return "";
-  }
-}
-
 export function usePhoneAuth() {
   const [state, setState] = useState<PhoneAuthState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const confirmationRef = useRef<Awaited<
-    ReturnType<typeof signInWithPhoneNumber>
-  > | null>(null);
-  const verifierRef = useRef<SilentRecaptcha>(new SilentRecaptcha());
+  const confirmationRef = useRef<any>(null);
 
   const reset = () => {
     setState("idle");
@@ -40,23 +25,13 @@ export function usePhoneAuth() {
     confirmationRef.current = null;
   };
 
-  /**
-   * Send OTP to phone number.
-   * phoneNumber must include country code e.g. "+12125551234"
-   * appVerifier param kept for backward compatibility but ignored — uses internal verifier
-   */
-  const sendOTP = async (
-    phoneNumber: string,
-    _appVerifier?: ApplicationVerifier,
-  ): Promise<boolean> => {
+  const sendOTP = async (phoneNumber: string): Promise<boolean> => {
     setError(null);
     setState("sending");
     try {
-      const confirmation = await signInWithPhoneNumber(
-        auth,
-        phoneNumber,
-        verifierRef.current,
-      );
+      // ✅ FIXED: use @react-native-firebase/auth — handles Play Integrity natively
+      const rnAuth = require("@react-native-firebase/auth").default;
+      const confirmation = await rnAuth().signInWithPhoneNumber(phoneNumber);
       confirmationRef.current = confirmation;
       setState("awaiting_code");
       return true;
@@ -68,10 +43,6 @@ export function usePhoneAuth() {
     }
   };
 
-  /**
-   * Verify the OTP code the user entered.
-   * Returns the Firebase User on success.
-   */
   const verifyOTP = async (code: string) => {
     if (!confirmationRef.current) {
       setError("Session expired. Please request a new code.");
