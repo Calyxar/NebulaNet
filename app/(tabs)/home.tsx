@@ -1,4 +1,5 @@
 // app/(tabs)/home.tsx — UPDATED ✅ AdMob banner ads in feed, interstitial on post open
+// ✅ FIXED: Heart turns red when liked, Bookmark turns colored when saved
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
@@ -33,7 +34,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions
+  useWindowDimensions,
 } from "react-native";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
 import {
@@ -43,7 +44,6 @@ import {
 
 type FeedTab = "for-you" | "following" | "my-community";
 
-// ✅ Insert a banner ad every N posts
 const AD_EVERY_N_POSTS = 5;
 
 const timeAgo = (iso: string) => {
@@ -75,7 +75,6 @@ const isVideoPost = (post: any) => {
   return isVideoUrl(post?.media_urls?.[0]);
 };
 
-// ✅ Banner ad component — rendered inline in the feed
 function FeedBannerAd({ colors }: { colors: any }) {
   return (
     <View style={[adStyles.wrap, { backgroundColor: colors.card }]}>
@@ -109,7 +108,6 @@ const adStyles = StyleSheet.create({
   },
 });
 
-// ✅ Feed item type — either a post or an ad slot
 type FeedItem = Post | { __type: "ad"; id: string };
 
 export default function HomeScreen() {
@@ -151,7 +149,6 @@ export default function HomeScreen() {
     [data],
   );
 
-  // ✅ Interleave ad slots into the feed every AD_EVERY_N_POSTS posts
   const feedItems = useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
     posts.forEach((post, i) => {
@@ -166,7 +163,6 @@ export default function HomeScreen() {
   const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
     useFeedInteractions();
 
-  // ✅ Show interstitial ad periodically when opening posts
   const openPost = (postId: string) => {
     maybeShowInterstitial();
     router.push(`/post/${postId}` as any);
@@ -461,7 +457,6 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
-      // ✅ Render banner ad slot
       if ("__type" in item && item.__type === "ad") {
         return <FeedBannerAd colors={colors} />;
       }
@@ -472,6 +467,12 @@ export default function HomeScreen() {
       const media = post.media_urls?.[0];
       const video = isVideoPost(post);
       const isPoll = post.post_type === "poll" && !!(post as any).poll;
+
+      // ✅ FIXED: derive color states from post data
+      const liked = !!post.is_liked;
+      const saved = !!post.is_saved;
+      const likeColor = liked ? "#FF375F" : colors.text;
+      const saveColor = saved ? colors.primary : colors.text;
 
       return (
         <TouchableOpacity
@@ -626,6 +627,7 @@ export default function HomeScreen() {
           )}
 
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
+            {/* ✅ FIXED: Heart turns red when liked */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -636,14 +638,16 @@ export default function HomeScreen() {
             >
               <Heart
                 size={20}
-                color={colors.text}
-                fill="none"
+                color={likeColor}
+                fill={liked ? "#FF375F" : "none"}
                 strokeWidth={2.5}
               />
-              <Text style={[styles.actionText, { color: colors.text }]}>
+              <Text style={[styles.actionText, { color: likeColor }]}>
                 {post.like_count ?? 0}
               </Text>
             </TouchableOpacity>
+
+            {/* Comment — navigates to post */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -657,6 +661,8 @@ export default function HomeScreen() {
                 {post.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
+
+            {/* Share — navigates to post */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -670,6 +676,8 @@ export default function HomeScreen() {
                 {post.share_count ?? 0}
               </Text>
             </TouchableOpacity>
+
+            {/* ✅ FIXED: Bookmark turns colored when saved */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -680,8 +688,8 @@ export default function HomeScreen() {
             >
               <Bookmark
                 size={20}
-                color={colors.text}
-                fill="none"
+                color={saveColor}
+                fill={saved ? colors.primary : "none"}
                 strokeWidth={2.5}
               />
             </TouchableOpacity>
@@ -689,7 +697,15 @@ export default function HomeScreen() {
         </TouchableOpacity>
       );
     },
-    [onLike, onSave, mediaHeight, colors, isDark, maybeShowInterstitial],
+    [
+      onLike,
+      onSave,
+      mediaHeight,
+      colors,
+      isDark,
+      maybeShowInterstitial,
+      feedDensity,
+    ],
   );
 
   if (isLoading) {
