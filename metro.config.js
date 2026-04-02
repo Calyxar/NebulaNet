@@ -21,15 +21,31 @@ config.resolver.sourceExts = [
   "woff2",
 ];
 
-// ✅ FIXED: stub react-native-google-mobile-ads on web
-// Prevents Vercel build failure: "Importing native-only module on web"
+// ✅ Add mocks folder to watchFolders so Metro can hash the files
+config.watchFolders = [
+  ...(config.watchFolders ?? []),
+  path.resolve(__dirname, "mocks"),
+];
+
+// ✅ Stub native-only libraries on web
+// These libraries use native modules that don't exist on web
+const WEB_STUBS = {
+  "react-native-google-mobile-ads": path.resolve(
+    __dirname,
+    "mocks",
+    "react-native-google-mobile-ads.js",
+  ),
+  "react-native-image-viewing": path.resolve(
+    __dirname,
+    "mocks",
+    "react-native-image-viewing.js",
+  ),
+};
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === "web" && moduleName === "react-native-google-mobile-ads") {
+  if (platform === "web" && WEB_STUBS[moduleName]) {
     return {
-      filePath: path.resolve(
-        __dirname,
-        "mocks/react-native-google-mobile-ads.js",
-      ),
+      filePath: WEB_STUBS[moduleName],
       type: "sourceFile",
     };
   }
