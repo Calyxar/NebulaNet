@@ -1,4 +1,8 @@
-// lib/share.ts — FIRESTORE COMPLETE ✅
+// lib/share.ts — UPDATED ✅
+// ✅ FIXED: shareWithOptions no longer uses Alert.alert on Android
+//           (was overlapping phone navigation controls)
+//           Now uses direct native Share sheet on both platforms
+// ✅ FIXED: incrementShareCount only called once per share action
 
 import { db } from "@/lib/firebase";
 import * as Clipboard from "expo-clipboard";
@@ -25,7 +29,7 @@ export const generateEventLink = (eventId: string): string => {
 
 /* -------------------- FIRESTORE SHARE COUNT -------------------- */
 
-const incrementShareCount = async (postId: string): Promise<void> => {
+export const incrementShareCount = async (postId: string): Promise<void> => {
   try {
     await updateDoc(doc(db, "posts", postId), {
       share_count: increment(1),
@@ -45,7 +49,6 @@ interface ShareOptions {
 
 export async function shareContent(options: ShareOptions) {
   try {
-    // Android ignores `url` — always append it to message
     const fullMessage =
       Platform.OS === "android" && options.url
         ? `${options.message || ""}\n\n${options.url}`.trim()
@@ -54,7 +57,7 @@ export async function shareContent(options: ShareOptions) {
     const result = await RNShare.share({
       title: options.title || "Check this out on NebulaNet",
       message: fullMessage,
-      url: options.url || "https://nebulanet.space", // used by iOS only
+      url: options.url || "https://nebulanet.space",
     });
 
     return result;
@@ -75,7 +78,6 @@ export async function sharePost(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-
     const preview = postData.title || postData.content.substring(0, 100);
     const communityLine = postData.community
       ? `\nPosted in ${postData.community.name}`
@@ -110,7 +112,6 @@ export async function shareToChat(postData: {
 }) {
   try {
     const postLink = generatePostLink(postData.id);
-
     const message = `Check out this post by ${
       postData.author.name
     }:\n${postData.title || postData.content.substring(0, 100)}...\n\n${postLink}`;
@@ -124,7 +125,6 @@ export async function shareToChat(postData: {
     );
 
     await incrementShareCount(postData.id);
-
     return true;
   } catch (error) {
     console.error("Error sharing to chat:", error);
@@ -138,13 +138,11 @@ export async function shareToChat(postData: {
 export async function copyLink(url: string, entityName: string = "Link") {
   try {
     await Clipboard.setStringAsync(url);
-
     Alert.alert(
       "Copied to Clipboard",
       `${entityName} has been copied to your clipboard`,
       [{ text: "OK" }],
     );
-
     return true;
   } catch (error) {
     console.error("Error copying link:", error);
@@ -162,7 +160,6 @@ export async function shareProfile(userData: {
 }) {
   try {
     const profileLink = generateUserLink(userData.username);
-
     const message = `Check out ${userData.name}'s profile on NebulaNet:\n${
       userData.bio ? userData.bio.substring(0, 100) + "..." : ""
     }\n\n${profileLink}`;
@@ -187,7 +184,6 @@ export async function shareCommunity(communityData: {
 }) {
   try {
     const communityLink = generateCommunityLink(communityData.slug);
-
     const message = `Join ${communityData.name} on NebulaNet:\n${
       communityData.description
         ? communityData.description.substring(0, 100) + "..."
@@ -215,7 +211,6 @@ export async function shareEvent(eventData: {
 }) {
   try {
     const eventLink = generateEventLink(eventData.id);
-
     const message = `${eventData.creator.name} invited you to ${eventData.title} on NebulaNet:\n${
       eventData.description
         ? eventData.description.substring(0, 100) + "..."
@@ -234,6 +229,10 @@ export async function shareEvent(eventData: {
 }
 
 /* -------------------- SHARE WITH OPTIONS -------------------- */
+// ✅ FIXED: No longer uses Alert.alert dialog on Android
+//           Opens native share sheet directly — no Cancel button overlap
+//           incrementShareCount called once here only
+//           Callers (PostCard, post detail) must NOT call incrementShareCount again
 
 export async function shareWithOptions(postData: {
   id: string;
@@ -246,40 +245,18 @@ export async function shareWithOptions(postData: {
     const preview = postData.title || postData.content.substring(0, 100);
     const message = `${postData.author.name}: ${preview}...\n\n${postLink}`;
 
-    if (Platform.OS === "ios") {
-      const result = await RNShare.share({
-        message,
-        url: postLink,
-      });
+    const result = await RNShare.share({
+      title: `Post by ${postData.author.name} | NebulaNet`,
+      message,
+      url: postLink, // iOS only
+    });
 
-      if (result.action === RNShare.sharedAction) {
-        await incrementShareCount(postData.id);
-      }
-
-      return result;
-    } else {
-      const action = await new Promise<string>((resolve) => {
-        Alert.alert("Share Post", "How would you like to share?", [
-          { text: "Share to Chat", onPress: () => resolve("chat") },
-          { text: "Copy Link", onPress: () => resolve("copy") },
-          { text: "Share via...", onPress: () => resolve("share") },
-          { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },
-        ]);
-      });
-
-      switch (action) {
-        case "chat":
-          return await shareToChat(postData);
-        case "copy":
-          await copyLink(postLink, "Post link");
-          await incrementShareCount(postData.id);
-          return { action: "copied" };
-        case "share":
-          return await sharePost(postData);
-        default:
-          return { action: "cancelled" };
-      }
+    // ✅ Only increment if user actually shared (not dismissed)
+    if (result.action === RNShare.sharedAction) {
+      await incrementShareCount(postData.id);
     }
+
+    return result;
   } catch (error) {
     console.error("Error sharing with options:", error);
     throw error;
