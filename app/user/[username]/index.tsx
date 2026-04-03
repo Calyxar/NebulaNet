@@ -1,4 +1,4 @@
-// app/user/[username].tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
+// app/user/index.tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
