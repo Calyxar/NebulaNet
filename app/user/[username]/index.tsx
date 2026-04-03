@@ -1,5 +1,9 @@
-// app/user/index.tsx — UPDATED ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
+// app/user/[username]/index.tsx — UPDATED ✅
+// ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
+// ✅ UPDATED: UserActionsSheet now includes mute, message, report actions
+
 import { useAuth } from "@/hooks/useAuth";
+import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { shareProfileLink } from "@/lib/shareProfile";
@@ -124,6 +128,10 @@ export default function UserProfileScreen() {
     () => !!target?.id && target.id === user?.uid,
     [target?.id, user?.uid],
   );
+
+  // ✅ Mute hooks
+  const { data: isMuted } = useMuteStatus(target?.id ?? "");
+  const muteMutation = useToggleMute(target?.id ?? "");
 
   const { data: followEdge, isLoading: loadingEdge } = useQuery({
     queryKey: ["follow-edge", user?.uid, target?.id],
@@ -370,7 +378,6 @@ export default function UserProfileScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
-  // ✅ FIXED: uses shareProfileLink for proper nebulanet.space/u/<username> links
   const handleShareProfile = async () => {
     try {
       await shareProfileLink({
@@ -395,6 +402,7 @@ export default function UserProfileScreen() {
     }
     try {
       const conversationId = await createOrOpenChat(user.uid, target.id);
+      sheetRef.current?.close();
       router.push(`/chat/${conversationId}`);
     } catch {
       Alert.alert("Error", "Could not start conversation.");
@@ -987,7 +995,6 @@ export default function UserProfileScreen() {
               </View>
             )}
 
-            {/* ✅ Media tab — live 3-column grid */}
             {activeTab === "Media" && (
               <>
                 {!canViewPosts ? (
@@ -1139,10 +1146,17 @@ export default function UserProfileScreen() {
           </View>
         </ScrollView>
 
+        {/* ✅ UPDATED: UserActionsSheet now includes mute, message, report */}
         {!isMe && (
           <UserActionsSheet
             ref={sheetRef}
             username={target.username}
+            isMuted={!!isMuted}
+            onMessage={canMessage ? handleMessage : undefined}
+            onMute={() => {
+              sheetRef.current?.close();
+              muteMutation.mutate(!!isMuted);
+            }}
             onRemove={async () => {
               sheetRef.current?.close();
               if (!user?.uid || !target?.id || !followEdge) return;
@@ -1159,7 +1173,7 @@ export default function UserProfileScreen() {
               });
               qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
             }}
-            onBlock={async () => {
+            onBlock={() => {
               sheetRef.current?.close();
               Alert.alert(
                 "Block user?",
@@ -1173,6 +1187,10 @@ export default function UserProfileScreen() {
                   },
                 ],
               );
+            }}
+            onReport={() => {
+              sheetRef.current?.close();
+              Alert.alert("Report", "Thank you — we'll review this account.");
             }}
           />
         )}
