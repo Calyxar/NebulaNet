@@ -1,3 +1,8 @@
+// components/UserActionsSheet.tsx — UPDATED ✅
+// ✅ ADDED: Mute option (mutes user's posts from feed)
+// ✅ ADDED: Message option (start chat from profile)
+// ✅ Twitter-style action list: Message, Mute, Block, Remove follower
+
 import { Ionicons } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import React, { forwardRef, useCallback, useMemo } from "react";
@@ -8,31 +13,43 @@ export type UserActionsSheetRef = BottomSheet;
 type Props = {
   username?: string;
 
-  /** Primary action (Remove / Unblock / Cancel Request) */
+  /** Message action */
+  onMessage?: () => void;
+
+  /** Mute action */
+  onMute?: () => void;
+  isMuted?: boolean;
+
+  /** Remove follower */
   removeLabel?: string;
   onRemove?: () => void;
 
-  /** Secondary action (Block) */
+  /** Block */
   blockLabel?: string;
   onBlock?: () => void;
-
-  /** Hide the block action entirely (ex: on Blocked list screen) */
   hideBlock?: boolean;
+
+  /** Report */
+  onReport?: () => void;
 };
 
 const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
   (
     {
       username,
-      removeLabel = "Remove",
+      onMessage,
+      onMute,
+      isMuted = false,
+      removeLabel = "Remove follower",
       onRemove,
       blockLabel = "Block",
       onBlock,
       hideBlock = false,
+      onReport,
     },
     ref,
   ) => {
-    const snapPoints = useMemo(() => ["28%"], []);
+    const snapPoints = useMemo(() => ["38%"], []);
 
     const renderBackdrop = useCallback(
       (props: any) => (
@@ -61,7 +78,43 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             @{username || "user"}
           </Text>
 
-          {/* Primary action */}
+          {/* Message */}
+          {!!onMessage && (
+            <TouchableOpacity
+              style={styles.item}
+              activeOpacity={0.85}
+              onPress={onMessage}
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons name="chatbubble-outline" size={18} color="#7C3AED" />
+              </View>
+              <Text style={styles.itemText}>Message @{username}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Mute */}
+          {!!onMute && (
+            <TouchableOpacity
+              style={styles.item}
+              activeOpacity={0.85}
+              onPress={onMute}
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons
+                  name={
+                    isMuted ? "volume-medium-outline" : "volume-mute-outline"
+                  }
+                  size={18}
+                  color="#7C3AED"
+                />
+              </View>
+              <Text style={styles.itemText}>
+                {isMuted ? `Unmute @${username}` : `Mute @${username}`}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Remove follower */}
           {!!onRemove && (
             <TouchableOpacity
               style={styles.item}
@@ -79,17 +132,35 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Secondary action */}
+          {/* Block */}
           {!hideBlock && !!onBlock && (
             <TouchableOpacity
               style={styles.item}
               activeOpacity={0.85}
               onPress={onBlock}
             >
-              <View style={styles.iconWrap}>
-                <Ionicons name="ban-outline" size={18} color="#7C3AED" />
+              <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
+                <Ionicons name="ban-outline" size={18} color="#EF4444" />
               </View>
-              <Text style={styles.itemText}>{blockLabel}</Text>
+              <Text style={[styles.itemText, { color: "#EF4444" }]}>
+                {blockLabel} @{username}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Report */}
+          {!!onReport && (
+            <TouchableOpacity
+              style={styles.item}
+              activeOpacity={0.85}
+              onPress={onReport}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
+                <Ionicons name="flag-outline" size={18} color="#EF4444" />
+              </View>
+              <Text style={[styles.itemText, { color: "#EF4444" }]}>
+                Report @{username}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -107,7 +178,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
   },
 );
 
-UserActionsSheet.displayName = "UserActionsSheet"; // ✅ fixes react/display-name
+UserActionsSheet.displayName = "UserActionsSheet";
 
 export default UserActionsSheet;
 
@@ -116,22 +187,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 6,
   },
-
   title: {
     fontSize: 14,
     fontWeight: "900",
     color: "#111827",
     marginBottom: 10,
   },
-
   item: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 14,
   },
-
   iconWrap: {
     width: 34,
     height: 34,
@@ -140,23 +208,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   itemText: {
     fontSize: 14,
     fontWeight: "900",
     color: "#111827",
   },
-
   divider: {
     height: 1,
     backgroundColor: "#EEF2FF",
     marginVertical: 6,
   },
-
   cancel: {
     justifyContent: "center",
   },
-
   cancelText: {
     textAlign: "center",
     fontWeight: "800",

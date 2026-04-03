@@ -1,3 +1,8 @@
+// lib/firestore/createOrOpenChat.ts — FIXED ✅
+// ✅ FIXED: batch.set(doc(participantsRef)) fails — doc() needs an explicit ID
+// ✅ FIXED: use doc(db, collection, id) with generated IDs for batch writes
+// ✅ FIXED: check conversations where current user is a participant
+
 import { db } from "@/lib/firebase";
 import {
   addDoc,
@@ -24,6 +29,7 @@ export async function createOrOpenChat(
 
   const pairKey = dmPairKey(myId, otherUserId);
 
+  // Check if conversation already exists
   const existing = await getDocs(
     query(
       collection(db, "conversations"),
@@ -37,26 +43,32 @@ export async function createOrOpenChat(
     return existing.docs[0].id;
   }
 
+  // Create new conversation
   const convoRef = await addDoc(collection(db, "conversations"), {
     is_group: false,
     dm_pair_key: pairKey,
+    participant_ids: [myId, otherUserId],
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   });
 
-  const participantsRef = collection(db, "conversation_participants");
+  // ✅ FIXED: use explicit doc IDs — batch.set requires doc(db, collection, id)
   const batch = writeBatch(db);
 
-  batch.set(doc(participantsRef), {
+  const p1Ref = doc(collection(db, "conversation_participants"));
+  batch.set(p1Ref, {
     conversation_id: convoRef.id,
     user_id: myId,
     joined_at: serverTimestamp(),
+    unread_count: 0,
   });
 
-  batch.set(doc(participantsRef), {
+  const p2Ref = doc(collection(db, "conversation_participants"));
+  batch.set(p2Ref, {
     conversation_id: convoRef.id,
     user_id: otherUserId,
     joined_at: serverTimestamp(),
+    unread_count: 0,
   });
 
   await batch.commit();

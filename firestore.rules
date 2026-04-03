@@ -43,12 +43,15 @@ service cloud.firestore {
     match /follows/{followId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.follower_id == uid();
+      allow update: if signedIn() && resource.data.follower_id == uid();
       allow delete: if signedIn() && resource.data.follower_id == uid();
     }
 
     match /notifications/{notifId} {
       allow read: if signedIn() && resource.data.receiver_id == uid();
       allow create: if signedIn();
+      allow update: if signedIn() && resource.data.receiver_id == uid();
+      allow delete: if signedIn() && resource.data.receiver_id == uid();
     }
 
     match /posts/{postId} {
@@ -68,14 +71,12 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
-    // ✅ saves collection (used by useToggleBookmark and saved-content screen)
     match /saves/{saveId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
-    // ✅ hidden_posts collection
     match /hidden_posts/{hiddenId} {
       allow read: if signedIn() && resource.data.user_id == uid();
       allow create: if signedIn() && request.resource.data.user_id == uid();
@@ -85,8 +86,14 @@ service cloud.firestore {
     match /comments/{commentId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if signedIn() && resource.data.user_id == uid();
+      allow update: if signedIn() && (resource.data.user_id == uid() || isCounterUpdate());
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    match /comment_likes/{likeId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
     match /reposts/{repostId} {
@@ -102,6 +109,12 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
     }
 
+    match /community_members/{memberId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
     match /user_settings/{userId} {
       allow read: if isSelf(userId);
       allow write: if isSelf(userId);
@@ -112,6 +125,25 @@ service cloud.firestore {
       allow create: if signedIn();
       allow update: if signedIn() && resource.data.user_id == uid();
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+    }
+
+    match /story_views/{viewId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    match /conversations/{convoId} {
+      allow read: if signedIn() && uid() in resource.data.participant_ids;
+      allow create: if signedIn() && uid() in request.resource.data.participant_ids;
+      allow update: if signedIn() && uid() in resource.data.participant_ids;
+      allow delete: if false;
+    }
+
+    match /conversation_participants/{participantId} {
+      allow read: if signedIn() && resource.data.user_id == uid();
+      allow create: if signedIn();
+      allow update: if signedIn() && resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
     match /chats/{chatId} {
@@ -146,6 +178,13 @@ service cloud.firestore {
     }
 
     match /blocks/{blockId} {
+      allow read: if signedIn()
+        && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
+      allow create: if signedIn() && request.resource.data.blocker_id == uid();
+      allow delete: if signedIn() && resource.data.blocker_id == uid();
+    }
+
+    match /user_blocks/{blockId} {
       allow read: if signedIn()
         && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
       allow create: if signedIn() && request.resource.data.blocker_id == uid();
@@ -187,15 +226,14 @@ service cloud.firestore {
       allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
-    match /comment_likes/{likeId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.user_id == uid();
-      allow delete: if signedIn() && resource.data.user_id == uid();
-    }
-
     match /post_views/{viewId} {
       allow read: if signedIn();
       allow write: if signedIn();
+    }
+
+    match /app_config/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
     match /{document=**} {
