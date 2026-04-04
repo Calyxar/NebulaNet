@@ -1,15 +1,45 @@
 // app/_layout.tsx — UPDATED ✅
-// ✅ FIXED: user/[username] screen added with headerShown: false (removes duplicate header)
-// ✅ FIXED: user/[username]/followers and following routes added
-// ✅ FIXED: post, community, story, chat, hashtag, boost screens all headerShown: false
+// ✅ FIXED: sign out now redirects to login (was getting stuck)
+// ✅ FIXED: onboarding shows when hasCompletedOnboarding is false
+// ✅ FIXED: auth state changes properly drive navigation
+// ✅ FIXED: crash prevention — null guards on user/profile loading
 
 import { useAuth } from "@/hooks/useAuth";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
+import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 export default function RootLayout() {
-  const { isLoading } = useAuth();
+  const {
+    user,
+    isLoading,
+    isProfileLoading,
+    isUserSettingsLoading,
+    hasCompletedOnboarding,
+  } = useAuth();
 
+  const settingsReady = !isUserSettingsLoading;
+  const fullyLoaded = !isLoading && !isProfileLoading && settingsReady;
+
+  useEffect(() => {
+    if (!fullyLoaded) return;
+
+    if (!user) {
+      // ✅ FIXED: sign out → redirect to login immediately
+      router.replace("/(auth)/login");
+      return;
+    }
+
+    // ✅ FIXED: show onboarding if not completed
+    if (!hasCompletedOnboarding) {
+      router.replace("/(auth)/onboarding");
+      return;
+    }
+
+    // User is logged in and onboarded — stay on current screen
+  }, [user, fullyLoaded, hasCompletedOnboarding]);
+
+  // Show spinner while auth hydrates
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -24,7 +54,6 @@ export default function RootLayout() {
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
 
-      {/* ✅ FIXED: user profile — was showing "[username]" default header + custom header */}
       <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
       <Stack.Screen
         name="user/[username]/followers"
@@ -57,6 +86,7 @@ export default function RootLayout() {
       />
       <Stack.Screen name="profile/followers" options={{ headerShown: false }} />
       <Stack.Screen name="profile/following" options={{ headerShown: false }} />
+
       <Stack.Screen
         name="create/post"
         options={{ headerShown: false, presentation: "modal" }}
