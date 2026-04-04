@@ -3,7 +3,7 @@
     "name": "NebulaNet",
     "slug": "nebulanet",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/nebulanet-icon.png",
     "scheme": "nebulanet",
     "userInterfaceStyle": "automatic",
@@ -91,11 +91,13 @@
         "ACCESS_NOTIFICATION_POLICY",
         "com.android.vending.BILLING"
       ],
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "allowBackup": false
     },
     "androidStatusBar": {
       "barStyle": "dark-content",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#ffffff",
+      "translucent": true
     },
     "androidNavigationBar": {
       "barStyle": "dark-content",
@@ -133,7 +135,23 @@
       ],
       "@react-native-google-signin/google-signin",
       "expo-localization",
-      "expo-build-properties",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class com.google.** { *; }"
+          },
+          "ios": {
+            "deploymentTarget": "15.1",
+            "useFrameworks": "static"
+          }
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/app-check",
       [
@@ -152,7 +170,7 @@
       "appUrl": "https://nebulanet.space",
       "enableAnalytics": false,
       "enableDebug": true,
-      "appVersion": "1.0.4"
+      "appVersion": "1.0.8"
     },
     "experiments": {
       "typedRoutes": true,

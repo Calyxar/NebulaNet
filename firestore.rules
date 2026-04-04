@@ -104,7 +104,7 @@ service cloud.firestore {
 
     match /communities/{communityId} {
       allow read: if signedIn();
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner_id == uid();
       allow update: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
       allow delete: if signedIn() && (resource.data.owner_id == uid() || isAdmin());
     }
@@ -178,15 +178,13 @@ service cloud.firestore {
     }
 
     match /blocks/{blockId} {
-      allow read: if signedIn()
-        && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
+      allow read: if signedIn() && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
       allow create: if signedIn() && request.resource.data.blocker_id == uid();
       allow delete: if signedIn() && resource.data.blocker_id == uid();
     }
 
     match /user_blocks/{blockId} {
-      allow read: if signedIn()
-        && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
+      allow read: if signedIn() && (resource.data.blocker_id == uid() || resource.data.blocked_id == uid());
       allow create: if signedIn() && request.resource.data.blocker_id == uid();
       allow delete: if signedIn() && resource.data.blocker_id == uid();
     }

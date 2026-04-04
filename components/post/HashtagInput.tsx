@@ -1,31 +1,32 @@
-// components/post/HashtagInput.tsx ✅
-// Twitter-style hashtag input:
-// - Inline purple coloring for #words as you type
-// - Dropdown suggestion list from Firestore when typing #word
-// - Tap suggestion → completes hashtag inline
+// components/post/HashtagInput.tsx — UPDATED ✅
+// ✅ Twitter-style inline hashtag coloring using app primary purple
+// ✅ Autocomplete dropdown from Firestore hashtags collection
+// ✅ Deduplication — same hashtag typed twice only shows once in chips
+// ✅ @mention support — also colored purple
+// ✅ No hideous raw text — mirror overlay keeps colors clean
 
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import {
-    collection,
-    endAt,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    startAt,
+  collection,
+  endAt,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAt,
 } from "firebase/firestore";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    StyleSheet,
-    Text,
-    TextInput,
-    TextInputProps,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputProps,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 interface Props extends Omit<
@@ -36,7 +37,6 @@ interface Props extends Omit<
   onChangeText: (text: string) => void;
   minHeight?: number;
   fontSize?: number;
-  textColor?: string;
 }
 
 interface HashtagSuggestion {
@@ -44,43 +44,58 @@ interface HashtagSuggestion {
   post_count: number;
 }
 
-// ── Detect what hashtag the cursor is currently inside ──────────────────────
 function getActiveHashtag(text: string, cursorPos: number): string | null {
-  // Walk left from cursor to find start of current word
   const before = text.slice(0, cursorPos);
   const match = before.match(/#([a-zA-Z0-9_]*)$/);
   if (!match) return null;
-  const word = match[1];
-  // Check character after cursor — if it's a word char we're mid-hashtag, skip
   const after = text[cursorPos];
   if (after && /[a-zA-Z0-9_]/.test(after)) return null;
-  return word; // may be empty string "" right after #
+  return match[1];
 }
 
-// ── Complete the current hashtag with a suggestion ──────────────────────────
 function completeHashtag(text: string, cursorPos: number, tag: string): string {
   const before = text.slice(0, cursorPos);
   const after = text.slice(cursorPos);
-  // Replace #partial with #tag + space
   const replaced = before.replace(/#([a-zA-Z0-9_]*)$/, `#${tag} `);
   return replaced + after;
 }
 
-// ── Parse text into colored segments ────────────────────────────────────────
-function parseSegments(text: string): { text: string; isTag: boolean }[] {
+function parseSegments(text: string) {
   return text
-    .split(/(#[a-zA-Z0-9_]+)/g)
+    .split(/(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_.]+)/g)
     .filter((p) => p.length > 0)
-    .map((p) => ({ text: p, isTag: /^#[a-zA-Z0-9_]+/.test(p) }));
+    .map((p) => ({
+      text: p,
+      isTag: /^(#[a-zA-Z0-9_]+|@[a-zA-Z0-9_.]+)$/.test(p),
+    }));
 }
 
-// ── Firestore suggestion query ───────────────────────────────────────────────
+// ✅ Deduplication: extract unique lowercase hashtags from text
+export function extractUniqueHashtags(text: string): string[] {
+  const matches = text.match(/#([a-zA-Z0-9_]+)/g) ?? [];
+  return [...new Set(matches.map((m) => m.toLowerCase()))];
+}
+
 async function fetchSuggestions(prefix: string): Promise<HashtagSuggestion[]> {
-  if (!prefix) {
-    // No prefix — return top trending
+  try {
+    if (!prefix) {
+      const q = query(
+        collection(db, "hashtags"),
+        orderBy("post_count", "desc"),
+        limit(6),
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({
+        tag: d.id,
+        post_count: (d.data() as any).post_count ?? 0,
+      }));
+    }
+    const lower = prefix.toLowerCase();
     const q = query(
       collection(db, "hashtags"),
-      orderBy("week_count", "desc"),
+      orderBy("__name__"),
+      startAt(lower),
+      endAt(lower + "\uf8ff"),
       limit(6),
     );
     const snap = await getDocs(q);
@@ -88,20 +103,9 @@ async function fetchSuggestions(prefix: string): Promise<HashtagSuggestion[]> {
       tag: d.id,
       post_count: (d.data() as any).post_count ?? 0,
     }));
+  } catch {
+    return [];
   }
-  const lower = prefix.toLowerCase();
-  const q = query(
-    collection(db, "hashtags"),
-    orderBy("__name__"),
-    startAt(lower),
-    endAt(lower + "\uf8ff"),
-    limit(6),
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({
-    tag: d.id,
-    post_count: (d.data() as any).post_count ?? 0,
-  }));
 }
 
 export default function HashtagInput({
@@ -109,7 +113,6 @@ export default function HashtagInput({
   onChangeText,
   minHeight = 100,
   fontSize = 15,
-  textColor,
   placeholder,
   placeholderTextColor,
   ...rest
@@ -125,7 +128,6 @@ export default function HashtagInput({
   const activeTag = getActiveHashtag(value, cursorPos);
   const isTypingHashtag = activeTag !== null;
 
-  // Fetch suggestions when active hashtag changes
   useEffect(() => {
     if (!isTypingHashtag) {
       setShowSuggestions(false);
@@ -156,7 +158,6 @@ export default function HashtagInput({
       onChangeText(newText);
       setShowSuggestions(false);
       setSuggestions([]);
-      // Move cursor to end of inserted tag
       const newCursor = newText.length - (value.length - cursorPos);
       setTimeout(() => {
         inputRef.current?.setNativeProps?.({
@@ -168,16 +169,18 @@ export default function HashtagInput({
   );
 
   const segments = parseSegments(value);
-  const plain = textColor ?? colors.text;
-  const lineH = Math.round(fontSize * 1.47);
+  const lineH = Math.round(fontSize * 1.5);
 
   const sharedStyle = {
     fontSize,
     lineHeight: lineH,
     fontWeight: "400" as const,
-    paddingTop: 4,
-    paddingBottom: 4,
+    paddingTop: 0,
+    paddingBottom: 0,
   };
+
+  // ✅ Deduplicated hashtag chips
+  const uniqueHashtags = extractUniqueHashtags(value);
 
   return (
     <View>
@@ -259,11 +262,11 @@ export default function HashtagInput({
         </View>
       )}
 
-      {/* Input area */}
+      {/* Input area with mirror overlay */}
       <View style={{ minHeight }}>
-        {/* Mirror Text — colored hashtags visible through transparent input */}
+        {/* Mirror — colored hashtags visible through transparent input */}
         <Text
-          style={[styles.mirror, sharedStyle]}
+          style={[styles.mirror, sharedStyle, { minHeight }]}
           aria-hidden
           selectable={false}
         >
@@ -274,7 +277,7 @@ export default function HashtagInput({
               seg.isTag ? (
                 <Text
                   key={i}
-                  style={{ color: colors.primary, fontWeight: "700" }}
+                  style={{ color: colors.primary, fontWeight: "600" }}
                 >
                   {seg.text}
                 </Text>
@@ -300,11 +303,46 @@ export default function HashtagInput({
           style={[
             StyleSheet.absoluteFillObject,
             sharedStyle,
-            { color: plain, backgroundColor: "transparent", minHeight },
+            { color: colors.text, backgroundColor: "transparent", minHeight },
           ]}
           {...rest}
         />
       </View>
+
+      {/* ✅ Deduplicated hashtag chip preview */}
+      {uniqueHashtags.length > 0 && (
+        <View
+          style={[
+            styles.chipsWrap,
+            {
+              backgroundColor: colors.primary + "10",
+              borderColor: colors.primary + "25",
+            },
+          ]}
+        >
+          <Text style={[styles.chipsLabel, { color: colors.primary }]}>
+            Hashtags in your post
+          </Text>
+          <View style={styles.chips}>
+            {uniqueHashtags.map((tag) => (
+              <View
+                key={tag}
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.primary + "30",
+                  },
+                ]}
+              >
+                <Text style={[styles.chipText, { color: colors.primary }]}>
+                  {tag}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -321,10 +359,7 @@ const styles = StyleSheet.create({
     elevation: 4,
     overflow: "hidden",
   },
-  loadingRow: {
-    paddingVertical: 14,
-    alignItems: "center",
-  },
+  loadingRow: { paddingVertical: 14, alignItems: "center" },
   noResults: { fontSize: 13, fontWeight: "600" },
   suggestionRow: {
     flexDirection: "row",
@@ -345,4 +380,24 @@ const styles = StyleSheet.create({
   suggestionTag: { fontSize: 14, fontWeight: "800" },
   suggestionCount: { fontSize: 12, fontWeight: "600", marginTop: 1 },
   mirror: { width: "100%" },
+  chipsWrap: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  chipsLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 7,
+    letterSpacing: 0.3,
+  },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  chipText: { fontSize: 12, fontWeight: "700" },
 });
