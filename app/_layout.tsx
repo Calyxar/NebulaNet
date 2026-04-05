@@ -1,22 +1,16 @@
-// app/_layout.tsx — Clean & Fixed ✅
-
-import { AuthProvider, useAuth } from "@/providers/AuthProvider";
-import { ThemeProvider } from "@/providers/ThemeProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-function RootLayoutContent() {
+export default function RootLayout() {
   const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
     useAuth();
-
   const hasNavigated = useRef(false);
   const isReady = !isLoading && !isUserSettingsLoading;
 
-  // Handle navigation based on auth / onboarding
   useEffect(() => {
-    if (!isReady) return;
-    if (hasNavigated.current) return;
+    if (!isReady || hasNavigated.current) return;
 
     if (!user) {
       hasNavigated.current = true;
@@ -31,34 +25,84 @@ function RootLayoutContent() {
     }
   }, [isReady, user, hasCompletedOnboarding]);
 
-  // Reset navigation flag when user changes (e.g., sign out/sign in)
   useEffect(() => {
     hasNavigated.current = false;
   }, [user?.uid]);
 
   return (
     <>
-      {/* Stack always renders first to avoid layout crash */}
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
+
         <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="user/[username]/followers"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="user/[username]/following"
+          options={{ headerShown: false }}
+        />
+
         <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="post/create" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
+
         <Stack.Screen
           name="community/[slug]"
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="community/create"
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen name="hashtag/[tag]" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="notifications/index"
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="chat/new" options={{ headerShown: false }} />
+        <Stack.Screen name="chat/search" options={{ headerShown: false }} />
+
+        <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
+
+        <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="profile/edit"
+          options={{ headerShown: false, presentation: "modal" }}
+        />
+        <Stack.Screen
+          name="profile/followers"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="profile/following"
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
           name="create/post"
           options={{ headerShown: false, presentation: "modal" }}
         />
-        {/* Add other screens here as needed */}
+        <Stack.Screen name="create/story" options={{ headerShown: false }} />
+        <Stack.Screen name="create/poll" options={{ headerShown: false }} />
+        <Stack.Screen name="create/event" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="create/community"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen name="create/media" options={{ headerShown: false }} />
+        <Stack.Screen name="create/video" options={{ headerShown: false }} />
+
+        <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
       </Stack>
 
-      {/* Loading overlay — sits on top of Stack */}
-      {(isLoading || isUserSettingsLoading) && (
+      {isLoading && (
         <View
           style={{
             position: "absolute",
@@ -72,15 +116,5 @@ function RootLayoutContent() {
         </View>
       )}
     </>
-  );
-}
-
-export default function RootLayout() {
-  return (
-    <AuthProvider>
-      <ThemeProvider>
-        <RootLayoutContent />
-      </ThemeProvider>
-    </AuthProvider>
   );
 }
