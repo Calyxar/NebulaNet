@@ -1,8 +1,8 @@
 // app/user/[username]/index.tsx — UPDATED ✅
-// ✅ ADDED: createNotification called on follow (accepted only, not pending/unfollow)
-// ✅ ADDED: no self-notify guard
-// ✅ all existing UI unchanged
+// ✅ ADDED: createNotification on follow
+// ✅ ADDED: FounderBadge next to display name for first 100 users
 
+import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { db } from "@/lib/firebase";
@@ -57,6 +57,7 @@ type UserProfile = {
   avatar_url: string | null;
   location?: string | null;
   is_private?: boolean | null;
+  is_founder?: boolean | null; // ✅ ADDED
 };
 type PrivacyFlags = { hide_followers: boolean; hide_following: boolean };
 type UserStats = { posts: number; followers: number; following: number };
@@ -122,6 +123,7 @@ export default function UserProfileScreen() {
         avatar_url: d.avatar_url ?? null,
         location: d.location ?? null,
         is_private: d.is_private ?? false,
+        is_founder: d.is_founder ?? false, // ✅ ADDED
       } as UserProfile;
     },
   });
@@ -281,9 +283,7 @@ export default function UserProfileScreen() {
   const followMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-
       if (followEdge) {
-        // ── Unfollow ────────────────────────────────────────────────────────
         const snap = await getDocs(
           query(
             collection(db, "follows"),
@@ -294,8 +294,6 @@ export default function UserProfileScreen() {
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
         return { next: null };
       }
-
-      // ── Follow ──────────────────────────────────────────────────────────
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
@@ -305,9 +303,6 @@ export default function UserProfileScreen() {
         status,
         created_at: new Date().toISOString(),
       });
-
-      // ✅ ADDED: notify receiver only when publicly followed (not pending)
-      // Guards: not self, not private/pending, fire-and-forget
       if (status === "accepted" && user.uid !== target.id) {
         createNotification({
           type: "follow",
@@ -315,9 +310,8 @@ export default function UserProfileScreen() {
           sender_id: user.uid,
           entity_type: "user",
           entity_id: user.uid,
-        }).catch(() => {}); // never block the follow action
+        }).catch(() => {});
       }
-
       return {
         next: {
           follower_id: user.uid,
@@ -517,7 +511,6 @@ export default function UserProfileScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        {/* Header */}
         <View style={[styles.header, { backgroundColor: "transparent" }]}>
           <TouchableOpacity
             style={[
@@ -565,7 +558,6 @@ export default function UserProfileScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Profile Card */}
           <View
             style={[
               styles.profileCard,
@@ -650,9 +642,14 @@ export default function UserProfileScreen() {
               </View>
             </View>
 
-            <Text style={[styles.displayName, { color: colors.text }]}>
-              {target.full_name || target.username}
-            </Text>
+            {/* ✅ Display name + Founder badge */}
+            <View style={styles.nameRow}>
+              <Text style={[styles.displayName, { color: colors.text }]}>
+                {target.full_name || target.username}
+              </Text>
+              {!!target.is_founder && <FounderBadge />}
+            </View>
+
             {!!target.bio && (
               <Text style={[styles.bio, { color: colors.textTertiary }]}>
                 {target.bio}
@@ -807,7 +804,6 @@ export default function UserProfileScreen() {
             )}
           </View>
 
-          {/* Tabs */}
           <View
             style={[styles.tabsContainer, { backgroundColor: colors.card }]}
           >
@@ -837,7 +833,6 @@ export default function UserProfileScreen() {
             })}
           </View>
 
-          {/* Content */}
           <View style={styles.contentSection}>
             {activeTab === "Activity" && (
               <View
@@ -1266,7 +1261,13 @@ const styles = StyleSheet.create({
   statItem: { alignItems: "center" },
   statValue: { fontSize: 18, fontWeight: "900" },
   statLabel: { fontSize: 12, marginTop: 3, fontWeight: "700" },
-  displayName: { fontSize: 17, fontWeight: "900", marginBottom: 6 },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  displayName: { fontSize: 17, fontWeight: "900" },
   bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 10 },
   privatePill: {
     alignSelf: "flex-start",
