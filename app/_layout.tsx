@@ -1,11 +1,20 @@
+// app/_layout.tsx — FIXED ✅
+// ✅ FIXED: AuthProvider wraps RootLayout so useAuth() works
+// ✅ Stack always renders first — no crash on startup
+// ✅ Sign out redirects to login
+// ✅ Onboarding shows for new users
+
 import { useAuth } from "@/hooks/useAuth";
+import { AuthProvider } from "@/providers/AuthProvider";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-export default function RootLayout() {
+// ✅ Inner component — can safely call useAuth() because AuthProvider is above it
+function RootLayout() {
   const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
     useAuth();
+
   const hasNavigated = useRef(false);
   const isReady = !isLoading && !isUserSettingsLoading;
 
@@ -25,6 +34,7 @@ export default function RootLayout() {
     }
   }, [isReady, user, hasCompletedOnboarding]);
 
+  // Reset nav flag on user change (handles sign out → sign back in)
   useEffect(() => {
     hasNavigated.current = false;
   }, [user?.uid]);
@@ -49,7 +59,6 @@ export default function RootLayout() {
         <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="post/create" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
-
         <Stack.Screen
           name="community/[slug]"
           options={{ headerShown: false }}
@@ -58,17 +67,14 @@ export default function RootLayout() {
           name="community/create"
           options={{ headerShown: false }}
         />
-
         <Stack.Screen name="hashtag/[tag]" options={{ headerShown: false }} />
         <Stack.Screen
           name="notifications/index"
           options={{ headerShown: false }}
         />
-
         <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="chat/new" options={{ headerShown: false }} />
         <Stack.Screen name="chat/search" options={{ headerShown: false }} />
-
         <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
 
         <Stack.Screen name="settings" options={{ headerShown: false }} />
@@ -98,15 +104,18 @@ export default function RootLayout() {
         />
         <Stack.Screen name="create/media" options={{ headerShown: false }} />
         <Stack.Screen name="create/video" options={{ headerShown: false }} />
-
         <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
       </Stack>
 
+      {/* Loading overlay — sits on top of Stack, never replaces it */}
       {isLoading && (
         <View
           style={{
             position: "absolute",
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             backgroundColor: "#08050f",
             alignItems: "center",
             justifyContent: "center",
@@ -116,5 +125,14 @@ export default function RootLayout() {
         </View>
       )}
     </>
+  );
+}
+
+// ✅ AuthProvider wraps everything — RootLayout can now safely call useAuth()
+export default function App() {
+  return (
+    <AuthProvider>
+      <RootLayout />
+    </AuthProvider>
   );
 }
