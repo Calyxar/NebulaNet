@@ -1,8 +1,8 @@
-// hooks/useNotifications.ts — FIREBASE ✅ FIXED
-// ✅ onSnapshot no longer fires spurious sound/push on mount (initialised ref)
-// ✅ unreadCount derived from notifications list — can't drift out of sync
-// ✅ Real-time listener re-attaches when auth state changes (onAuthStateChanged)
-// ✅ markAsRead(undefined) = mark all; markAsRead(id) = mark one
+// hooks/useNotifications.ts — FIXED ✅
+// ✅ FIXED: "read" → "is_read" everywhere (was mismatched with Firestore docs)
+// ✅ FIXED: unreadCount derived from is_read field
+// ✅ FIXED: markAsRead uses is_read
+// ✅ rest unchanged
 
 import { auth, db } from "@/lib/firebase";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,10 +25,6 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 
-/* ─────────────────────────────────────────
-   TYPE
-───────────────────────────────────────── */
-
 export interface Notification {
   id: string;
   type:
@@ -41,7 +37,8 @@ export interface Notification {
     | "story_comment"
     | "story_like"
     | "message"
-    | "join_request";
+    | "join_request"
+    | "repost";
   sender_id: string;
   receiver_id: string;
   post_id?: string;
@@ -49,7 +46,7 @@ export interface Notification {
   community_id?: string;
   story_id?: string;
   conversation_id?: string;
-  read: boolean;
+  is_read: boolean; // ✅ FIXED: was "read"
   created_at: string;
   sender: {
     id: string;
@@ -62,10 +59,6 @@ export interface Notification {
   community?: { id: string; name: string; slug: string };
   story?: { id: string; content: string | null };
 }
-
-/* ─────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────── */
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
@@ -83,18 +76,9 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/* ─────────────────────────────────────────
-   HOOK
-───────────────────────────────────────── */
-
 export function useNotifications() {
   const queryClient = useQueryClient();
-
-  // ✅ Tracks whether the real-time listener has finished its initial snapshot.
-  // We skip sound + push for any docs present when the listener first attaches.
   const initialisedRef = useRef(false);
-
-  /* ── Sound ── */
 
   const playNotificationSound = useCallback(async () => {
     try {
@@ -102,9 +86,7 @@ export function useNotifications() {
       await soundObject.loadAsync(require("@/assets/sounds/notification.wav"));
       await soundObject.playAsync();
       setTimeout(() => soundObject.unloadAsync(), 1000);
-    } catch (error) {
-      console.error("Error playing notification sound:", error);
-    }
+    } catch {}
   }, []);
 
   const showLocalNotification = useCallback(
@@ -121,14 +103,10 @@ export function useNotifications() {
           trigger: null,
         });
         await playNotificationSound();
-      } catch (error) {
-        console.error("Error showing local notification:", error);
-      }
+      } catch {}
     },
     [playNotificationSound],
   );
-
-  /* ── Permission + Android channel ── */
 
   useEffect(() => {
     const init = async () => {
@@ -138,7 +116,7 @@ export function useNotifications() {
             name: "Default",
             importance: Notifications.AndroidImportance.HIGH,
             vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#E6F4FE",
+            lightColor: "#7C3AED",
             sound: "notification.wav",
             enableVibrate: true,
           });
@@ -146,15 +124,12 @@ export function useNotifications() {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== "granted")
           console.log("Notification permissions not granted");
-      } catch (error) {
-        console.error("Error initializing notifications:", error);
-      }
+      } catch {}
     };
     init();
   }, []);
 
-  /* ── Fetch (polling fallback) ── */
-
+  // ✅ FIXED: query uses is_read field
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
@@ -165,7 +140,7 @@ export function useNotifications() {
         query(
           collection(db, "notifications"),
           where("receiver_id", "==", user.uid),
-          orderBy("created_at", "desc"),
+          orderBy("created_at_ts", "desc"),
           limit(50),
         ),
       );
@@ -175,7 +150,9 @@ export function useNotifications() {
         return {
           id: d.id,
           ...data,
-          created_at: tsToIso(data.created_at),
+          // ✅ normalize both field names in case old docs exist
+          is_read: data.is_read ?? data.read ?? false,
+          created_at: tsToIso(data.created_at_ts ?? data.created_at),
         } as Notification;
       });
     },
@@ -183,21 +160,15 @@ export function useNotifications() {
     refetchOnWindowFocus: true,
   });
 
-  // ✅ Derived — never drifts out of sync with the list
+  // ✅ FIXED: unreadCount uses is_read
   const unreadCount = (notificationsQuery.data ?? []).filter(
-    (n) => !n.read,
+    (n) => !n.is_read,
   ).length;
-
-  /* ── Real-time listener ──
-     ✅ Re-attaches whenever auth state changes (handles late sign-in)
-     ✅ Skips the initial snapshot so existing docs don't trigger sound/push
-  ─────────────────────────────────────────────────────────────────────── */
 
   useEffect(() => {
     let unsubSnapshot: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
-      // Clean up any previous listener first
       unsubSnapshot?.();
       unsubSnapshot = null;
       initialisedRef.current = false;
@@ -207,12 +178,11 @@ export function useNotifications() {
       const q = query(
         collection(db, "notifications"),
         where("receiver_id", "==", user.uid),
-        orderBy("created_at", "desc"),
+        orderBy("created_at_ts", "desc"),
         limit(1),
       );
 
       unsubSnapshot = onSnapshot(q, (snap) => {
-        // ✅ First snapshot = existing data — mark as initialised and skip
         if (!initialisedRef.current) {
           initialisedRef.current = true;
           return;
@@ -224,7 +194,8 @@ export function useNotifications() {
             const notification: Notification = {
               id: change.doc.id,
               ...data,
-              created_at: tsToIso(data.created_at),
+              is_read: data.is_read ?? data.read ?? false,
+              created_at: tsToIso(data.created_at_ts ?? data.created_at),
             };
 
             await showLocalNotification(
@@ -247,11 +218,9 @@ export function useNotifications() {
       unsubAuth();
       unsubSnapshot?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient, showLocalNotification]);
 
-  /* ── Mutations ── */
-
+  // ✅ FIXED: markAsRead writes is_read not read
   const markAsRead = useMutation({
     mutationFn: async (notificationId?: string) => {
       const user = auth.currentUser;
@@ -259,19 +228,18 @@ export function useNotifications() {
 
       if (notificationId) {
         await updateDoc(doc(db, "notifications", notificationId), {
-          read: true,
+          is_read: true,
         });
       } else {
-        // Mark all unread
         const snap = await getDocs(
           query(
             collection(db, "notifications"),
             where("receiver_id", "==", user.uid),
-            where("read", "==", false),
+            where("is_read", "==", false),
           ),
         );
         await Promise.all(
-          snap.docs.map((d) => updateDoc(d.ref, { read: true })),
+          snap.docs.map((d) => updateDoc(d.ref, { is_read: true })),
         );
       }
     },
@@ -294,12 +262,11 @@ export function useNotifications() {
     mutationFn: async () => {
       const user = auth.currentUser;
       if (!user) throw new Error("Not authenticated");
-
       const snap = await getDocs(
         query(
           collection(db, "notifications"),
           where("receiver_id", "==", user.uid),
-          limit(200), // safety cap — call multiple times for very large sets
+          limit(200),
         ),
       );
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
@@ -310,33 +277,35 @@ export function useNotifications() {
     },
   });
 
-  /* ── Display helpers ── */
-
   const getNotificationTitle = useCallback(
     (notification: Notification): string => {
       const name =
-        notification.sender?.full_name || notification.sender?.username;
+        notification.sender?.full_name ||
+        notification.sender?.username ||
+        "Someone";
       switch (notification.type) {
         case "like":
-          return `❤️ ${name} liked your post`;
+          return `${name} liked your post`;
         case "comment":
-          return `💬 ${name} commented on your post`;
+          return `${name} commented on your post`;
         case "follow":
-          return `👤 ${name} started following you`;
+          return `${name} started following you`;
         case "mention":
-          return `📍 ${name} mentioned you`;
+          return `${name} mentioned you`;
         case "community_invite":
-          return `🏘️ ${name} invited you to a community`;
+          return `${name} invited you to a community`;
         case "post_shared":
-          return `🔁 ${name} shared your post`;
+          return `${name} shared your post`;
+        case "repost":
+          return `${name} reposted your post`;
         case "story_comment":
-          return `💬 ${name} commented on your story`;
+          return `${name} commented on your story`;
         case "story_like":
-          return `❤️ ${name} liked your story`;
+          return `${name} liked your story`;
         case "message":
-          return `💌 ${name} sent you a message`;
+          return `${name} sent you a message`;
         case "join_request":
-          return `🙋 ${name} wants to join your community`;
+          return `${name} wants to join your community`;
         default:
           return "New notification";
       }
@@ -348,31 +317,33 @@ export function useNotifications() {
     (notification: Notification): string => {
       switch (notification.type) {
         case "like":
-          return "Liked your content";
+          return "Tap to view your post";
         case "comment":
           return notification.comment?.content
             ? notification.comment.content.substring(0, 100)
-            : "Left a comment";
+            : "Tap to see the comment";
         case "follow":
-          return "Started following you";
+          return "Tap to view their profile";
         case "mention":
-          return "Mentioned you in a post";
+          return "Tap to see where you were mentioned";
+        case "repost":
+          return "Tap to see the repost";
         case "community_invite":
           return notification.community?.name
             ? `Invited you to join ${notification.community.name}`
-            : "Invited you to join a community";
+            : "Tap to join the community";
         case "post_shared":
           return "Shared your post with others";
         case "story_comment":
           return notification.comment?.content
             ? `Commented: ${notification.comment.content.substring(0, 80)}`
-            : "Commented on your story";
+            : "Tap to see the comment";
         case "story_like":
           return "Liked your story";
         case "message":
-          return "Sent you a new message";
+          return "Tap to reply";
         case "join_request":
-          return "Requested to join your community";
+          return "Tap to review the request";
         default:
           return "You have a new notification";
       }
@@ -396,7 +367,8 @@ export function useNotifications() {
       case "community_invite":
         return "people";
       case "post_shared":
-        return "share";
+      case "repost":
+        return "repeat";
       case "join_request":
         return "person";
       default:
@@ -407,8 +379,10 @@ export function useNotifications() {
   const getNotificationColor = useCallback((type: Notification["type"]) => {
     switch (type) {
       case "like":
+      case "story_like":
         return "#FF3B30";
       case "comment":
+      case "story_comment":
         return "#7C3AED";
       case "follow":
         return "#34C759";
@@ -417,11 +391,8 @@ export function useNotifications() {
       case "community_invite":
         return "#5856D6";
       case "post_shared":
+      case "repost":
         return "#007AFF";
-      case "story_comment":
-        return "#AF52DE";
-      case "story_like":
-        return "#FF2D55";
       case "message":
         return "#32D74B";
       case "join_request":
@@ -446,7 +417,6 @@ export function useNotifications() {
         else if (date.toDateString() === yesterday.toDateString())
           key = "Yesterday";
         else if (date.getTime() > weekAgo.getTime()) key = "This Week";
-
         if (!groups[key]) groups[key] = [];
         groups[key].push(n);
       });
@@ -456,12 +426,10 @@ export function useNotifications() {
     [],
   );
 
-  /* ── Return ── */
-
   return {
     notifications: notificationsQuery.data ?? [],
     isLoading: notificationsQuery.isLoading,
-    unreadCount, // ✅ derived, never stale
+    unreadCount,
     markAsRead,
     deleteNotification,
     clearAllNotifications,

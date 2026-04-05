@@ -1,5 +1,11 @@
+// providers/AuthProvider.tsx — UPDATED ✅
+// ✅ ADDED: registerForPushNotificationsAsync called after initRevenueCat on sign in
+// ✅ push registration only runs on physical devices (guard inside the util)
+// ✅ all existing logic unchanged
+
 import { auth, db } from "@/lib/firebase";
 import { initRevenueCat } from "@/lib/revenuecat";
+import { registerForPushNotificationsAsync } from "@/utils/pushNotifications";
 import {
   useMutation,
   useQuery,
@@ -123,8 +129,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           (u as any).id = u.uid;
+
+          // ── RevenueCat ──────────────────────────────────────────────────
           initRevenueCat(u.uid);
 
+          // ── Push notifications ──────────────────────────────────────────
+          // ✅ Register push token — only runs on physical device (guard inside util)
+          // Fire-and-forget so it never blocks auth flow
+          registerForPushNotificationsAsync().catch(() => {});
+
+          // ── Profile ─────────────────────────────────────────────────────
           const pSnap = await getDoc(profileRef(u.uid));
           if (!pSnap.exists()) {
             const t = nowIso();
@@ -150,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           }
 
+          // ── Settings ────────────────────────────────────────────────────
           const sSnap = await getDoc(settingsRef(u.uid));
           if (!sSnap.exists()) {
             await setDoc(settingsRef(u.uid), {
@@ -205,7 +220,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async (updates) => {
       if (!userId) throw new Error("Not authenticated");
 
-      // ✅ FIX: use for...of so thrown errors propagate correctly
       if (updates.username) {
         const usernameLc = updates.username.toLowerCase();
         const snap = await getDocs(
@@ -215,9 +229,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ),
         );
         for (const d of snap.docs) {
-          if (d.id !== userId) {
+          if (d.id !== userId)
             throw new Error("This username is already taken");
-          }
         }
         updates.username_lc = usernameLc;
       }
@@ -269,14 +282,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const deactivateAccount = useCallback(async () => {
     if (!userId) throw new Error("Not authenticated");
-
     await updateDoc(profileRef(userId), {
       is_deactivated: true,
       deactivated_at: nowIso(),
       updated_at: nowIso(),
       updated_at_ts: serverTimestamp(),
     });
-
     await firebaseSignOut(auth);
     qc.clear();
   }, [userId, qc]);
