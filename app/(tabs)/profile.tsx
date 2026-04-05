@@ -1,11 +1,10 @@
-// app/(tabs)/profile.tsx — COMPLETED + UPDATED ✅
-// ✅ Removed orderBy("created_at_ts") — silently returned 0 results on migrated posts
-// ✅ JS-side sort instead — works regardless of timestamp field
-// ✅ Default tab "Post"
-// ✅ Full theme support + LinearGradient
+// app/(tabs)/profile.tsx — UPDATED ✅
+// ✅ ADDED: FounderBadge next to display name for first 100 users
+// ✅ all other logic unchanged
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import FounderBadge from "@/components/user/FounderBadge";
 import { db } from "@/lib/firebase";
 import { shareProfileLink } from "@/lib/shareProfile";
 import { useAuth } from "@/providers/AuthProvider";
@@ -82,7 +81,6 @@ export default function ProfileTabScreen() {
 
   const uid = user?.uid ?? null;
 
-  // ✅ Default to Post so posts are immediately visible
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
 
   const profileTabs: ProfileTab[] = useMemo(
@@ -100,39 +98,27 @@ export default function ProfileTabScreen() {
     enabled: !!uid,
     queryFn: async () => {
       if (!uid) return [];
-
-      console.log("🔍 Profile posts query — uid:", uid);
-
-      // ✅ No orderBy — migrated posts may lack created_at_ts field.
-      // Firestore silently returns 0 results when orderBy field is missing.
       const snap = await getDocs(
         query(collection(db, "posts"), where("user_id", "==", uid)),
       );
-
-      console.log("📦 Posts found:", snap.size);
-
-      return (
-        snap.docs
-          .map((d) => {
-            const x: any = d.data();
-            return {
-              id: d.id,
-              title: x.title ?? null,
-              content: x.content ?? "",
-              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-              like_count: Number(x.like_count ?? 0),
-              comment_count: Number(x.comment_count ?? 0),
-              share_count: Number(x.share_count ?? 0),
-              created_at: tsToIso(x.created_at_ts ?? x.created_at),
-            } as UserPost;
-          })
-          // ✅ Sort newest first in JS — works for both ISO strings and Timestamps
-          .sort(
-            (a, b) =>
-              new Date(b.created_at).getTime() -
-              new Date(a.created_at).getTime(),
-          )
-      );
+      return snap.docs
+        .map((d) => {
+          const x: any = d.data();
+          return {
+            id: d.id,
+            title: x.title ?? null,
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            like_count: Number(x.like_count ?? 0),
+            comment_count: Number(x.comment_count ?? 0),
+            share_count: Number(x.share_count ?? 0),
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
+          } as UserPost;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
     },
   });
 
@@ -141,7 +127,6 @@ export default function ProfileTabScreen() {
     enabled: !!uid,
     queryFn: async (): Promise<UserStats> => {
       if (!uid) return { posts: 0, followers: 0, following: 0 };
-
       const [postsAgg, followersAgg, followingAgg] = await Promise.all([
         getCountFromServer(
           query(collection(db, "posts"), where("user_id", "==", uid)),
@@ -153,7 +138,6 @@ export default function ProfileTabScreen() {
           query(collection(db, "follows"), where("follower_id", "==", uid)),
         ),
       ]);
-
       return {
         posts: postsAgg.data().count ?? 0,
         followers: followersAgg.data().count ?? 0,
@@ -299,7 +283,6 @@ export default function ProfileTabScreen() {
               </Text>
             </View>
           </View>
-
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={(e) => {
@@ -511,9 +494,13 @@ export default function ProfileTabScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.displayName, { color: colors.text }]}>
-                {profile.full_name || profile.username}
-              </Text>
+              {/* ✅ Display name + Founder badge */}
+              <View style={styles.nameRow}>
+                <Text style={[styles.displayName, { color: colors.text }]}>
+                  {profile.full_name || profile.username}
+                </Text>
+                {!!(profile as any).is_founder && <FounderBadge />}
+              </View>
 
               {profile.bio ? (
                 <Text
@@ -549,7 +536,6 @@ export default function ProfileTabScreen() {
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[
                     styles.actionBtn,
@@ -565,7 +551,6 @@ export default function ProfileTabScreen() {
                     Share profile
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[
                     styles.iconBtn,
@@ -631,7 +616,6 @@ export default function ProfileTabScreen() {
                   subtitle="Your recent activity will appear here."
                 />
               )}
-
               {activeTab === "Post" && (
                 <>
                   {isLoadingPosts || isLoadingStats ? (
@@ -650,7 +634,6 @@ export default function ProfileTabScreen() {
                   )}
                 </>
               )}
-
               {activeTab === "Tagged" && (
                 <EmptyPanel
                   colors={colors}
@@ -659,7 +642,6 @@ export default function ProfileTabScreen() {
                   subtitle="Posts where you're tagged will appear here."
                 />
               )}
-
               {activeTab === "Media" && (
                 <EmptyPanel
                   colors={colors}
@@ -752,12 +734,13 @@ const styles = StyleSheet.create({
   statItem: { alignItems: "center", flex: 1 },
   statValue: { fontSize: 16, fontWeight: "900" },
   statLabel: { fontSize: 12, marginTop: 2, fontWeight: "700" },
-  displayName: {
-    fontSize: 16,
-    fontWeight: "900",
-    marginTop: 2,
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginBottom: 6,
   },
+  displayName: { fontSize: 16, fontWeight: "900", marginTop: 2 },
   bio: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
   bioPlaceholder: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
   actionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
