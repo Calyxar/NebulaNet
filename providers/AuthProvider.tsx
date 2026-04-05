@@ -1,8 +1,3 @@
-// providers/AuthProvider.tsx — UPDATED ✅
-// ✅ ADDED: registerForPushNotificationsAsync called after initRevenueCat on sign in
-// ✅ push registration only runs on physical devices (guard inside the util)
-// ✅ all existing logic unchanged
-
 import { auth, db } from "@/lib/firebase";
 import { initRevenueCat } from "@/lib/revenuecat";
 import { registerForPushNotificationsAsync } from "@/utils/pushNotifications";
@@ -98,9 +93,7 @@ interface AuthContextType {
   completeOnboarding: () => Promise<void>;
   skipOnboarding: () => Promise<void>;
   deactivateAccount: () => Promise<void>;
-  deleteAccount: (opts?: {
-    reauth?: { idToken?: string; accessToken?: string };
-  }) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -130,56 +123,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           (u as any).id = u.uid;
 
-          // ── RevenueCat ──────────────────────────────────────────────────
-          initRevenueCat(u.uid);
+          try {
+            initRevenueCat(u.uid);
+          } catch {}
+          try {
+            registerForPushNotificationsAsync().catch(() => {});
+          } catch {}
 
-          // ── Push notifications ──────────────────────────────────────────
-          // ✅ Register push token — only runs on physical device (guard inside util)
-          // Fire-and-forget so it never blocks auth flow
-          registerForPushNotificationsAsync().catch(() => {});
+          // Profile
+          try {
+            const pSnap = await getDoc(profileRef(u.uid));
+            if (!pSnap.exists()) {
+              const t = nowIso();
+              const baseUsername =
+                u.email?.split("@")[0] ?? `user_${u.uid.slice(0, 8)}`;
+              await setDoc(profileRef(u.uid), {
+                id: u.uid,
+                username: baseUsername,
+                username_lc: baseUsername.toLowerCase(),
+                full_name: u.displayName ?? null,
+                avatar_url: u.photoURL ?? null,
+                bio: null,
+                location: null,
+                role: "user",
+                is_suspended: false,
+                is_deactivated: false,
+                deactivated_at: null,
+                created_at: t,
+                updated_at: t,
+                created_at_ts: serverTimestamp(),
+                updated_at_ts: serverTimestamp(),
+              });
+            }
+          } catch {}
 
-          // ── Profile ─────────────────────────────────────────────────────
-          const pSnap = await getDoc(profileRef(u.uid));
-          if (!pSnap.exists()) {
-            const t = nowIso();
-            const baseUsername =
-              u.email?.split("@")[0] ?? `user_${u.uid.slice(0, 8)}`;
-
-            await setDoc(profileRef(u.uid), {
-              id: u.uid,
-              username: baseUsername,
-              username_lc: baseUsername.toLowerCase(),
-              full_name: u.displayName ?? null,
-              avatar_url: u.photoURL ?? null,
-              bio: null,
-              location: null,
-              role: "user",
-              is_suspended: false,
-              is_deactivated: false,
-              deactivated_at: null,
-              created_at: t,
-              updated_at: t,
-              created_at_ts: serverTimestamp(),
-              updated_at_ts: serverTimestamp(),
-            });
-          }
-
-          // ── Settings ────────────────────────────────────────────────────
-          const sSnap = await getDoc(settingsRef(u.uid));
-          if (!sSnap.exists()) {
-            await setDoc(settingsRef(u.uid), {
-              user_id: u.uid,
-              onboarding_completed: false,
-              onboarding_completed_at: null,
-              theme_preference: null,
-              language: null,
-              region: null,
-              updated_at: nowIso(),
-              updated_at_ts: serverTimestamp(),
-            });
-          }
+          // Settings
+          try {
+            const sSnap = await getDoc(settingsRef(u.uid));
+            if (!sSnap.exists()) {
+              await setDoc(settingsRef(u.uid), {
+                user_id: u.uid,
+                onboarding_completed: false,
+                onboarding_completed_at: null,
+                theme_preference: null,
+                language: null,
+                region: null,
+                updated_at: nowIso(),
+                updated_at_ts: serverTimestamp(),
+              });
+            }
+          } catch {}
         }
-
         setUser((u as FirebaseUser) ?? null);
       } finally {
         setHydrated(true);
@@ -197,8 +191,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       enabled: !!userId && hydrated,
       queryFn: async () => {
         if (!userId) return null;
-        const snap = await getDoc(profileRef(userId));
-        return snap.exists() ? (snap.data() as Profile) : null;
+        try {
+          const snap = await getDoc(profileRef(userId));
+          return snap.exists() ? (snap.data() as Profile) : null;
+        } catch {
+          return null;
+        }
       },
     });
 
@@ -208,8 +206,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       enabled: !!userId && hydrated,
       queryFn: async () => {
         if (!userId) return null;
-        const snap = await getDoc(settingsRef(userId));
-        return snap.exists() ? (snap.data() as UserSettings) : null;
+        try {
+          const snap = await getDoc(settingsRef(userId));
+          return snap.exists() ? (snap.data() as UserSettings) : null;
+        } catch {
+          return null;
+        }
       },
     });
 
@@ -270,14 +272,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [updateSettings],
   );
-
   const completeOnboarding = useCallback(async () => {
     await updateSettings({
       onboarding_completed: true,
       onboarding_completed_at: nowIso(),
     });
   }, [updateSettings]);
-
   const skipOnboarding = completeOnboarding;
 
   const deactivateAccount = useCallback(async () => {
@@ -310,7 +310,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await deleteDoc(profileRef(userId));
     } catch {}
-
     try {
       await setDoc(
         settingsRef(userId),
@@ -326,9 +325,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await deleteUser(u);
     } catch (e: any) {
-      if (String(e?.code).includes("requires-recent-login")) {
+      if (String(e?.code).includes("requires-recent-login"))
         throw new Error("Please re-authenticate, then try again.");
-      }
       throw e;
     } finally {
       try {
@@ -342,7 +340,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: ({ email, password }: any) =>
       signInWithEmailAndPassword(auth, email, password),
   });
-
   const signup = useMutation({
     mutationFn: async ({ email, password }: any) => {
       const res = await createUserWithEmailAndPassword(auth, email, password);
@@ -352,12 +349,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return res;
     },
   });
-
   const googleLogin = useMutation({
-    mutationFn: ({ idToken, accessToken }: any) => {
-      const cred = GoogleAuthProvider.credential(idToken, accessToken);
-      return signInWithCredential(auth, cred);
-    },
+    mutationFn: ({ idToken, accessToken }: any) =>
+      signInWithCredential(
+        auth,
+        GoogleAuthProvider.credential(idToken, accessToken),
+      ),
   });
 
   const signOut = useCallback(async () => {
