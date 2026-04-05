@@ -83,6 +83,7 @@
         "backgroundColor": "#0B0F1A"
       },
       "permissions": [
+        "com.google.android.gms.permission.AD_ID",
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
         "VIBRATE",

@@ -1,11 +1,13 @@
 // app/user/[username]/index.tsx — UPDATED ✅
-// ✅ edges fix + LinearGradient + Media tab + post thumbnails + shareProfileLink
-// ✅ UPDATED: UserActionsSheet now includes mute, message, report actions
+// ✅ ADDED: createNotification called on follow (accepted only, not pending/unfollow)
+// ✅ ADDED: no self-notify guard
+// ✅ all existing UI unchanged
 
 import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
+import { createNotification } from "@/lib/firestore/notifications";
 import { shareProfileLink } from "@/lib/shareProfile";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -129,7 +131,6 @@ export default function UserProfileScreen() {
     [target?.id, user?.uid],
   );
 
-  // ✅ Mute hooks
   const { data: isMuted } = useMuteStatus(target?.id ?? "");
   const muteMutation = useToggleMute(target?.id ?? "");
 
@@ -280,7 +281,9 @@ export default function UserProfileScreen() {
   const followMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
+
       if (followEdge) {
+        // ── Unfollow ────────────────────────────────────────────────────────
         const snap = await getDocs(
           query(
             collection(db, "follows"),
@@ -291,6 +294,8 @@ export default function UserProfileScreen() {
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
         return { next: null };
       }
+
+      // ── Follow ──────────────────────────────────────────────────────────
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
@@ -300,6 +305,19 @@ export default function UserProfileScreen() {
         status,
         created_at: new Date().toISOString(),
       });
+
+      // ✅ ADDED: notify receiver only when publicly followed (not pending)
+      // Guards: not self, not private/pending, fire-and-forget
+      if (status === "accepted" && user.uid !== target.id) {
+        createNotification({
+          type: "follow",
+          receiver_id: target.id,
+          sender_id: user.uid,
+          entity_type: "user",
+          entity_id: user.uid,
+        }).catch(() => {}); // never block the follow action
+      }
+
       return {
         next: {
           follower_id: user.uid,
@@ -661,7 +679,6 @@ export default function UserProfileScreen() {
               </View>
             )}
 
-            {/* Action Buttons */}
             {!isMe ? (
               <View style={styles.actionButtons}>
                 <TouchableOpacity
@@ -697,7 +714,6 @@ export default function UserProfileScreen() {
                           : "Follow"}
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[
                     styles.messageBtn,
@@ -716,7 +732,6 @@ export default function UserProfileScreen() {
                     Message
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[
                     styles.shareBtn,
@@ -1146,7 +1161,6 @@ export default function UserProfileScreen() {
           </View>
         </ScrollView>
 
-        {/* ✅ UPDATED: UserActionsSheet now includes mute, message, report */}
         {!isMe && (
           <UserActionsSheet
             ref={sheetRef}
