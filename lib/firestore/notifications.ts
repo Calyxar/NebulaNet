@@ -39,6 +39,7 @@ import {
 
 export type NotificationType =
   | "follow"
+  | "follow_request"
   | "like"
   | "comment"
   | "story_reply"

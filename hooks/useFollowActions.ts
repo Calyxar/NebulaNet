@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/firestore/notifications";
 import { qk } from "@/lib/queryKeys/social";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -45,12 +46,53 @@ export function useFollowActions(
   const follow = useMutation({
     mutationFn: async () => {
       if (!user?.id || !targetUserId) throw new Error("Missing ids");
-      await addDoc(collection(db, "follows"), {
-        follower_id: user.uid,
-        following_id: targetUserId,
-        status: targetIsPrivate ? "pending" : "accepted",
-        created_at: new Date().toISOString(),
-      });
+      const existing = await getDocs(
+        query(
+          collection(db, "follows"),
+          where("follower_id", "==", user.uid),
+          where("following_id", "==", targetUserId),
+        ),
+      );
+
+      if (existing.empty) {
+        const status = targetIsPrivate ? "pending" : "accepted";
+        await addDoc(collection(db, "follows"), {
+          follower_id: user.uid,
+          following_id: targetUserId,
+          status,
+          created_at: new Date().toISOString(),
+        });
+
+        await createNotification({
+          type: status === "pending" ? "follow_request" : "follow",
+          receiver_id: targetUserId,
+          sender_id: user.uid,
+          entity_type: "user",
+          entity_id: user.uid,
+        });
+      } else {
+        const docRef = existing.docs[0].ref;
+        const prevStatus = ((existing.docs[0].data() as any).status ??
+          "none") as FollowStatus | "none";
+
+        if (prevStatus === "none") {
+          const status = targetIsPrivate ? "pending" : "accepted";
+          await addDoc(collection(db, "follows"), {
+            follower_id: user.uid,
+            following_id: targetUserId,
+            status,
+            created_at: new Date().toISOString(),
+          });
+        } else if (prevStatus !== "accepted" || !targetIsPrivate) {
+          await deleteDoc(docRef);
+          await addDoc(collection(db, "follows"), {
+            follower_id: user.uid,
+            following_id: targetUserId,
+            status: targetIsPrivate ? "pending" : "accepted",
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
       return true;
     },
     onMutate: async () => {

@@ -31,6 +31,7 @@ export interface Notification {
     | "like"
     | "comment"
     | "follow"
+    | "follow_request"
     | "mention"
     | "community_invite"
     | "post_shared"
@@ -290,6 +291,8 @@ export function useNotifications() {
           return `${name} commented on your post`;
         case "follow":
           return `${name} started following you`;
+        case "follow_request":
+          return `${name} requested to follow you`;
         case "mention":
           return `${name} mentioned you`;
         case "community_invite":
@@ -324,6 +327,8 @@ export function useNotifications() {
             : "Tap to see the comment";
         case "follow":
           return "Tap to view their profile";
+        case "follow_request":
+          return "Tap to review the request";
         case "mention":
           return "Tap to see where you were mentioned";
         case "repost":
@@ -361,6 +366,7 @@ export function useNotifications() {
       case "message":
         return "chatbubble";
       case "follow":
+      case "follow_request":
         return "person-add";
       case "mention":
         return "at";
@@ -385,6 +391,7 @@ export function useNotifications() {
       case "story_comment":
         return "#7C3AED";
       case "follow":
+      case "follow_request":
         return "#34C759";
       case "mention":
         return "#FF9500";
