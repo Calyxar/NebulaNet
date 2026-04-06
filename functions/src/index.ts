@@ -23,6 +23,7 @@ const auth = getAuth();
  */
 function getNotificationTitle(type: string, senderName: string): string {
   if (type === "follow") return senderName + " started following you";
+  if (type === "follow_request") return senderName + " requested to follow you";
   if (type === "like") return senderName + " liked your post";
   if (type === "comment") return senderName + " commented on your post";
   if (type === "repost") return senderName + " reposted your post";
@@ -50,6 +51,7 @@ function getNotificationTitle(type: string, senderName: string): string {
 function getNotificationBody(type: string, text?: string | null): string {
   if (text) return text.slice(0, 100);
   if (type === "follow") return "Tap to view their profile";
+  if (type === "follow_request") return "Tap to review the request";
   if (type === "like") return "Tap to view your post";
   if (type === "comment") return "Tap to see the comment";
   if (type === "repost") return "Tap to see the repost";

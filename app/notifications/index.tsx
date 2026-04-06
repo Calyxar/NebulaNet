@@ -132,6 +132,8 @@ function NotificationRow({
           : `${base} commented on your post`;
       case "follow":
         return `${base} started following you`;
+      case "follow_request":
+        return `${base} requested to follow you`;
       case "mention":
         return `${base} mentioned you in a post`;
       case "community_invite":
@@ -164,7 +166,7 @@ function NotificationRow({
       style={[
         styles.row,
         {
-          backgroundColor: item.read
+          backgroundColor: item.is_read
             ? colors.card
             : colors.primary + (isDark ? "14" : "0D"),
           borderBottomColor: colors.border,
@@ -213,7 +215,7 @@ function NotificationRow({
       </View>
 
       {/* Unread dot */}
-      {!item.read && (
+      {!item.is_read && (
         <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
       )}
     </TouchableOpacity>
@@ -300,7 +302,8 @@ export default function NotificationsScreen() {
 
   // Apply filter
   const filtered = useMemo(() => {
-    if (activeFilter === "unread") return notifications.filter((n) => !n.read);
+    if (activeFilter === "unread")
+      return notifications.filter((n) => !n.is_read);
     return notifications;
   }, [notifications, activeFilter]);
 
@@ -316,7 +319,7 @@ export default function NotificationsScreen() {
 
   // Navigate on tap
   const handlePress = (item: Notification) => {
-    if (!item.read) markAsRead.mutate(item.id);
+    if (!item.is_read) markAsRead.mutate(item.id);
     if (item.post_id) {
       router.push(`/post/${item.post_id}` as any);
     } else if (item.sender?.username) {
@@ -327,7 +330,7 @@ export default function NotificationsScreen() {
   // Long press → action sheet
   const handleLongPress = (item: Notification) => {
     const options: string[] = [];
-    if (!item.read) options.push("Mark as read");
+    if (!item.is_read) options.push("Mark as read");
     options.push("Delete");
     options.push("Cancel");
 
