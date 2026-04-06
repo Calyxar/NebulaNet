@@ -1,16 +1,17 @@
 // app/_layout.tsx — FIXED ✅
+// ✅ FIXED: QueryClientProvider wraps AuthProvider (AuthProvider calls useQueryClient internally)
 // ✅ FIXED: AuthProvider wraps RootLayout so useAuth() works
 // ✅ Stack always renders first — no crash on startup
-// ✅ Sign out redirects to login
-// ✅ Onboarding shows for new users
 
 import { useAuth } from "@/hooks/useAuth";
 import { AuthProvider } from "@/providers/AuthProvider";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-// ✅ Inner component — can safely call useAuth() because AuthProvider is above it
+const queryClient = new QueryClient();
+
 function RootLayout() {
   const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
     useAuth();
@@ -34,7 +35,6 @@ function RootLayout() {
     }
   }, [isReady, user, hasCompletedOnboarding]);
 
-  // Reset nav flag on user change (handles sign out → sign back in)
   useEffect(() => {
     hasNavigated.current = false;
   }, [user?.uid]);
@@ -107,7 +107,6 @@ function RootLayout() {
         <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
       </Stack>
 
-      {/* Loading overlay — sits on top of Stack, never replaces it */}
       {isLoading && (
         <View
           style={{
@@ -128,11 +127,12 @@ function RootLayout() {
   );
 }
 
-// ✅ AuthProvider wraps everything — RootLayout can now safely call useAuth()
 export default function App() {
   return (
-    <AuthProvider>
-      <RootLayout />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <RootLayout />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
