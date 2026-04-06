@@ -1,10 +1,6 @@
-// app/_layout.tsx — FIXED ✅
-// ✅ FIXED: QueryClientProvider wraps AuthProvider (AuthProvider calls useQueryClient internally)
-// ✅ FIXED: AuthProvider wraps RootLayout so useAuth() works
-// ✅ Stack always renders first — no crash on startup
-
 import { useAuth } from "@/hooks/useAuth";
 import { AuthProvider } from "@/providers/AuthProvider";
+import { ThemeProvider } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
@@ -45,7 +41,6 @@ function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
-
         <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
         <Stack.Screen
           name="user/[username]/followers"
@@ -55,7 +50,6 @@ function RootLayout() {
           name="user/[username]/following"
           options={{ headerShown: false }}
         />
-
         <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="post/create" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
@@ -76,7 +70,6 @@ function RootLayout() {
         <Stack.Screen name="chat/new" options={{ headerShown: false }} />
         <Stack.Screen name="chat/search" options={{ headerShown: false }} />
         <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
-
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen
           name="profile/edit"
@@ -90,7 +83,6 @@ function RootLayout() {
           name="profile/following"
           options={{ headerShown: false }}
         />
-
         <Stack.Screen
           name="create/post"
           options={{ headerShown: false, presentation: "modal" }}
@@ -130,9 +122,11 @@ function RootLayout() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RootLayout />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <RootLayout />
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
