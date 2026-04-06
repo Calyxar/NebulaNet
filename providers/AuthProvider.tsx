@@ -9,6 +9,7 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   useCallback,
@@ -92,6 +93,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const LAST_AUTH_UID_KEY = "nebula:last_auth_uid";
 
 const nowIso = () => new Date().toISOString();
 const toast = (message: string) => {
@@ -111,11 +113,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (u: FirebaseAuthTypes.User | null) => {
         try {
           if (!u) {
+            const lastUid = await AsyncStorage.getItem(LAST_AUTH_UID_KEY);
+            if (lastUid) {
+              // Helps avoid false logouts right after app updates / cold starts.
+              await new Promise((r) => setTimeout(r, 1200));
+              const retryUser = auth().currentUser;
+              if (retryUser) {
+                (retryUser as any).id = retryUser.uid;
+                setUser(retryUser as FirebaseUser);
+                setHydrated(true);
+                return;
+              }
+            }
+            await AsyncStorage.removeItem(LAST_AUTH_UID_KEY);
             setUser(null);
             setHydrated(true);
             return;
           }
           (u as any).id = u.uid;
+          await AsyncStorage.setItem(LAST_AUTH_UID_KEY, u.uid);
 
           try {
             initRevenueCat(u.uid);

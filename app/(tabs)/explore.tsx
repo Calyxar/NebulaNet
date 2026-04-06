@@ -450,7 +450,10 @@ function SuggestedUserRow({
   colors: any;
   showBorder?: boolean;
 }) {
-  const { follow, unfollow, isFollowingBusy } = useFollowActions(u.id, false);
+  const { follow, unfollow, isFollowingBusy } = useFollowActions(
+    u.id,
+    u.is_private,
+  );
   const { data: status } = useFollowStatus(u.id);
 
   const isFollowing = status === "accepted" || status === "pending";
@@ -1389,6 +1392,7 @@ export default function ExploreScreen() {
                           full_name: a.full_name,
                           avatar_url: a.avatar_url,
                           follower_count: a.follower_count ?? 0,
+                          is_private: !!a.is_private,
                         }}
                         idx={idx}
                         colors={colors}

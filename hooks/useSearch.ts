@@ -32,6 +32,7 @@ export type SearchAccount = {
   full_name: string | null;
   avatar_url: string | null;
   follower_count: number; // ✅ added — allows follow button to show follower count
+  is_private: boolean;
 };
 
 export type SearchPost = {
@@ -66,6 +67,7 @@ export type SuggestedUser = {
   full_name: string | null;
   avatar_url: string | null;
   follower_count: number;
+  is_private: boolean;
 };
 
 // ✅ New — used for the trending discovery media grid
@@ -140,6 +142,7 @@ async function searchAccounts(
       full_name: p.full_name ?? null,
       avatar_url: p.avatar_url ?? null,
       follower_count: p.follower_count ?? 0, // ✅ included
+      is_private: !!p.is_private,
     }));
 }
 
@@ -245,6 +248,7 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
       full_name: p.full_name ?? null,
       avatar_url: p.avatar_url ?? null,
       follower_count: p.follower_count ?? 0,
+      is_private: !!p.is_private,
     }));
 }
 
