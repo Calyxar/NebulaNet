@@ -1,12 +1,29 @@
+// app/_layout.tsx
 import { useAuth } from "@/hooks/useAuth";
 import { AuthProvider } from "@/providers/AuthProvider";
-import { ThemeProvider } from "@/providers/ThemeProvider";
+import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 const queryClient = new QueryClient();
+
+// Syncs remote theme/prefs once user is known — safe here because
+// both AuthProvider and ThemeProvider are above this component
+function ThemeSync() {
+  const { user } = useAuth();
+  const { loadUserPrefs } = useTheme();
+  const syncedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid || syncedRef.current === user.uid) return;
+    syncedRef.current = user.uid;
+    void loadUserPrefs(user.uid);
+  }, [user?.uid, loadUserPrefs]);
+
+  return null;
+}
 
 function RootLayout() {
   const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
@@ -37,6 +54,7 @@ function RootLayout() {
 
   return (
     <>
+      <ThemeSync />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
