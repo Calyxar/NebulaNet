@@ -1,8 +1,4 @@
-// components/post/PostCard.tsx — UPDATED ✅
-// ✅ ADDED: Twitter-style repost button (one repost per user per post)
-// ✅ ADDED: Repost action sheet with "Repost" and "Quote" options
-// ✅ FIXED: Share only increments once per user (deterministic share tracking)
-
+import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
@@ -98,7 +94,6 @@ export default function PostCard(props: PostCardProps) {
     }
   }, [onVisible]);
 
-  // Load repost status on mount
   useEffect(() => {
     getRepostStatus(id)
       .then(setIsReposted)
@@ -121,18 +116,15 @@ export default function PostCard(props: PostCardProps) {
       },
       async (index) => {
         if (index === 0) {
-          // Toggle repost
           if (isReposting) return;
           setIsReposting(true);
           const prev = isReposted;
           const prevCount = repostCount;
-          // Optimistic
           setIsReposted(!prev);
           setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
           try {
             await toggleRepost(id, prev);
           } catch {
-            // Rollback
             setIsReposted(prev);
             setRepostCount(prevCount);
             Alert.alert("Error", "Could not repost. Please try again.");
@@ -140,7 +132,6 @@ export default function PostCard(props: PostCardProps) {
             setIsReposting(false);
           }
         } else if (index === 1) {
-          // Quote post — navigate to create post with pre-filled quote
           router.push({
             pathname: "/create/post",
             params: { quotePostId: id },
@@ -222,6 +213,13 @@ export default function PostCard(props: PostCardProps) {
   const displayContent =
     expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
+  const isVideoUrl = (url: string) => {
+    const clean = url.split("?")[0].toLowerCase();
+    return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+      clean.endsWith(`.${e}`),
+    );
+  };
+
   return (
     <Pressable
       onPress={openPost}
@@ -234,7 +232,6 @@ export default function PostCard(props: PostCardProps) {
         },
       ]}
     >
-      {/* Header */}
       <View style={styles.header}>
         <Link href={`/user/${author.username}`} asChild>
           <TouchableOpacity
@@ -285,7 +282,6 @@ export default function PostCard(props: PostCardProps) {
         </View>
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
         {isPoll ? (
           <>
@@ -329,36 +325,38 @@ export default function PostCard(props: PostCardProps) {
               </Text>
             )}
             {media && media.length > 0 && (
-              <MediaGallery
-                media={media}
-                onMediaPress={(index) => {
-                  const url = media[index];
-                  const isVid = [
-                    "mp4",
-                    "mov",
-                    "m4v",
-                    "webm",
-                    "mkv",
-                    "avi",
-                  ].some((e) =>
-                    url.split("?")[0].toLowerCase().endsWith(`.${e}`),
-                  );
-                  if (isVid) openPost();
-                }}
-              />
+              <View style={{ marginTop: 12 }}>
+                {media.map((url, index) => {
+                  if (isVideoUrl(url)) {
+                    return (
+                      <VideoPlayer
+                        key={index}
+                        uri={url}
+                        style={{
+                          height: 300,
+                          marginBottom: index < media.length - 1 ? 8 : 0,
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
+                <MediaGallery
+                  media={media.filter((url) => !isVideoUrl(url))}
+                  onMediaPress={(index) => {}}
+                />
+              </View>
             )}
           </>
         )}
       </View>
 
-      {/* Views */}
       {typeof viewCount === "number" && (
         <Text style={[styles.viewCount, { color: colors.textTertiary }]}>
           {viewCount.toLocaleString()} views
         </Text>
       )}
 
-      {/* Stats */}
       <View style={[styles.stats, { borderColor: colors.border }]}>
         <Stat icon="heart" value={likes} label="like" color="#FF375F" />
         <Stat
@@ -381,7 +379,6 @@ export default function PostCard(props: PostCardProps) {
         />
       </View>
 
-      {/* Actions */}
       <View style={styles.actions}>
         <Action
           icon={isLiked ? "heart" : "heart-outline"}
@@ -395,7 +392,6 @@ export default function PostCard(props: PostCardProps) {
           color={colors.textSecondary}
           onPress={openPost}
         />
-        {/* ✅ Twitter-style repost button */}
         <Action
           icon={isReposted ? "repeat" : "repeat-outline"}
           label={isReposted ? "Reposted" : "Repost"}

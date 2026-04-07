@@ -1,4 +1,3 @@
-// app/create/post.tsx — UPDATED ✅ location picker added, boost removed
 import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
 import { extractHashtags } from "@/lib/firestore/hashtags";
@@ -7,6 +6,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -31,7 +31,9 @@ type Visibility = "public" | "followers" | "private";
 interface LocalMediaItem {
   uri: string;
   type: MediaType;
+  thumbnailUri?: string;
 }
+
 interface PlaceResult {
   place_id: string;
   description: string;
@@ -45,10 +47,6 @@ const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
 const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
-
-/* =========================
-   LOCATION PICKER MODAL
-========================= */
 
 function LocationPicker({
   visible,
@@ -114,7 +112,6 @@ function LocationPicker({
           Add Location
         </Text>
 
-        {/* Search input */}
         <View
           style={[
             lpStyles.searchRow,
@@ -265,10 +262,6 @@ const lpStyles = StyleSheet.create({
   secondaryText: { fontSize: 12, marginTop: 2 },
 });
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function CreatePostScreen() {
   const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
@@ -338,7 +331,20 @@ export default function CreatePostScreen() {
       videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.length) return;
-    setMediaItems([{ uri: result.assets[0].uri, type: "video" as const }]);
+
+    const videoUri = result.assets[0].uri;
+    let thumbnailUri: string | undefined;
+
+    try {
+      const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+        time: 1000,
+      });
+      thumbnailUri = uri;
+    } catch (e) {
+      console.error("Failed to generate thumbnail:", e);
+    }
+
+    setMediaItems([{ uri: videoUri, type: "video" as const, thumbnailUri }]);
   };
 
   const takePhoto = async () => {
@@ -391,7 +397,6 @@ export default function CreatePostScreen() {
           type: m.type,
         })) as any,
         visibility,
-        // ✅ Pass location to createPost if selected
         location: location ?? undefined,
       });
       router.back();
@@ -416,7 +421,6 @@ export default function CreatePostScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          {/* Header */}
           <View style={[styles.header, { backgroundColor: colors.background }]}>
             <TouchableOpacity
               onPress={() => router.back()}
@@ -435,7 +439,6 @@ export default function CreatePostScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Composer card */}
             <View style={[styles.card, { backgroundColor: colors.card }]}>
               <TextInput
                 style={[styles.titleInput, { color: colors.text }]}
@@ -463,7 +466,6 @@ export default function CreatePostScreen() {
                 </Text>
               )}
 
-              {/* Media preview */}
               {mediaItems.length > 0 && (
                 <View style={styles.mediaGrid}>
                   {mediaItems.map((m, idx) => (
@@ -475,7 +477,9 @@ export default function CreatePostScreen() {
                       ]}
                     >
                       <Image
-                        source={{ uri: m.uri }}
+                        source={{
+                          uri: m.type === "video" ? m.thumbnailUri : m.uri,
+                        }}
                         style={styles.mediaImage}
                       />
                       {m.type === "video" && (
@@ -504,7 +508,6 @@ export default function CreatePostScreen() {
                 </View>
               )}
 
-              {/* Toolbar */}
               <View style={[styles.toolbar, { borderTopColor: colors.border }]}>
                 <View style={styles.toolbarLeft}>
                   <TouchableOpacity style={styles.toolBtn} onPress={pickImages}>
@@ -564,11 +567,9 @@ export default function CreatePostScreen() {
               </View>
             </View>
 
-            {/* Options */}
             <View
               style={[styles.optionsCard, { backgroundColor: colors.card }]}
             >
-              {/* ✅ Location — now opens real picker */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
                 onPress={() => setShowLocationPicker(true)}
@@ -616,7 +617,6 @@ export default function CreatePostScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* Visibility */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomWidth: 0 }]}
                 onPress={() =>
@@ -667,7 +667,6 @@ export default function CreatePostScreen() {
             <View style={{ height: 120 }} />
           </ScrollView>
 
-          {/* Bottom buttons */}
           <View
             style={[
               styles.bottomBar,
@@ -707,14 +706,12 @@ export default function CreatePostScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* GIF Picker */}
       <GifPicker
         visible={showGifPicker}
         onSelect={handleGifSelect}
         onClose={() => setShowGifPicker(false)}
       />
 
-      {/* ✅ Location Picker */}
       <LocationPicker
         visible={showLocationPicker}
         onSelect={(place) => setLocation(place)}
