@@ -1,18 +1,15 @@
-// app/settings/index.tsx — COMPLETED + UPDATED ✅ useThemeStyles integrated
-import { useAuth } from "@/hooks/useAuth";
+// app/settings/index.tsx — FIXED ✅ (Using AuthProvider signOut)
 import { useThemeStyles } from "@/hooks/useThemeStyles";
-import { auth } from "@/lib/firebase";
 import {
   closeSettings,
   pushSettings,
-  replaceSettings,
-  type SettingsRouteKey,
+  type SettingsRouteKey
 } from "@/lib/routes/settingsRoutes";
+import { useAuth } from "@/providers/AuthProvider"; // ✅ Changed from hooks/useAuth
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
-import { signOut } from "firebase/auth";
 import React from "react";
 import {
   Alert,
@@ -133,7 +130,7 @@ function Row({ item, isLast }: { item: SettingsRow; isLast?: boolean }) {
 }
 
 export default function SettingsIndexScreen() {
-  const { user, profile } = useAuth();
+  const { user, profile, signOut } = useAuth(); // ✅ Get signOut from AuthProvider
   const { theme, colors, isDark } = useTheme();
   const ts = useThemeStyles();
   const params = useLocalSearchParams<{ returnTo?: string }>();
@@ -244,6 +241,7 @@ export default function SettingsIndexScreen() {
     },
   ];
 
+  // ✅ FIXED: Use signOut from AuthProvider
   const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
@@ -252,8 +250,7 @@ export default function SettingsIndexScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await signOut(auth);
-            replaceSettings("index");
+            await signOut(); // ✅ AuthProvider handles clearing cache and redirect
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to sign out");
           }
