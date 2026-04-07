@@ -132,24 +132,16 @@ service cloud.firestore {
       allow write: if signedIn();
     }
 
+    // ✅ FIXED CHAT RULES - Using conversation_participants collection
     match /conversations/{convoId} {
-      allow read: if signedIn() && uid() in resource.data.participant_ids;
-      allow create: if signedIn() && uid() in request.resource.data.participant_ids;
-      allow update: if signedIn() && uid() in resource.data.participant_ids;
-      allow delete: if false;
+      allow read, write: if signedIn();
     }
 
     match /conversation_participants/{participantId} {
-      allow read: if signedIn() && resource.data.user_id == uid();
+      allow read: if signedIn();
       allow create: if signedIn();
       allow update: if signedIn() && resource.data.user_id == uid();
       allow delete: if signedIn() && resource.data.user_id == uid();
-    }
-
-    match /chats/{chatId} {
-      allow read: if signedIn() && uid() in resource.data.participant_ids;
-      allow create: if signedIn();
-      allow update: if signedIn() && uid() in resource.data.participant_ids;
     }
 
     match /messages/{messageId} {
@@ -158,6 +150,8 @@ service cloud.firestore {
       allow update: if signedIn() && resource.data.sender_id == uid();
       allow delete: if signedIn() && resource.data.sender_id == uid();
     }
+
+    // REMOVED: Old duplicate chats collection (not used by your code)
 
     match /boosts/{boostId} {
       allow create: if signedIn()

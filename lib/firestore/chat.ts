@@ -1,5 +1,6 @@
-// lib/queries/chat.ts — FIRESTORE ✅
-// ✅ Fixed: SupabaseAttachment -> ChatAttachment
+// lib/firestore/chat.ts — FIRESTORE VERSION ✅ (COMPLETED + UPDATED)
+// ✅ No Supabase types/imports
+// ✅ Accepts Firebase ChatAttachment from ChatInput
 // ✅ Fixed: limit parameter conflict in getMessages -> pageSize
 
 import { ChatAttachment } from "@/components/chat/ChatInput";
@@ -284,7 +285,6 @@ export const chatQueries = {
     }
   },
 
-  // ✅ Fixed: renamed `limit` param to `pageSize` to avoid conflict with Firestore limit()
   getMessages: async (
     conversationId: string,
     page = 0,

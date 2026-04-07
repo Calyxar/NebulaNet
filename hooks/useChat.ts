@@ -1,10 +1,10 @@
 // hooks/useChat.ts — FIRESTORE VERSION ✅ (COMPLETED + UPDATED)
+// ✅ Imports from @/lib/firestore/chat (CORRECT PATH)
 // ✅ No Supabase types/imports
 // ✅ Accepts Firebase ChatAttachment from ChatInput
-// ✅ Safely converts Firestore Timestamp/string -> ISO when patching from subscriptions
+// ✅ Safely converts Firestore Timestamp/string -> ISO
 // ✅ Realtime: conversation list updates + active conversation new messages
 // ✅ markAsRead + optimistic unread reset
-// ✅ Keeps the same public API surface area
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
@@ -161,7 +161,7 @@ export const useChat = () => {
           conversationId,
           user.id,
           content,
-          attachments as any, // chat.ts expects SupabaseAttachment shape; ChatAttachment is compatible (url/type/name + extra fields).
+          attachments as any,
           mediaUrl,
           mediaType,
         );
@@ -192,7 +192,6 @@ export const useChat = () => {
     [user?.id, patchConversation],
   );
 
-  // Keeping for compatibility; ChatInput uses useTyping() now.
   const updateTypingStatus = useCallback(
     async (conversationId: string, isTyping: boolean) => {
       if (!conversationId || !user?.id) return;
@@ -273,15 +272,12 @@ export const useChat = () => {
             toIsoMaybe(changed.updated_at) ??
             undefined;
 
-          // last_message is denormalized on conversation doc
           const lm = changed.last_message as any | null;
 
           patchConversation(changed.id, {
             ...(updatedAt ? { updated_at: updatedAt } : {}),
             is_typing: !!changed.is_typing,
             last_message_id: lm?.id ?? null,
-            // We do NOT rebuild last_message here (shape mismatches are common);
-            // it will be correct when you open the conversation or when send/receive fires.
           });
         }
       },
@@ -301,7 +297,6 @@ export const useChat = () => {
         const newMessage = payload?.new as ChatMessage | undefined;
         if (!newMessage) return;
 
-        // ignore if user navigated away
         if (activeConversationRef.current !== activeConversation) return;
 
         setMessages((prev) => {
@@ -315,7 +310,6 @@ export const useChat = () => {
           last_message_id: newMessage.id,
         });
 
-        // If we are viewing this thread, mark as read immediately
         if (user.id) {
           await chatQueries.markAsRead(activeConversation, user.id);
           patchConversation(activeConversation, { unread_count: 0 });
@@ -323,7 +317,6 @@ export const useChat = () => {
       },
     );
 
-    // OPTIONAL: typing here (you already have useTyping() per screen)
     const unsubTyping = chatSubscriptions.subscribeToTypingStatus(
       activeConversation,
       (payload) => {
@@ -366,7 +359,7 @@ export const useChat = () => {
     loadMessages,
 
     sendMessage,
-    updateTypingStatus, // kept for compatibility
+    updateTypingStatus,
     createConversation,
 
     selectConversation,

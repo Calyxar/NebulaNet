@@ -1,7 +1,3 @@
-// app/(tabs)/profile.tsx — UPDATED ✅
-// ✅ ADDED: FounderBadge next to display name for first 100 users
-// ✅ all other logic unchanged
-
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import FounderBadge from "@/components/user/FounderBadge";
@@ -437,7 +433,6 @@ export default function ProfileTabScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* Profile Card */}
             <View
               style={[
                 styles.profileCard,
@@ -473,28 +468,71 @@ export default function ProfileTabScreen() {
 
                 <View style={styles.statsRow}>
                   {[
-                    { label: "Post", value: userStats?.posts ?? 0 },
-                    { label: "Followers", value: userStats?.followers ?? 0 },
-                    { label: "Following", value: userStats?.following ?? 0 },
-                  ].map((s) => (
-                    <View key={s.label} style={styles.statItem}>
-                      <Text style={[styles.statValue, { color: colors.text }]}>
-                        {formatNumber(s.value)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.statLabel,
-                          { color: colors.textTertiary },
-                        ]}
-                      >
-                        {s.label}
-                      </Text>
-                    </View>
-                  ))}
+                    {
+                      label: "Post",
+                      value: userStats?.posts ?? 0,
+                      route: null,
+                    },
+                    {
+                      label: "Followers",
+                      value: userStats?.followers ?? 0,
+                      route: profile.username
+                        ? `/user/${profile.username}/followers`
+                        : null,
+                    },
+                    {
+                      label: "Following",
+                      value: userStats?.following ?? 0,
+                      route: profile.username
+                        ? `/user/${profile.username}/following`
+                        : null,
+                    },
+                  ].map((s) => {
+                    if (s.route) {
+                      return (
+                        <Pressable
+                          key={s.label}
+                          style={styles.statItem}
+                          onPress={() => router.push(s.route as any)}
+                        >
+                          <Text
+                            style={[styles.statValue, { color: colors.text }]}
+                          >
+                            {formatNumber(s.value)}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.statLabel,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            {s.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    }
+
+                    return (
+                      <View key={s.label} style={styles.statItem}>
+                        <Text
+                          style={[styles.statValue, { color: colors.text }]}
+                        >
+                          {formatNumber(s.value)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.statLabel,
+                            { color: colors.textTertiary },
+                          ]}
+                        >
+                          {s.label}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
               </View>
 
-              {/* ✅ Display name + Founder badge */}
               <View style={styles.nameRow}>
                 <Text style={[styles.displayName, { color: colors.text }]}>
                   {profile.full_name || profile.username}
@@ -570,7 +608,6 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
-            {/* Tabs */}
             <View
               style={[
                 styles.tabsWrap,
@@ -606,7 +643,6 @@ export default function ProfileTabScreen() {
               })}
             </View>
 
-            {/* Content */}
             <View style={styles.contentArea}>
               {activeTab === "Activity" && (
                 <EmptyPanel

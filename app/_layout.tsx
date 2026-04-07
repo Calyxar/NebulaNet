@@ -1,5 +1,11 @@
-// app/_layout.tsx
+// app/_layout.tsx — UPDATED WITH PUSH NOTIFICATIONS ✅
 import { useAuth } from "@/hooks/useAuth";
+import {
+  registerPushNotifications,
+  setupNotificationChannels,
+  setupNotificationHandler,
+  setupNotificationListeners,
+} from "@/lib/notifications";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,8 +15,7 @@ import { ActivityIndicator, View } from "react-native";
 
 const queryClient = new QueryClient();
 
-// Syncs remote theme/prefs once user is known — safe here because
-// both AuthProvider and ThemeProvider are above this component
+// Syncs remote theme/prefs once user is known
 function ThemeSync() {
   const { user } = useAuth();
   const { loadUserPrefs } = useTheme();
@@ -21,6 +26,66 @@ function ThemeSync() {
     syncedRef.current = user.uid;
     void loadUserPrefs(user.uid);
   }, [user?.uid, loadUserPrefs]);
+
+  return null;
+}
+
+// Push notification setup
+function PushNotificationSetup() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    // Setup notification handler and channels
+    setupNotificationHandler();
+    setupNotificationChannels();
+
+    // Register for push notifications when user is authenticated
+    if (user?.uid) {
+      registerPushNotifications();
+    }
+
+    // Setup notification listeners
+    const cleanup = setupNotificationListeners(
+      (notification) => {
+        // Notification received while app is open
+        console.log("Notification received:", notification);
+      },
+      (response) => {
+        // Notification tapped - navigate to relevant screen
+        const data = response.notification.request.content.data;
+
+        if (data?.type === "follow") {
+          if (data.senderId) {
+            router.push(`/user/${data.senderId}` as any);
+          }
+        } else if (data?.type === "message") {
+          if (data.entityId) {
+            router.push(`/chat/${data.entityId}` as any);
+          }
+        } else if (
+          data?.type === "like" ||
+          data?.type === "comment" ||
+          data?.type === "repost"
+        ) {
+          if (data.entityId) {
+            router.push(`/post/${data.entityId}` as any);
+          }
+        } else if (
+          data?.type === "story_like" ||
+          data?.type === "story_comment"
+        ) {
+          if (data.entityId) {
+            router.push(`/story/${data.entityId}` as any);
+          }
+        } else {
+          // Default: go to notifications screen
+          router.push("/notifications");
+        }
+      },
+    );
+
+    return cleanup;
+  }, [user?.uid]);
 
   return null;
 }
@@ -55,6 +120,8 @@ function RootLayout() {
   return (
     <>
       <ThemeSync />
+      <PushNotificationSetup />
+
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
