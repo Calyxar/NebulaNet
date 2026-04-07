@@ -1,27 +1,23 @@
-// lib/firestore/users.ts — FIRESTORE VERSION ✅
-
 import { db } from "@/lib/firebase";
 import { getAuth } from "firebase/auth";
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    increment,
-    limit,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    setDoc,
-    updateDoc,
-    where,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 
 const auth = getAuth();
-
-/* -------------------- TYPES -------------------- */
 
 export interface UserProfile {
   id: string;
@@ -36,13 +32,10 @@ export interface UserProfile {
   post_count: number;
   created_at: any;
   updated_at: any;
-
   is_following?: boolean;
   is_followed_by?: boolean;
   is_self?: boolean;
 }
-
-/* -------------------- PROFILE -------------------- */
 
 export async function getUserProfile(
   identifier: string,
@@ -80,8 +73,6 @@ export async function getUserProfile(
   };
 }
 
-/* -------------------- UPDATE PROFILE -------------------- */
-
 export async function updateUserProfile(
   updates: Partial<UserProfile>,
 ): Promise<void> {
@@ -93,8 +84,6 @@ export async function updateUserProfile(
     updated_at: serverTimestamp(),
   });
 }
-
-/* -------------------- FOLLOW STATUS -------------------- */
 
 export async function getFollowStatus(followerId: string, followingId: string) {
   const q1 = query(
@@ -119,8 +108,6 @@ export async function getFollowStatus(followerId: string, followingId: string) {
   };
 }
 
-/* -------------------- TOGGLE FOLLOW -------------------- */
-
 export async function toggleFollow(followingId: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
@@ -136,7 +123,6 @@ export async function toggleFollow(followingId: string) {
   const snap = await getDocs(q);
 
   if (!snap.empty) {
-    // UNFOLLOW
     await deleteDoc(snap.docs[0].ref);
 
     await Promise.all([
@@ -151,7 +137,6 @@ export async function toggleFollow(followingId: string) {
     return { following: false };
   }
 
-  // FOLLOW
   await setDoc(doc(collection(db, "follows")), {
     follower_id: user.uid,
     following_id: followingId,
@@ -171,13 +156,13 @@ export async function toggleFollow(followingId: string) {
     type: "follow",
     sender_id: user.uid,
     receiver_id: followingId,
-    created_at: serverTimestamp(),
+    is_read: false,
+    created_at: new Date().toISOString(),
+    created_at_ts: serverTimestamp(),
   });
 
   return { following: true };
 }
-
-/* -------------------- FOLLOWERS -------------------- */
 
 export async function getUserFollowers(userId: string) {
   const q = query(
@@ -207,14 +192,12 @@ export async function getUserFollowing(userId: string) {
   return getUsersByIds(userIds);
 }
 
-/* -------------------- SEARCH -------------------- */
-
 export async function searchUsers(text: string) {
-  const q = query(
-    collection(db, "profiles"),
-    orderBy("username_lc"),
-    limit(20),
-  );
+  const searchLower = text.toLowerCase().trim();
+
+  if (searchLower.length < 2) return [];
+
+  const q = query(collection(db, "profiles"), limit(50));
 
   const snap = await getDocs(q);
 
@@ -222,12 +205,10 @@ export async function searchUsers(text: string) {
     .map((d) => ({ id: d.id, ...(d.data() as any) }))
     .filter(
       (u) =>
-        u.username?.toLowerCase().includes(text.toLowerCase()) ||
-        u.full_name?.toLowerCase().includes(text.toLowerCase()),
+        u.username?.toLowerCase().includes(searchLower) ||
+        u.full_name?.toLowerCase().includes(searchLower),
     );
 }
-
-/* -------------------- USERS BY IDS -------------------- */
 
 export async function getUsersByIds(ids: string[]) {
   if (!ids.length) return [];
@@ -243,8 +224,6 @@ export async function getUsersByIds(ids: string[]) {
 
   return results;
 }
-
-/* -------------------- SUBSCRIBE -------------------- */
 
 export function subscribeToUserProfile(
   userId: string,

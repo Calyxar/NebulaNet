@@ -1,5 +1,3 @@
-// app/(tabs)/create.tsx — COMPLETED + UPDATED (Create Community + removed Quick Actions)
-import AppHeader from "@/components/navigation/AppHeader";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -92,13 +90,13 @@ export default function CreateScreen() {
       />
       <SafeAreaView
         style={[styles.safe, { backgroundColor: colors.background }]}
-        edges={["left", "right"]}
+        edges={["top", "left", "right"]}
       >
-        <AppHeader
-          title="Create"
-          backgroundColor="transparent"
-          onBack={() => router.back()}
-        />
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Create
+          </Text>
+        </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -155,7 +153,6 @@ export default function CreateScreen() {
             ))}
           </View>
 
-          {/* Tip (kept, small + helpful) */}
           <View
             style={[
               styles.tip,
@@ -187,6 +184,15 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+
+  header: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+  },
 
   content: {
     paddingHorizontal: 18,
