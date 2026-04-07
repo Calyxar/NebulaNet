@@ -1,15 +1,19 @@
-// app/chat/[id].tsx — FIRESTORE + FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
-// ✅ Fixed SafeAreaView edges — added "top" to prevent camera punch-hole overlap
-// ✅ Theme applied via useTheme
-// ✅ StatusBar respects dark/light mode
-
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput, { type ChatAttachment } from "@/components/chat/ChatInput";
 import ChatList from "@/components/chat/ChatList";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Stack, router, useLocalSearchParams } from "expo-router";
+import {
+  collection,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useMemo } from "react";
 import { ActivityIndicator, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -34,6 +38,32 @@ export default function ChatConversationScreen() {
       selectConversation(id);
     }
   }, [id, activeConversation, selectConversation]);
+
+  useEffect(() => {
+    if (!id || !user?.uid) return;
+
+    const markAsRead = async () => {
+      try {
+        const participantRef = query(
+          collection(db, "conversation_participants"),
+          where("conversation_id", "==", id),
+          where("user_id", "==", user.uid),
+        );
+
+        const snapshot = await getDocs(participantRef);
+        if (!snapshot.empty) {
+          await updateDoc(snapshot.docs[0].ref, {
+            unread_count: 0,
+            last_read_at: serverTimestamp(),
+          });
+        }
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+      }
+    };
+
+    markAsRead();
+  }, [id, user?.uid]);
 
   const conversation = useMemo(
     () => conversations.find((c) => c.id === id),
@@ -115,7 +145,6 @@ export default function ChatConversationScreen() {
         backgroundColor={colors.background}
       />
 
-      {/* ✅ "top" added — prevents camera punch-hole from showing through header */}
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["top", "left", "right", "bottom"]}

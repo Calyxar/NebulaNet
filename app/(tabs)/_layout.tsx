@@ -1,13 +1,26 @@
 import CurvedTabBar from "@/components/navigation/CurvedTabBar";
+import { useUnreadMessagesCount } from "@/hooks/useUnreadMessagesCount";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
 import { Tabs } from "expo-router";
 import React from "react";
 
 export default function TabsLayout() {
-  const unreadCount = useUnreadNotificationsCount();
+  const unreadNotifications = useUnreadNotificationsCount();
+  const unreadMessages = useUnreadMessagesCount();
 
   const notificationBadge =
-    unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined;
+    unreadNotifications > 0
+      ? unreadNotifications > 99
+        ? "99+"
+        : unreadNotifications
+      : undefined;
+
+  const messageBadge =
+    unreadMessages > 0
+      ? unreadMessages > 99
+        ? "99+"
+        : unreadMessages
+      : undefined;
 
   return (
     <Tabs
@@ -15,7 +28,12 @@ export default function TabsLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="explore" />
-      <Tabs.Screen name="chat" />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          tabBarBadge: messageBadge,
+        }}
+      />
       <Tabs.Screen name="create" />
       <Tabs.Screen name="home" />
       <Tabs.Screen
