@@ -1,5 +1,5 @@
 import GifPicker from "@/components/post/GifPicker";
-import { useAuth } from "@/hooks/useAuth";
+import { auth } from "@/lib/firebase";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { createPost } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -263,7 +263,6 @@ const lpStyles = StyleSheet.create({
 });
 
 export default function CreatePostScreen() {
-  const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
   const inputRef = useRef<TextInput>(null);
 
@@ -378,10 +377,15 @@ export default function CreatePostScreen() {
 
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
-    if (!user?.uid) {
-      Alert.alert("Not logged in", "Please log in again.");
+
+    // ✅ CRITICAL FIX: Check auth before posting
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert("Session Expired", "Please sign in again.");
+      router.replace("/(auth)/login");
       return;
     }
+
     setIsPosting(true);
     try {
       if (mediaItems.length > 0)
@@ -416,10 +420,12 @@ export default function CreatePostScreen() {
       />
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
+        edges={["top"]}
       >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
         >
           <View style={[styles.header, { backgroundColor: colors.background }]}>
             <TouchableOpacity

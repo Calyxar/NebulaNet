@@ -1,4 +1,4 @@
-// app/settings/account-settings.tsx — UPDATED ✅ dark mode + real auth data
+// app/settings/account.tsx — UPDATED ✅ dark mode + real auth data
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";

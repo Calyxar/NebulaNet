@@ -3,13 +3,13 @@ import { useThemeStyles } from "@/hooks/useThemeStyles";
 import {
   closeSettings,
   pushSettings,
-  type SettingsRouteKey
+  type SettingsRouteKey,
 } from "@/lib/routes/settingsRoutes";
 import { useAuth } from "@/providers/AuthProvider"; // ✅ Changed from hooks/useAuth
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React from "react";
 import {
   Alert,
@@ -250,7 +250,9 @@ export default function SettingsIndexScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await signOut(); // ✅ AuthProvider handles clearing cache and redirect
+            await signOut();
+            // Immediate redirect to login
+            router.replace("/(auth)/login");
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to sign out");
           }
