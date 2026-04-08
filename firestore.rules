@@ -41,7 +41,7 @@ service cloud.firestore {
     }
 
     match /follows/{followId} {
-      allow read: if signedIn();
+      allow read, get, list: if signedIn();
       allow create: if signedIn() && request.resource.data.follower_id == uid();
       allow update: if signedIn() && resource.data.follower_id == uid();
       allow delete: if signedIn() && resource.data.follower_id == uid();
@@ -55,7 +55,7 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
-      allow read: if signedIn();
+      allow read, get, list: if signedIn();
       allow create: if signedIn();
       allow update: if signedIn() && (
         resource.data.user_id == uid() ||
