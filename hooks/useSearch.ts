@@ -1,10 +1,11 @@
-// hooks/useSearch.ts — FIREBASE ✅ (COMPLETED + UPDATED)
+// hooks/useSearch.ts — FIREBASE ✅ (COMPLETED + UPDATED + DEBUG)
 // ✅ Fixed searchPosts: removed where("is_visible") + orderBy combo (composite index bug)
 // ✅ Filter is_visible in JS after fetch instead
 // ✅ fetchSuggestedUsers export for Explore screen
 // ✅ fetchDiscoveryPosts — recent public posts with media for trending grid
 // ✅ useRecentSearches — AsyncStorage-backed recent search history (max 8)
 // ✅ SearchAccount.follower_count added for follow-button display on results
+// 🐛 DEBUG LOGGING ADDED to searchAccounts
 
 import { auth, db } from "@/lib/firebase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -31,7 +32,7 @@ export type SearchAccount = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
-  follower_count: number; // ✅ added — allows follow button to show follower count
+  follower_count: number;
   is_private: boolean;
 };
 
@@ -70,7 +71,6 @@ export type SuggestedUser = {
   is_private: boolean;
 };
 
-// ✅ New — used for the trending discovery media grid
 export type DiscoveryPost = {
   id: string;
   media_url: string;
@@ -126,24 +126,37 @@ async function searchAccounts(
   q: string,
   lim: number,
 ): Promise<SearchAccount[]> {
+  console.log("🔍 SEARCH DEBUG - Query:", q);
   const lower = q.toLowerCase();
+
   const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }) as any)
-    .filter(
-      (p: any) =>
-        p.username?.toLowerCase().includes(lower) ||
-        p.full_name?.toLowerCase().includes(lower),
-    )
-    .slice(0, lim)
-    .map((p: any) => ({
-      id: p.id,
-      username: p.username ?? null,
-      full_name: p.full_name ?? null,
-      avatar_url: p.avatar_url ?? null,
-      follower_count: p.follower_count ?? 0, // ✅ included
-      is_private: !!p.is_private,
-    }));
+  console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
+
+  const allProfiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
+  console.log(
+    "🔍 SEARCH DEBUG - Sample usernames:",
+    allProfiles.slice(0, 5).map((p) => p.username),
+  );
+
+  const filtered = allProfiles.filter(
+    (p: any) =>
+      p.username?.toLowerCase().includes(lower) ||
+      p.full_name?.toLowerCase().includes(lower),
+  );
+  console.log("🔍 SEARCH DEBUG - Filtered results:", filtered.length);
+  console.log(
+    "🔍 SEARCH DEBUG - Matching usernames:",
+    filtered.map((p) => p.username),
+  );
+
+  return filtered.slice(0, lim).map((p: any) => ({
+    id: p.id,
+    username: p.username ?? null,
+    full_name: p.full_name ?? null,
+    avatar_url: p.avatar_url ?? null,
+    follower_count: p.follower_count ?? 0,
+    is_private: !!p.is_private,
+  }));
 }
 
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
