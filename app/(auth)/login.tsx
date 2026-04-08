@@ -103,14 +103,6 @@ export default function LoginScreen() {
         email: email.trim().toLowerCase(),
         password,
       });
-      if (res.user && res.user.emailVerified === false) {
-        Alert.alert(
-          "Email Not Verified",
-          "Please verify your email before continuing.",
-          [{ text: "OK", onPress: () => router.push("/(auth)/verify-email") }],
-        );
-        return;
-      }
       // ✅ Check 2FA
       if (res.user) {
         const { enabled, phoneNumber } = await checkTwoFactorEnabled(

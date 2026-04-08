@@ -106,6 +106,7 @@ export default function CreatePollScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: colors.border }]}>

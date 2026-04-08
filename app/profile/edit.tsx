@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -29,7 +31,8 @@ function guessExtFromUri(uri: string) {
   const ext = clean.split(".").pop()?.toLowerCase();
   if (!ext || ext.length > 5) return "jpg";
   if (ext === "jpeg") return "jpg";
-  if (ext === "png" || ext === "jpg" || ext === "webp" || ext === "heic") return ext;
+  if (ext === "png" || ext === "jpg" || ext === "webp" || ext === "heic")
+    return ext;
   return "jpg";
 }
 
@@ -75,7 +78,10 @@ export default function EditProfileScreen() {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission required", "We need camera roll permissions to upload photos.");
+      Alert.alert(
+        "Permission required",
+        "We need camera roll permissions to upload photos.",
+      );
       return;
     }
 
@@ -121,13 +127,20 @@ export default function EditProfileScreen() {
       await uploadBytes(fileRef, blob, { contentType: mimeType });
       const publicUrl = await getDownloadURL(fileRef);
 
-      if (!publicUrl) throw new Error("Could not create download URL for avatar.");
+      if (!publicUrl)
+        throw new Error("Could not create download URL for avatar.");
 
       setAvatar(publicUrl);
-      Alert.alert("Success", "Avatar uploaded! Click Continue to save your changes.");
+      Alert.alert(
+        "Success",
+        "Avatar uploaded! Click Continue to save your changes.",
+      );
     } catch (e: any) {
       console.error("Avatar upload error:", e);
-      Alert.alert("Upload Failed", e?.message || "Failed to upload avatar. Please try again.");
+      Alert.alert(
+        "Upload Failed",
+        e?.message || "Failed to upload avatar. Please try again.",
+      );
       setAvatar(profile?.avatar_url || "");
     } finally {
       setIsUploadingAvatar(false);
@@ -145,7 +158,10 @@ export default function EditProfileScreen() {
     }
     const usernameRegex = /^[a-zA-Z0-9_]+$/;
     if (!usernameRegex.test(formData.username)) {
-      Alert.alert("Validation Error", "Username can only contain letters, numbers, and underscores");
+      Alert.alert(
+        "Validation Error",
+        "Username can only contain letters, numbers, and underscores",
+      );
       return;
     }
 
@@ -162,9 +178,17 @@ export default function EditProfileScreen() {
       Alert.alert("Success", "Profile updated successfully!");
       setTimeout(() => router.back(), 300);
     } catch (error: any) {
-      console.error("updateProfile error:", JSON.stringify(error), error?.code, error?.message);
+      console.error(
+        "updateProfile error:",
+        JSON.stringify(error),
+        error?.code,
+        error?.message,
+      );
       let errorMessage = "Failed to update profile";
-      if (error?.message?.includes("duplicate") && error?.message?.includes("username")) {
+      if (
+        error?.message?.includes("duplicate") &&
+        error?.message?.includes("username")
+      ) {
         errorMessage = "This username is already taken";
       } else if (error?.message?.includes("already taken")) {
         errorMessage = "This username is already taken";
@@ -185,11 +209,20 @@ export default function EditProfileScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
         {/* Header */}
         <View style={[styles.header, { backgroundColor: colors.background }]}>
           <TouchableOpacity
-            style={[styles.headerBtn, { backgroundColor: colors.card, borderColor: colors.border, shadowOpacity: isDark ? 0.22 : 0.08 }]}
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
             onPress={() => router.back()}
             disabled={isLoading}
             activeOpacity={0.85}
@@ -197,125 +230,251 @@ export default function EditProfileScreen() {
             <Ionicons name="arrow-back" size={22} color={colors.text} />
           </TouchableOpacity>
 
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Profile</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Edit Profile
+          </Text>
 
           <TouchableOpacity
-            style={[styles.headerBtn, { backgroundColor: colors.card, borderColor: colors.border, shadowOpacity: isDark ? 0.22 : 0.08 }]}
+            style={[
+              styles.headerBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.08,
+              },
+            ]}
             onPress={handleSave}
             disabled={isLoading}
             activeOpacity={0.85}
           >
-            <Ionicons name="checkmark" size={22} color={isLoading ? colors.textTertiary : colors.primary} />
+            <Ionicons
+              name="checkmark"
+              size={22}
+              color={isLoading ? colors.textTertiary : colors.primary}
+            />
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Avatar */}
-          <TouchableOpacity style={styles.avatarContainer} onPress={pickImage} disabled={isLoading} activeOpacity={0.9}>
-            {avatar ? (
-              <Image source={{ uri: displayAvatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.surface }]}>
-                <Ionicons name="person" size={48} color={colors.textTertiary} />
-              </View>
-            )}
-
-            {isLoading && (
-              <View style={styles.avatarOverlay}>
-                <Text style={styles.avatarOverlayText}>{isUploadingAvatar ? "Uploading…" : "Saving…"}</Text>
-              </View>
-            )}
-
-            {!isLoading && (
-              <View style={[styles.cameraBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
-                <Ionicons name="camera" size={20} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
-
-          {/* Form */}
-          <View style={[styles.formCard, { backgroundColor: colors.card }]}>
-            {/* Name */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Name</Text>
-              <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="person-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.full_name}
-                  onChangeText={(text) => setFormData({ ...formData, full_name: text })}
-                  placeholder="Enter your full name"
-                  placeholderTextColor={colors.placeholder}
-                  editable={!isLoading}
-                />
-              </View>
-            </View>
-
-            {/* Username */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Username</Text>
-              <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="at" size={20} color={colors.textTertiary} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.username}
-                  onChangeText={(text) => setFormData({ ...formData, username: text.toLowerCase() })}
-                  placeholder="username"
-                  placeholderTextColor={colors.placeholder}
-                  autoCapitalize="none"
-                  editable={!isLoading}
-                />
-              </View>
-            </View>
-
-            {/* Location */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Location</Text>
-              <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="location-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.location}
-                  onChangeText={(text) => setFormData({ ...formData, location: text })}
-                  placeholder="Let others know where you're based"
-                  placeholderTextColor={colors.placeholder}
-                  editable={!isLoading}
-                />
-              </View>
-            </View>
-
-            {/* Bio */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
-              <View style={[styles.inputWrapper, styles.bioWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="information-circle-outline" size={20} color={colors.textTertiary} style={styles.bioIcon} />
-                <TextInput
-                  style={[styles.input, styles.bioInput, { color: colors.text }]}
-                  value={formData.bio}
-                  onChangeText={(text) => setFormData({ ...formData, bio: text })}
-                  placeholder="Tell us about yourself"
-                  placeholderTextColor={colors.placeholder}
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  maxLength={200}
-                  editable={!isLoading}
-                />
-              </View>
-              <Text style={[styles.charCount, { color: colors.textTertiary }]}>{formData.bio.length}/200 characters</Text>
-            </View>
-          </View>
-
-          {/* Save button */}
-          <TouchableOpacity
-            style={[styles.continueButton, { backgroundColor: colors.primary }, isLoading && { opacity: 0.55 }]}
-            onPress={handleSave}
-            disabled={isLoading}
-            activeOpacity={0.9}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            <Text style={styles.continueButtonText}>{isLoading ? "Saving..." : "Continue"}</Text>
-          </TouchableOpacity>
-        </ScrollView>
+            {/* Avatar */}
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={pickImage}
+              disabled={isLoading}
+              activeOpacity={0.9}
+            >
+              {avatar ? (
+                <Image source={{ uri: displayAvatar }} style={styles.avatar} />
+              ) : (
+                <View
+                  style={[
+                    styles.avatarPlaceholder,
+                    { backgroundColor: colors.surface },
+                  ]}
+                >
+                  <Ionicons
+                    name="person"
+                    size={48}
+                    color={colors.textTertiary}
+                  />
+                </View>
+              )}
+
+              {isLoading && (
+                <View style={styles.avatarOverlay}>
+                  <Text style={styles.avatarOverlayText}>
+                    {isUploadingAvatar ? "Uploading…" : "Saving…"}
+                  </Text>
+                </View>
+              )}
+
+              {!isLoading && (
+                <View
+                  style={[
+                    styles.cameraBadge,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.background,
+                    },
+                  ]}
+                >
+                  <Ionicons name="camera" size={20} color="#fff" />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Form */}
+            <View style={[styles.formCard, { backgroundColor: colors.card }]}>
+              {/* Name */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Name</Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="person-outline"
+                    size={20}
+                    color={colors.textTertiary}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.full_name}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, full_name: text })
+                    }
+                    placeholder="Enter your full name"
+                    placeholderTextColor={colors.placeholder}
+                    editable={!isLoading}
+                  />
+                </View>
+              </View>
+
+              {/* Username */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Username
+                </Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="at"
+                    size={20}
+                    color={colors.textTertiary}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.username}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, username: text.toLowerCase() })
+                    }
+                    placeholder="username"
+                    placeholderTextColor={colors.placeholder}
+                    autoCapitalize="none"
+                    editable={!isLoading}
+                  />
+                </View>
+              </View>
+
+              {/* Location */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Location
+                </Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="location-outline"
+                    size={20}
+                    color={colors.textTertiary}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.location}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, location: text })
+                    }
+                    placeholder="Let others know where you're based"
+                    placeholderTextColor={colors.placeholder}
+                    editable={!isLoading}
+                  />
+                </View>
+              </View>
+
+              {/* Bio */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    styles.bioWrapper,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={20}
+                    color={colors.textTertiary}
+                    style={styles.bioIcon}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.bioInput,
+                      { color: colors.text },
+                    ]}
+                    value={formData.bio}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, bio: text })
+                    }
+                    placeholder="Tell us about yourself"
+                    placeholderTextColor={colors.placeholder}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                    maxLength={200}
+                    editable={!isLoading}
+                  />
+                </View>
+                <Text
+                  style={[styles.charCount, { color: colors.textTertiary }]}
+                >
+                  {formData.bio.length}/200 characters
+                </Text>
+              </View>
+            </View>
+
+            {/* Save button */}
+            <TouchableOpacity
+              style={[
+                styles.continueButton,
+                { backgroundColor: colors.primary },
+                isLoading && { opacity: 0.55 },
+              ]}
+              onPress={handleSave}
+              disabled={isLoading}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.continueButtonText}>
+                {isLoading ? "Saving..." : "Continue"}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </>
   );
@@ -323,27 +482,89 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  headerBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowRadius: 12, elevation: 3 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
   headerTitle: { fontSize: 18, fontWeight: "800" },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
-  avatarContainer: { alignSelf: "center", marginVertical: 24, position: "relative" },
+  avatarContainer: {
+    alignSelf: "center",
+    marginVertical: 24,
+    position: "relative",
+  },
   avatar: { width: 120, height: 120, borderRadius: 60 },
-  avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, justifyContent: "center", alignItems: "center" },
-  avatarOverlay: { position: "absolute", left: 0, top: 0, width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  avatarPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarOverlay: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarOverlayText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  cameraBadge: { position: "absolute", bottom: 0, right: 0, width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 3 },
+  cameraBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+  },
   formCard: { borderRadius: 16, padding: 20, gap: 20, marginBottom: 24 },
   inputGroup: { gap: 8 },
   label: { fontSize: 14, fontWeight: "800" },
-  inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 12, paddingHorizontal: 12, borderWidth: 1 },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+  },
   bioWrapper: { alignItems: "flex-start", paddingVertical: 12 },
   inputIcon: { marginRight: 8 },
   bioIcon: { marginRight: 8, marginTop: 2 },
   input: { flex: 1, fontSize: 15, paddingVertical: 12 },
   bioInput: { minHeight: 80, paddingVertical: 0 },
   charCount: { fontSize: 12, alignSelf: "flex-end" },
-  continueButton: { paddingVertical: 18, borderRadius: 28, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 5 },
+  continueButton: {
+    paddingVertical: 18,
+    borderRadius: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 5,
+  },
   continueButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
 });

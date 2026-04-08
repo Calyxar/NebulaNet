@@ -15,7 +15,14 @@ import {
   where,
 } from "firebase/firestore";
 import React, { useEffect, useMemo } from "react";
-import { ActivityIndicator, StatusBar, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ChatConversationScreen() {
@@ -149,51 +156,57 @@ export default function ChatConversationScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["top", "left", "right", "bottom"]}
       >
-        <ChatHeader
-          title={title}
-          subtitle={subtitle}
-          isOnline={conversation?.is_online ?? false}
-          onBackPress={() => {
-            selectConversation(null);
-            router.back();
-          }}
-        />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        >
+          <ChatHeader
+            title={title}
+            subtitle={subtitle}
+            isOnline={conversation?.is_online ?? false}
+            onBackPress={() => {
+              selectConversation(null);
+              router.back();
+            }}
+          />
 
-        <ChatList
-          messages={messages.map((msg) => ({
-            id: msg.id,
-            content: msg.content ?? "",
-            createdAtIso: msg.created_at,
-            sender: msg.sender_id === user?.id ? "me" : "other",
-            timestamp: new Date(msg.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            status: msg.read_at
-              ? "read"
-              : msg.delivered_at
-                ? "delivered"
-                : "sent",
-            mediaUrl: msg.media_url ?? undefined,
-            mediaType:
-              (msg.media_type as
-                | "image"
-                | "video"
-                | "audio"
-                | "file"
-                | undefined) ?? undefined,
-            attachments: msg.attachments,
-          }))}
-          isLoading={loading.messages}
-        />
+          <ChatList
+            messages={messages.map((msg) => ({
+              id: msg.id,
+              content: msg.content ?? "",
+              createdAtIso: msg.created_at,
+              sender: msg.sender_id === user?.id ? "me" : "other",
+              timestamp: new Date(msg.created_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              status: msg.read_at
+                ? "read"
+                : msg.delivered_at
+                  ? "delivered"
+                  : "sent",
+              mediaUrl: msg.media_url ?? undefined,
+              mediaType:
+                (msg.media_type as
+                  | "image"
+                  | "video"
+                  | "audio"
+                  | "file"
+                  | undefined) ?? undefined,
+              attachments: msg.attachments,
+            }))}
+            isLoading={loading.messages}
+          />
 
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          placeholder="Type a message..."
-          disabled={loading.sending}
-          conversationId={id}
-          userId={user?.id}
-        />
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            placeholder="Type a message..."
+            disabled={loading.sending}
+            conversationId={id}
+            userId={user?.id}
+          />
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </>
   );

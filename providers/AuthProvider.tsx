@@ -3,13 +3,13 @@
 // ✅ FIXED: Google Sign-In idToken access for newer SDK versions
 // ✅ FIXED: googleLogin mutation type matches useAuth.ts expectation
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   useMutation,
   useQuery,
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   useCallback,
@@ -22,8 +22,8 @@ import React, {
 
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
-import { Platform, ToastAndroid } from "react-native";
+import { router } from "expo-router";
+import { Alert, Platform, ToastAndroid } from "react-native";
 
 import { initRevenueCat } from "@/lib/revenuecat";
 import { registerForPushNotificationsAsync } from "@/utils/pushNotifications";
@@ -79,7 +79,11 @@ interface AuthContextType {
     Error,
     { email: string; password: string }
   >;
-  googleLogin: UseMutationResult<FirebaseAuthTypes.UserCredential, Error, void>;
+  googleLogin: UseMutationResult<
+    FirebaseAuthTypes.UserCredential,
+    Error,
+    { idToken: string }
+  >;
 
   updateProfile: UseMutationResult<void, Error, Partial<Profile>>;
   updateSettings: (
@@ -246,15 +250,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const googleLogin = useMutation<
     FirebaseAuthTypes.UserCredential,
     Error,
-    void
+    { idToken: string }
   >({
-    mutationFn: async () => {
-      await GoogleSignin.hasPlayServices({
-        showPlayServicesUpdateDialog: true,
-      });
-      await GoogleSignin.signIn();
-      // ✅ FIXED: use getTokens() for newer SDK versions where idToken is not on signIn() result
-      const { idToken } = await GoogleSignin.getTokens();
+    mutationFn: async ({ idToken }) => {
       if (!idToken) throw new Error("Google login failed: no token returned");
       const googleCredential = auth.GoogleAuthProvider.credential(idToken);
       return auth().signInWithCredential(googleCredential);
@@ -342,41 +340,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!userId) throw new Error("Not authenticated");
     const u = auth().currentUser;
     if (!u) throw new Error("Not authenticated");
+
+    // Deletion Request - Don't delete anything yet
     await firestore()
       .collection("account_deletion_requests")
       .doc(userId)
       .set(
         {
           user_id: userId,
+          email: u.email || null,
           status: "requested",
           created_at: nowIso(),
           created_at_ts: firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
       );
-    try {
-      await firestore().collection("profiles").doc(userId).delete();
-    } catch {}
-    try {
-      await firestore()
-        .collection("user_settings")
-        .doc(userId)
-        .set({ deleted_at: nowIso() }, { merge: true });
-    } catch {}
-    try {
-      await u.delete();
-    } catch (e: any) {
-      if (String(e?.code).includes("requires-recent-login"))
-        throw new Error("Please re-authenticate, then try again.");
-      throw e;
-    } finally {
-      qc.clear();
-    }
-  }, [userId, qc]);
+
+    // Show success message
+    Alert.alert(
+      "Request Received",
+      "We've received your account deletion request. You'll receive an email with instructions to confirm deletion. Your account will be deleted within 30 days.",
+      [{ text: "OK" }],
+    );
+
+    // Don't clear cache or sign out - let them continue using the app until deletion is confirmed via email. This also prevents issues if they accidentally tap "Delete Account".
+  }, [userId]);
 
   const signOut = useCallback(async () => {
     await auth().signOut();
     qc.clear();
+    router.replace("/(auth)/login");
   }, [qc]);
 
   const value = useMemo<AuthContextType>(

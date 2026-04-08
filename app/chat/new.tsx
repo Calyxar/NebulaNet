@@ -25,6 +25,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -350,149 +352,82 @@ export default function NewChatScreen() {
         onBack={() => router.back()}
       />
 
-      <View style={[styles.searchWrap, { backgroundColor: colors.surface }]}>
-        <Ionicons
-          name="search-outline"
-          size={18}
-          color={colors.textSecondary}
-        />
-        <TextInput
-          placeholder="Search people…"
-          placeholderTextColor={colors.textTertiary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          style={[styles.searchInput, { color: colors.text }]}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {!!searchQuery && (
-          <TouchableOpacity
-            onPress={() => setSearchQuery("")}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="close-circle"
-              size={18}
-              color={colors.textTertiary}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {!canSearch ? (
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-            Recent
-          </Text>
-          {loadingRecent ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
-          ) : recent.length === 0 ? (
-            <View style={styles.empty}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
+        <View style={[styles.searchWrap, { backgroundColor: colors.surface }]}>
+          <Ionicons
+            name="search-outline"
+            size={18}
+            color={colors.textSecondary}
+          />
+          <TextInput
+            placeholder="Search people…"
+            placeholderTextColor={colors.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={[styles.searchInput, { color: colors.text }]}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {!!searchQuery && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              activeOpacity={0.8}
+            >
               <Ionicons
-                name="chatbubbles-outline"
-                size={48}
-                color={colors.border}
+                name="close-circle"
+                size={18}
+                color={colors.textTertiary}
               />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No recent chats
-              </Text>
-              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-                Search for someone to start a DM.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={recent}
-              keyExtractor={(x) => x.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.row,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  activeOpacity={0.85}
-                  onPress={() => router.replace(`/chat/${item.id}`)}
-                >
-                  <View
-                    style={[styles.avatar, { backgroundColor: colors.primary }]}
-                  >
-                    <Text style={styles.avatarText}>
-                      {(item.other?.username?.[0] ?? "U").toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowTitle, { color: colors.text }]}>
-                      {item.other?.full_name ||
-                        (item.other?.username
-                          ? `@${item.other.username}`
-                          : "Conversation")}
-                    </Text>
-                    <Text
-                      style={[styles.rowSub, { color: colors.textSecondary }]}
-                    >
-                      {item.other?.username
-                        ? `@${item.other.username}`
-                        : "Tap to open"}
-                      {item.unread_count > 0
-                        ? ` • ${item.unread_count} new`
-                        : ""}
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={18}
-                    color={colors.textTertiary}
-                  />
-                </TouchableOpacity>
-              )}
-              contentContainerStyle={{ paddingBottom: 18 }}
-            />
+            </TouchableOpacity>
           )}
         </View>
-      ) : (
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-            Results
-          </Text>
-          {loadingResults ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
-          ) : results.length === 0 ? (
-            <View style={styles.empty}>
-              <Ionicons name="search-outline" size={48} color={colors.border} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                No users found
-              </Text>
-              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-                Try a different name or username.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={results}
-              keyExtractor={(x) => x.id}
-              renderItem={({ item }) => {
-                const gate = dmGate(item);
-                const busy = creatingId === item.id;
-                return (
+
+        {!canSearch ? (
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.sectionTitle, { color: colors.textSecondary }]}
+            >
+              Recent
+            </Text>
+            {loadingRecent ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : recent.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={48}
+                  color={colors.border}
+                />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No recent chats
+                </Text>
+                <Text
+                  style={[styles.emptySub, { color: colors.textSecondary }]}
+                >
+                  Search for someone to start a DM.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={recent}
+                keyExtractor={(x) => x.id}
+                renderItem={({ item }) => (
                   <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => startDm(item)}
-                    disabled={!gate.ok || !!creatingId}
                     style={[
                       styles.row,
                       {
                         backgroundColor: colors.card,
                         borderColor: colors.border,
                       },
-                      (!gate.ok || busy) && { opacity: 0.45 },
                     ]}
+                    activeOpacity={0.85}
+                    onPress={() => router.replace(`/chat/${item.id}`)}
                   >
                     <View
                       style={[
@@ -501,41 +436,135 @@ export default function NewChatScreen() {
                       ]}
                     >
                       <Text style={styles.avatarText}>
-                        {(item.username?.[0] ?? "U").toUpperCase()}
+                        {(item.other?.username?.[0] ?? "U").toUpperCase()}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.rowTitle, { color: colors.text }]}>
-                        {item.full_name || `@${item.username}`}
+                        {item.other?.full_name ||
+                          (item.other?.username
+                            ? `@${item.other.username}`
+                            : "Conversation")}
                       </Text>
                       <Text
                         style={[styles.rowSub, { color: colors.textSecondary }]}
                       >
-                        @{item.username}
-                        {gate.ok
-                          ? item.is_private
-                            ? " • Private"
-                            : ""
-                          : ` • ${gate.reason}`}
+                        {item.other?.username
+                          ? `@${item.other.username}`
+                          : "Tap to open"}
+                        {item.unread_count > 0
+                          ? ` • ${item.unread_count} new`
+                          : ""}
                       </Text>
                     </View>
-                    {busy ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={colors.textTertiary}
-                      />
-                    )}
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={colors.textTertiary}
+                    />
                   </TouchableOpacity>
-                );
-              }}
-              contentContainerStyle={{ paddingBottom: 18 }}
-            />
-          )}
-        </View>
-      )}
+                )}
+                contentContainerStyle={{ paddingBottom: 18 }}
+              />
+            )}
+          </View>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.sectionTitle, { color: colors.textSecondary }]}
+            >
+              Results
+            </Text>
+            {loadingResults ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : results.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons
+                  name="search-outline"
+                  size={48}
+                  color={colors.border}
+                />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  No users found
+                </Text>
+                <Text
+                  style={[styles.emptySub, { color: colors.textSecondary }]}
+                >
+                  Try a different name or username.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={results}
+                keyExtractor={(x) => x.id}
+                renderItem={({ item }) => {
+                  const gate = dmGate(item);
+                  const busy = creatingId === item.id;
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => startDm(item)}
+                      disabled={!gate.ok || !!creatingId}
+                      style={[
+                        styles.row,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: colors.border,
+                        },
+                        (!gate.ok || busy) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.avatar,
+                          { backgroundColor: colors.primary },
+                        ]}
+                      >
+                        <Text style={styles.avatarText}>
+                          {(item.username?.[0] ?? "U").toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.rowTitle, { color: colors.text }]}>
+                          {item.full_name || `@${item.username}`}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowSub,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          @{item.username}
+                          {gate.ok
+                            ? item.is_private
+                              ? " • Private"
+                              : ""
+                            : ` • ${gate.reason}`}
+                        </Text>
+                      </View>
+                      {busy ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={colors.primary}
+                        />
+                      ) : (
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textTertiary}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                contentContainerStyle={{ paddingBottom: 18 }}
+              />
+            )}
+          </View>
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
