@@ -1,7 +1,7 @@
 // providers/ThemeProvider.tsx
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { Colors, storage, type Theme } from "@/lib/theme";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -52,7 +52,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [fontSizePref, setFontSizePref] = useState<string>("medium");
   const [reduceAnimations, setReduceAnimations] = useState(false);
 
-  // Hydrate from local storage only — no useAuth dependency
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -71,9 +70,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setTheme = useCallback(async (newTheme: Theme) => {
     setThemeState(newTheme);
     await storage.setTheme(newTheme);
+
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      try {
+        await updateDoc(doc(db, "profiles", uid), {
+          theme_preference: newTheme,
+        });
+      } catch (e) {
+        console.warn("Failed to save theme to Firestore:", e);
+      }
+    }
   }, []);
 
-  // Called by ThemeSync inside RootLayout once user is known
   const loadUserPrefs = useCallback(async (uid: string) => {
     try {
       const snap = await getDoc(doc(db, "profiles", uid));

@@ -3,7 +3,6 @@
 // ✅ FIXED: Google Sign-In idToken access for newer SDK versions
 // ✅ FIXED: googleLogin mutation type matches useAuth.ts expectation
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   useMutation,
   useQuery,
@@ -97,7 +96,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const LAST_AUTH_UID_KEY = "nebula:last_auth_uid";
 
 const nowIso = () => new Date().toISOString();
 const toast = (message: string) => {
@@ -117,26 +115,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (u: FirebaseAuthTypes.User | null) => {
         try {
           if (!u) {
-            const lastUid = await AsyncStorage.getItem(LAST_AUTH_UID_KEY);
-            if (lastUid) {
-              // Helps avoid false logouts right after app updates / cold starts.
-              await new Promise((r) => setTimeout(r, 1200));
-              const retryUser = auth().currentUser;
-              if (retryUser) {
-                (retryUser as any).id = retryUser.uid;
-                setUser(retryUser as FirebaseUser);
-                setHydrated(true);
-                return;
-              }
-            }
-            await AsyncStorage.removeItem(LAST_AUTH_UID_KEY);
             setUser(null);
             setHydrated(true);
             return;
           }
-          (u as any).id = u.uid;
-          await AsyncStorage.setItem(LAST_AUTH_UID_KEY, u.uid);
 
+          // Add id property for compatibility
+          (u as any).id = u.uid;
+
+          // Initialize services
           try {
             initRevenueCat(u.uid);
           } catch {}
@@ -144,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             registerForPushNotificationsAsync().catch(() => {});
           } catch {}
 
+          // Create profile if doesn't exist
           const profileRef = firestore().collection("profiles").doc(u.uid);
           const profileSnap = await profileRef.get();
           if (!profileSnap.exists()) {
@@ -168,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           }
 
+          // Create settings if doesn't exist
           const settingsRef = firestore()
             .collection("user_settings")
             .doc(u.uid);

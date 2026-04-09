@@ -34,9 +34,9 @@ service cloud.firestore {
     }
 
     match /profiles/{userId} {
-      allow read: if signedIn();
+      allow read, get, list: if signedIn();
       allow create: if isSelf(userId);
-      allow update: if isSelf(userId) && resource.data.is_suspended != true;
+      allow update: if isSelf(userId) && resource.data.is_suspended != true;  
       allow delete: if isSelf(userId) || isAdmin();
     }
 

@@ -1,4 +1,4 @@
-// app/_layout.tsx — UPDATED WITH PUSH NOTIFICATIONS ✅
+// app/_layout.tsx
 import { useAuth } from "@/hooks/useAuth";
 import {
   registerPushNotifications,
@@ -15,7 +15,6 @@ import { ActivityIndicator, View } from "react-native";
 
 const queryClient = new QueryClient();
 
-// Syncs remote theme/prefs once user is known
 function ThemeSync() {
   const { user } = useAuth();
   const { loadUserPrefs } = useTheme();
@@ -30,28 +29,22 @@ function ThemeSync() {
   return null;
 }
 
-// Push notification setup
 function PushNotificationSetup() {
   const { user } = useAuth();
 
   useEffect(() => {
-    // Setup notification handler and channels
     setupNotificationHandler();
     setupNotificationChannels();
 
-    // Register for push notifications when user is authenticated
     if (user?.uid) {
       registerPushNotifications();
     }
 
-    // Setup notification listeners
     const cleanup = setupNotificationListeners(
       (notification) => {
-        // Notification received while app is open
         console.log("Notification received:", notification);
       },
       (response) => {
-        // Notification tapped - navigate to relevant screen
         const data = response.notification.request.content.data;
 
         if (data?.type === "follow") {
@@ -78,7 +71,6 @@ function PushNotificationSetup() {
             router.push(`/story/${data.entityId}` as any);
           }
         } else {
-          // Default: go to notifications screen
           router.push("/notifications");
         }
       },
@@ -168,19 +160,7 @@ function RootLayout() {
           name="profile/following"
           options={{ headerShown: false }}
         />
-        <Stack.Screen
-          name="create/post"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-        <Stack.Screen name="create/story" options={{ headerShown: false }} />
-        <Stack.Screen name="create/poll" options={{ headerShown: false }} />
-        <Stack.Screen name="create/event" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="create/community"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen name="create/media" options={{ headerShown: false }} />
-        <Stack.Screen name="create/video" options={{ headerShown: false }} />
+        <Stack.Screen name="create" options={{ headerShown: false }} />
         <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
       </Stack>
 

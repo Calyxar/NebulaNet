@@ -1,12 +1,4 @@
-// hooks/useSearch.ts — FIREBASE ✅ (COMPLETED + UPDATED + DEBUG)
-// ✅ Fixed searchPosts: removed where("is_visible") + orderBy combo (composite index bug)
-// ✅ Filter is_visible in JS after fetch instead
-// ✅ fetchSuggestedUsers export for Explore screen
-// ✅ fetchDiscoveryPosts — recent public posts with media for trending grid
-// ✅ useRecentSearches — AsyncStorage-backed recent search history (max 8)
-// ✅ SearchAccount.follower_count added for follow-button display on results
-// 🐛 DEBUG LOGGING ADDED to searchAccounts
-
+// hooks/useSearch.ts
 import { auth, db } from "@/lib/firebase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery } from "@tanstack/react-query";
@@ -20,10 +12,6 @@ import {
   where,
 } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-/* =========================
-   TYPES
-========================= */
 
 export type SearchType = "account" | "post" | "community";
 
@@ -99,10 +87,6 @@ type UseSearchReturn = {
   refetch: () => void;
 };
 
-/* =========================
-   HELPERS
-========================= */
-
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts instanceof Timestamp) return ts.toDate().toISOString();
@@ -118,10 +102,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-/* =========================
-   SEARCH FUNCTIONS
-========================= */
-
 async function searchAccounts(
   q: string,
   lim: number,
@@ -129,7 +109,9 @@ async function searchAccounts(
   console.log("🔍 SEARCH DEBUG - Query:", q);
   const lower = q.toLowerCase();
 
+  console.log("🔍 SEARCH DEBUG - Starting Firestore query...");
   const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
+  console.log("🔍 SEARCH DEBUG - Query completed!");
   console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
 
   const allProfiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
@@ -162,7 +144,6 @@ async function searchAccounts(
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
   const lower = q.toLowerCase();
 
-  // ✅ No where("is_visible") + orderBy — composite index bug. Filter in JS below.
   const snap = await getDocs(
     query(
       collection(db, "posts"),
@@ -217,11 +198,6 @@ async function searchCommunities(
     }));
 }
 
-/* =========================
-   FETCH SUGGESTED USERS
-   Profiles not already followed, sorted by follower_count desc
-========================= */
-
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
   const uid = auth.currentUser?.uid;
 
@@ -265,19 +241,13 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
     }));
 }
 
-/* =========================
-   FETCH DISCOVERY POSTS
-   Recent public posts that have media — used for the trending grid.
-   Returns up to `lim` posts sorted newest-first.
-========================= */
-
 export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
   const snap = await getDocs(
     query(
       collection(db, "posts"),
       where("visibility", "==", "public"),
       orderBy("created_at_ts", "desc"),
-      limit(lim + 20), // fetch extra to compensate for JS filtering
+      limit(lim + 20),
     ),
   );
 
@@ -301,19 +271,12 @@ export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
     });
 }
 
-/* =========================
-   RECENT SEARCHES
-   Stores up to MAX_RECENT recent search strings in AsyncStorage.
-   Deduplicates (latest occurrence wins position 0).
-========================= */
-
 const RECENT_SEARCHES_KEY = "nebulanet:recent_searches_v1";
 const MAX_RECENT = 8;
 
 export function useRecentSearches() {
   const [recents, setRecents] = useState<string[]>([]);
 
-  // Load persisted recents on mount
   useEffect(() => {
     AsyncStorage.getItem(RECENT_SEARCHES_KEY)
       .then((v) => {
@@ -333,7 +296,6 @@ export function useRecentSearches() {
     } catch {}
   }, []);
 
-  // Add a search term (or bump it to front if already exists)
   const add = useCallback(
     async (term: string) => {
       const t = term.trim();
@@ -345,7 +307,6 @@ export function useRecentSearches() {
     [recents, persist],
   );
 
-  // Remove a single term
   const remove = useCallback(
     async (term: string) => {
       const next = recents.filter((r) => r !== term);
@@ -355,7 +316,6 @@ export function useRecentSearches() {
     [recents, persist],
   );
 
-  // Clear all
   const clear = useCallback(async () => {
     setRecents([]);
     try {
@@ -365,10 +325,6 @@ export function useRecentSearches() {
 
   return { recents, add, remove, clear };
 }
-
-/* =========================
-   USE SEARCH (main hook)
-========================= */
 
 export function useSearch(params: UseSearchParams): UseSearchReturn {
   const {
