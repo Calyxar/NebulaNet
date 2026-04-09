@@ -1,16 +1,8 @@
-// hooks/useSearch.ts
-import { auth, db } from "@/lib/firebase";
+// hooks/useSearch.ts - FIXED to use React Native Firebase
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
-import {
-  collection,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  Timestamp,
-  where,
-} from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type SearchType = "account" | "post" | "community";
@@ -89,7 +81,8 @@ type UseSearchReturn = {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts?.toDate) return ts.toDate().toISOString();
+  if (ts?.seconds) return new Date(ts.seconds * 1000).toISOString();
   return new Date(ts).toISOString();
 }
 
@@ -107,14 +100,14 @@ async function searchAccounts(
   lim: number,
 ): Promise<SearchAccount[]> {
   console.log("🔍 SEARCH DEBUG - Query:", q);
-  console.log("🔍 SEARCH DEBUG - User ID:", auth.currentUser?.uid);
-  console.log("🔍 SEARCH DEBUG - Is authenticated:", !!auth.currentUser);
+  console.log("🔍 SEARCH DEBUG - User ID:", auth().currentUser?.uid);
+  console.log("🔍 SEARCH DEBUG - Is authenticated:", !!auth().currentUser);
   const lower = q.toLowerCase();
 
   console.log("🔍 SEARCH DEBUG - Starting Firestore query...");
 
   try {
-    const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
+    const snap = await firestore().collection("profiles").limit(200).get();
     console.log("🔍 SEARCH DEBUG - Query completed!");
     console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
 
@@ -156,14 +149,12 @@ async function searchAccounts(
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
   const lower = q.toLowerCase();
 
-  const snap = await getDocs(
-    query(
-      collection(db, "posts"),
-      where("visibility", "==", "public"),
-      orderBy("created_at_ts", "desc"),
-      limit(200),
-    ),
-  );
+  const snap = await firestore()
+    .collection("posts")
+    .where("visibility", "==", "public")
+    .orderBy("created_at_ts", "desc")
+    .limit(200)
+    .get();
 
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
@@ -188,9 +179,12 @@ async function searchCommunities(
   lim: number,
 ): Promise<SearchCommunity[]> {
   const lower = q.toLowerCase();
-  const snap = await getDocs(
-    query(collection(db, "communities"), orderBy("name"), limit(200)),
-  );
+  const snap = await firestore()
+    .collection("communities")
+    .orderBy("name")
+    .limit(200)
+    .get();
+
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
     .filter(
@@ -211,19 +205,18 @@ async function searchCommunities(
 }
 
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
-  const uid = auth.currentUser?.uid;
+  const uid = auth().currentUser?.uid;
 
   const followingSet = new Set<string>();
   if (uid) {
     try {
-      const followSnap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", uid),
-          where("status", "==", "accepted"),
-          limit(500),
-        ),
-      );
+      const followSnap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", uid)
+        .where("status", "==", "accepted")
+        .limit(500)
+        .get();
+
       followSnap.docs.forEach((d) => {
         const x = d.data() as any;
         if (x.following_id) followingSet.add(x.following_id);
@@ -231,13 +224,11 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
     } catch {}
   }
 
-  const snap = await getDocs(
-    query(
-      collection(db, "profiles"),
-      orderBy("follower_count", "desc"),
-      limit(50),
-    ),
-  );
+  const snap = await firestore()
+    .collection("profiles")
+    .orderBy("follower_count", "desc")
+    .limit(50)
+    .get();
 
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
@@ -254,14 +245,12 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
 }
 
 export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
-  const snap = await getDocs(
-    query(
-      collection(db, "posts"),
-      where("visibility", "==", "public"),
-      orderBy("created_at_ts", "desc"),
-      limit(lim + 20),
-    ),
-  );
+  const snap = await firestore()
+    .collection("posts")
+    .where("visibility", "==", "public")
+    .orderBy("created_at_ts", "desc")
+    .limit(lim + 20)
+    .get();
 
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)

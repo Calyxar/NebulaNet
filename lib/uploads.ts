@@ -1,23 +1,11 @@
-// lib/uploads.ts — FIREBASE ✅ (Drop-in replacement for Supabase version)
-// ✅ FIX: replaced fetch().blob() with FileSystem.readAsStringAsync + uploadString(base64)
-//         fetch().blob() crashes on Android for local file URIs
-
+// lib/uploads.ts — FIXED to use React Native Firebase
 import { MediaItem, MediaType } from "@/components/media/MediaUpload";
+import auth from "@react-native-firebase/auth";
+import storage from "@react-native-firebase/storage";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { getAuth } from "firebase/auth";
-import {
-  deleteObject,
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadString,
-} from "firebase/storage";
-
-const storage = getStorage();
-const auth = getAuth();
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
@@ -77,8 +65,6 @@ function makeStoragePath(folder: string, userId: string, name: string) {
   return `${folder}/${userId}/${ts}-${rnd}.${ext}`;
 }
 
-// ✅ FIX: read file as base64 via FileSystem instead of fetch().blob()
-// fetch().blob() throws "Creating blobs from ArrayBuffer is not supported" on Android
 async function uriToBase64(uri: string): Promise<string> {
   return await FileSystem.readAsStringAsync(uri, {
     encoding: "base64" as any,
@@ -147,7 +133,7 @@ export class UploadService {
     options: UploadOptions = {},
   ): Promise<UploadResult> {
     try {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("User not authenticated");
 
       const info = await FileSystem.getInfoAsync(uri);
@@ -166,12 +152,12 @@ export class UploadService {
       const ext = extFromName(originalName, type === "video" ? "mp4" : "jpg");
       const contentType = mimeFromExt(ext);
       const storagePath = makeStoragePath(this.folder, user.uid, originalName);
-      const fileRef = ref(storage, storagePath);
+      const fileRef = storage().ref(storagePath);
 
-      // ✅ Use base64 + uploadString — works on all Android versions
+      // Use React Native Firebase putString
       const base64 = await uriToBase64(uploadUri);
-      await uploadString(fileRef, base64, "base64", { contentType });
-      const url = await getDownloadURL(fileRef);
+      await fileRef.putString(base64, "base64", { contentType });
+      const url = await fileRef.getDownloadURL();
 
       let thumbnailUrl: string | undefined;
       let thumbnailStoragePath: string | undefined;
@@ -190,12 +176,12 @@ export class UploadService {
             user.uid,
             `${originalName}.jpg`,
           );
-          const thumbRef = ref(storage, thumbnailStoragePath);
+          const thumbRef = storage().ref(thumbnailStoragePath);
           const thumbBase64 = await uriToBase64(thumbSource);
-          await uploadString(thumbRef, thumbBase64, "base64", {
+          await thumbRef.putString(thumbBase64, "base64", {
             contentType: "image/jpeg",
           });
-          thumbnailUrl = await getDownloadURL(thumbRef);
+          thumbnailUrl = await thumbRef.getDownloadURL();
         }
       }
 
@@ -226,7 +212,7 @@ export class UploadService {
 
   async deleteFile(storagePath: string) {
     try {
-      await deleteObject(ref(storage, storagePath));
+      await storage().ref(storagePath).delete();
       return true;
     } catch {
       return false;
