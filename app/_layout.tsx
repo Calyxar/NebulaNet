@@ -86,28 +86,21 @@ function RootLayout() {
   const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
     useAuth();
 
-  const hasNavigated = useRef(false);
   const isReady = !isLoading && !isUserSettingsLoading;
 
   useEffect(() => {
-    if (!isReady || hasNavigated.current) return;
+    if (!isReady) return;
 
     if (!user) {
-      hasNavigated.current = true;
       router.replace("/(auth)/login");
       return;
     }
 
     if (!hasCompletedOnboarding) {
-      hasNavigated.current = true;
       router.replace("/(auth)/onboarding");
       return;
     }
   }, [isReady, user, hasCompletedOnboarding]);
-
-  useEffect(() => {
-    hasNavigated.current = false;
-  }, [user?.uid]);
 
   return (
     <>
@@ -119,14 +112,6 @@ function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="user/[username]" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="user/[username]/followers"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="user/[username]/following"
-          options={{ headerShown: false }}
-        />
         <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="post/create" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
@@ -148,18 +133,7 @@ function RootLayout() {
         <Stack.Screen name="chat/search" options={{ headerShown: false }} />
         <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="profile/edit"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="profile/followers"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="profile/following"
-          options={{ headerShown: false }}
-        />
+        <Stack.Screen name="profile" options={{ headerShown: false }} />
         <Stack.Screen name="create" options={{ headerShown: false }} />
         <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
       </Stack>
