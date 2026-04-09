@@ -107,38 +107,50 @@ async function searchAccounts(
   lim: number,
 ): Promise<SearchAccount[]> {
   console.log("🔍 SEARCH DEBUG - Query:", q);
+  console.log("🔍 SEARCH DEBUG - User ID:", auth.currentUser?.uid);
+  console.log("🔍 SEARCH DEBUG - Is authenticated:", !!auth.currentUser);
   const lower = q.toLowerCase();
 
   console.log("🔍 SEARCH DEBUG - Starting Firestore query...");
-  const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
-  console.log("🔍 SEARCH DEBUG - Query completed!");
-  console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
 
-  const allProfiles = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
-  console.log(
-    "🔍 SEARCH DEBUG - Sample usernames:",
-    allProfiles.slice(0, 5).map((p) => p.username),
-  );
+  try {
+    const snap = await getDocs(query(collection(db, "profiles"), limit(200)));
+    console.log("🔍 SEARCH DEBUG - Query completed!");
+    console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
 
-  const filtered = allProfiles.filter(
-    (p: any) =>
-      p.username?.toLowerCase().includes(lower) ||
-      p.full_name?.toLowerCase().includes(lower),
-  );
-  console.log("🔍 SEARCH DEBUG - Filtered results:", filtered.length);
-  console.log(
-    "🔍 SEARCH DEBUG - Matching usernames:",
-    filtered.map((p) => p.username),
-  );
+    const allProfiles = snap.docs.map(
+      (d) => ({ id: d.id, ...d.data() }) as any,
+    );
+    console.log(
+      "🔍 SEARCH DEBUG - Sample usernames:",
+      allProfiles.slice(0, 5).map((p) => p.username),
+    );
 
-  return filtered.slice(0, lim).map((p: any) => ({
-    id: p.id,
-    username: p.username ?? null,
-    full_name: p.full_name ?? null,
-    avatar_url: p.avatar_url ?? null,
-    follower_count: p.follower_count ?? 0,
-    is_private: !!p.is_private,
-  }));
+    const filtered = allProfiles.filter(
+      (p: any) =>
+        p.username?.toLowerCase().includes(lower) ||
+        p.full_name?.toLowerCase().includes(lower),
+    );
+    console.log("🔍 SEARCH DEBUG - Filtered results:", filtered.length);
+    console.log(
+      "🔍 SEARCH DEBUG - Matching usernames:",
+      filtered.map((p) => p.username),
+    );
+
+    return filtered.slice(0, lim).map((p: any) => ({
+      id: p.id,
+      username: p.username ?? null,
+      full_name: p.full_name ?? null,
+      avatar_url: p.avatar_url ?? null,
+      follower_count: p.follower_count ?? 0,
+      is_private: !!p.is_private,
+    }));
+  } catch (error) {
+    console.error("🔍 SEARCH DEBUG - ERROR:", error);
+    console.error("🔍 SEARCH DEBUG - ERROR CODE:", (error as any)?.code);
+    console.error("🔍 SEARCH DEBUG - ERROR MESSAGE:", (error as any)?.message);
+    throw error;
+  }
 }
 
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
