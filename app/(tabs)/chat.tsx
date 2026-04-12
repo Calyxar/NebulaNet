@@ -1,4 +1,5 @@
-// app/(tabs)/chat.tsx — COMPLETED + UPDATED ✅
+// app/(tabs)/chat.tsx — React Native Firebase ✅
+
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -163,7 +164,6 @@ export default function ChatScreen() {
             renderItem={({ item }) => (
               <ConversationItem
                 id={item.id}
-                // ✅ FIX: use user?.uid not user?.id
                 name={getConversationName(item, user?.uid)}
                 lastMessage={item.last_message?.content ?? ""}
                 attachments={item.last_message?.attachments ?? null}
@@ -173,7 +173,6 @@ export default function ChatScreen() {
                 isOnline={item.is_online ?? false}
                 isTyping={item.is_typing ?? false}
                 isPinned={item.is_pinned ?? false}
-                // ✅ FIX: use user?.uid not user?.id
                 avatar={getAvatarUrl(item, user?.uid)}
                 onPress={() =>
                   router.push({

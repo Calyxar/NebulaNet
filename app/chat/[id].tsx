@@ -1,19 +1,13 @@
+// app/chat/[id].tsx — React Native Firebase ✅
+
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput, { type ChatAttachment } from "@/components/chat/ChatInput";
 import ChatList from "@/components/chat/ChatList";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
-import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
+import firestore from "@react-native-firebase/firestore";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import {
-  collection,
-  getDocs,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import React, { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -51,17 +45,16 @@ export default function ChatConversationScreen() {
 
     const markAsRead = async () => {
       try {
-        const participantRef = query(
-          collection(db, "conversation_participants"),
-          where("conversation_id", "==", id),
-          where("user_id", "==", user.uid),
-        );
+        const participantRef = await firestore()
+          .collection("conversation_participants")
+          .where("conversation_id", "==", id)
+          .where("user_id", "==", user.uid)
+          .get();
 
-        const snapshot = await getDocs(participantRef);
-        if (!snapshot.empty) {
-          await updateDoc(snapshot.docs[0].ref, {
+        if (!participantRef.empty) {
+          await participantRef.docs[0].ref.update({
             unread_count: 0,
-            last_read_at: serverTimestamp(),
+            last_read_at: firestore.FieldValue.serverTimestamp(),
           });
         }
       } catch (error) {
@@ -83,10 +76,10 @@ export default function ChatConversationScreen() {
     if (
       !conversation.is_group &&
       (conversation.participants?.length ?? 0) >= 2 &&
-      user?.id
+      user?.uid
     ) {
       const other = conversation.participants?.find(
-        (p) => p.user_id !== user.id,
+        (p) => p.user_id !== user.uid,
       );
       return (
         other?.profiles?.full_name ||
@@ -97,24 +90,24 @@ export default function ChatConversationScreen() {
     if (conversation.is_group)
       return `${conversation.participants?.length ?? 0} members`;
     return "Chat";
-  }, [conversation, user?.id]);
+  }, [conversation, user?.uid]);
 
   const subtitle = useMemo(() => {
     if (!conversation) return "";
     if (
       !conversation.is_group &&
       (conversation.participants?.length ?? 0) >= 2 &&
-      user?.id
+      user?.uid
     ) {
       const other = conversation.participants?.find(
-        (p) => p.user_id !== user.id,
+        (p) => p.user_id !== user.uid,
       );
       return other?.profiles?.username ? `@${other.profiles.username}` : "";
     }
     if (conversation.is_group)
       return `${conversation.participants?.length ?? 0} members`;
     return "";
-  }, [conversation, user?.id]);
+  }, [conversation, user?.uid]);
 
   const handleSendMessage = async (
     content: string,
@@ -176,7 +169,7 @@ export default function ChatConversationScreen() {
               id: msg.id,
               content: msg.content ?? "",
               createdAtIso: msg.created_at,
-              sender: msg.sender_id === user?.id ? "me" : "other",
+              sender: msg.sender_id === user?.uid ? "me" : "other",
               timestamp: new Date(msg.created_at).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -204,7 +197,7 @@ export default function ChatConversationScreen() {
             placeholder="Type a message..."
             disabled={loading.sending}
             conversationId={id}
-            userId={user?.id}
+            userId={user?.uid}
           />
         </KeyboardAvoidingView>
       </SafeAreaView>

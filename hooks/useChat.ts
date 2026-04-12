@@ -1,10 +1,4 @@
-// hooks/useChat.ts — FIRESTORE VERSION ✅ (COMPLETED + UPDATED)
-// ✅ Imports from @/lib/firestore/chat (CORRECT PATH)
-// ✅ No Supabase types/imports
-// ✅ Accepts Firebase ChatAttachment from ChatInput
-// ✅ Safely converts Firestore Timestamp/string -> ISO
-// ✅ Realtime: conversation list updates + active conversation new messages
-// ✅ markAsRead + optimistic unread reset
+// hooks/useChat.ts — React Native Firebase ✅
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,8 +13,6 @@ import { Alert } from "react-native";
 
 function toIsoMaybe(v: any): string | undefined {
   if (!v) return undefined;
-
-  // Firestore Timestamp
   if (typeof v === "object" && typeof v.toDate === "function") {
     try {
       return v.toDate().toISOString();
@@ -28,8 +20,6 @@ function toIsoMaybe(v: any): string | undefined {
       return undefined;
     }
   }
-
-  // already ISO-ish string or Date
   try {
     return new Date(v).toISOString();
   } catch {
@@ -46,8 +36,6 @@ export const useChat = () => {
     null,
   );
 
-  // NOTE: you now have useTyping() for UI typing.
-  // Keeping typingUsers here for backwards compatibility with any screens.
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState({
@@ -66,8 +54,6 @@ export const useChat = () => {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
-
-  // ─── Helpers ───────────────────────────────────────────────────────────────
 
   const patchConversation = useCallback(
     (id: string, patch: Partial<ChatConversation>) => {
@@ -94,14 +80,12 @@ export const useChat = () => {
     [],
   );
 
-  // ─── Loaders ───────────────────────────────────────────────────────────────
-
   const loadConversations = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.uid) return;
 
     setLoading((prev) => ({ ...prev, conversations: true }));
     try {
-      const result = await chatQueries.getConversations(user.id);
+      const result = await chatQueries.getConversations(user.uid);
       if (result.error) throw result.error;
       setConversations(result.data ?? []);
     } catch (error) {
@@ -110,7 +94,7 @@ export const useChat = () => {
     } finally {
       setLoading((prev) => ({ ...prev, conversations: false }));
     }
-  }, [user?.id]);
+  }, [user?.uid]);
 
   const loadMessages = useCallback(
     async (conversationId: string) => {
@@ -123,8 +107,8 @@ export const useChat = () => {
 
         setMessages(result.data ?? []);
 
-        if (user?.id) {
-          await chatQueries.markAsRead(conversationId, user.id);
+        if (user?.uid) {
+          await chatQueries.markAsRead(conversationId, user.uid);
           patchConversation(conversationId, { unread_count: 0 });
         }
       } catch (error) {
@@ -134,10 +118,8 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, messages: false }));
       }
     },
-    [user?.id, patchConversation],
+    [user?.uid, patchConversation],
   );
-
-  // ─── Actions ───────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
     async (
@@ -147,7 +129,7 @@ export const useChat = () => {
       mediaUrl?: string,
       mediaType?: "image" | "video" | "audio" | "file",
     ) => {
-      if (!user?.id) return null;
+      if (!user?.uid) return null;
 
       const hasText = !!content?.trim();
       const hasAtts = !!attachments?.length;
@@ -159,7 +141,7 @@ export const useChat = () => {
       try {
         const result = await chatQueries.sendMessage(
           conversationId,
-          user.id,
+          user.uid,
           content,
           attachments as any,
           mediaUrl,
@@ -189,19 +171,19 @@ export const useChat = () => {
         setLoading((prev) => ({ ...prev, sending: false }));
       }
     },
-    [user?.id, patchConversation],
+    [user?.uid, patchConversation],
   );
 
   const updateTypingStatus = useCallback(
     async (conversationId: string, isTyping: boolean) => {
-      if (!conversationId || !user?.id) return;
+      if (!conversationId || !user?.uid) return;
       try {
         await chatQueries.updateTypingStatus(conversationId, isTyping);
       } catch (error) {
         console.error("Error updating typing status:", error);
       }
     },
-    [user?.id],
+    [user?.uid],
   );
 
   const createConversation = useCallback(
@@ -246,14 +228,11 @@ export const useChat = () => {
     [loadConversations, loadMessages],
   );
 
-  // ─── Subscriptions ─────────────────────────────────────────────────────────
-
-  // Conversation list realtime: patch known; reload if new
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.uid) return;
 
     const unsub = chatSubscriptions.subscribeToUserConversations(
-      user.id,
+      user.uid,
       async (payload) => {
         const docs: any[] = payload?.docs ?? [];
         for (const changed of docs) {
@@ -266,7 +245,6 @@ export const useChat = () => {
             return;
           }
 
-          // Convert timestamps safely
           const updatedAt =
             toIsoMaybe(changed.updated_at_ts) ??
             toIsoMaybe(changed.updated_at) ??
@@ -284,15 +262,14 @@ export const useChat = () => {
     );
 
     return unsub;
-  }, [user?.id, loadConversations, patchConversation]);
+  }, [user?.uid, loadConversations, patchConversation]);
 
-  // Active conversation: new messages realtime
   useEffect(() => {
-    if (!activeConversation || !user?.id) return;
+    if (!activeConversation || !user?.uid) return;
 
     const unsubMessages = chatSubscriptions.subscribeToMessages(
       activeConversation,
-      user.id,
+      user.uid,
       async (payload) => {
         const newMessage = payload?.new as ChatMessage | undefined;
         if (!newMessage) return;
@@ -310,8 +287,8 @@ export const useChat = () => {
           last_message_id: newMessage.id,
         });
 
-        if (user.id) {
-          await chatQueries.markAsRead(activeConversation, user.id);
+        if (user.uid) {
+          await chatQueries.markAsRead(activeConversation, user.uid);
           patchConversation(activeConversation, { unread_count: 0 });
         }
       },
@@ -325,10 +302,10 @@ export const useChat = () => {
           | Record<string, boolean>
           | undefined;
 
-        if (typingMap && user?.id) {
+        if (typingMap && user?.uid) {
           const next = new Set<string>();
           for (const [uid, val] of Object.entries(typingMap)) {
-            if (uid !== user.id && val) next.add(uid);
+            if (uid !== user.uid && val) next.add(uid);
           }
           setTypingUsers(next);
         } else {
@@ -341,12 +318,11 @@ export const useChat = () => {
       unsubMessages?.();
       unsubTyping?.();
     };
-  }, [activeConversation, user?.id, patchConversation]);
+  }, [activeConversation, user?.uid, patchConversation]);
 
-  // Initial load
   useEffect(() => {
-    if (user?.id) loadConversations();
-  }, [user?.id, loadConversations]);
+    if (user?.uid) loadConversations();
+  }, [user?.uid, loadConversations]);
 
   return {
     conversations,
