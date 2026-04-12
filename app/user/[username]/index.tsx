@@ -1,30 +1,14 @@
-// app/user/[username]/index.tsx — UPDATED ✅
-// ✅ ADDED: createNotification on follow
-// ✅ ADDED: FounderBadge next to display name for first 100 users
-
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
-import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { createNotification } from "@/lib/firestore/notifications";
 import { shareProfileLink } from "@/lib/shareProfile";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getCountFromServer,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -57,7 +41,7 @@ type UserProfile = {
   avatar_url: string | null;
   location?: string | null;
   is_private?: boolean | null;
-  is_founder?: boolean | null; // ✅ ADDED
+  is_founder?: boolean | null;
 };
 type PrivacyFlags = { hide_followers: boolean; hide_following: boolean };
 type UserStats = { posts: number; followers: number; following: number };
@@ -106,13 +90,11 @@ export default function UserProfileScreen() {
     queryKey: ["user-profile", username],
     enabled: !!username,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "profiles"),
-          where("username", "==", username),
-          limit(1),
-        ),
-      );
+      const snap = await firestore()
+        .collection("profiles")
+        .where("username", "==", username)
+        .limit(1)
+        .get();
       if (snap.empty) return null;
       const d = snap.docs[0].data() as any;
       return {
@@ -123,7 +105,7 @@ export default function UserProfileScreen() {
         avatar_url: d.avatar_url ?? null,
         location: d.location ?? null,
         is_private: d.is_private ?? false,
-        is_founder: d.is_founder ?? false, // ✅ ADDED
+        is_founder: d.is_founder ?? false,
       } as UserProfile;
     },
   });
@@ -140,13 +122,11 @@ export default function UserProfileScreen() {
     queryKey: ["follow-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", user!.uid),
-          where("following_id", "==", target!.id),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", user!.uid)
+        .where("following_id", "==", target!.id)
+        .get();
       if (snap.empty) return null;
       const d = snap.docs[0].data() as any;
       return {
@@ -165,20 +145,16 @@ export default function UserProfileScreen() {
     enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
       const [s1, s2] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, "user_blocks"),
-            where("blocker_id", "==", user!.uid),
-            where("blocked_id", "==", target!.id),
-          ),
-        ),
-        getDocs(
-          query(
-            collection(db, "user_blocks"),
-            where("blocker_id", "==", target!.id),
-            where("blocked_id", "==", user!.uid),
-          ),
-        ),
+        firestore()
+          .collection("user_blocks")
+          .where("blocker_id", "==", user!.uid)
+          .where("blocked_id", "==", target!.id)
+          .get(),
+        firestore()
+          .collection("user_blocks")
+          .where("blocker_id", "==", target!.id)
+          .where("blocked_id", "==", user!.uid)
+          .get(),
       ]);
       if (!s1.empty) {
         const d = s1.docs[0].data() as any;
@@ -212,9 +188,11 @@ export default function UserProfileScreen() {
     enabled: !!target?.id,
     queryFn: async () => {
       if (isMe) return { hide_followers: false, hide_following: false };
-      const snap = await getDoc(doc(db, "profiles", target!.id));
-      if (!snap.exists())
-        return { hide_followers: false, hide_following: false };
+      const snap = await firestore()
+        .collection("profiles")
+        .doc(target!.id)
+        .get();
+      if (!snap.exists) return { hide_followers: false, hide_following: false };
       const d = snap.data() as any;
       return {
         hide_followers: !!d.hide_followers,
@@ -229,23 +207,23 @@ export default function UserProfileScreen() {
     queryFn: async (): Promise<UserStats> => {
       const uid = target!.id;
       const [p, fo, fi] = await Promise.all([
-        getCountFromServer(
-          query(collection(db, "posts"), where("user_id", "==", uid)),
-        ),
-        getCountFromServer(
-          query(
-            collection(db, "follows"),
-            where("following_id", "==", uid),
-            where("status", "==", "accepted"),
-          ),
-        ),
-        getCountFromServer(
-          query(
-            collection(db, "follows"),
-            where("follower_id", "==", uid),
-            where("status", "==", "accepted"),
-          ),
-        ),
+        firestore()
+          .collection("posts")
+          .where("user_id", "==", uid)
+          .count()
+          .get(),
+        firestore()
+          .collection("follows")
+          .where("following_id", "==", uid)
+          .where("status", "==", "accepted")
+          .count()
+          .get(),
+        firestore()
+          .collection("follows")
+          .where("follower_id", "==", uid)
+          .where("status", "==", "accepted")
+          .count()
+          .get(),
       ]);
       return {
         posts: p.data().count,
@@ -259,9 +237,10 @@ export default function UserProfileScreen() {
     queryKey: ["user-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(collection(db, "posts"), where("user_id", "==", target!.id)),
-      );
+      const snap = await firestore()
+        .collection("posts")
+        .where("user_id", "==", target!.id)
+        .get();
       return snap.docs.map((d) => {
         const x = d.data() as any;
         return {
@@ -284,20 +263,18 @@ export default function UserProfileScreen() {
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
       if (followEdge) {
-        const snap = await getDocs(
-          query(
-            collection(db, "follows"),
-            where("follower_id", "==", user.uid),
-            where("following_id", "==", target.id),
-          ),
-        );
-        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+        const snap = await firestore()
+          .collection("follows")
+          .where("follower_id", "==", user.uid)
+          .where("following_id", "==", target.id)
+          .get();
+        await Promise.all(snap.docs.map((d) => d.ref.delete()));
         return { next: null };
       }
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
-      await addDoc(collection(db, "follows"), {
+      await firestore().collection("follows").add({
         follower_id: user.uid,
         following_id: target.id,
         status,
@@ -376,7 +353,7 @@ export default function UserProfileScreen() {
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-      await addDoc(collection(db, "user_blocks"), {
+      await firestore().collection("user_blocks").add({
         blocker_id: user.uid,
         blocked_id: target.id,
         created_at: new Date().toISOString(),
@@ -642,7 +619,6 @@ export default function UserProfileScreen() {
               </View>
             </View>
 
-            {/* ✅ Display name + Founder badge */}
             <View style={styles.nameRow}>
               <Text style={[styles.displayName, { color: colors.text }]}>
                 {target.full_name || target.username}
@@ -1169,14 +1145,12 @@ export default function UserProfileScreen() {
             onRemove={async () => {
               sheetRef.current?.close();
               if (!user?.uid || !target?.id || !followEdge) return;
-              const snap = await getDocs(
-                query(
-                  collection(db, "follows"),
-                  where("follower_id", "==", user.uid),
-                  where("following_id", "==", target.id),
-                ),
-              );
-              await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+              const snap = await firestore()
+                .collection("follows")
+                .where("follower_id", "==", user.uid)
+                .where("following_id", "==", target.id)
+                .get();
+              await Promise.all(snap.docs.map((d) => d.ref.delete()));
               qc.invalidateQueries({
                 queryKey: ["follow-edge", user.uid, target.id],
               });

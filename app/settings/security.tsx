@@ -1,18 +1,11 @@
-// app/settings/security.tsx — UPDATED ✅ 2FA linked
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useTwoFactorStatus } from "@/hooks/useTwoFactorAuth";
-import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import auth from "@react-native-firebase/auth";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  sendPasswordResetEmail,
-  updatePassword,
-} from "firebase/auth";
 import React, { useState } from "react";
 import {
   Alert,
@@ -42,6 +35,7 @@ export default function SecurityScreen() {
   });
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
 
   const handlePasswordUpdate = async () => {
     if (!passwordData.current) {
@@ -62,21 +56,27 @@ export default function SecurityScreen() {
     }
     setIsUpdatingPassword(true);
     try {
-      const currentUser = auth.currentUser;
+      const currentUser = auth().currentUser;
       if (!currentUser?.email) throw new Error("Not signed in");
+
+      const credential = auth.EmailAuthProvider.credential(
+        currentUser.email,
+        passwordData.current,
+      );
+
       try {
-        await reauthenticateWithCredential(
-          currentUser,
-          EmailAuthProvider.credential(currentUser.email, passwordData.current),
-        );
+        await currentUser.reauthenticateWithCredential(credential);
       } catch {
         Alert.alert("Error", "Current password incorrect");
         return;
       }
-      await updatePassword(currentUser, passwordData.next);
+
+      await currentUser.updatePassword(passwordData.next);
       setShowPasswordForm(false);
       setPasswordData({ current: "", next: "", confirm: "" });
       Alert.alert("Success", "Password updated");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to update password");
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -94,7 +94,7 @@ export default function SecurityScreen() {
             if (!email?.trim()) return;
             setIsResettingPassword(true);
             try {
-              await sendPasswordResetEmail(auth, email.trim());
+              await auth().sendPasswordResetEmail(email.trim());
               Alert.alert("Sent", "Check your email for the reset link");
             } catch (e: any) {
               Alert.alert("Error", e?.message ?? "Failed to send reset email");
@@ -109,7 +109,28 @@ export default function SecurityScreen() {
     );
   };
 
-  const verified = auth.currentUser?.emailVerified ?? false;
+  const handleSendVerificationEmail = async () => {
+    setIsSendingVerification(true);
+    try {
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        Alert.alert("Error", "Not signed in");
+        return;
+      }
+
+      await currentUser.sendEmailVerification();
+      Alert.alert(
+        "Verification Email Sent",
+        "Check your inbox and click the verification link. You may need to sign out and back in after verifying.",
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to send verification email");
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const verified = auth().currentUser?.emailVerified ?? false;
   const twoFactorEnabled = !!twoFactor?.enabled;
 
   const content = (
@@ -176,7 +197,6 @@ export default function SecurityScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: colors.card }]}>
-            {/* Email verification */}
             <View style={[styles.row, { borderBottomColor: colors.border }]}>
               <View
                 style={[
@@ -198,9 +218,17 @@ export default function SecurityScreen() {
                   {verified ? "Verified" : "Unverified"}
                 </Text>
               </View>
+              {!verified && (
+                <Button
+                  title="Send"
+                  variant="outline"
+                  onPress={handleSendVerificationEmail}
+                  loading={isSendingVerification}
+                  style={styles.smallBtn}
+                />
+              )}
             </View>
 
-            {/* ✅ 2FA — now links to real screen */}
             <TouchableOpacity
               style={[styles.row, { borderBottomColor: colors.border }]}
               onPress={() => router.push("/settings/two-factor" as any)}
@@ -242,7 +270,6 @@ export default function SecurityScreen() {
               />
             </TouchableOpacity>
 
-            {/* Change password */}
             <View style={[styles.row, { borderBottomWidth: 0 }]}>
               <View
                 style={[

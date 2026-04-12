@@ -1,25 +1,3 @@
-// app/(tabs)/explore.tsx — UPDATED ✅ content filters added
-// ✅ SafeAreaView edges include "top" — prevents camera punch-hole overlap
-// ✅ Full theme support via useTheme
-// ✅ Trending tab: real hashtags from Firestore via getTrendingHashtags()
-// ✅ Trending tab: Suggested Users section with live follow/unfollow per row
-// ✅ Trending tab: Discovery media grid — recent public posts with images/video
-// ✅ SuggestedUserRow uses useFollowActions(u.id) per row — correct hook pattern
-// ✅ Follow button shows "Follow" / "Requested" / "Following" based on live status
-// ✅ Private account follow sends "pending" status automatically
-// ✅ Account tab: search results include follow buttons (reuses SuggestedUserRow)
-// ✅ Recent searches: AsyncStorage-persisted, shown when bar focused + query empty
-// ✅ Recent searches: per-row delete + clear all; saved on submit/tab switch
-// ✅ Post tab: fixed searchPosts — no composite index bug (is_visible filtered in JS)
-// ✅ Community tab: search by name, slug, or description
-// ✅ Hashtag tab: filter local trending list while typing
-// ✅ All loading states use Skeleton components — no raw spinners
-// ✅ EmptyState component reused across all tabs
-// ✅ Keyboard dismissed on scroll (KeyboardAwareBehavior via scrollView.onScrollBeginDrag)
-// ✅ Back button: router.canGoBack() with /(tabs)/home fallback
-// ✅ Linear gradient background (light mode only, dark stays flat)
-// ✅ Content filters: media type (All/Images/Videos/GIFs) + safety (Safe/All)
-
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import {
@@ -27,8 +5,12 @@ import {
   PostSearchSkeleton,
   SearchRowSkeleton,
 } from "@/components/Skeleton";
+import UserActionsSheet, {
+  type UserActionsSheetRef,
+} from "@/components/UserActionsSheet";
 import { useAuth } from "@/hooks/useAuth";
 import { useFollowActions, useFollowStatus } from "@/hooks/useFollowActions";
+import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import {
   fetchDiscoveryPosts,
   fetchSuggestedUsers,
@@ -41,8 +23,11 @@ import {
   getTrendingHashtags,
   type TrendingHashtag,
 } from "@/lib/firestore/hashtags";
+import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, {
@@ -54,6 +39,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Keyboard,
@@ -71,20 +57,12 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-/* =========================
-   CONSTANTS
-========================= */
-
 const SCREEN_W = Dimensions.get("window").width;
 const GRID_H_PAD = 36;
 const GRID_GAP = 2;
 const GRID_COLS = 3;
 const GRID_CELL =
   (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
-
-/* =========================
-   TYPES
-========================= */
 
 type ExploreCategory =
   | "trending"
@@ -95,10 +73,6 @@ type ExploreCategory =
 
 type MediaFilter = "all" | "images" | "videos" | "gifs";
 type SafetyFilter = "safe" | "all";
-
-/* =========================
-   MEDIA TYPE HELPERS
-========================= */
 
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
@@ -118,10 +92,6 @@ const isGifUrl = (url?: string | null) => {
   if (!url) return false;
   return url.split("?")[0].toLowerCase().endsWith(".gif");
 };
-
-/* =========================
-   FILTER MODAL
-========================= */
 
 function FilterModal({
   visible,
@@ -183,14 +153,12 @@ function FilterModal({
         onPress={onClose}
       />
       <View style={[fStyles.sheet, { backgroundColor: colors.card }]}>
-        {/* Handle */}
         <View style={[fStyles.handle, { backgroundColor: colors.border }]} />
 
         <Text style={[fStyles.title, { color: colors.text }]}>
           Search Filters
         </Text>
 
-        {/* Media type */}
         <Text style={[fStyles.sectionLabel, { color: colors.textTertiary }]}>
           Media type
         </Text>
@@ -228,7 +196,6 @@ function FilterModal({
           })}
         </View>
 
-        {/* Safety */}
         <Text
           style={[
             fStyles.sectionLabel,
@@ -362,11 +329,6 @@ const fStyles = StyleSheet.create({
   doneBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 });
 
-/* =========================
-   ACTIVE FILTER CHIPS
-   Shows compact chips when non-default filters are active
-========================= */
-
 function ActiveFilterChips({
   mediaFilter,
   safetyFilter,
@@ -435,20 +397,18 @@ const chipStyles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: "700" },
 });
 
-/* =========================
-   SUGGESTED / ACCOUNT RESULT ROW
-========================= */
-
 function SuggestedUserRow({
   user: u,
   idx,
   colors,
   showBorder = true,
+  onOpenMenu,
 }: {
   user: SuggestedUser;
   idx: number;
   colors: any;
   showBorder?: boolean;
+  onOpenMenu?: () => void;
 }) {
   const { follow, unfollow, isFollowingBusy } = useFollowActions(
     u.id,
@@ -510,46 +470,64 @@ function SuggestedUserRow({
         </View>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        onPress={() => (isFollowing ? unfollow() : follow())}
-        disabled={isFollowingBusy}
-        activeOpacity={0.85}
-        style={[
-          styles.followBtn,
-          {
-            backgroundColor: isFollowing ? colors.surface : colors.primary,
-            borderColor: isFollowing ? colors.border : colors.primary,
-            opacity: isFollowingBusy ? 0.6 : 1,
-          },
-        ]}
-      >
-        {isFollowingBusy ? (
-          <ActivityIndicator
-            size={12}
-            color={isFollowing ? colors.text : "#fff"}
-          />
-        ) : (
-          <Text
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <TouchableOpacity
+          onPress={() => (isFollowing ? unfollow() : follow())}
+          disabled={isFollowingBusy}
+          activeOpacity={0.85}
+          style={[
+            styles.followBtn,
+            {
+              backgroundColor: isFollowing ? colors.surface : colors.primary,
+              borderColor: isFollowing ? colors.border : colors.primary,
+              opacity: isFollowingBusy ? 0.6 : 1,
+            },
+          ]}
+        >
+          {isFollowingBusy ? (
+            <ActivityIndicator
+              size={12}
+              color={isFollowing ? colors.text : "#fff"}
+            />
+          ) : (
+            <Text
+              style={[
+                styles.followBtnText,
+                { color: isFollowing ? colors.text : "#fff" },
+              ]}
+            >
+              {status === "pending"
+                ? "Requested"
+                : isFollowing
+                  ? "Following"
+                  : "Follow"}
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        {onOpenMenu && (
+          <TouchableOpacity
+            onPress={onOpenMenu}
+            activeOpacity={0.85}
             style={[
-              styles.followBtnText,
-              { color: isFollowing ? colors.text : "#fff" },
+              styles.menuBtn,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+              },
             ]}
           >
-            {status === "pending"
-              ? "Requested"
-              : isFollowing
-                ? "Following"
-                : "Follow"}
-          </Text>
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={16}
+              color={colors.text}
+            />
+          </TouchableOpacity>
         )}
-      </TouchableOpacity>
+      </View>
     </View>
   );
 }
-
-/* =========================
-   DISCOVERY GRID CELL
-========================= */
 
 function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
   return (
@@ -574,10 +552,6 @@ function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
     </TouchableOpacity>
   );
 }
-
-/* =========================
-   DISCOVERY GRID
-========================= */
 
 function DiscoveryGrid({
   posts,
@@ -615,10 +589,6 @@ function DiscoveryGrid({
   );
 }
 
-/* =========================
-   GRID SKELETON
-========================= */
-
 function GridSkeleton({ colors }: { colors: any }) {
   return (
     <View style={styles.gridWrap}>
@@ -642,10 +612,6 @@ function GridSkeleton({ colors }: { colors: any }) {
     </View>
   );
 }
-
-/* =========================
-   EMPTY STATE
-========================= */
 
 function EmptyState({
   icon,
@@ -672,10 +638,6 @@ function EmptyState({
     </View>
   );
 }
-
-/* =========================
-   RECENT SEARCHES PANEL
-========================= */
 
 function RecentSearchesPanel({
   recents,
@@ -758,24 +720,23 @@ function RecentSearchesPanel({
   );
 }
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
+  const qc = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeCategory, setActiveCategory] =
     useState<ExploreCategory>("trending");
 
-  // ✅ Filter state
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>("safe");
   const [showFilterModal, setShowFilterModal] = useState(false);
+
+  const [selectedUser, setSelectedUser] = useState<SuggestedUser | null>(null);
+  const actionsSheetRef = useRef<UserActionsSheetRef>(null);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -794,6 +755,27 @@ export default function ExploreScreen() {
     remove: removeRecent,
     clear: clearRecents,
   } = useRecentSearches();
+
+  const { data: isMuted } = useMuteStatus(selectedUser?.id ?? "");
+  const muteMutation = useToggleMute(selectedUser?.id ?? "");
+
+  const blockMutation = useMutation({
+    mutationFn: async (targetId: string) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      await firestore().collection("user_blocks").add({
+        blocker_id: user.uid,
+        blocked_id: targetId,
+        created_at: new Date().toISOString(),
+      });
+      return targetId;
+    },
+    onSuccess: (targetId) => {
+      invalidateAfterBlock(qc, user!.uid, targetId);
+      setSelectedUser(null);
+      actionsSheetRef.current?.close();
+    },
+    onError: (err) => Alert.alert("Error", String(err)),
+  });
 
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "trending", label: "Trending" },
@@ -844,7 +826,6 @@ export default function ExploreScreen() {
     [searchQuery, addRecent],
   );
 
-  // Count active non-default filters for the badge
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (mediaFilter !== "all") count++;
@@ -876,14 +857,11 @@ export default function ExploreScreen() {
       .finally(() => setDiscoveryLoading(false));
   }, []);
 
-  // ✅ Apply filters to discovery posts
   const filteredDiscoveryPosts = useMemo(() => {
     let posts = discoveryPosts;
-    // Safety filter — hide NSFW posts if safe mode
     if (safetyFilter === "safe") {
       posts = posts.filter((p) => !(p as any).is_nsfw);
     }
-    // Media type filter
     if (mediaFilter === "videos") {
       posts = posts.filter((p) => p.is_video || isVideoUrl(p.media_url));
     } else if (mediaFilter === "images") {
@@ -917,7 +895,6 @@ export default function ExploreScreen() {
   const posts = (data as any)?.posts ?? [];
   const communities = (data as any)?.communities ?? [];
 
-  // ✅ Apply safety filter to post search results
   const filteredPosts = useMemo(() => {
     let p = posts;
     if (safetyFilter === "safe") p = p.filter((post: any) => !post.is_nsfw);
@@ -945,7 +922,6 @@ export default function ExploreScreen() {
   const showRecents =
     isSearchFocused && !searchQuery.trim() && recents.length > 0;
 
-  // Tabs that support filters
   const filtersApplicable =
     activeCategory === "trending" || activeCategory === "post";
 
@@ -963,7 +939,6 @@ export default function ExploreScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-          {/* Header */}
           <AppHeader
             backgroundColor="transparent"
             title=""
@@ -1035,7 +1010,6 @@ export default function ExploreScreen() {
                   )}
                 </View>
 
-                {/* ✅ Filter button */}
                 <TouchableOpacity
                   style={[
                     styles.filterBtn,
@@ -1065,7 +1039,6 @@ export default function ExploreScreen() {
             }
           />
 
-          {/* Category segments */}
           <View
             style={[
               styles.segmentWrap,
@@ -1108,7 +1081,6 @@ export default function ExploreScreen() {
             </ScrollView>
           </View>
 
-          {/* ✅ Active filter chips */}
           {filtersApplicable && activeFilterCount > 0 && (
             <ActiveFilterChips
               mediaFilter={mediaFilter}
@@ -1119,7 +1091,6 @@ export default function ExploreScreen() {
             />
           )}
 
-          {/* Recent searches panel */}
           {showRecents && (
             <View style={[styles.recentOverlay, { paddingHorizontal: 18 }]}>
               <RecentSearchesPanel
@@ -1133,7 +1104,6 @@ export default function ExploreScreen() {
             </View>
           )}
 
-          {/* Main content */}
           <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -1143,7 +1113,6 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* ===== TRENDING TAB ===== */}
             {activeCategory === "trending" && (
               <>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -1303,6 +1272,10 @@ export default function ExploreScreen() {
                         user={u}
                         idx={idx}
                         colors={colors}
+                        onOpenMenu={() => {
+                          setSelectedUser(u);
+                          actionsSheetRef.current?.snapToIndex(0);
+                        }}
                       />
                     ))}
                   </View>
@@ -1335,7 +1308,6 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== ACCOUNT TAB ===== */}
             {activeCategory === "account" && (
               <>
                 {isSearching && !isIdle ? (
@@ -1396,6 +1368,17 @@ export default function ExploreScreen() {
                         }}
                         idx={idx}
                         colors={colors}
+                        onOpenMenu={() => {
+                          setSelectedUser({
+                            id: a.id,
+                            username: a.username,
+                            full_name: a.full_name,
+                            avatar_url: a.avatar_url,
+                            follower_count: a.follower_count ?? 0,
+                            is_private: !!a.is_private,
+                          });
+                          actionsSheetRef.current?.snapToIndex(0);
+                        }}
                       />
                     ))}
                   </View>
@@ -1410,7 +1393,6 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== POST TAB ===== */}
             {activeCategory === "post" && (
               <>
                 {isSearching && !isIdle ? (
@@ -1450,7 +1432,6 @@ export default function ExploreScreen() {
                           ]}
                           onPress={() => router.push(`/post/${p.id}`)}
                         >
-                          {/* NSFW badge */}
                           {p.is_nsfw && (
                             <View
                               style={[
@@ -1622,7 +1603,6 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== COMMUNITY TAB ===== */}
             {activeCategory === "community" && (
               <>
                 {isSearching && !isIdle ? (
@@ -1741,7 +1721,6 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* ===== HASHTAG TAB ===== */}
             {activeCategory === "hashtag" && (
               <>
                 {trendingLoading ? (
@@ -1853,7 +1832,6 @@ export default function ExploreScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      {/* ✅ Filter modal */}
       <FilterModal
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
@@ -1864,13 +1842,40 @@ export default function ExploreScreen() {
         colors={colors}
         isDark={isDark}
       />
+
+      {selectedUser && (
+        <UserActionsSheet
+          ref={actionsSheetRef}
+          username={selectedUser.username || "user"}
+          isMuted={!!isMuted}
+          onMute={() => {
+            actionsSheetRef.current?.close();
+            muteMutation.mutate(!!isMuted);
+          }}
+          onBlock={() => {
+            actionsSheetRef.current?.close();
+            Alert.alert(
+              "Block user?",
+              `You won't see @${selectedUser.username} and they won't see you.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Block",
+                  style: "destructive",
+                  onPress: () => blockMutation.mutate(selectedUser.id),
+                },
+              ],
+            );
+          }}
+          onReport={() => {
+            actionsSheetRef.current?.close();
+            Alert.alert("Report", "Thank you — we'll review this account.");
+          }}
+        />
+      )}
     </>
   );
 }
-
-/* =========================
-   STYLES
-========================= */
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
@@ -1917,7 +1922,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // ✅ Filter button
   filterBtn: {
     width: 44,
     height: 44,
@@ -1943,7 +1947,6 @@ const styles = StyleSheet.create({
   },
   filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
 
-  segmentScroll: { marginHorizontal: 18, marginBottom: 0 },
   segmentScrollContent: { flexDirection: "row", gap: 6, padding: 6 },
   segmentWrap: {
     marginHorizontal: 18,
@@ -2078,7 +2081,15 @@ const styles = StyleSheet.create({
   },
   followBtnText: { fontSize: 13, fontWeight: "900" },
 
-  // ✅ NSFW badge
+  menuBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+
   nsfwBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: 8,
@@ -2228,5 +2239,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: "center",
   },
-  emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+  emptySubtitle: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+  },
 });
