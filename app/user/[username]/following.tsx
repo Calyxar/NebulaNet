@@ -1,21 +1,13 @@
-// app/user/[username]/following.tsx — FIXED ✅
-// ✅ FIXED: user?.id → user?.uid (Firebase auth uses uid not id)
+// app/user/[username]/following.tsx — React Native Firebase ✅
+// ✅ FIXED: Migrated from web SDK to React Native Firebase
+// ✅ FIXED: Added headerShown: false to prevent duplicate "user" header
 
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  where,
-} from "firebase/firestore";
 import React, { useMemo } from "react";
 import {
   FlatList,
@@ -63,13 +55,12 @@ export default function UserFollowingScreen() {
     queryKey: ["user-profile-lite", username],
     enabled: !!username,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "profiles"),
-          where("username", "==", username),
-          limit(1),
-        ),
-      );
+      const snap = await firestore()
+        .collection("profiles")
+        .where("username", "==", username)
+        .limit(1)
+        .get();
+
       if (snap.empty) return null;
       const d = snap.docs[0].data() as any;
       return {
@@ -82,7 +73,6 @@ export default function UserFollowingScreen() {
     },
   });
 
-  // ✅ FIXED: user?.uid not user?.id
   const isMe = useMemo(
     () => !!target?.id && target.id === user?.uid,
     [target?.id, user?.uid],
@@ -92,13 +82,12 @@ export default function UserFollowingScreen() {
     queryKey: ["follow-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", user!.uid),
-          where("following_id", "==", target!.id),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", user!.uid)
+        .where("following_id", "==", target!.id)
+        .get();
+
       if (snap.empty) return null;
       const d = snap.docs[0].data() as any;
       return {
@@ -127,18 +116,21 @@ export default function UserFollowingScreen() {
     queryKey: ["user-following", target?.id],
     enabled: !!target?.id && canViewProfile,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", target!.id),
-          where("status", "==", "accepted"),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", target!.id)
+        .where("status", "==", "accepted")
+        .get();
+
       const profiles = await Promise.all(
         snap.docs.map(async (d) => {
           const followingId = (d.data() as any).following_id;
-          const pSnap = await getDoc(doc(db, "profiles", followingId));
-          if (!pSnap.exists()) return null;
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(followingId)
+            .get();
+
+          if (!pSnap.exists) return null;
           const pd = pSnap.data() as any;
           return {
             id: pSnap.id,
@@ -326,6 +318,11 @@ export default function UserFollowingScreen() {
     </SafeAreaView>
   );
 }
+
+// ✅ FIXED: Hide Expo Router's default header to prevent duplicate
+export const options = {
+  headerShown: false,
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

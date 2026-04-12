@@ -1,27 +1,12 @@
-// hooks/useNotifications.ts — FIXED ✅
-// ✅ FIXED: "read" → "is_read" everywhere (was mismatched with Firestore docs)
-// ✅ FIXED: unreadCount derived from is_read field
-// ✅ FIXED: markAsRead uses is_read
-// ✅ rest unchanged
+// hooks/useNotifications.ts — React Native Firebase ✅
+// ✅ FIXED: Migrated from web SDK to React Native Firebase
+// ✅ FIXED: All queries, listeners, and mutations use React Native Firebase
 
-import { auth, db } from "@/lib/firebase";
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Audio } from "expo-av";
 import * as Notifications from "expo-notifications";
-import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  Timestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 
@@ -47,7 +32,7 @@ export interface Notification {
   community_id?: string;
   story_id?: string;
   conversation_id?: string;
-  is_read: boolean; // ✅ FIXED: was "read"
+  is_read: boolean;
   created_at: string;
   sender: {
     id: string;
@@ -63,7 +48,7 @@ export interface Notification {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts?.toDate) return ts.toDate().toISOString();
   return new Date(ts).toISOString();
 }
 
@@ -130,28 +115,24 @@ export function useNotifications() {
     init();
   }, []);
 
-  // ✅ FIXED: query uses is_read field
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) return [];
 
-      const snap = await getDocs(
-        query(
-          collection(db, "notifications"),
-          where("receiver_id", "==", user.uid),
-          orderBy("created_at_ts", "desc"),
-          limit(50),
-        ),
-      );
+      const snap = await firestore()
+        .collection("notifications")
+        .where("receiver_id", "==", user.uid)
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
+        .get();
 
       return snap.docs.map((d) => {
         const data = d.data() as any;
         return {
           id: d.id,
           ...data,
-          // ✅ normalize both field names in case old docs exist
           is_read: data.is_read ?? data.read ?? false,
           created_at: tsToIso(data.created_at_ts ?? data.created_at),
         } as Notification;
@@ -161,7 +142,6 @@ export function useNotifications() {
     refetchOnWindowFocus: true,
   });
 
-  // ✅ FIXED: unreadCount uses is_read
   const unreadCount = (notificationsQuery.data ?? []).filter(
     (n) => !n.is_read,
   ).length;
@@ -169,50 +149,48 @@ export function useNotifications() {
   useEffect(() => {
     let unsubSnapshot: (() => void) | null = null;
 
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = auth().onAuthStateChanged((user) => {
       unsubSnapshot?.();
       unsubSnapshot = null;
       initialisedRef.current = false;
 
       if (!user) return;
 
-      const q = query(
-        collection(db, "notifications"),
-        where("receiver_id", "==", user.uid),
-        orderBy("created_at_ts", "desc"),
-        limit(1),
-      );
-
-      unsubSnapshot = onSnapshot(q, (snap) => {
-        if (!initialisedRef.current) {
-          initialisedRef.current = true;
-          return;
-        }
-
-        snap.docChanges().forEach(async (change) => {
-          if (change.type === "added") {
-            const data = change.doc.data() as any;
-            const notification: Notification = {
-              id: change.doc.id,
-              ...data,
-              is_read: data.is_read ?? data.read ?? false,
-              created_at: tsToIso(data.created_at_ts ?? data.created_at),
-            };
-
-            await showLocalNotification(
-              getNotificationTitle(notification),
-              getNotificationBody(notification),
-              { notificationId: notification.id, type: notification.type },
-            );
-
-            queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      unsubSnapshot = firestore()
+        .collection("notifications")
+        .where("receiver_id", "==", user.uid)
+        .orderBy("created_at_ts", "desc")
+        .limit(1)
+        .onSnapshot((snap) => {
+          if (!initialisedRef.current) {
+            initialisedRef.current = true;
+            return;
           }
 
-          if (change.type === "modified" || change.type === "removed") {
-            queryClient.invalidateQueries({ queryKey: ["notifications"] });
-          }
+          snap.docChanges().forEach(async (change) => {
+            if (change.type === "added") {
+              const data = change.doc.data() as any;
+              const notification: Notification = {
+                id: change.doc.id,
+                ...data,
+                is_read: data.is_read ?? data.read ?? false,
+                created_at: tsToIso(data.created_at_ts ?? data.created_at),
+              };
+
+              await showLocalNotification(
+                getNotificationTitle(notification),
+                getNotificationBody(notification),
+                { notificationId: notification.id, type: notification.type },
+              );
+
+              queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            }
+
+            if (change.type === "modified" || change.type === "removed") {
+              queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            }
+          });
         });
-      });
     });
 
     return () => {
@@ -221,27 +199,30 @@ export function useNotifications() {
     };
   }, [queryClient, showLocalNotification]);
 
-  // ✅ FIXED: markAsRead writes is_read not read
   const markAsRead = useMutation({
     mutationFn: async (notificationId?: string) => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
 
       if (notificationId) {
-        await updateDoc(doc(db, "notifications", notificationId), {
-          is_read: true,
-        });
+        await firestore()
+          .collection("notifications")
+          .doc(notificationId)
+          .update({
+            is_read: true,
+          });
       } else {
-        const snap = await getDocs(
-          query(
-            collection(db, "notifications"),
-            where("receiver_id", "==", user.uid),
-            where("is_read", "==", false),
-          ),
-        );
-        await Promise.all(
-          snap.docs.map((d) => updateDoc(d.ref, { is_read: true })),
-        );
+        const snap = await firestore()
+          .collection("notifications")
+          .where("receiver_id", "==", user.uid)
+          .where("is_read", "==", false)
+          .get();
+
+        const batch = firestore().batch();
+        snap.docs.forEach((doc) => {
+          batch.update(doc.ref, { is_read: true });
+        });
+        await batch.commit();
       }
     },
     onSuccess: () => {
@@ -252,7 +233,10 @@ export function useNotifications() {
 
   const deleteNotification = useMutation({
     mutationFn: async (notificationId: string) => {
-      await deleteDoc(doc(db, "notifications", notificationId));
+      await firestore()
+        .collection("notifications")
+        .doc(notificationId)
+        .delete();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -261,16 +245,20 @@ export function useNotifications() {
 
   const clearAllNotifications = useMutation({
     mutationFn: async () => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(
-        query(
-          collection(db, "notifications"),
-          where("receiver_id", "==", user.uid),
-          limit(200),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+
+      const snap = await firestore()
+        .collection("notifications")
+        .where("receiver_id", "==", user.uid)
+        .limit(200)
+        .get();
+
+      const batch = firestore().batch();
+      snap.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });

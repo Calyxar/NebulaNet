@@ -1342,3 +1342,8 @@ const styles = StyleSheet.create({
   emptyDescription: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   skel: { backgroundColor: "#E5E7EB" },
 });
+
+// ✅ FIXED: Hide Expo Router's default header to prevent duplicate 'user' header
+export const options = {
+  headerShown: false,
+};

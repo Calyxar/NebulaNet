@@ -1,10 +1,14 @@
-// app/(tabs)/home.tsx — UPDATED ✅ AdMob banner ads in feed, interstitial on post open
+// app/(tabs)/home.tsx — UPDATED ✅
+// ✅ FIXED: Added skeleton loading states
+// ✅ FIXED: Added NSFW/spoiler content filtering based on user preferences
 // ✅ FIXED: Heart turns red when liked, Bookmark turns colored when saved
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
 import StoryAvatar from "@/components/StoryAvatar";
 import { BANNER_AD_UNIT_ID, useInterstitialAd } from "@/hooks/useAdMob";
+import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useFeedDensity, useInfiniteFeedPosts } from "@/hooks/usePosts";
@@ -13,6 +17,8 @@ import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount
 import type { Post } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
   Bell,
@@ -37,6 +43,13 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -74,6 +87,83 @@ const isVideoPost = (post: any) => {
   if (post?.post_type === "mixed") return true;
   return isVideoUrl(post?.media_urls?.[0]);
 };
+
+// ✅ NEW: Check if post contains NSFW/spoiler hashtags
+const hasNSFWContent = (post: Post): boolean => {
+  const content = (post.content || "").toLowerCase();
+  const title = (post.title || "").toLowerCase();
+  const combined = `${content} ${title}`;
+  return (
+    combined.includes("#nsfw") ||
+    combined.includes("#spoiler") ||
+    combined.includes("# nsfw") ||
+    combined.includes("# spoiler")
+  );
+};
+
+// ✅ NEW: Animated skeleton component
+function SkeletonBox({ style }: { style: any }) {
+  const opacity = useSharedValue(0.3);
+
+  React.useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.7, { duration: 800 }),
+        withTiming(0.3, { duration: 800 })
+      ),
+      -1,
+      false
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        { backgroundColor: "#E5E7EB", borderRadius: 8 },
+        style,
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+// ✅ NEW: Skeleton post card
+function SkeletonPost({ colors, isDark, feedDensity }: any) {
+  const padding =
+    feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
+
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          shadowOpacity: isDark ? 0.22 : 0.05,
+          padding,
+          marginBottom:
+            feedDensity === "compact" ? 6 : feedDensity === "relaxed" ? 18 : 12,
+        },
+      ]}
+    >
+      <View style={styles.cardTop}>
+        <View style={styles.authorRow}>
+          <SkeletonBox style={{ width: 40, height: 40, borderRadius: 20 }} />
+          <View style={{ flex: 1 }}>
+            <SkeletonBox style={{ width: "40%", height: 12, marginBottom: 6 }} />
+            <SkeletonBox style={{ width: "25%", height: 10 }} />
+          </View>
+        </View>
+      </View>
+      <SkeletonBox style={{ width: "90%", height: 14, marginBottom: 8 }} />
+      <SkeletonBox style={{ width: "75%", height: 14, marginBottom: 12 }} />
+      <SkeletonBox style={{ width: "100%", height: 200, borderRadius: 18 }} />
+    </View>
+  );
+}
 
 function FeedBannerAd({ colors }: { colors: any }) {
   return (
@@ -114,6 +204,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
   const { maybeShowInterstitial } = useInterstitialAd();
   const feedDensity = useFeedDensity();
 
@@ -134,6 +225,22 @@ export default function HomeScreen() {
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
 
+  // ✅ NEW: Fetch user preferences for NSFW filtering
+  const { data: userPrefs } = useQuery({
+    queryKey: ["user-preferences", user?.uid],
+    enabled: !!user?.uid,
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const doc = await firestore()
+        .collection("user_preferences")
+        .doc(user.uid)
+        .get();
+      return doc.exists() ? (doc.data() as any) : null;
+    },
+  });
+
+  const showNSFW = userPrefs?.show_nsfw ?? false;
+
   const {
     data,
     fetchNextPage,
@@ -149,16 +256,22 @@ export default function HomeScreen() {
     [data],
   );
 
+  // ✅ NEW: Filter NSFW/spoiler content based on user preferences
+  const filteredPosts = useMemo(() => {
+    if (showNSFW) return posts;
+    return posts.filter((post) => !hasNSFWContent(post));
+  }, [posts, showNSFW]);
+
   const feedItems = useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
-    posts.forEach((post, i) => {
+    filteredPosts.forEach((post, i) => {
       items.push(post);
       if ((i + 1) % AD_EVERY_N_POSTS === 0) {
         items.push({ __type: "ad", id: `ad_${i}` });
       }
     });
     return items;
-  }, [posts]);
+  }, [filteredPosts]);
 
   const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
     useFeedInteractions();
@@ -468,7 +581,6 @@ export default function HomeScreen() {
       const video = isVideoPost(post);
       const isPoll = post.post_type === "poll" && !!(post as any).poll;
 
-      // ✅ FIXED: derive color states from post data
       const liked = !!post.is_liked;
       const saved = !!post.is_saved;
       const likeColor = liked ? "#FF375F" : colors.text;
@@ -627,7 +739,6 @@ export default function HomeScreen() {
           )}
 
           <View style={[styles.actions, { borderTopColor: colors.border }]}>
-            {/* ✅ FIXED: Heart turns red when liked */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -647,7 +758,6 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Comment — navigates to post */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -662,7 +772,6 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Share — navigates to post */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -677,7 +786,6 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* ✅ FIXED: Bookmark turns colored when saved */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -708,12 +816,21 @@ export default function HomeScreen() {
     ],
   );
 
+  // ✅ NEW: Show skeleton loading
   if (isLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        {Header}
+        <View style={{ paddingTop: 8 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <SkeletonPost
+              key={i}
+              colors={colors}
+              isDark={isDark}
+              feedDensity={feedDensity}
+            />
+          ))}
         </View>
       </SafeAreaView>
     );
