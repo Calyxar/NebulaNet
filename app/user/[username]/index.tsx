@@ -7,6 +7,7 @@ import { shareProfileLink } from "@/lib/shareProfile";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
@@ -375,6 +376,13 @@ export default function UserProfileScreen() {
         fullName: target?.full_name ?? null,
       });
     } catch {}
+  };
+
+  const handleCopyProfileLink = async () => {
+    const link = `https://nebulanet.space/user/${target?.username ?? username}`;
+    await Clipboard.setStringAsync(link);
+    sheetRef.current?.close();
+    Alert.alert("Copied", "Profile link copied to clipboard");
   };
 
   const canMessage = !isBlocked && (!isPrivate || isFollowing);
@@ -1138,24 +1146,32 @@ export default function UserProfileScreen() {
             username={target.username}
             isMuted={!!isMuted}
             onMessage={canMessage ? handleMessage : undefined}
+            onCopyLink={handleCopyProfileLink}
+            onShare={handleShareProfile}
             onMute={() => {
               sheetRef.current?.close();
               muteMutation.mutate(!!isMuted);
             }}
-            onRemove={async () => {
-              sheetRef.current?.close();
-              if (!user?.uid || !target?.id || !followEdge) return;
-              const snap = await firestore()
-                .collection("follows")
-                .where("follower_id", "==", user.uid)
-                .where("following_id", "==", target.id)
-                .get();
-              await Promise.all(snap.docs.map((d) => d.ref.delete()));
-              qc.invalidateQueries({
-                queryKey: ["follow-edge", user.uid, target.id],
-              });
-              qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
-            }}
+            onRemove={
+              isFollowing || isRequested
+                ? async () => {
+                    sheetRef.current?.close();
+                    if (!user?.uid || !target?.id || !followEdge) return;
+                    const snap = await firestore()
+                      .collection("follows")
+                      .where("follower_id", "==", user.uid)
+                      .where("following_id", "==", target.id)
+                      .get();
+                    await Promise.all(snap.docs.map((d) => d.ref.delete()));
+                    qc.invalidateQueries({
+                      queryKey: ["follow-edge", user.uid, target.id],
+                    });
+                    qc.invalidateQueries({
+                      queryKey: ["user-stats", target.id],
+                    });
+                  }
+                : undefined
+            }
             onBlock={() => {
               sheetRef.current?.close();
               Alert.alert(

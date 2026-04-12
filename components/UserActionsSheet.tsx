@@ -1,7 +1,4 @@
-// components/UserActionsSheet.tsx — UPDATED ✅
-// ✅ ADDED: Mute option (mutes user's posts from feed)
-// ✅ ADDED: Message option (start chat from profile)
-// ✅ Twitter-style action list: Message, Mute, Block, Remove follower
+// components/UserActionsSheet.tsx — UPDATED WITH COPY & SHARE ✅
 
 import { Ionicons } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
@@ -15,6 +12,12 @@ type Props = {
 
   /** Message action */
   onMessage?: () => void;
+
+  /** Copy profile link */
+  onCopyLink?: () => void;
+
+  /** Share profile */
+  onShare?: () => void;
 
   /** Mute action */
   onMute?: () => void;
@@ -38,6 +41,8 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     {
       username,
       onMessage,
+      onCopyLink,
+      onShare,
       onMute,
       isMuted = false,
       removeLabel = "Remove follower",
@@ -49,7 +54,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     },
     ref,
   ) => {
-    const snapPoints = useMemo(() => ["38%"], []);
+    const snapPoints = useMemo(() => ["48%"], []);
 
     const renderBackdrop = useCallback(
       (props: any) => (
@@ -89,6 +94,34 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
                 <Ionicons name="chatbubble-outline" size={18} color="#7C3AED" />
               </View>
               <Text style={styles.itemText}>Message @{username}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Copy Link */}
+          {!!onCopyLink && (
+            <TouchableOpacity
+              style={styles.item}
+              activeOpacity={0.85}
+              onPress={onCopyLink}
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons name="link-outline" size={18} color="#7C3AED" />
+              </View>
+              <Text style={styles.itemText}>Copy profile link</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Share */}
+          {!!onShare && (
+            <TouchableOpacity
+              style={styles.item}
+              activeOpacity={0.85}
+              onPress={onShare}
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons name="share-outline" size={18} color="#7C3AED" />
+              </View>
+              <Text style={styles.itemText}>Share profile</Text>
             </TouchableOpacity>
           )}
 
