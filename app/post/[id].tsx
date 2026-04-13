@@ -1,13 +1,14 @@
-// app/post/[id].tsx — UPDATED ✅ LinearGradient + edges fix + dark mode + bottom safe area fix + MediaGallery
-import { PostCardSkeleton } from "@/components/Skeleton";
+// app/post/[id].tsx — WITH CUSTOM REPOST & SHARE SHEETS ✅
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
+import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
+import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
+import { PostCardSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import {
   useAddComment,
   useComments,
-  useIncrementShareCount,
   usePost,
   useToggleBookmark,
   useToggleCommentLike,
@@ -15,14 +16,14 @@ import {
   type CommentWithAuthor,
 } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
-import { sharePost } from "@/lib/share";
+import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -114,13 +115,16 @@ export default function PostDetailScreen() {
   );
   const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
-  // ✅ FIXED: get bottom inset to lift comment bar above phone controls
   const { bottom: bottomInset } = useSafeAreaInsets();
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isReposted, setIsReposted] = useState(false);
+
   const commentInputRef = useRef<TextInput>(null);
+  const repostSheetRef = useRef<RepostSheetRef>(null);
+  const shareSheetRef = useRef<ShareSheetRef>(null);
 
   const {
     data: post,
@@ -134,7 +138,6 @@ export default function PostDetailScreen() {
   const toggleBookmarkMutation = useToggleBookmark();
   const addCommentMutation = useAddComment();
   const toggleCommentLikeMutation = useToggleCommentLike();
-  const incrementShareCountMutation = useIncrementShareCount();
 
   const displayedComments = useMemo(
     () => (showAllComments ? comments : comments.slice(0, 3)),
@@ -154,6 +157,13 @@ export default function PostDetailScreen() {
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
+
+  // Load repost status
+  useEffect(() => {
+    if (post?.id) {
+      getRepostStatus(post.id).then(setIsReposted);
+    }
+  }, [post?.id]);
 
   const handleLike = async () => {
     if (!post) return;
@@ -179,25 +189,23 @@ export default function PostDetailScreen() {
     }
   };
 
-  const handleShare = async () => {
+  const handleRepost = async () => {
     if (!post) return;
     try {
-      await sharePost({
-        id: post.id,
-        title: post.title ?? undefined,
-        content: post.content,
-        author: {
-          username: post.user?.username ?? "unknown",
-          name: post.user?.full_name ?? post.user?.username ?? "Unknown",
-        },
-        community: post.community
-          ? { name: post.community.name, slug: post.community.slug }
-          : undefined,
-      });
-      await incrementShareCountMutation.mutateAsync(post.id);
-    } catch (e) {
-      console.warn("share failed", e);
+      const newStatus = await toggleRepost(post.id, isReposted);
+      setIsReposted(newStatus);
+    } catch {
+      Alert.alert("Error", "Failed to repost");
     }
+  };
+
+  const handleQuoteRepost = () => {
+    if (!post) return;
+    router.push(`/post/create?quote=${post.id}` as any);
+  };
+
+  const handleShare = () => {
+    shareSheetRef.current?.snapToIndex(0);
   };
 
   const handlePostComment = async () => {
@@ -429,7 +437,7 @@ export default function PostDetailScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* ── Post card ── */}
+            {/* Post card */}
             <View
               style={[
                 styles.postCard,
@@ -526,7 +534,6 @@ export default function PostDetailScreen() {
                 />
               )}
 
-              {/* ✅ UPDATED: use MediaGallery for all media (images + multi-image support + zoom) */}
               {hasMedia &&
                 !isPoll &&
                 (isVideo ? (
@@ -539,7 +546,7 @@ export default function PostDetailScreen() {
                 ))}
             </View>
 
-            {/* ── Stats ── */}
+            {/* Stats */}
             <View
               style={[
                 styles.statsCard,
@@ -570,9 +577,9 @@ export default function PostDetailScreen() {
                   style={[styles.statText, { color: colors.textSecondary }]}
                 >
                   <Text style={[styles.statNum, { color: colors.text }]}>
-                    {(post.share_count ?? 0).toLocaleString()}
+                    {((post as any).repost_count ?? 0).toLocaleString()}
                   </Text>{" "}
-                  {post.share_count === 1 ? "share" : "shares"}
+                  {(post as any).repost_count === 1 ? "repost" : "reposts"}
                 </Text>
               </View>
 
@@ -624,6 +631,29 @@ export default function PostDetailScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionBtn}
+                  onPress={() => repostSheetRef.current?.snapToIndex(0)}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name={isReposted ? "repeat" : "repeat-outline"}
+                    size={22}
+                    color={isReposted ? colors.primary : colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.actionLabel,
+                      {
+                        color: isReposted
+                          ? colors.primary
+                          : colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    Repost
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
                   onPress={handleShare}
                   activeOpacity={0.75}
                 >
@@ -667,7 +697,7 @@ export default function PostDetailScreen() {
               </View>
             </View>
 
-            {/* ── Comments ── */}
+            {/* Comments */}
             <View
               style={[
                 styles.commentsSection,
@@ -846,8 +876,7 @@ export default function PostDetailScreen() {
             <View style={{ height: 80 }} />
           </ScrollView>
 
-          {/* ── Comment input ── */}
-          {/* ✅ FIXED: paddingBottom accounts for phone bottom nav controls */}
+          {/* Comment input */}
           <View
             style={[
               styles.commentInputBar,
@@ -908,6 +937,24 @@ export default function PostDetailScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {/* Custom Repost Sheet */}
+        <RepostSheet
+          ref={repostSheetRef}
+          isReposted={isReposted}
+          onRepost={handleRepost}
+          onQuoteRepost={handleQuoteRepost}
+          onUndoRepost={handleRepost}
+        />
+
+        {/* Custom Share Sheet */}
+        <ShareSheet
+          ref={shareSheetRef}
+          title="Share Post"
+          url={`https://nebulanet.space/post/${post.id}`}
+          text={post.content}
+          shareMessage={`Check out this post on NebulaNet!`}
+        />
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1032,7 +1079,7 @@ const styles = StyleSheet.create({
   actionBtn: {
     alignItems: "center",
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     gap: 4,
   },
   actionLabel: { fontSize: 11, fontWeight: "600" },

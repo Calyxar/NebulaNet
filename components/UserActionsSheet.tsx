@@ -1,38 +1,24 @@
-// components/UserActionsSheet.tsx — TALLER HEIGHT ✅
+// components/UserActionsSheet.tsx — DEBUG VERSION
 
 import { Ionicons } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
-import React, { forwardRef, useCallback, useMemo } from "react";
+import React, { forwardRef, useCallback, useEffect, useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export type UserActionsSheetRef = BottomSheet;
 
 type Props = {
   username?: string;
-
-  /** Message action */
   onMessage?: () => void;
-
-  /** Copy profile link */
   onCopyLink?: () => void;
-
-  /** Share profile */
   onShare?: () => void;
-
-  /** Mute action */
   onMute?: () => void;
   isMuted?: boolean;
-
-  /** Remove follower */
   removeLabel?: string;
   onRemove?: () => void;
-
-  /** Block */
   blockLabel?: string;
   onBlock?: () => void;
   hideBlock?: boolean;
-
-  /** Report */
   onReport?: () => void;
 };
 
@@ -55,6 +41,33 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     ref,
   ) => {
     const snapPoints = useMemo(() => ["65%"], []);
+
+    // DEBUG: Log what props we received
+    useEffect(() => {
+      console.log("=== UserActionsSheet Props ===");
+      console.log("username:", username);
+      console.log("onMessage:", !!onMessage);
+      console.log("onCopyLink:", !!onCopyLink);
+      console.log("onShare:", !!onShare);
+      console.log("onMute:", !!onMute);
+      console.log("isMuted:", isMuted);
+      console.log("onRemove:", !!onRemove);
+      console.log("onBlock:", !!onBlock);
+      console.log("hideBlock:", hideBlock);
+      console.log("onReport:", !!onReport);
+      console.log("===============================");
+    }, [
+      username,
+      onMessage,
+      onCopyLink,
+      onShare,
+      onMute,
+      isMuted,
+      onRemove,
+      onBlock,
+      hideBlock,
+      onReport,
+    ]);
 
     const renderBackdrop = useCallback(
       (props: any) => (

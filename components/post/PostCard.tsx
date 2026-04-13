@@ -2,17 +2,13 @@ import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
+import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
+import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
 import { type PollData } from "@/lib/firestore/polls";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
-import {
-  copyLink,
-  generatePostLink,
-  shareToChat,
-  shareWithOptions,
-} from "@/lib/share";
+import { generatePostLink } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
-import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -79,13 +75,16 @@ export default function PostCard(props: PostCardProps) {
   } = props;
 
   const { colors, isDark } = useTheme();
-  const { showActionSheetWithOptions } = useActionSheet();
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [repostCount, setRepostCount] = useState(reposts);
   const [isReposting, setIsReposting] = useState(false);
   const hasTrackedView = useRef(false);
+
+  // Custom sheet refs
+  const repostSheetRef = useRef<RepostSheetRef>(null);
+  const shareSheetRef = useRef<ShareSheetRef>(null);
 
   useEffect(() => {
     if (!hasTrackedView.current && onVisible) {
@@ -103,49 +102,35 @@ export default function PostCard(props: PostCardProps) {
   const isPoll = post_type === "poll" && !!poll;
   const openPost = () => router.push(`/post/${id}` as any);
 
-  const handleRepost = () => {
-    showActionSheetWithOptions(
-      {
-        options: [
-          isReposted ? "Undo Repost" : "Repost",
-          "Quote Post",
-          "Cancel",
-        ],
-        cancelButtonIndex: 2,
-        destructiveButtonIndex: isReposted ? 0 : undefined,
-      },
-      async (index) => {
-        if (index === 0) {
-          if (isReposting) return;
-          setIsReposting(true);
-          const prev = isReposted;
-          const prevCount = repostCount;
-          setIsReposted(!prev);
-          setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
-          try {
-            await toggleRepost(id, prev);
-          } catch {
-            setIsReposted(prev);
-            setRepostCount(prevCount);
-            Alert.alert("Error", "Could not repost. Please try again.");
-          } finally {
-            setIsReposting(false);
-          }
-        } else if (index === 1) {
-          router.push({
-            pathname: "/create/post",
-            params: { quotePostId: id },
-          } as any);
-        }
-      },
-    );
+  const handleRepost = async () => {
+    if (isReposting) return;
+    setIsReposting(true);
+    const prev = isReposted;
+    const prevCount = repostCount;
+    setIsReposted(!prev);
+    setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
+    try {
+      await toggleRepost(id, prev);
+    } catch {
+      setIsReposted(prev);
+      setRepostCount(prevCount);
+      Alert.alert("Error", "Could not repost. Please try again.");
+    } finally {
+      setIsReposting(false);
+    }
+  };
+
+  const handleQuoteRepost = () => {
+    router.push({
+      pathname: "/create/post",
+      params: { quotePostId: id },
+    } as any);
   };
 
   const handleShare = async () => {
     if (isSharing) return;
     setIsSharing(true);
     try {
-      await shareWithOptions({ id, title, content, author });
       await onSharePress?.();
     } catch (e) {
       console.warn("Share failed:", e);
@@ -154,30 +139,9 @@ export default function PostCard(props: PostCardProps) {
     }
   };
 
-  const handleShareToChat = async () => {
-    if (isSharing) return;
-    setIsSharing(true);
-    try {
-      await shareToChat({ id, title, content, author });
-      await onSharePress?.();
-    } catch (e) {
-      console.warn("Share to chat failed:", e);
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    const link = generatePostLink(id);
-    await copyLink(link, "Post link");
-    await onSharePress?.();
-  };
-
   const handleMoreOptions = () => {
     const baseButtons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
-      { text: "Share to Chat", onPress: () => void handleShareToChat() },
-      { text: "Copy Link", onPress: () => void handleCopyLink() },
       {
         text: "Report Post",
         style: "destructive",
@@ -194,19 +158,10 @@ export default function PostCard(props: PostCardProps) {
       (b) => b.style === "destructive",
     );
 
-    showActionSheetWithOptions(
-      {
-        options,
-        cancelButtonIndex,
-        destructiveButtonIndex:
-          destructiveIndex >= 0 ? destructiveIndex : undefined,
-      },
-      (selectedIndex) => {
-        if (selectedIndex == null || selectedIndex === cancelButtonIndex)
-          return;
-        allButtons[selectedIndex]?.onPress?.();
-      },
-    );
+    Alert.alert("Post Options", undefined, [
+      ...allButtons,
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   const isTruncated = !isPoll && content.length > 150;
@@ -221,199 +176,231 @@ export default function PostCard(props: PostCardProps) {
   };
 
   return (
-    <Pressable
-      onPress={openPost}
-      style={[
-        styles.container,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          shadowOpacity: isDark ? 0.22 : 0.04,
-        },
-      ]}
-    >
-      <View style={styles.header}>
-        <Link href={`/user/${author.username}`} asChild>
-          <TouchableOpacity
-            style={styles.authorInfo}
-            onPress={(e) => e.stopPropagation?.()}
-            activeOpacity={0.85}
-          >
-            <Avatar size={40} name={author.name} image={author.avatar} />
-            <View style={styles.authorDetails}>
-              <Text style={[styles.authorName, { color: colors.text }]}>
-                {author.name}
-              </Text>
-              <Text
-                style={[styles.authorUsername, { color: colors.textSecondary }]}
-              >
-                @{author.username}
-              </Text>
-              {community && (
+    <>
+      <Pressable
+        onPress={openPost}
+        style={[
+          styles.container,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            shadowOpacity: isDark ? 0.22 : 0.04,
+          },
+        ]}
+      >
+        <View style={styles.header}>
+          <Link href={`/user/${author.username}`} asChild>
+            <TouchableOpacity
+              style={styles.authorInfo}
+              onPress={(e) => e.stopPropagation?.()}
+              activeOpacity={0.85}
+            >
+              <Avatar size={40} name={author.name} image={author.avatar} />
+              <View style={styles.authorDetails}>
+                <Text style={[styles.authorName, { color: colors.text }]}>
+                  {author.name}
+                </Text>
                 <Text
-                  style={[styles.community, { color: colors.textSecondary }]}
+                  style={[
+                    styles.authorUsername,
+                    { color: colors.textSecondary },
+                  ]}
                 >
-                  in {community.name}
+                  @{author.username}
+                </Text>
+                {community && (
+                  <Text
+                    style={[styles.community, { color: colors.textSecondary }]}
+                  >
+                    in {community.name}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          </Link>
+
+          <View style={styles.headerRight}>
+            <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
+              {timestamp}
+            </Text>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation?.();
+                handleMoreOptions();
+              }}
+              style={styles.moreButton}
+              hitSlop={12}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={20}
+                color={colors.textTertiary}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.content}>
+          {isPoll ? (
+            <>
+              <Text
+                style={[styles.pollQuestion, { color: colors.text }]}
+                numberOfLines={3}
+              >
+                {title || content}
+              </Text>
+              <PollCard
+                postId={id}
+                poll={poll}
+                accentColor={colors.primary}
+                textColor={colors.text}
+                subColor={colors.textSecondary}
+                cardBg={colors.surface}
+                borderColor={colors.border}
+              />
+            </>
+          ) : (
+            <>
+              {title && (
+                <Text style={[styles.title, { color: colors.text }]}>
+                  {title}
                 </Text>
               )}
-            </View>
-          </TouchableOpacity>
-        </Link>
+              <HashtagText
+                text={displayContent}
+                style={StyleSheet.flatten([
+                  styles.text,
+                  { color: colors.text },
+                ])}
+                onPress={openPost}
+              />
+              {isTruncated && (
+                <Text
+                  style={[styles.readMore, { color: colors.primary }]}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setExpanded((v) => !v);
+                  }}
+                >
+                  {expanded ? " Show less" : " Read more"}
+                </Text>
+              )}
+              {media && media.length > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  {media.map((url, index) => {
+                    if (isVideoUrl(url)) {
+                      return (
+                        <VideoPlayer
+                          key={index}
+                          uri={url}
+                          style={{
+                            height: 300,
+                            marginBottom: index < media.length - 1 ? 8 : 0,
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  })}
+                  <MediaGallery
+                    media={media.filter((url) => !isVideoUrl(url))}
+                    onMediaPress={(index) => {}}
+                  />
+                </View>
+              )}
+            </>
+          )}
+        </View>
 
-        <View style={styles.headerRight}>
-          <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-            {timestamp}
+        {typeof viewCount === "number" && (
+          <Text style={[styles.viewCount, { color: colors.textTertiary }]}>
+            {viewCount.toLocaleString()} views
           </Text>
-          <TouchableOpacity
+        )}
+
+        <View style={[styles.stats, { borderColor: colors.border }]}>
+          <Stat icon="heart" value={likes} label="like" color="#FF375F" />
+          <Stat
+            icon="chatbubble-outline"
+            value={comments}
+            label="comment"
+            color={colors.textSecondary}
+          />
+          <Stat
+            icon="repeat-outline"
+            value={repostCount}
+            label="repost"
+            color={isReposted ? colors.primary : colors.textSecondary}
+          />
+          <Stat
+            icon="bookmark-outline"
+            value={saves}
+            label="save"
+            color={colors.textSecondary}
+          />
+        </View>
+
+        <View style={styles.actions}>
+          <Action
+            icon={isLiked ? "heart" : "heart-outline"}
+            label="Like"
+            color={isLiked ? "#FF375F" : colors.textSecondary}
+            onPress={() => void onLikePress?.()}
+          />
+          <Action
+            icon="chatbubble-outline"
+            label="Comment"
+            color={colors.textSecondary}
+            onPress={openPost}
+          />
+          <Action
+            icon={isReposted ? "repeat" : "repeat-outline"}
+            label={isReposted ? "Reposted" : "Repost"}
+            color={isReposted ? colors.primary : colors.textSecondary}
+            disabled={isReposting}
             onPress={(e) => {
               e.stopPropagation?.();
-              handleMoreOptions();
+              repostSheetRef.current?.snapToIndex(0);
             }}
-            style={styles.moreButton}
-            hitSlop={12}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="ellipsis-horizontal"
-              size={20}
-              color={colors.textTertiary}
-            />
-          </TouchableOpacity>
+          />
+          <Action
+            icon={isSharing ? "sync" : "share-outline"}
+            label="Share"
+            color={colors.textSecondary}
+            disabled={isSharing}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              shareSheetRef.current?.snapToIndex(0);
+            }}
+          />
+          <Action
+            icon={isSaved ? "bookmark" : "bookmark-outline"}
+            label="Save"
+            color={isSaved ? colors.primary : colors.textSecondary}
+            onPress={() => void onSavePress?.()}
+          />
         </View>
-      </View>
+      </Pressable>
 
-      <View style={styles.content}>
-        {isPoll ? (
-          <>
-            <Text
-              style={[styles.pollQuestion, { color: colors.text }]}
-              numberOfLines={3}
-            >
-              {title || content}
-            </Text>
-            <PollCard
-              postId={id}
-              poll={poll}
-              accentColor={colors.primary}
-              textColor={colors.text}
-              subColor={colors.textSecondary}
-              cardBg={colors.surface}
-              borderColor={colors.border}
-            />
-          </>
-        ) : (
-          <>
-            {title && (
-              <Text style={[styles.title, { color: colors.text }]}>
-                {title}
-              </Text>
-            )}
-            <HashtagText
-              text={displayContent}
-              style={StyleSheet.flatten([styles.text, { color: colors.text }])}
-              onPress={openPost}
-            />
-            {isTruncated && (
-              <Text
-                style={[styles.readMore, { color: colors.primary }]}
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  setExpanded((v) => !v);
-                }}
-              >
-                {expanded ? " Show less" : " Read more"}
-              </Text>
-            )}
-            {media && media.length > 0 && (
-              <View style={{ marginTop: 12 }}>
-                {media.map((url, index) => {
-                  if (isVideoUrl(url)) {
-                    return (
-                      <VideoPlayer
-                        key={index}
-                        uri={url}
-                        style={{
-                          height: 300,
-                          marginBottom: index < media.length - 1 ? 8 : 0,
-                        }}
-                      />
-                    );
-                  }
-                  return null;
-                })}
-                <MediaGallery
-                  media={media.filter((url) => !isVideoUrl(url))}
-                  onMediaPress={(index) => {}}
-                />
-              </View>
-            )}
-          </>
-        )}
-      </View>
+      {/* Custom Repost Sheet */}
+      <RepostSheet
+        ref={repostSheetRef}
+        isReposted={isReposted}
+        onRepost={handleRepost}
+        onQuoteRepost={handleQuoteRepost}
+        onUndoRepost={handleRepost}
+      />
 
-      {typeof viewCount === "number" && (
-        <Text style={[styles.viewCount, { color: colors.textTertiary }]}>
-          {viewCount.toLocaleString()} views
-        </Text>
-      )}
-
-      <View style={[styles.stats, { borderColor: colors.border }]}>
-        <Stat icon="heart" value={likes} label="like" color="#FF375F" />
-        <Stat
-          icon="chatbubble-outline"
-          value={comments}
-          label="comment"
-          color={colors.textSecondary}
-        />
-        <Stat
-          icon="repeat-outline"
-          value={repostCount}
-          label="repost"
-          color={isReposted ? colors.primary : colors.textSecondary}
-        />
-        <Stat
-          icon="bookmark-outline"
-          value={saves}
-          label="save"
-          color={colors.textSecondary}
-        />
-      </View>
-
-      <View style={styles.actions}>
-        <Action
-          icon={isLiked ? "heart" : "heart-outline"}
-          label="Like"
-          color={isLiked ? "#FF375F" : colors.textSecondary}
-          onPress={() => void onLikePress?.()}
-        />
-        <Action
-          icon="chatbubble-outline"
-          label="Comment"
-          color={colors.textSecondary}
-          onPress={openPost}
-        />
-        <Action
-          icon={isReposted ? "repeat" : "repeat-outline"}
-          label={isReposted ? "Reposted" : "Repost"}
-          color={isReposted ? colors.primary : colors.textSecondary}
-          disabled={isReposting}
-          onPress={handleRepost}
-        />
-        <Action
-          icon={isSharing ? "sync" : "share-outline"}
-          label="Share"
-          color={colors.textSecondary}
-          disabled={isSharing}
-          onPress={handleShare}
-        />
-        <Action
-          icon={isSaved ? "bookmark" : "bookmark-outline"}
-          label="Save"
-          color={isSaved ? colors.primary : colors.textSecondary}
-          onPress={() => void onSavePress?.()}
-        />
-      </View>
-    </Pressable>
+      {/* Custom Share Sheet */}
+      <ShareSheet
+        ref={shareSheetRef}
+        title="Share Post"
+        url={generatePostLink(id)}
+        text={content}
+        shareMessage={`Check out this post on NebulaNet: ${content.slice(0, 100)}${content.length > 100 ? "..." : ""}`}
+      />
+    </>
   );
 }
 
@@ -449,15 +436,12 @@ function Action({
   label: string;
   color: string;
   disabled?: boolean;
-  onPress?: () => void;
+  onPress?: (e: any) => void;
 }) {
   return (
     <TouchableOpacity
       style={styles.actionButton}
-      onPress={(e) => {
-        e.stopPropagation?.();
-        onPress?.();
-      }}
+      onPress={onPress}
       disabled={disabled}
       activeOpacity={0.85}
     >

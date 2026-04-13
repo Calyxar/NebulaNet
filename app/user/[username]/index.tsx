@@ -1,13 +1,12 @@
+import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { createNotification } from "@/lib/firestore/notifications";
-import { shareProfileLink } from "@/lib/shareProfile";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
@@ -84,6 +83,7 @@ export default function UserProfileScreen() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const sheetRef = useRef<UserActionsSheetRef>(null);
+  const shareSheetRef = useRef<ShareSheetRef>(null);
   const [activeTab, setActiveTab] =
     useState<(typeof profileTabs)[number]>("Post");
 
@@ -368,18 +368,13 @@ export default function UserProfileScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
-  const handleShareProfile = async () => {
-    try {
-      await shareProfileLink({
-        username: target?.username ?? username,
-        userId: target?.id ?? "",
-        fullName: target?.full_name ?? null,
-      });
-    } catch {}
+  const handleShareProfile = () => {
+    shareSheetRef.current?.snapToIndex(0);
   };
 
   const handleCopyProfileLink = async () => {
     const link = `https://nebulanet.space/user/${target?.username ?? username}`;
+    const Clipboard = await import("expo-clipboard");
     await Clipboard.setStringAsync(link);
     sheetRef.current?.close();
     Alert.alert("Copied", "Profile link copied to clipboard");
@@ -1193,6 +1188,15 @@ export default function UserProfileScreen() {
             }}
           />
         )}
+
+        {/* Custom Share Sheet */}
+        <ShareSheet
+          ref={shareSheetRef}
+          title="Share Profile"
+          url={`https://nebulanet.space/user/${target.username}`}
+          text={`Check out @${target.username} on NebulaNet!${target.full_name ? ` (${target.full_name})` : ""}`}
+          shareMessage={`Check out @${target.username} on NebulaNet!`}
+        />
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1359,7 +1363,6 @@ const styles = StyleSheet.create({
   skel: { backgroundColor: "#E5E7EB" },
 });
 
-// ✅ FIXED: Hide Expo Router's default header to prevent duplicate 'user' header
 export const options = {
   headerShown: false,
 };

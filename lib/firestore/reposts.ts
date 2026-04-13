@@ -1,15 +1,12 @@
-// lib/firestore/reposts.ts — NEW ✅
-// Twitter-style repost: one repost per user per post, stored as deterministic doc id
-// Writes to "reposts" collection and increments/decrements post repost_count
-
+// lib/firestore/reposts.ts
 import { auth, db } from "@/lib/firebase";
 import {
-    deleteDoc,
-    doc,
-    getDoc,
-    increment,
-    setDoc,
-    updateDoc
+  deleteDoc,
+  doc,
+  getDoc,
+  increment,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
 
 export async function toggleRepost(
@@ -19,20 +16,17 @@ export async function toggleRepost(
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Not authenticated");
 
-  // Deterministic ID: uid_postId — guarantees one repost per user per post
   const repostId = `${uid}_${postId}`;
   const repostRef = doc(db, "reposts", repostId);
   const postRef = doc(db, "posts", postId);
 
   if (isReposted) {
-    // Remove repost
     await Promise.all([
       deleteDoc(repostRef),
       updateDoc(postRef, { repost_count: increment(-1) }),
     ]);
     return false;
   } else {
-    // Add repost
     await Promise.all([
       setDoc(repostRef, {
         user_id: uid,
