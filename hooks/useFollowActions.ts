@@ -1,37 +1,28 @@
-// hooks/useFollowActions.ts — FIREBASE ✅ FIXED (TypeScript-safe)
+// hooks/useFollowActions.ts — React Native Firebase ✅
 
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
 
 export type FollowStatus = "none" | "pending" | "accepted";
 
 export function useFollowStatus(targetUserId?: string) {
-  const { userId } = useAuth();
-  const uid = userId ?? undefined; // ✅ Convert null to undefined
+  const { user } = useAuth();
+  const uid = user?.uid;
 
   return useQuery({
     queryKey: qk.social.followStatus(uid, targetUserId),
     enabled: !!uid && !!targetUserId,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", uid!),
-          where("following_id", "==", targetUserId!),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", uid!)
+        .where("following_id", "==", targetUserId!)
+        .get();
       if (snap.empty) return "none" as FollowStatus;
-      return ((snap.docs[0].data() as any).status as FollowStatus) ?? "none";
+      const status = snap.docs[0].data().status;
+      return (status ?? "none") as FollowStatus;
     },
   });
 }
@@ -40,19 +31,21 @@ export function useFollowActions(
   targetUserId?: string,
   targetIsPrivate?: boolean,
 ) {
-  const { userId } = useAuth();
-  const uid = userId ?? undefined; // ✅ Convert null to undefined
+  const { user } = useAuth();
+  const uid = user?.uid;
   const qc = useQueryClient();
 
   const follow = useMutation({
     mutationFn: async () => {
       if (!uid || !targetUserId) throw new Error("Missing user IDs");
-      await addDoc(collection(db, "follows"), {
-        follower_id: uid,
-        following_id: targetUserId,
-        status: targetIsPrivate ? "pending" : "accepted",
-        created_at: new Date().toISOString(),
-      });
+      await firestore()
+        .collection("follows")
+        .add({
+          follower_id: uid,
+          following_id: targetUserId,
+          status: targetIsPrivate ? "pending" : "accepted",
+          created_at: new Date().toISOString(),
+        });
       return true;
     },
     onMutate: async () => {
@@ -91,14 +84,12 @@ export function useFollowActions(
   const unfollow = useMutation({
     mutationFn: async () => {
       if (!uid || !targetUserId) throw new Error("Missing user IDs");
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", uid),
-          where("following_id", "==", targetUserId),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", uid)
+        .where("following_id", "==", targetUserId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
       return true;
     },
     onMutate: async () => {

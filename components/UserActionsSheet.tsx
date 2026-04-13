@@ -1,4 +1,4 @@
-// components/UserActionsSheet.tsx — UPDATED WITH COPY & SHARE ✅
+// components/UserActionsSheet.tsx — TALLER HEIGHT ✅
 
 import { Ionicons } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
@@ -54,7 +54,7 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     },
     ref,
   ) => {
-    const snapPoints = useMemo(() => ["48%"], []);
+    const snapPoints = useMemo(() => ["65%"], []);
 
     const renderBackdrop = useCallback(
       (props: any) => (
