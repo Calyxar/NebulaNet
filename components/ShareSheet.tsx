@@ -1,4 +1,4 @@
-// components/ShareSheet.tsx — Custom themed share sheet
+// components/ShareSheet.tsx — Custom themed share sheet (NebulaNet only)
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,13 +6,13 @@ import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import * as Clipboard from "expo-clipboard";
 import React, { forwardRef, useCallback, useMemo } from "react";
 import {
-    Alert,
-    Platform,
-    Share,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export type ShareSheetRef = BottomSheet;
@@ -42,7 +42,7 @@ type Props = {
 const ShareSheet = forwardRef<ShareSheetRef, Props>(
   ({ title = "Share", url, text, shareMessage }, ref) => {
     const { colors } = useTheme();
-    const snapPoints = useMemo(() => ["45%"], []);
+    const snapPoints = useMemo(() => ["35%"], []);
 
     const handleCopyLink = async () => {
       await Clipboard.setStringAsync(url);
@@ -62,15 +62,6 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
       }
     };
 
-    const handleShareToTwitter = () => {
-      const tweetText = encodeURIComponent(text || "Check this out!");
-      const tweetUrl = encodeURIComponent(url);
-      const twitterUrl = `https://twitter.com/intent/tweet?text=${tweetText}&url=${tweetUrl}`;
-      // You'd open this URL with Linking.openURL(twitterUrl)
-      console.log("Share to Twitter:", twitterUrl);
-      (ref as any)?.current?.close();
-    };
-
     const options: ShareOption[] = [
       {
         id: "copy",
@@ -85,13 +76,6 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
         icon: "share-social-outline",
         color: colors.primary,
         onPress: handleShare,
-      },
-      {
-        id: "twitter",
-        label: "Share to X",
-        icon: "logo-twitter",
-        color: "#1DA1F2",
-        onPress: handleShareToTwitter,
       },
     ];
 
