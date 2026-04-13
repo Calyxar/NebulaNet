@@ -1,4 +1,3 @@
-// app/profile/edit.tsx — UPDATED ✅ modern fetch/blob avatar upload (no FileSystem)
 import { useAuth } from "@/hooks/useAuth";
 import { storage } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -105,6 +104,10 @@ export default function EditProfileScreen() {
   };
 
   const uploadAvatar = async (uri: string) => {
+    console.log("=== AVATAR UPLOAD START ===");
+    console.log("URI:", uri);
+    console.log("User UID:", user?.uid);
+
     if (!user?.uid) {
       Alert.alert("Error", "User not found. Please log in again.");
       return;
@@ -115,28 +118,42 @@ export default function EditProfileScreen() {
     try {
       const ext = guessExtFromUri(uri);
       const mimeType = guessMimeType(ext);
+      console.log("Extension:", ext);
+      console.log("MIME type:", mimeType);
 
-      // ✅ Modern approach: fetch → blob → uploadBytes (no FileSystem needed)
       const response = await fetch(uri);
+      console.log("Fetch response status:", response.status, response.ok);
+
       if (!response.ok) throw new Error("Failed to read image file.");
       const blob = await response.blob();
+      console.log("Blob size:", blob.size, "type:", blob.type);
 
       const fileName = `${Date.now()}.${ext}`;
       const filePath = `avatars/${user.uid}/${fileName}`;
+      console.log("Upload path:", filePath);
+
       const fileRef = storageRef(storage, filePath);
       await uploadBytes(fileRef, blob, { contentType: mimeType });
+      console.log("Upload successful!");
+
       const publicUrl = await getDownloadURL(fileRef);
+      console.log("Download URL:", publicUrl);
 
       if (!publicUrl)
         throw new Error("Could not create download URL for avatar.");
 
       setAvatar(publicUrl);
+      console.log("Avatar state updated");
       Alert.alert(
         "Success",
         "Avatar uploaded! Click Continue to save your changes.",
       );
+      console.log("=== AVATAR UPLOAD COMPLETE ===");
     } catch (e: any) {
-      console.error("Avatar upload error:", e);
+      console.error("=== AVATAR UPLOAD ERROR ===");
+      console.error("Error:", e);
+      console.error("Error message:", e?.message);
+      console.error("Error code:", e?.code);
       Alert.alert(
         "Upload Failed",
         e?.message || "Failed to upload avatar. Please try again.",
@@ -148,6 +165,12 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
+    console.log("=== SAVE PROFILE START ===");
+    console.log("Form data:", formData);
+    console.log("Avatar:", avatar);
+    console.log("Previous avatar:", profile?.avatar_url);
+    console.log("Avatar changed?", avatar !== profile?.avatar_url);
+
     if (!formData.username.trim()) {
       Alert.alert("Validation Error", "Username is required");
       return;
@@ -174,16 +197,18 @@ export default function EditProfileScreen() {
         ...(avatar !== profile?.avatar_url && { avatar_url: avatar }),
       };
 
+      console.log("Updates to save:", updates);
       await updateProfileMutation.mutateAsync(updates);
+      console.log("Profile update successful!");
       Alert.alert("Success", "Profile updated successfully!");
       setTimeout(() => router.back(), 300);
+      console.log("=== SAVE PROFILE COMPLETE ===");
     } catch (error: any) {
-      console.error(
-        "updateProfile error:",
-        JSON.stringify(error),
-        error?.code,
-        error?.message,
-      );
+      console.error("=== SAVE PROFILE ERROR ===");
+      console.error("Error object:", error);
+      console.error("Error message:", error?.message);
+      console.error("Error code:", error?.code);
+
       let errorMessage = "Failed to update profile";
       if (
         error?.message?.includes("duplicate") &&
@@ -212,7 +237,6 @@ export default function EditProfileScreen() {
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
       >
-        {/* Header */}
         <View style={[styles.header, { backgroundColor: colors.background }]}>
           <TouchableOpacity
             style={[
@@ -265,7 +289,6 @@ export default function EditProfileScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
-            {/* Avatar */}
             <TouchableOpacity
               style={styles.avatarContainer}
               onPress={pickImage}
@@ -312,9 +335,7 @@ export default function EditProfileScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Form */}
             <View style={[styles.formCard, { backgroundColor: colors.card }]}>
-              {/* Name */}
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>Name</Text>
                 <View
@@ -345,7 +366,6 @@ export default function EditProfileScreen() {
                 </View>
               </View>
 
-              {/* Username */}
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>
                   Username
@@ -379,7 +399,6 @@ export default function EditProfileScreen() {
                 </View>
               </View>
 
-              {/* Location */}
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>
                   Location
@@ -412,7 +431,6 @@ export default function EditProfileScreen() {
                 </View>
               </View>
 
-              {/* Bio */}
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
                 <View
@@ -458,7 +476,6 @@ export default function EditProfileScreen() {
               </View>
             </View>
 
-            {/* Save button */}
             <TouchableOpacity
               style={[
                 styles.continueButton,

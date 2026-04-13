@@ -186,9 +186,8 @@ export default function UserProfileScreen() {
 
   const { data: privacyFlags } = useQuery({
     queryKey: ["profile-privacy-flags", target?.id, user?.uid],
-    enabled: !!target?.id,
+    enabled: !!target?.id && !isMe,
     queryFn: async () => {
-      if (isMe) return { hide_followers: false, hide_following: false };
       const snap = await firestore()
         .collection("profiles")
         .doc(target!.id)
@@ -196,8 +195,8 @@ export default function UserProfileScreen() {
       if (!snap.exists) return { hide_followers: false, hide_following: false };
       const d = snap.data() as any;
       return {
-        hide_followers: !!d.hide_followers,
-        hide_following: !!d.hide_following,
+        hide_followers: d.hide_followers === true,
+        hide_following: d.hide_following === true,
       } as PrivacyFlags;
     },
   });
@@ -383,30 +382,51 @@ export default function UserProfileScreen() {
   const canMessage = !isBlocked && (!isPrivate || isFollowing);
 
   const handleMessage = async () => {
-    if (!user?.uid || !target?.id) return;
+    console.log("=== HANDLE MESSAGE START ===");
+    console.log("User UID:", user?.uid);
+    console.log("Target ID:", target?.id);
+    console.log("Is blocked:", isBlocked);
+    console.log("Is private:", isPrivate);
+    console.log("Is following:", isFollowing);
+
+    if (!user?.uid || !target?.id) {
+      console.error("Missing user or target ID");
+      return;
+    }
     if (isBlocked) {
+      console.log("User is blocked, showing alert");
       Alert.alert("Message unavailable", "You can't message this user.");
       return;
     }
     if (isPrivate && !isFollowing) {
+      console.log("Private account, not following, showing alert");
       Alert.alert("Private account", "Follow this user to message them.");
       return;
     }
     try {
+      console.log("Creating/opening chat...");
       const conversationId = await createOrOpenChat(user.uid, target.id);
+      console.log("Got conversation ID:", conversationId);
+
       sheetRef.current?.close();
+      console.log("Navigating to chat:", `/chat/${conversationId}`);
       router.push(`/chat/${conversationId}`);
-    } catch {
-      Alert.alert("Error", "Could not start conversation.");
+      console.log("=== HANDLE MESSAGE COMPLETE ===");
+    } catch (error: any) {
+      console.error("=== HANDLE MESSAGE ERROR ===");
+      console.error("Error:", error);
+      console.error("Error message:", error?.message);
+      console.error("Error code:", error?.code);
+      Alert.alert("Error", error?.message || "Could not start conversation.");
     }
   };
 
-  const hideFollowers = !!privacyFlags?.hide_followers;
-  const hideFollowing = !!privacyFlags?.hide_following;
+  const hideFollowers = privacyFlags?.hide_followers === true;
+  const hideFollowing = privacyFlags?.hide_following === true;
   const followersDisplay =
-    !isMe && hideFollowers ? "—" : formatNumber(stats?.followers || 0);
+    isMe || !hideFollowers ? formatNumber(stats?.followers || 0) : "—";
   const followingDisplay =
-    !isMe && hideFollowing ? "—" : formatNumber(stats?.following || 0);
+    isMe || !hideFollowing ? formatNumber(stats?.following || 0) : "—";
 
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
@@ -1189,7 +1209,6 @@ export default function UserProfileScreen() {
           />
         )}
 
-        {/* Custom Share Sheet */}
         <ShareSheet
           ref={shareSheetRef}
           title="Share Profile"

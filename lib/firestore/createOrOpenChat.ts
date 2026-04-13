@@ -1,63 +1,70 @@
-// lib/firestore/createOrOpenChat.ts — React Native Firebase ✅
-
 import firestore from "@react-native-firebase/firestore";
 
-function dmPairKey(a: string, b: string): string {
-  return [a, b].sort().join("__");
-}
-
 export async function createOrOpenChat(
-  myId: string,
+  currentUserId: string,
   otherUserId: string,
 ): Promise<string> {
-  if (!myId || !otherUserId) throw new Error("Missing user IDs");
-  if (myId === otherUserId) throw new Error("Cannot DM yourself");
+  console.log("=== CREATE/OPEN CHAT START ===");
+  console.log("Current user ID:", currentUserId);
+  console.log("Other user ID:", otherUserId);
 
-  const pairKey = dmPairKey(myId, otherUserId);
-
-  // Check if conversation already exists
-  const existing = await firestore()
-    .collection("conversations")
-    .where("is_group", "==", false)
-    .where("dm_pair_key", "==", pairKey)
-    .limit(1)
-    .get();
-
-  if (!existing.empty) {
-    return existing.docs[0].id;
+  if (!currentUserId || !otherUserId) {
+    console.error("Missing user IDs!");
+    throw new Error("Both user IDs are required");
   }
 
-  // Create new conversation
-  const convoRef = await firestore()
-    .collection("conversations")
-    .add({
-      is_group: false,
-      dm_pair_key: pairKey,
-      participant_ids: [myId, otherUserId],
-      created_at: firestore.FieldValue.serverTimestamp(),
-      updated_at: firestore.FieldValue.serverTimestamp(),
-    });
+  if (currentUserId === otherUserId) {
+    console.error("Cannot message yourself!");
+    throw new Error("Cannot create conversation with yourself");
+  }
 
-  // Create participant records in batch
-  const batch = firestore().batch();
+  try {
+    const participantIds = [currentUserId, otherUserId].sort();
+    console.log("Sorted participant IDs:", participantIds);
 
-  const p1Ref = firestore().collection("conversation_participants").doc();
-  batch.set(p1Ref, {
-    conversation_id: convoRef.id,
-    user_id: myId,
-    joined_at: firestore.FieldValue.serverTimestamp(),
-    unread_count: 0,
-  });
+    console.log("Querying existing conversations...");
+    const existingSnap = await firestore()
+      .collection("conversations")
+      .where("participant_ids", "array-contains", currentUserId)
+      .get();
 
-  const p2Ref = firestore().collection("conversation_participants").doc();
-  batch.set(p2Ref, {
-    conversation_id: convoRef.id,
-    user_id: otherUserId,
-    joined_at: firestore.FieldValue.serverTimestamp(),
-    unread_count: 0,
-  });
+    console.log("Found", existingSnap.size, "conversations with current user");
 
-  await batch.commit();
+    for (const doc of existingSnap.docs) {
+      const data = doc.data();
+      const ids = data.participant_ids || [];
+      console.log("Checking conversation:", doc.id, "with participants:", ids);
 
-  return convoRef.id;
+      if (ids.length === 2 && ids.includes(otherUserId)) {
+        console.log("Found existing conversation:", doc.id);
+        console.log("=== CREATE/OPEN CHAT COMPLETE (existing) ===");
+        return doc.id;
+      }
+    }
+
+    console.log("No existing conversation found, creating new one...");
+    const newConversation = {
+      participant_ids: participantIds,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      last_message: null,
+      last_message_at: null,
+    };
+
+    console.log("New conversation data:", newConversation);
+    const docRef = await firestore()
+      .collection("conversations")
+      .add(newConversation);
+
+    console.log("Created new conversation:", docRef.id);
+    console.log("=== CREATE/OPEN CHAT COMPLETE (new) ===");
+    return docRef.id;
+  } catch (error: any) {
+    console.error("=== CREATE/OPEN CHAT ERROR ===");
+    console.error("Error:", error);
+    console.error("Error message:", error?.message);
+    console.error("Error code:", error?.code);
+    console.error("Error stack:", error?.stack);
+    throw error;
+  }
 }
