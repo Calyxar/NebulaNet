@@ -64,8 +64,8 @@ function tsToIso(ts: any): string {
 
 async function getProfile(userId: string): Promise<ProfileRow | undefined> {
   const snap = await firestore().collection("profiles").doc(userId).get();
-  if (!snap.exists) return undefined;
-  const d = snap.data() as any;
+  const d = snap.data();
+  if (!d) return undefined;
   return {
     id: snap.id,
     username: d.username ?? "",
@@ -119,16 +119,21 @@ export const chatSubscriptions = {
       .where("conversation_id", "==", conversationId)
       .orderBy("created_at", "desc")
       .limit(50)
-      .onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          if (change.type === "added") {
-            const msg = { id: change.doc.id, ...change.doc.data() } as any;
-            if (msg.sender_id !== userId) {
-              callback({ new: docToMessage(msg, change.doc.id) });
+      .onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const msg = { id: change.doc.id, ...change.doc.data() } as any;
+              if (msg.sender_id !== userId) {
+                callback({ new: docToMessage(msg, change.doc.id) });
+              }
             }
-          }
-        });
-      });
+          });
+        },
+        (error) => {
+          console.error("Error in subscribeToMessages:", error);
+        },
+      );
   },
 
   subscribeToUserConversations: (
@@ -138,24 +143,34 @@ export const chatSubscriptions = {
     return firestore()
       .collection("conversation_participants")
       .where("user_id", "==", userId)
-      .onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          callback({ type: change.type, data: change.doc.data() });
-        });
-      });
+      .onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            callback({ type: change.type, data: change.doc.data() });
+          });
+        },
+        (error) => {
+          console.error("Error in subscribeToUserConversations:", error);
+        },
+      );
   },
 
   subscribeToConversations: (callback: (payload: any) => void) => {
     return firestore()
       .collection("conversations")
-      .onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          callback({
-            type: change.type,
-            data: { id: change.doc.id, ...change.doc.data() },
+      .onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            callback({
+              type: change.type,
+              data: { id: change.doc.id, ...change.doc.data() },
+            });
           });
-        });
-      });
+        },
+        (error) => {
+          console.error("Error in subscribeToConversations:", error);
+        },
+      );
   },
 
   subscribeToTypingStatus: (
@@ -165,12 +180,17 @@ export const chatSubscriptions = {
     return firestore()
       .collection("conversations")
       .doc(conversationId)
-      .onSnapshot((snap) => {
-        if (snap.exists()) {
+      .onSnapshot(
+        (snap) => {
           const d = snap.data() as any;
-          callback({ new: { is_typing: d.is_typing } });
-        }
-      });
+          if (d) {
+            callback({ new: { is_typing: d.is_typing } });
+          }
+        },
+        (error) => {
+          console.error("Error in subscribeToTypingStatus:", error);
+        },
+      );
   },
 
   subscribeToUserParticipants: (
@@ -180,11 +200,16 @@ export const chatSubscriptions = {
     return firestore()
       .collection("conversation_participants")
       .where("user_id", "==", userId)
-      .onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          callback({ type: change.type, data: change.doc.data() });
-        });
-      });
+      .onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            callback({ type: change.type, data: change.doc.data() });
+          });
+        },
+        (error) => {
+          console.error("Error in subscribeToUserParticipants:", error);
+        },
+      );
   },
 };
 
@@ -234,9 +259,10 @@ export const chatQueries = {
               .collection("messages")
               .doc(conv.last_message_id)
               .get();
-            if (msgSnap.exists()) {
+            const msgData = msgSnap.data();
+            if (msgData) {
               last_message = docToMessage(
-                msgSnap.data() as any,
+                msgData as any,
                 msgSnap.id,
               ) as ChatMessage;
             }
@@ -450,9 +476,10 @@ export const chatQueries = {
         .collection("conversations")
         .doc(conversationId)
         .get();
-      if (!convSnap.exists) throw new Error("Conversation not found");
+      const convData = convSnap.data();
+      if (!convData) throw new Error("Conversation not found");
 
-      const conv = docToConversation(convSnap.data(), convSnap.id);
+      const conv = docToConversation(convData, convSnap.id);
 
       const pSnap = await firestore()
         .collection("conversation_participants")
@@ -475,9 +502,10 @@ export const chatQueries = {
           .collection("messages")
           .doc(conv.last_message_id)
           .get();
-        if (msgSnap.exists()) {
+        const msgData = msgSnap.data();
+        if (msgData) {
           last_message = docToMessage(
-            msgSnap.data() as any,
+            msgData as any,
             msgSnap.id,
           ) as ChatMessage;
         }

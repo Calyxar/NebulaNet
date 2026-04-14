@@ -343,6 +343,7 @@ export default function UserProfileScreen() {
       if (!user?.uid || !target?.id) return;
       qc.invalidateQueries({ queryKey: ["follow-edge", user.uid, target.id] });
       qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
+      qc.invalidateQueries({ queryKey: ["user-stats", user.uid] });
       qc.invalidateQueries({ queryKey: ["user-posts", target.id] });
       qc.invalidateQueries({
         queryKey: ["profile-privacy-flags", target.id, user.uid],
@@ -1183,6 +1184,9 @@ export default function UserProfileScreen() {
                     });
                     qc.invalidateQueries({
                       queryKey: ["user-stats", target.id],
+                    });
+                    qc.invalidateQueries({
+                      queryKey: ["user-stats", user.uid],
                     });
                   }
                 : undefined
