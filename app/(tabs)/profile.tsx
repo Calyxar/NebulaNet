@@ -121,6 +121,7 @@ export default function ProfileTabScreen() {
   const { data: userStats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["user-stats", uid],
     enabled: !!uid,
+    staleTime: 0,
     queryFn: async (): Promise<UserStats> => {
       if (!uid) return { posts: 0, followers: 0, following: 0 };
       const [postsAgg, followersAgg, followingAgg] = await Promise.all([
