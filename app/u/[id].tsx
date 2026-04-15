@@ -1,6 +1,6 @@
-import { db } from "@/lib/firebase";
+// app/u/[id].tsx — REACT NATIVE FIREBASE ✅
+import firestore from "@react-native-firebase/firestore";
 import { router, useLocalSearchParams } from "expo-router";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
@@ -18,41 +18,45 @@ export default function UserIdRedirectScreen() {
         return;
       }
 
-      // If someone typed /u/testuser, treat it like a username too.
-      // If it looks like a UUID, treat it like a user id.
+      // If it looks like a UUID, treat it as a user id; otherwise as a username.
       const looksLikeUuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
           raw,
         );
 
       try {
-        const q = looksLikeUuid
-          ? query(
-              collection(db, "profiles"),
-              where("__name__", "==", raw),
-              limit(1),
-            )
-          : query(
-              collection(db, "profiles"),
-              where("username", "==", raw),
-              limit(1),
-            );
-        const snap = await getDocs(q);
+        let username: string | null = null;
+
+        if (looksLikeUuid) {
+          // Direct doc lookup by id
+          const docSnap = await firestore()
+            .collection("profiles")
+            .doc(raw)
+            .get();
+          if (docSnap.exists()) {
+            const data = docSnap.data() as any;
+            username = data?.username ?? null;
+          }
+        } else {
+          // Lookup by username
+          const snap = await firestore()
+            .collection("profiles")
+            .where("username", "==", raw)
+            .limit(1)
+            .get();
+          if (!snap.empty) {
+            const data = snap.docs[0].data() as any;
+            username = data?.username ?? null;
+          }
+        }
 
         if (!alive) return;
 
-        const data = snap.empty
-          ? null
-          : ({ id: snap.docs[0].id, ...snap.docs[0].data() } as any);
-
-        if (data?.username) {
-          router.replace(`/user/${data.username}`);
+        if (username) {
+          router.replace(`/user/${username}`);
           return;
         }
 
-        // If we found only id (no username set), go to profile by id (optional),
-        // otherwise show not found.
-        // If you do NOT have a /user-id/[id] route, keep not-found.
         router.replace("/+not-found");
       } catch (e: any) {
         if (!alive) return;

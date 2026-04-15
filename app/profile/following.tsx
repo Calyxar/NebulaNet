@@ -1,44 +1,23 @@
-// app/profile/following.tsx — UPDATED ✅
-// ✅ Full useTheme() support — no hardcoded colors
-// ✅ AppHeader replaces inline header
-// ✅ Skeleton rows on loading (8 rows)
-// ✅ Linear gradient background (light mode only)
-// ✅ invalidateAfterUnfollow / invalidateAfterBlock preserved
-
+// app/profile/following.tsx — REACT NATIVE FIREBASE ✅
 import AppHeader from "@/components/navigation/AppHeader";
 import UserActionsSheet, {
   type UserActionsSheetRef,
 } from "@/components/UserActionsSheet";
 import UserRow, { type UserRowModel } from "@/components/UserRow";
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import {
   invalidateAfterBlock,
   invalidateAfterUnfollow,
 } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-/* =========================
-   TYPES
-========================= */
 
 type FollowingJoinRow = {
   following_id: string;
@@ -52,10 +31,6 @@ type FollowingJoinRow = {
     is_private?: boolean | null;
   } | null;
 };
-
-/* =========================
-   SKELETON ROW
-========================= */
 
 function SkeletonRow({ colors }: { colors: any }) {
   return (
@@ -87,25 +62,20 @@ function SkeletonRow({ colors }: { colors: any }) {
   );
 }
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function FollowingScreen() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const qc = useQueryClient();
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
   const [selected, setSelected] = useState<UserRowModel | null>(null);
 
-  const myId = user?.id;
+  const myId = user?.uid;
 
   const gradientColors = isDark
     ? [colors.background, colors.background]
     : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
 
-  // ── Following query ──
   const {
     data: rows,
     isLoading,
@@ -115,17 +85,19 @@ export default function FollowingScreen() {
     queryKey: ["my-following-with-status", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", myId!),
-          where("status", "in", ["accepted", "pending"]),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", myId!)
+        .where("status", "in", ["accepted", "pending"])
+        .get();
+
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "profiles", data.following_id));
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(data.following_id)
+            .get();
           const p = pSnap.exists() ? (pSnap.data() as any) : null;
           return {
             following_id: data.following_id,
@@ -147,7 +119,6 @@ export default function FollowingScreen() {
     },
   });
 
-  // ── Mutual detection ──
   const followingIds = useMemo(
     () => (rows ?? []).map((r) => r.following_id).filter(Boolean),
     [rows],
@@ -157,16 +128,20 @@ export default function FollowingScreen() {
     queryKey: ["they-follow-me-set", myId, followingIds.join("|")],
     enabled: !!myId && followingIds.length > 0,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("following_id", "==", myId!),
-          where("follower_id", "in", followingIds),
-          where("status", "==", "accepted"),
-        ),
-      );
       const set = new Set<string>();
-      snap.docs.forEach((d) => set.add((d.data() as any).follower_id));
+      const chunks: string[][] = [];
+      for (let i = 0; i < followingIds.length; i += 30) {
+        chunks.push(followingIds.slice(i, i + 30));
+      }
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("follows")
+          .where("following_id", "==", myId!)
+          .where("follower_id", "in", chunk)
+          .where("status", "==", "accepted")
+          .get();
+        snap.docs.forEach((d) => set.add((d.data() as any).follower_id));
+      }
       return set;
     },
   });
@@ -187,18 +162,15 @@ export default function FollowingScreen() {
     });
   }, [rows, theyFollowMeSet]);
 
-  // ── Unfollow / cancel request ──
   const unfollowMutation = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", myId),
-          where("following_id", "==", target.id),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", myId)
+        .where("following_id", "==", target.id)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
       return target;
     },
     onSuccess: (target) => {
@@ -206,14 +178,13 @@ export default function FollowingScreen() {
     },
   });
 
-  // ── Block user ──
   const blockUser = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-      await addDoc(collection(db, "user_blocks"), {
+      await firestore().collection("user_blocks").add({
         blocker_id: myId,
         blocked_id: target.id,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
       return target;
     },
@@ -320,10 +291,6 @@ export default function FollowingScreen() {
     </LinearGradient>
   );
 }
-
-/* =========================
-   STYLES
-========================= */
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },

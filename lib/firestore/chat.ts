@@ -1,6 +1,10 @@
-// lib/firestore/chat.ts — React Native Firebase ✅
+// lib/firestore/chat.ts — REACT NATIVE FIREBASE ✅
+// Schema: participants live at conversations/{id}/participants/{userId}
+//         messages live at conversations/{id}/messages/{messageId}
+//         typing per-user at conversations/{id}/typing/{userId}
 
 import { ChatAttachment } from "@/components/chat/ChatInput";
+import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 
 /* -------------------- TYPES -------------------- */
@@ -38,6 +42,8 @@ type ConversationRow = {
   unread_count?: number | null;
   is_online?: boolean | null;
   is_pinned?: boolean | null;
+  participant_ids?: string[];
+  dm_pair_key?: string | null;
 };
 
 export type ChatMessage = MessageRow & {
@@ -62,29 +68,74 @@ function tsToIso(ts: any): string {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+// In-memory profile cache to avoid N+1 lookups during a single load
+const profileCache = new Map<string, ProfileRow | undefined>();
+
 async function getProfile(userId: string): Promise<ProfileRow | undefined> {
+  if (profileCache.has(userId)) return profileCache.get(userId);
   const snap = await firestore().collection("profiles").doc(userId).get();
   const d = snap.data();
-  if (!d) return undefined;
-  return {
-    id: snap.id,
-    username: d.username ?? "",
-    full_name: d.full_name ?? null,
-    avatar_url: d.avatar_url ?? null,
-    bio: d.bio ?? null,
-  };
+  const profile: ProfileRow | undefined = d
+    ? {
+        id: snap.id,
+        username: d.username ?? "",
+        full_name: d.full_name ?? null,
+        avatar_url: d.avatar_url ?? null,
+        bio: d.bio ?? null,
+      }
+    : undefined;
+  profileCache.set(userId, profile);
+  return profile;
 }
 
-function docToMessage(d: any, id: string): MessageRow {
+async function getProfilesBatch(
+  userIds: string[],
+): Promise<Map<string, ProfileRow>> {
+  const out = new Map<string, ProfileRow>();
+  const toFetch: string[] = [];
+
+  for (const id of userIds) {
+    const cached = profileCache.get(id);
+    if (cached) {
+      out.set(id, cached);
+    } else if (cached === undefined && !profileCache.has(id)) {
+      toFetch.push(id);
+    }
+  }
+
+  for (let i = 0; i < toFetch.length; i += 10) {
+    const batch = toFetch.slice(i, i + 10);
+    const snap = await firestore()
+      .collection("profiles")
+      .where(firestore.FieldPath.documentId(), "in", batch)
+      .get();
+    snap.docs.forEach((d) => {
+      const data = d.data() as any;
+      const profile: ProfileRow = {
+        id: d.id,
+        username: data.username ?? "",
+        full_name: data.full_name ?? null,
+        avatar_url: data.avatar_url ?? null,
+        bio: data.bio ?? null,
+      };
+      profileCache.set(d.id, profile);
+      out.set(d.id, profile);
+    });
+  }
+
+  return out;
+}
+
+function docToMessage(d: any, id: string, conversationId: string): MessageRow {
   return {
     id,
-    conversation_id: d.conversation_id,
+    conversation_id: d.conversation_id ?? conversationId,
     sender_id: d.sender_id,
     content: d.content ?? null,
     media_url: d.media_url ?? null,
     media_type: d.media_type ?? null,
     attachments: d.attachments ?? [],
-    created_at: tsToIso(d.created_at),
+    created_at: tsToIso(d.created_at_ts ?? d.created_at),
     delivered_at: d.delivered_at ? tsToIso(d.delivered_at) : null,
     read_at: d.read_at ? tsToIso(d.read_at) : null,
   };
@@ -94,8 +145,8 @@ function docToConversation(d: any, id: string): ConversationRow {
   return {
     id,
     name: d.name ?? null,
-    created_at: tsToIso(d.created_at),
-    updated_at: tsToIso(d.updated_at),
+    created_at: tsToIso(d.created_at_ts ?? d.created_at),
+    updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
     last_message_id: d.last_message_id ?? null,
     is_typing: d.is_typing ?? false,
     is_group: d.is_group ?? false,
@@ -103,30 +154,39 @@ function docToConversation(d: any, id: string): ConversationRow {
     unread_count: d.unread_count ?? 0,
     is_online: d.is_online ?? false,
     is_pinned: d.is_pinned ?? false,
+    participant_ids: Array.isArray(d.participant_ids) ? d.participant_ids : [],
+    dm_pair_key: d.dm_pair_key ?? null,
   };
 }
 
 /* -------------------- SUBSCRIPTIONS -------------------- */
 
 export const chatSubscriptions = {
+  /**
+   * Subscribe to new messages in a conversation.
+   * Fires for ALL new messages (including the user's own) so optimistic UI stays in sync.
+   * The hook layer can dedupe by message id.
+   */
   subscribeToMessages: (
     conversationId: string,
-    userId: string,
+    _userId: string,
     callback: (payload: any) => void,
   ) => {
     return firestore()
+      .collection("conversations")
+      .doc(conversationId)
       .collection("messages")
-      .where("conversation_id", "==", conversationId)
-      .orderBy("created_at", "desc")
+      .orderBy("created_at_ts", "desc")
       .limit(50)
       .onSnapshot(
         (snap) => {
+          if (!snap) return;
           snap.docChanges().forEach((change) => {
             if (change.type === "added") {
-              const msg = { id: change.doc.id, ...change.doc.data() } as any;
-              if (msg.sender_id !== userId) {
-                callback({ new: docToMessage(msg, change.doc.id) });
-              }
+              const data = change.doc.data() as any;
+              callback({
+                new: docToMessage(data, change.doc.id, conversationId),
+              });
             }
           });
         },
@@ -136,18 +196,25 @@ export const chatSubscriptions = {
       );
   },
 
+  /**
+   * Subscribe to changes in conversations the user participates in.
+   * Uses participant_ids array on the conversation doc itself.
+   */
   subscribeToUserConversations: (
     userId: string,
     callback: (payload: any) => void,
   ) => {
     return firestore()
-      .collection("conversation_participants")
-      .where("user_id", "==", userId)
+      .collection("conversations")
+      .where("participant_ids", "array-contains", userId)
       .onSnapshot(
         (snap) => {
-          snap.docChanges().forEach((change) => {
-            callback({ type: change.type, data: change.doc.data() });
-          });
+          if (!snap) return;
+          const docs = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }));
+          callback({ docs });
         },
         (error) => {
           console.error("Error in subscribeToUserConversations:", error);
@@ -155,24 +222,10 @@ export const chatSubscriptions = {
       );
   },
 
-  subscribeToConversations: (callback: (payload: any) => void) => {
-    return firestore()
-      .collection("conversations")
-      .onSnapshot(
-        (snap) => {
-          snap.docChanges().forEach((change) => {
-            callback({
-              type: change.type,
-              data: { id: change.doc.id, ...change.doc.data() },
-            });
-          });
-        },
-        (error) => {
-          console.error("Error in subscribeToConversations:", error);
-        },
-      );
-  },
-
+  /**
+   * Subscribe to typing status for a conversation.
+   * Reads from the `typing` subcollection where each doc id is a userId.
+   */
   subscribeToTypingStatus: (
     conversationId: string,
     callback: (payload: any) => void,
@@ -180,34 +233,24 @@ export const chatSubscriptions = {
     return firestore()
       .collection("conversations")
       .doc(conversationId)
+      .collection("typing")
       .onSnapshot(
         (snap) => {
-          const d = snap.data() as any;
-          if (d) {
-            callback({ new: { is_typing: d.is_typing } });
-          }
+          if (!snap) return;
+          const typing: Record<string, boolean> = {};
+          snap.docs.forEach((d) => {
+            const data = d.data() as any;
+            // Stale-typing guard: typing flag valid for 6s
+            const updated = data?.updated_at?.toDate
+              ? data.updated_at.toDate().getTime()
+              : 0;
+            const fresh = updated > Date.now() - 6000;
+            typing[d.id] = !!data?.is_typing && fresh;
+          });
+          callback({ new: { typing } });
         },
         (error) => {
           console.error("Error in subscribeToTypingStatus:", error);
-        },
-      );
-  },
-
-  subscribeToUserParticipants: (
-    userId: string,
-    callback: (payload: any) => void,
-  ) => {
-    return firestore()
-      .collection("conversation_participants")
-      .where("user_id", "==", userId)
-      .onSnapshot(
-        (snap) => {
-          snap.docChanges().forEach((change) => {
-            callback({ type: change.type, data: change.doc.data() });
-          });
-        },
-        (error) => {
-          console.error("Error in subscribeToUserParticipants:", error);
         },
       );
   },
@@ -218,63 +261,56 @@ export const chatSubscriptions = {
 export const chatQueries = {
   getConversations: async (userId: string) => {
     try {
-      const partSnap = await firestore()
-        .collection("conversation_participants")
-        .where("user_id", "==", userId)
+      const convSnap = await firestore()
+        .collection("conversations")
+        .where("participant_ids", "array-contains", userId)
+        .orderBy("updated_at_ts", "desc")
+        .limit(50)
         .get();
 
-      const convIds = partSnap.docs.map(
-        (d) => (d.data() as any).conversation_id as string,
-      );
-      if (!convIds.length) return { data: [], error: null };
+      if (convSnap.empty) return { data: [], error: null };
 
-      const conversations: ChatConversation[] = [];
+      // Collect all participant ids across conversations for batched profile fetch
+      const allUserIds = new Set<string>();
+      convSnap.docs.forEach((d) => {
+        const ids = (d.data() as any).participant_ids;
+        if (Array.isArray(ids)) ids.forEach((id) => allUserIds.add(id));
+      });
+      await getProfilesBatch(Array.from(allUserIds));
 
-      for (let i = 0; i < convIds.length; i += 10) {
-        const batch = convIds.slice(i, i + 10);
-        const convSnaps = await firestore()
-          .collection("conversations")
-          .where(firestore.FieldPath.documentId(), "in", batch)
-          .get();
-
-        for (const convDoc of convSnaps.docs) {
+      const conversations: ChatConversation[] = await Promise.all(
+        convSnap.docs.map(async (convDoc) => {
           const conv = docToConversation(convDoc.data(), convDoc.id);
 
-          const pSnap = await firestore()
-            .collection("conversation_participants")
-            .where("conversation_id", "==", convDoc.id)
-            .get();
-
-          const participants = await Promise.all(
-            pSnap.docs.map(async (p) => {
-              const pd = p.data() as any;
-              const profile = await getProfile(pd.user_id);
-              return { user_id: pd.user_id, profiles: profile };
-            }),
-          );
+          const participants = (conv.participant_ids ?? []).map((uid) => ({
+            user_id: uid,
+            profiles: profileCache.get(uid) ?? undefined,
+          }));
 
           let last_message: ChatMessage | undefined;
           if (conv.last_message_id) {
-            const msgSnap = await firestore()
-              .collection("messages")
-              .doc(conv.last_message_id)
-              .get();
-            const msgData = msgSnap.data();
-            if (msgData) {
-              last_message = docToMessage(
-                msgData as any,
-                msgSnap.id,
-              ) as ChatMessage;
+            try {
+              const msgSnap = await firestore()
+                .collection("conversations")
+                .doc(convDoc.id)
+                .collection("messages")
+                .doc(conv.last_message_id)
+                .get();
+              const msgData = msgSnap.data();
+              if (msgData) {
+                last_message = docToMessage(
+                  msgData as any,
+                  msgSnap.id,
+                  convDoc.id,
+                ) as ChatMessage;
+              }
+            } catch (e) {
+              console.warn("Failed to load last message:", e);
             }
           }
 
-          conversations.push({ ...conv, participants, last_message });
-        }
-      }
-
-      conversations.sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+          return { ...conv, participants, last_message };
+        }),
       );
 
       return { data: conversations, error: null };
@@ -290,23 +326,26 @@ export const chatQueries = {
     pageSize: number = 20,
   ) => {
     try {
+      const limitCount = pageSize * (page + 1);
       const snap = await firestore()
+        .collection("conversations")
+        .doc(conversationId)
         .collection("messages")
-        .where("conversation_id", "==", conversationId)
-        .orderBy("created_at", "desc")
-        .limit(pageSize)
+        .orderBy("created_at_ts", "desc")
+        .limit(limitCount)
         .get();
 
-      const msgs: ChatMessage[] = await Promise.all(
-        snap.docs.map(async (d) => {
-          const data = d.data() as any;
-          const msg = docToMessage(data, d.id) as ChatMessage;
-          if (data.sender_id) {
-            msg.sender = await getProfile(data.sender_id);
-          }
-          return msg;
-        }),
+      const senderIds = Array.from(
+        new Set(snap.docs.map((d) => (d.data() as any).sender_id as string)),
       );
+      await getProfilesBatch(senderIds);
+
+      const msgs: ChatMessage[] = snap.docs.map((d) => {
+        const data = d.data() as any;
+        const msg = docToMessage(data, d.id, conversationId) as ChatMessage;
+        msg.sender = profileCache.get(data.sender_id);
+        return msg;
+      });
 
       const from = page * pageSize;
       return { data: msgs.slice(from, from + pageSize), error: null };
@@ -331,7 +370,8 @@ export const chatQueries = {
         content: content.trim() || null,
         delivered_at: new Date().toISOString(),
         read_at: null,
-        created_at: firestore.FieldValue.serverTimestamp(),
+        created_at: new Date().toISOString(),
+        created_at_ts: firestore.FieldValue.serverTimestamp(),
       };
 
       if (attachments && attachments.length > 0) {
@@ -343,37 +383,54 @@ export const chatQueries = {
         messageData.media_type = mediaType;
         messageData.attachments = [
           {
-            id: `media-${Date.now()}`,
             url: mediaUrl,
             type: mediaType,
-            name: mediaUrl.split("/").pop(),
+            name: mediaUrl.split("/").pop() ?? "file",
+            storagePath: "",
           },
         ];
       }
 
-      const msgRef = await firestore().collection("messages").add(messageData);
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
 
-      await firestore().collection("conversations").doc(conversationId).update({
-        updated_at: firestore.FieldValue.serverTimestamp(),
+      const msgRef = await convRef.collection("messages").add(messageData);
+
+      // Update parent conversation pointer + timestamp
+      await convRef.update({
+        updated_at: new Date().toISOString(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
         last_message_id: msgRef.id,
+        last_message: {
+          id: msgRef.id,
+          content: messageData.content,
+          sender_id: senderId,
+          media_type: messageData.media_type ?? null,
+        },
       });
 
-      const pSnap = await firestore()
-        .collection("conversation_participants")
-        .where("conversation_id", "==", conversationId)
-        .where("user_id", "!=", senderId)
-        .get();
-
-      const batch = firestore().batch();
-      pSnap.docs.forEach((p) => {
-        const current = (p.data() as any).unread_count ?? 0;
-        batch.update(p.ref, { unread_count: current + 1 });
-      });
-      await batch.commit();
+      // Bump unread count for everyone except the sender
+      try {
+        const partsSnap = await convRef.collection("participants").get();
+        const batch = firestore().batch();
+        partsSnap.docs.forEach((p) => {
+          if (p.id !== senderId) {
+            batch.set(
+              p.ref,
+              { unread_count: firestore.FieldValue.increment(1) },
+              { merge: true },
+            );
+          }
+        });
+        await batch.commit();
+      } catch (e) {
+        console.warn("Failed to bump unread counts:", e);
+      }
 
       const sender = await getProfile(senderId);
       const newMsg: ChatMessage = {
-        ...docToMessage({ ...messageData, created_at: new Date() }, msgRef.id),
+        ...docToMessage(messageData, msgRef.id, conversationId),
         sender,
       };
 
@@ -392,29 +449,39 @@ export const chatQueries = {
     try {
       if (!participantIds.length) throw new Error("No participants provided");
 
+      const dmPairKey =
+        !isGroup && participantIds.length === 2
+          ? [...participantIds].sort().join("__")
+          : null;
+
       const convRef = await firestore()
         .collection("conversations")
         .add({
           name: name || null,
           is_group: isGroup,
+          dm_pair_key: dmPairKey,
+          participant_ids: participantIds,
           avatar_url: null,
           is_online: false,
           is_typing: false,
           is_pinned: false,
           unread_count: 0,
           last_message_id: null,
+          last_message: null,
+          last_message_at: null,
           created_at: firestore.FieldValue.serverTimestamp(),
           updated_at: firestore.FieldValue.serverTimestamp(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+          updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
 
       const batch = firestore().batch();
       participantIds.forEach((userId) => {
-        const ref = firestore().collection("conversation_participants").doc();
-        batch.set(ref, {
-          conversation_id: convRef.id,
+        const partRef = convRef.collection("participants").doc(userId);
+        batch.set(partRef, {
           user_id: userId,
           unread_count: 0,
-          joined_at: new Date().toISOString(),
+          joined_at: firestore.FieldValue.serverTimestamp(),
         });
       });
       await batch.commit();
@@ -441,27 +508,37 @@ export const chatQueries = {
 
   markAsRead: async (conversationId: string, userId: string) => {
     try {
-      const snap = await firestore()
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
+
+      // Reset this user's unread counter (works even if doc doesn't exist yet)
+      await convRef.collection("participants").doc(userId).set(
+        {
+          user_id: userId,
+          unread_count: 0,
+          last_read_at: firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      // Mark unread messages from other senders as read (capped to last 50)
+      const msgSnap = await convRef
         .collection("messages")
-        .where("conversation_id", "==", conversationId)
-        .where("sender_id", "!=", userId)
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
         .get();
 
       const batch = firestore().batch();
-      snap.docs.forEach((d) => {
-        if (!(d.data() as any).read_at) {
+      let updates = 0;
+      msgSnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        if (data.sender_id !== userId && !data.read_at) {
           batch.update(d.ref, { read_at: new Date().toISOString() });
+          updates++;
         }
       });
-      await batch.commit();
-
-      const pSnap = await firestore()
-        .collection("conversation_participants")
-        .where("conversation_id", "==", conversationId)
-        .where("user_id", "==", userId)
-        .get();
-
-      pSnap.docs.forEach((d) => d.ref.update({ unread_count: 0 }));
+      if (updates > 0) await batch.commit();
 
       return { error: null };
     } catch (error) {
@@ -481,24 +558,18 @@ export const chatQueries = {
 
       const conv = docToConversation(convData, convSnap.id);
 
-      const pSnap = await firestore()
-        .collection("conversation_participants")
-        .where("conversation_id", "==", conversationId)
-        .get();
-
       const participants = await Promise.all(
-        pSnap.docs.map(async (p) => {
-          const pd = p.data() as any;
-          return {
-            user_id: pd.user_id,
-            profiles: await getProfile(pd.user_id),
-          };
-        }),
+        (conv.participant_ids ?? []).map(async (uid) => ({
+          user_id: uid,
+          profiles: await getProfile(uid),
+        })),
       );
 
       let last_message: ChatMessage | undefined;
       if (conv.last_message_id) {
         const msgSnap = await firestore()
+          .collection("conversations")
+          .doc(conversationId)
           .collection("messages")
           .doc(conv.last_message_id)
           .get();
@@ -507,6 +578,7 @@ export const chatQueries = {
           last_message = docToMessage(
             msgData as any,
             msgSnap.id,
+            conversationId,
           ) as ChatMessage;
         }
       }
@@ -523,21 +595,20 @@ export const chatQueries = {
 
   deleteConversation: async (conversationId: string) => {
     try {
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
+
+      // Delete messages subcollection
+      const msgSnap = await convRef.collection("messages").get();
+      const partSnap = await convRef.collection("participants").get();
+      const typingSnap = await convRef.collection("typing").get();
+
       const batch = firestore().batch();
-
-      const msgSnap = await firestore()
-        .collection("messages")
-        .where("conversation_id", "==", conversationId)
-        .get();
       msgSnap.docs.forEach((d) => batch.delete(d.ref));
-
-      const pSnap = await firestore()
-        .collection("conversation_participants")
-        .where("conversation_id", "==", conversationId)
-        .get();
-      pSnap.docs.forEach((d) => batch.delete(d.ref));
-
-      batch.delete(firestore().collection("conversations").doc(conversationId));
+      partSnap.docs.forEach((d) => batch.delete(d.ref));
+      typingSnap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(convRef);
 
       await batch.commit();
       return { error: null };
@@ -547,11 +618,26 @@ export const chatQueries = {
     }
   },
 
+  /**
+   * Per-user typing status. Writes to conversations/{id}/typing/{currentUserId}.
+   * isTyping=false also acceptable to clear it.
+   */
   updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
     try {
-      await firestore().collection("conversations").doc(conversationId).update({
-        is_typing: isTyping,
-      });
+      const uid = auth().currentUser?.uid;
+      if (!uid) return { error: null };
+      await firestore()
+        .collection("conversations")
+        .doc(conversationId)
+        .collection("typing")
+        .doc(uid)
+        .set(
+          {
+            is_typing: isTyping,
+            updated_at: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
       return { error: null };
     } catch (error) {
       console.error("Error updating typing status:", error);

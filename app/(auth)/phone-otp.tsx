@@ -1,14 +1,13 @@
-// app/(auth)/phone-otp.tsx ✅
+// app/(auth)/phone-otp.tsx — REACT NATIVE FIREBASE ✅
 // OTP verification screen — navigated to from login/signup phone flow
-// Params: phoneNumber (display only), isSignup (bool)
+// Params: phoneNumber (display only), twoFactor (bool), email, password
 
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
-import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import auth from "@react-native-firebase/auth";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -43,7 +42,6 @@ export default function PhoneOTPScreen() {
     ? [colors.background, colors.background, colors.background]
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
-  // Countdown for resend
   useEffect(() => {
     if (countdown <= 0) return;
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
@@ -54,18 +52,21 @@ export default function PhoneOTPScreen() {
     if (error) Alert.alert("Error", error);
   }, [error]);
 
+  const finishTwoFactor = async () => {
+    if (twoFactor === "1" && email && password) {
+      try {
+        await auth().signInWithEmailAndPassword(email, password);
+      } catch {
+        // If re-sign-in fails, still navigate — user is phone-verified
+      }
+    }
+  };
+
   const handleVerify = async () => {
     if (code.length !== CODE_LENGTH) return;
     const otpUser = await verifyOTP(code);
     if (otpUser) {
-      if (twoFactor === "1" && email && password) {
-        // ✅ 2FA flow — re-sign-in with email/password after OTP verified
-        try {
-          await signInWithEmailAndPassword(auth, email, password);
-        } catch {
-          // If re-sign-in fails, still navigate — user is phone-verified
-        }
-      }
+      await finishTwoFactor();
       router.replace("/(tabs)/home" as any);
     }
   };
@@ -77,11 +78,7 @@ export default function PhoneOTPScreen() {
       setTimeout(async () => {
         const otpUser = await verifyOTP(clean);
         if (otpUser) {
-          if (twoFactor === "1" && email && password) {
-            try {
-              await signInWithEmailAndPassword(auth, email, password);
-            } catch {}
-          }
+          await finishTwoFactor();
           router.replace("/(tabs)/home" as any);
         }
       }, 200);
@@ -90,7 +87,6 @@ export default function PhoneOTPScreen() {
 
   const isVerifying = state === "verifying";
 
-  // Render code boxes
   const renderBoxes = () => {
     return Array(CODE_LENGTH)
       .fill(0)
@@ -130,7 +126,6 @@ export default function PhoneOTPScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => {
@@ -151,7 +146,6 @@ export default function PhoneOTPScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.content}>
-          {/* Icon */}
           <View
             style={[
               styles.iconCircle,
@@ -175,7 +169,6 @@ export default function PhoneOTPScreen() {
             </Text>
           </Text>
 
-          {/* Hidden input captures keyboard */}
           <TextInput
             ref={inputRef}
             value={code}
@@ -187,7 +180,6 @@ export default function PhoneOTPScreen() {
             editable={!isVerifying}
           />
 
-          {/* Code boxes — tappable to focus hidden input */}
           <TouchableOpacity
             style={styles.boxes}
             onPress={() => inputRef.current?.focus()}
@@ -196,14 +188,12 @@ export default function PhoneOTPScreen() {
             {renderBoxes()}
           </TouchableOpacity>
 
-          {/* Error */}
           {!!error && (
             <Text style={[styles.errorText, { color: "#EF4444" }]}>
               {error}
             </Text>
           )}
 
-          {/* Verify button */}
           <TouchableOpacity
             style={[
               styles.verifyBtn,
@@ -223,7 +213,6 @@ export default function PhoneOTPScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Resend */}
           <View style={styles.resendRow}>
             <Text style={[styles.resendLabel, { color: colors.textTertiary }]}>
               Didn't get a code?{" "}

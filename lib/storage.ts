@@ -1,27 +1,14 @@
-// lib/storage.ts — FIREBASE WRAPPER ✅ (keeps existing imports working)
+// lib/storage.ts — REACT NATIVE FIREBASE ✅ (keeps existing API surface)
+import auth from "@react-native-firebase/auth";
+import storage from "@react-native-firebase/storage";
 
-import { getAuth } from "firebase/auth";
-import {
-    deleteObject,
-    getDownloadURL,
-    getStorage,
-    ref,
-    uploadBytes,
-} from "firebase/storage";
-
-export type FileType = File | Blob | ArrayBuffer | Uint8Array | string;
+export type FileType = Blob | ArrayBuffer | Uint8Array | string;
 export type MediaType = "image" | "video" | "audio" | "file";
 
 export interface UploadOptions {
   cacheControl?: string;
   contentType?: string;
   upsert?: boolean;
-}
-
-interface StorageUploadResult {
-  id: string;
-  path: string;
-  fullPath: string;
 }
 
 export interface UploadResult {
@@ -32,74 +19,90 @@ export interface UploadResult {
   bucket: string;
 }
 
-const storage = getStorage();
-const auth = getAuth();
-
 function makePath(bucket: string, path: string) {
-  const uid = auth.currentUser?.uid || "anon";
-  // If caller passes a full path, keep it; otherwise namespace it
+  const uid = auth().currentUser?.uid || "anon";
   const clean = path.startsWith(bucket + "/")
     ? path
     : `${bucket}/${uid}/${path}`;
   return clean;
 }
 
-async function blobFromAny(file: any): Promise<Blob> {
-  if (typeof file === "string") {
-    const res = await fetch(file);
-    return await res.blob();
-  }
-  if (file instanceof Blob) return file;
-  // Uint8Array / ArrayBuffer
-  return new Blob([file]);
-}
-
+/**
+ * Uploads a file to Firebase Storage.
+ * - For React Native: pass a local file URI string (file:///... or content://...)
+ * - For raw bytes (Uint8Array / base64): use putString or convert beforehand
+ */
 export async function uploadFile(
   bucket: string,
   path: string,
   file: FileType,
   options?: UploadOptions,
 ): Promise<UploadResult> {
+  if (!auth().currentUser) {
+    throw new Error("Not authenticated");
+  }
+
   const storagePath = makePath(bucket, path);
-  const r = ref(storage, storagePath);
+  const r = storage().ref(storagePath);
 
-  const blob = await blobFromAny(file);
-  await uploadBytes(
-    r,
-    blob,
-    options?.contentType ? { contentType: options.contentType } : undefined,
-  );
+  const metadata = options?.contentType
+    ? { contentType: options.contentType }
+    : undefined;
 
-  const url = await getDownloadURL(r);
-  const uploadData = {
-    id: storagePath,
-    path: storagePath,
-    fullPath: storagePath,
-  } as StorageUploadResult;
+  if (typeof file === "string") {
+    // Local file URI from expo-image-picker, expo-file-system, etc.
+    await r.putFile(file, metadata);
+  } else if (file instanceof Uint8Array) {
+    // Convert bytes to base64 and use putString
+    const base64 = uint8ArrayToBase64(file);
+    await r.putString(base64, "base64", metadata);
+  } else if (file instanceof ArrayBuffer) {
+    const base64 = uint8ArrayToBase64(new Uint8Array(file));
+    await r.putString(base64, "base64", metadata);
+  } else {
+    throw new Error(
+      "Unsupported file type for React Native Firebase upload. Pass a file URI string.",
+    );
+  }
+
+  const url = await r.getDownloadURL();
 
   return {
     url,
-    path: uploadData.path,
-    fullPath: uploadData.fullPath,
-    id: uploadData.id,
+    path: storagePath,
+    fullPath: storagePath,
+    id: storagePath,
     bucket,
   };
 }
 
 export async function deleteFile(_bucket: string, path: string): Promise<void> {
-  await deleteObject(ref(storage, path));
+  await storage().ref(path).delete();
 }
 
 export function getPublicUrl(_bucket: string, _path: string): string {
-  // Firebase does not have deterministic public URLs; use the saved download URL from upload result.
+  // Firebase does not have deterministic public URLs; use saved downloadURL.
   return "";
 }
 
 export async function getSignedUrl(
   _bucket: string,
-  _path: string,
+  path: string,
   _expiresIn = 3600,
 ): Promise<string> {
-  // Not supported client-side in Firebase without a backend; use downloadURL from upload.
-  return "";
+  // RN Firebase exposes getDownloadURL which returns a tokenized URL.
+  return await storage().ref(path).getDownloadURL();
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  // global.btoa exists in Hermes/RN
+  // eslint-disable-next-line no-undef
+  return global.btoa
+    ? global.btoa(binary)
+    : Buffer.from(binary, "binary").toString("base64");
 }

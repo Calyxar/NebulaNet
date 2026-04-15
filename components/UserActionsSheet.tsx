@@ -1,11 +1,23 @@
-// components/UserActionsSheet.tsx — DEBUG VERSION
-
+// components/UserActionsSheet.tsx — BottomSheetModal version ✅
 import { Ionicons } from "@expo/vector-icons";
-import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
-import React, { forwardRef, useCallback, useEffect, useMemo } from "react";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
+import React, {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-export type UserActionsSheetRef = BottomSheet;
+export type UserActionsSheetRef = {
+  snapToIndex: (index: number) => void;
+  close: () => void;
+};
 
 type Props = {
   username?: string;
@@ -40,34 +52,21 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     },
     ref,
   ) => {
+    const modalRef = useRef<BottomSheetModal>(null);
     const snapPoints = useMemo(() => ["65%"], []);
 
-    // DEBUG: Log what props we received
-    useEffect(() => {
-      console.log("=== UserActionsSheet Props ===");
-      console.log("username:", username);
-      console.log("onMessage:", !!onMessage);
-      console.log("onCopyLink:", !!onCopyLink);
-      console.log("onShare:", !!onShare);
-      console.log("onMute:", !!onMute);
-      console.log("isMuted:", isMuted);
-      console.log("onRemove:", !!onRemove);
-      console.log("onBlock:", !!onBlock);
-      console.log("hideBlock:", hideBlock);
-      console.log("onReport:", !!onReport);
-      console.log("===============================");
-    }, [
-      username,
-      onMessage,
-      onCopyLink,
-      onShare,
-      onMute,
-      isMuted,
-      onRemove,
-      onBlock,
-      hideBlock,
-      onReport,
-    ]);
+    useImperativeHandle(
+      ref,
+      () => ({
+        snapToIndex: (_index: number) => {
+          modalRef.current?.present();
+        },
+        close: () => {
+          modalRef.current?.dismiss();
+        },
+      }),
+      [],
+    );
 
     const renderBackdrop = useCallback(
       (props: any) => (
@@ -82,21 +81,19 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
     );
 
     return (
-      <BottomSheet
-        ref={ref}
-        index={-1}
+      <BottomSheetModal
+        ref={modalRef}
         snapPoints={snapPoints}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         handleIndicatorStyle={{ backgroundColor: "#D1D5DB" }}
         backgroundStyle={{ backgroundColor: "#FFFFFF" }}
       >
-        <View style={styles.sheet}>
+        <BottomSheetView style={styles.sheet}>
           <Text style={styles.title} numberOfLines={1}>
             @{username || "user"}
           </Text>
 
-          {/* Message */}
           {!!onMessage && (
             <TouchableOpacity
               style={styles.item}
@@ -110,7 +107,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Copy Link */}
           {!!onCopyLink && (
             <TouchableOpacity
               style={styles.item}
@@ -124,7 +120,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Share */}
           {!!onShare && (
             <TouchableOpacity
               style={styles.item}
@@ -138,7 +133,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Mute */}
           {!!onMute && (
             <TouchableOpacity
               style={styles.item}
@@ -160,7 +154,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Remove follower */}
           {!!onRemove && (
             <TouchableOpacity
               style={styles.item}
@@ -178,7 +171,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Block */}
           {!hideBlock && !!onBlock && (
             <TouchableOpacity
               style={styles.item}
@@ -194,7 +186,6 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
             </TouchableOpacity>
           )}
 
-          {/* Report */}
           {!!onReport && (
             <TouchableOpacity
               style={styles.item}
@@ -212,14 +203,11 @@ const UserActionsSheet = forwardRef<UserActionsSheetRef, Props>(
 
           <View style={styles.divider} />
 
-          <TouchableOpacity
-            style={[styles.item, styles.cancel]}
-            activeOpacity={0.85}
-          >
+          <View style={[styles.item, styles.cancel]}>
             <Text style={styles.cancelText}>Swipe down to close</Text>
-          </TouchableOpacity>
-        </View>
-      </BottomSheet>
+          </View>
+        </BottomSheetView>
+      </BottomSheetModal>
     );
   },
 );
@@ -232,6 +220,7 @@ const styles = StyleSheet.create({
   sheet: {
     paddingHorizontal: 16,
     paddingTop: 6,
+    paddingBottom: 32,
   },
   title: {
     fontSize: 14,

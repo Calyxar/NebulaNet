@@ -58,11 +58,6 @@
         color: #fb7185;
         font-weight: 700;
       }
-      code {
-        background: rgba(255, 255, 255, 0.06);
-        padding: 2px 6px;
-        border-radius: 8px;
-      }
     </style>
   </head>
   <body>
@@ -71,7 +66,7 @@
         <h1>Email verification</h1>
         <p id="status" class="muted">Processing…</p>
 
-        <a
+        
           id="openApp"
           class="btn"
           href="nebulanet://auth/login"
@@ -94,14 +89,11 @@
         checkActionCode,
       } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
+      // Build-time injected from .env.production via scripts/inject-firebase-config.js
       const firebaseConfig = {
-        apiKey: "AIzaSyCld45HfLvQHTY7FpPXhwUIE5docgd5nv0",
-        authDomain: "nebulanet-abf99.firebaseapp.com",
-        projectId: "nebulanet-abf99",
-        storageBucket: "nebulanet-abf99.firebasestorage.app",
-        messagingSenderId: "218927734181",
-        appId: "1:218927734181:web:4ef20e8f3eca46da3d1c4c",
-        measurementId: "G-2QLTHPBWSP",
+        apiKey: "__FIREBASE_API_KEY__",
+        authDomain: "__FIREBASE_AUTH_DOMAIN__",
+        projectId: "__FIREBASE_PROJECT_ID__",
       };
 
       const app = initializeApp(firebaseConfig);
@@ -111,17 +103,14 @@
       const openAppBtn = document.getElementById("openApp");
 
       const params = new URLSearchParams(window.location.search);
-      const mode = params.get("mode"); // verifyEmail
-      const oobCode = params.get("oobCode"); // action code
-      const continueUrl = params.get("continueUrl"); // optional
-      const lang = params.get("lang") || "en";
+      const mode = params.get("mode");
+      const oobCode = params.get("oobCode");
 
       const showOpenApp = () => {
         openAppBtn.style.display = "inline-block";
-        // Try auto open after a moment (mobile)
         setTimeout(() => {
           window.location.href = "nebulanet://auth/login";
-        }, 1200);
+        }, 1500);
       };
 
       (async () => {

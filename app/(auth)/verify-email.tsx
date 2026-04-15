@@ -1,9 +1,8 @@
-// app/(auth)/verify-email.tsx — UPDATED ✅ dark mode
-import { auth } from "@/lib/firebase";
+// app/(auth)/verify-email.tsx — REACT NATIVE FIREBASE ✅ dark mode
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import auth from "@react-native-firebase/auth";
 import { router } from "expo-router";
-import { sendEmailVerification } from "firebase/auth";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -20,7 +19,7 @@ export default function VerifyEmailScreen() {
   const { colors, isDark } = useTheme();
   const [isResending, setIsResending] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   const email = useMemo(() => user?.email ?? "", [user?.email]);
 
   useEffect(() => {
@@ -28,6 +27,7 @@ export default function VerifyEmailScreen() {
       router.replace("/(auth)/onboarding");
     }
   }, [user?.emailVerified]);
+
   useEffect(() => {
     if (countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
@@ -35,7 +35,8 @@ export default function VerifyEmailScreen() {
   }, [countdown]);
 
   const requireUser = () => {
-    if (auth.currentUser) return auth.currentUser;
+    const current = auth().currentUser;
+    if (current) return current;
     Alert.alert("Not signed in", "Please sign in again.", [
       { text: "OK", onPress: () => router.replace("/(auth)/login") },
     ]);
@@ -51,7 +52,7 @@ export default function VerifyEmailScreen() {
     if (!u) return;
     setIsResending(true);
     try {
-      await sendEmailVerification(u);
+      await u.sendEmailVerification();
       setCountdown(60);
       Alert.alert(
         "Email Sent",
@@ -69,7 +70,7 @@ export default function VerifyEmailScreen() {
     if (!u) return;
     try {
       await u.reload();
-      const fresh = auth.currentUser;
+      const fresh = auth().currentUser;
       if (fresh?.emailVerified) {
         Alert.alert("Email Verified!", "Your email has been verified.", [
           {

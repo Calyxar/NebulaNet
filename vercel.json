@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "node scripts/inject-firebase-config.js",
   "outputDirectory": "dist",
   "framework": null,
 

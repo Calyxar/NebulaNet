@@ -98,7 +98,6 @@
 
         <div id="message" class="msg">Reading action link…</div>
 
-        <!-- Reset password UI -->
         <form id="resetForm" class="hide">
           <div class="row">
             <input
@@ -120,20 +119,18 @@
           <div class="small" id="resetHint"></div>
         </form>
 
-        <!-- Continue -->
         <div id="continueWrap" class="hide" style="margin-top: 14px">
           <button id="openAppBtn" class="secondary" type="button">
             Open NebulaNet
           </button>
           <div class="small">
-            If the button doesn’t work, copy/paste this link:
+            If the button doesn't work, copy/paste this link:
             <span id="continueLinkText"></span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Firebase v9+ modular via ESM -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
       import {
@@ -143,19 +140,18 @@
         confirmPasswordReset,
       } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
-      // --- helpers ---
       const $ = (id) => document.getElementById(id);
       const qp = (k) => new URLSearchParams(window.location.search).get(k);
 
-      const mode = qp("mode"); // resetPassword | verifyEmail | recoverEmail
-      const oobCode = qp("oobCode"); // one-time code
-      const continueUrl = qp("continueUrl") || ""; // optional
-      const lang = qp("lang") || "en";
+      const mode = qp("mode");
+      const oobCode = qp("oobCode");
+      const continueUrl = qp("continueUrl") || "";
 
-      // Minimal config is allowed for these flows (apiKey is sufficient). :contentReference[oaicite:1]{index=1}
+      // Build-time injected from .env.production via scripts/inject-firebase-config.js
       const firebaseConfig = {
-        apiKey: qp("apiKey") || "YOUR_FIREBASE_WEB_API_KEY",
-        authDomain: "YOUR_PROJECT.firebaseapp.com",
+        apiKey: "__FIREBASE_API_KEY__",
+        authDomain: "__FIREBASE_AUTH_DOMAIN__",
+        projectId: "__FIREBASE_PROJECT_ID__",
       };
 
       const app = initializeApp(firebaseConfig);
@@ -166,9 +162,11 @@
         $("continueWrap").classList.remove("hide");
         $("continueLinkText").innerHTML = ` <a href="${url}">${url}</a>`;
         $("openAppBtn").onclick = () => {
-          // Attempt to open app (custom scheme or https universal link)
           window.location.href = url;
         };
+        setTimeout(() => {
+          window.location.href = url;
+        }, 1500);
       }
 
       function setStatus(title, subtitle, msg) {
@@ -194,9 +192,10 @@
         } catch (e) {
           setStatus(
             "Verification failed",
-            "This link may be expired.",
+            "This link may be expired or already used.",
             e?.message || "Unknown error",
           );
+          showContinue("nebulanet://auth/login");
         }
       }
 
@@ -258,7 +257,6 @@
         });
       }
 
-      // --- entry ---
       if (!mode || !oobCode) {
         setStatus(
           "Invalid link",

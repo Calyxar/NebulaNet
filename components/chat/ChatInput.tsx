@@ -1,8 +1,9 @@
-// components/chat/ChatInput.tsx — FIREBASE STORAGE ✅ (COMPLETED + UPDATED)
+// components/chat/ChatInput.tsx — FIREBASE STORAGE ✅
 // ✅ Replaces Supabase Storage uploads with Firebase Storage uploads
 // ✅ Keeps attachment preview/emoji/voice recording UI the same
 // ✅ Keeps the same "surface area": onSendMessage(message, attachments?)
 // ✅ Attachments now include: url (downloadURL) + storagePath (Firebase path)
+// ✅ Cancel/Close buttons wrapped in SafeAreaView so they don't sit under gesture bar
 
 import { useTyping } from "@/hooks/useTyping";
 import { uploadChatFile } from "@/lib/firestore/storage";
@@ -30,6 +31,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { v4 as uuidv4 } from "uuid";
 
 interface ChatInputProps {
@@ -41,7 +43,7 @@ interface ChatInputProps {
 }
 
 /**
- * ✅ Neutral attachment shape (works for Firebase)
+ * Neutral attachment shape (works for Firebase)
  * - url is a Firebase downloadURL
  * - storagePath is where the file lives in Firebase Storage
  */
@@ -52,7 +54,6 @@ export interface ChatAttachment {
   size?: number;
   mimeType?: string;
   duration?: number;
-
   storagePath: string;
 }
 
@@ -108,7 +109,6 @@ export default function ChatInput({
 }: ChatInputProps) {
   const { colors } = useTheme();
 
-  // Typing broadcasts ✅
   const { setTyping } = useTyping(conversationId, userId);
   const typingIdleTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -162,7 +162,6 @@ export default function ChatInput({
     }
   };
 
-  // Typing helper
   const bumpTyping = async (text: string) => {
     if (!conversationId || !userId) return;
 
@@ -234,7 +233,6 @@ export default function ChatInput({
     try {
       setIsUploading(true);
 
-      // stop typing once message is sending
       await setTyping(false);
       if (typingIdleTimer.current) {
         clearTimeout(typingIdleTimer.current);
@@ -716,19 +714,21 @@ export default function ChatInput({
                   )}
                   contentContainerStyle={styles.emojiList}
                 />
-                <TouchableOpacity
-                  style={[
-                    styles.closeEmojiButton,
-                    { borderTopColor: colors.border },
-                  ]}
-                  onPress={() => setShowEmojiPicker(false)}
-                >
-                  <Text
-                    style={[styles.closeEmojiText, { color: colors.primary }]}
+                <SafeAreaView edges={["bottom"]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.closeEmojiButton,
+                      { borderTopColor: colors.border },
+                    ]}
+                    onPress={() => setShowEmojiPicker(false)}
                   >
-                    Close
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[styles.closeEmojiText, { color: colors.primary }]}
+                    >
+                      Close
+                    </Text>
+                  </TouchableOpacity>
+                </SafeAreaView>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -801,12 +801,14 @@ export default function ChatInput({
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.cancelOptionButton}
-                  onPress={() => setShowAttachmentOptions(false)}
-                >
-                  <Text style={styles.cancelOptionText}>Cancel</Text>
-                </TouchableOpacity>
+                <SafeAreaView edges={["bottom"]}>
+                  <TouchableOpacity
+                    style={styles.cancelOptionButton}
+                    onPress={() => setShowAttachmentOptions(false)}
+                  >
+                    <Text style={styles.cancelOptionText}>Cancel</Text>
+                  </TouchableOpacity>
+                </SafeAreaView>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -952,7 +954,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
-    maxHeight: "50%",
+    maxHeight: "60%",
   },
   emojiModalTitle: {
     fontSize: 18,
@@ -964,7 +966,8 @@ const styles = StyleSheet.create({
   emojiItem: { flex: 1, alignItems: "center", padding: 8 },
   emojiText: { fontSize: 28 },
   closeEmojiButton: {
-    paddingVertical: 12,
+    paddingVertical: 14,
+    paddingBottom: 18,
     alignItems: "center",
     borderTopWidth: 1,
   },
@@ -997,6 +1000,7 @@ const styles = StyleSheet.create({
   optionText: { fontSize: 16, marginLeft: 12 },
   cancelOptionButton: {
     paddingVertical: 16,
+    paddingBottom: 20,
     alignItems: "center",
     marginTop: 8,
   },

@@ -1,12 +1,4 @@
-// app/profile/followers.tsx — UPDATED ✅
-// ✅ Full useTheme() support — no hardcoded colors
-// ✅ AppHeader replaces inline header
-// ✅ Skeleton rows on loading (8 rows)
-// ✅ Follow-back button per row via FollowerRowItem (per-row hook pattern)
-// ✅ Linear gradient background (light mode only)
-// ✅ Fixed onTouchEnd → Pressable for back button
-// ✅ Follow-back button hidden for mutual followers (already following back)
-
+// app/profile/followers.tsx — REACT NATIVE FIREBASE ✅
 import AppHeader from "@/components/navigation/AppHeader";
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -14,23 +6,12 @@ import UserActionsSheet, {
 import UserRow, { type UserRowModel } from "@/components/UserRow";
 import { useAuth } from "@/hooks/useAuth";
 import { useFollowActions, useFollowStatus } from "@/hooks/useFollowActions";
-import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -39,13 +20,9 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-/* =========================
-   TYPES
-========================= */
 
 type FollowRow = {
   follower_id: string;
@@ -58,10 +35,6 @@ type FollowRow = {
     is_private?: boolean | null;
   } | null;
 };
-
-/* =========================
-   SKELETON ROW
-========================= */
 
 function SkeletonRow({ colors }: { colors: any }) {
   return (
@@ -92,11 +65,6 @@ function SkeletonRow({ colors }: { colors: any }) {
   );
 }
 
-/* =========================
-   PER-ROW FOLLOW-BACK ITEM
-   Separate component so useFollowActions hook is called per-row safely
-========================= */
-
 function FollowerRowItem({
   item,
   isMutual,
@@ -117,7 +85,6 @@ function FollowerRowItem({
 
   const { data: followStatus } = useFollowStatus(item.id);
 
-  // Determine button state
   const isFollowing = followStatus === "accepted";
   const isPending = followStatus === "pending";
 
@@ -179,25 +146,20 @@ function FollowerRowItem({
   );
 }
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function FollowersScreen() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const qc = useQueryClient();
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
   const [selected, setSelected] = useState<UserRowModel | null>(null);
 
-  const myId = user?.id;
+  const myId = user?.uid;
 
   const gradientColors = isDark
     ? [colors.background, colors.background]
     : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
 
-  // ── Followers query ──
   const {
     data: rows,
     isLoading,
@@ -207,17 +169,19 @@ export default function FollowersScreen() {
     queryKey: ["my-followers-with-status", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("following_id", "==", myId!),
-          where("status", "in", ["accepted", "pending"]),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("following_id", "==", myId!)
+        .where("status", "in", ["accepted", "pending"])
+        .get();
+
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "profiles", data.follower_id));
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(data.follower_id)
+            .get();
           const p = pSnap.exists() ? (pSnap.data() as any) : null;
           return {
             follower_id: data.follower_id,
@@ -238,7 +202,6 @@ export default function FollowersScreen() {
     },
   });
 
-  // ── Mutual detection ──
   const followerIds = useMemo(
     () => (rows ?? []).map((r) => r.follower_id).filter(Boolean),
     [rows],
@@ -248,16 +211,21 @@ export default function FollowersScreen() {
     queryKey: ["i-follow-back-set", myId, followerIds.join(",")],
     enabled: !!myId && followerIds.length > 0,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", myId!),
-          where("following_id", "in", followerIds),
-          where("status", "==", "accepted"),
-        ),
-      );
+      // Firestore "in" queries are limited to 30 values — chunk just in case
       const set = new Set<string>();
-      snap.docs.forEach((d) => set.add((d.data() as any).following_id));
+      const chunks: string[][] = [];
+      for (let i = 0; i < followerIds.length; i += 30) {
+        chunks.push(followerIds.slice(i, i + 30));
+      }
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("follows")
+          .where("follower_id", "==", myId!)
+          .where("following_id", "in", chunk)
+          .where("status", "==", "accepted")
+          .get();
+        snap.docs.forEach((d) => set.add((d.data() as any).following_id));
+      }
       return set;
     },
   });
@@ -277,50 +245,42 @@ export default function FollowersScreen() {
     });
   }, [rows, iFollowBackSet]);
 
-  // ── Remove follower ──
   const removeFollower = useMutation({
     mutationFn: async (targetUserId: string) => {
       if (!myId) throw new Error("Not signed in");
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", targetUserId),
-          where("following_id", "==", myId),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", targetUserId)
+        .where("following_id", "==", myId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["my-followers-with-status", myId] });
     },
   });
 
-  // ── Block user ──
   const blockUser = useMutation({
     mutationFn: async (targetUserId: string) => {
       if (!myId) throw new Error("Not signed in");
-      await addDoc(collection(db, "user_blocks"), {
+      await firestore().collection("user_blocks").add({
         blocker_id: myId,
         blocked_id: targetUserId,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
       const [s1, s2] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, "follows"),
-            where("follower_id", "==", myId),
-            where("following_id", "==", targetUserId),
-          ),
-        ),
-        getDocs(
-          query(
-            collection(db, "follows"),
-            where("follower_id", "==", targetUserId),
-            where("following_id", "==", myId),
-          ),
-        ),
+        firestore()
+          .collection("follows")
+          .where("follower_id", "==", myId)
+          .where("following_id", "==", targetUserId)
+          .get(),
+        firestore()
+          .collection("follows")
+          .where("follower_id", "==", targetUserId)
+          .where("following_id", "==", myId)
+          .get(),
       ]);
-      await Promise.all([...s1.docs, ...s2.docs].map((d) => deleteDoc(d.ref)));
+      await Promise.all([...s1.docs, ...s2.docs].map((d) => d.ref.delete()));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["my-followers-with-status", myId] });
@@ -421,10 +381,6 @@ export default function FollowersScreen() {
     </LinearGradient>
   );
 }
-
-/* =========================
-   STYLES
-========================= */
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },

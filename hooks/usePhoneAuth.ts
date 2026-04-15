@@ -1,9 +1,8 @@
-// hooks/usePhoneAuth.ts — FIXED ✅
-// ✅ FIXED: use @react-native-firebase/auth instead of firebase/auth (web SDK)
-// firebase/auth requires a real RecaptchaVerifier — returns error with SilentRecaptcha mock
+// hooks/usePhoneAuth.ts — REACT NATIVE FIREBASE ✅
 // @react-native-firebase/auth handles Play Integrity/SafetyNet natively on Android
 // No reCAPTCHA, no verifier needed at all
 
+import auth from "@react-native-firebase/auth";
 import { useRef, useState } from "react";
 
 export type PhoneAuthState =
@@ -29,9 +28,7 @@ export function usePhoneAuth() {
     setError(null);
     setState("sending");
     try {
-      // ✅ FIXED: use @react-native-firebase/auth — handles Play Integrity natively
-      const rnAuth = require("@react-native-firebase/auth").default;
-      const confirmation = await rnAuth().signInWithPhoneNumber(phoneNumber);
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
       confirmationRef.current = confirmation;
       setState("awaiting_code");
       return true;
@@ -69,6 +66,7 @@ export function usePhoneAuth() {
 function parsePhoneError(e: any): string {
   const code: string = e?.code ?? "";
   const msg: string = (e?.message ?? "").toLowerCase();
+
   if (
     code === "auth/invalid-phone-number" ||
     msg.includes("invalid-phone-number")
@@ -85,6 +83,13 @@ function parsePhoneError(e: any): string {
     return "Code expired. Please request a new one.";
   if (code === "auth/quota-exceeded")
     return "SMS quota exceeded. Please try again later.";
+  if (
+    code === "auth/missing-client-identifier" ||
+    msg.includes("missing-client-identifier")
+  )
+    return "Phone authentication isn't configured for this build. Check Play Integrity setup.";
+  if (code === "auth/app-not-authorized" || msg.includes("app-not-authorized"))
+    return "This app isn't authorized for phone auth. Check SHA-256 fingerprints in Firebase Console.";
   if (msg.includes("cancelled") || msg.includes("dismissed")) return "";
   return e?.message || "Something went wrong. Please try again.";
 }

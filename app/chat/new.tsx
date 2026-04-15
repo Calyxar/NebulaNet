@@ -1,26 +1,11 @@
-// app/chat/new.tsx ✅ THEMED
+// app/chat/new.tsx — REACT NATIVE FIREBASE ✅ THEMED
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { router } from "expo-router";
-import {
-  and,
-  collection,
-  doc,
-  documentId,
-  endAt,
-  getDoc,
-  getDocs,
-  limit,
-  or,
-  orderBy,
-  query,
-  startAt,
-  where,
-} from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -46,15 +31,16 @@ type ProfileRow = {
 };
 type BlockRow = { blocker_id: string; blocked_id: string };
 type FollowRow = { following_id: string; status: "accepted" | "pending" };
+type ProfileMini = {
+  username: string;
+  full_name: string | null;
+  avatar_url: string | null;
+};
 type RecentItem = {
   id: string;
   updated_at: string;
   otherUserId: string;
-  other: {
-    username: string;
-    full_name: string | null;
-    avatar_url: string | null;
-  } | null;
+  other: ProfileMini | null;
   unread_count: number;
 };
 
@@ -66,7 +52,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 function tsToIso(ts: unknown): string {
   if (!ts) return "";
-  if (typeof (ts as { toDate?: unknown }).toDate === "function")
+  if (typeof (ts as { toDate?: unknown })?.toDate === "function")
     return (ts as { toDate: () => Date }).toDate().toISOString();
   const d = new Date(ts as string | number);
   return isNaN(d.getTime()) ? "" : d.toISOString();
@@ -81,30 +67,32 @@ export default function NewChatScreen() {
   const search = searchQuery.trim();
   const canSearch = search.length >= 2;
 
+  const myId = user?.uid;
+
   const [recent, setRecent] = useState<RecentItem[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const run = async () => {
-      if (!user?.id) return;
+      if (!myId) return;
       setLoadingRecent(true);
       try {
-        const q1 = query(
-          collection(db, "conversations"),
-          where("participant_ids", "array-contains", user.id),
-          where("is_group", "==", false),
-          orderBy("updated_at_ts", "desc"),
-          limit(12),
-        );
-        const snap = await getDocs(q1);
+        const snap = await firestore()
+          .collection("conversations")
+          .where("participant_ids", "array-contains", myId)
+          .where("is_group", "==", false)
+          .orderBy("updated_at_ts", "desc")
+          .limit(12)
+          .get();
+
         const base: RecentItem[] = snap.docs
           .map((d) => {
             const x = d.data() as any;
             const ids = Array.isArray(x.participant_ids)
               ? (x.participant_ids as string[])
               : [];
-            const otherUserId = ids.find((id) => id !== user.id) ?? "";
+            const otherUserId = ids.find((id) => id !== myId) ?? "";
             return {
               id: d.id,
               updated_at: tsToIso(x.updated_at_ts ?? x.updated_at),
@@ -123,13 +111,16 @@ export default function NewChatScreen() {
         const unreadResults = await Promise.all(
           base.map(async (c) => {
             try {
-              const pSnap = await getDoc(
-                doc(db, "conversations", c.id, "participants", user.id),
-              );
+              const pSnap = await firestore()
+                .collection("conversations")
+                .doc(c.id)
+                .collection("participants")
+                .doc(myId)
+                .get();
+              const data = pSnap.exists() ? (pSnap.data() as any) : null;
               const uc =
-                pSnap.exists() &&
-                typeof (pSnap.data() as any).unread_count === "number"
-                  ? ((pSnap.data() as any).unread_count as number)
+                data && typeof data.unread_count === "number"
+                  ? (data.unread_count as number)
                   : 0;
               return { id: c.id, unread: uc };
             } catch {
@@ -146,21 +137,14 @@ export default function NewChatScreen() {
         const otherIds = Array.from(
           new Set(withUnread.map((c) => c.otherUserId)),
         );
-        const profilesMap = new Map<
-          string,
-          {
-            username: string;
-            full_name: string | null;
-            avatar_url: string | null;
-          }
-        >();
+
+        const profilesMap = new Map<string, ProfileMini>();
 
         for (const b of chunk(otherIds, 10)) {
-          const qp = query(
-            collection(db, "profiles"),
-            where(documentId(), "in", b),
-          );
-          const ps = await getDocs(qp);
+          const ps = await firestore()
+            .collection("profiles")
+            .where(firestore.FieldPath.documentId(), "in", b)
+            .get();
           ps.docs.forEach((pd) => {
             const p = pd.data() as any;
             profilesMap.set(pd.id, {
@@ -178,7 +162,8 @@ export default function NewChatScreen() {
               other: profilesMap.get(c.otherUserId) ?? null,
             })),
           );
-      } catch {
+      } catch (e) {
+        console.warn("Recent chats load failed:", e);
         if (alive) setRecent([]);
       } finally {
         if (alive) setLoadingRecent(false);
@@ -188,7 +173,7 @@ export default function NewChatScreen() {
     return () => {
       alive = false;
     };
-  }, [user?.id]);
+  }, [myId]);
 
   const [results, setResults] = useState<ProfileRow[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
@@ -196,21 +181,21 @@ export default function NewChatScreen() {
   useEffect(() => {
     let alive = true;
     const run = async () => {
-      if (!user?.id || !canSearch) {
+      if (!myId || !canSearch) {
         setResults([]);
         return;
       }
       setLoadingResults(true);
       try {
         const s = search.toLowerCase();
-        const q1 = query(
-          collection(db, "profiles"),
-          orderBy("username_lc"),
-          startAt(s),
-          endAt(s + "\uf8ff"),
-          limit(25),
-        );
-        const snap = await getDocs(q1);
+        const snap = await firestore()
+          .collection("profiles")
+          .orderBy("username_lc")
+          .startAt(s)
+          .endAt(s + "\uf8ff")
+          .limit(25)
+          .get();
+
         const rows: ProfileRow[] = snap.docs
           .map((d) => {
             const x = d.data() as any;
@@ -224,7 +209,7 @@ export default function NewChatScreen() {
               full_name_lc: x.full_name_lc ?? null,
             };
           })
-          .filter((r) => r.id !== user.id)
+          .filter((r) => r.id !== myId)
           .filter((r) => {
             const u = (r.username_lc ?? r.username).toLowerCase();
             const n = (r.full_name_lc ?? r.full_name ?? "").toLowerCase();
@@ -232,7 +217,8 @@ export default function NewChatScreen() {
           })
           .slice(0, 25);
         if (alive) setResults(rows);
-      } catch {
+      } catch (e) {
+        console.warn("Search failed:", e);
         if (alive) setResults([]);
       } finally {
         if (alive) setLoadingResults(false);
@@ -243,24 +229,32 @@ export default function NewChatScreen() {
       alive = false;
       clearTimeout(t);
     };
-  }, [user?.id, canSearch, search]);
+  }, [myId, canSearch, search]);
 
   const [blocks, setBlocks] = useState<BlockRow[]>([]);
   useEffect(() => {
-    if (!user?.id) return;
+    if (!myId) return;
     let alive = true;
-    getDocs(
-      query(
-        collection(db, "user_blocks"),
-        or(
-          where("blocker_id", "==", user.id),
-          where("blocked_id", "==", user.id),
-        ),
-        limit(500),
-      ),
-    )
-      .then((snap) => {
-        if (alive) setBlocks(snap.docs.map((d) => d.data() as BlockRow));
+    Promise.all([
+      firestore()
+        .collection("user_blocks")
+        .where("blocker_id", "==", myId)
+        .limit(500)
+        .get(),
+      firestore()
+        .collection("user_blocks")
+        .where("blocked_id", "==", myId)
+        .limit(500)
+        .get(),
+    ])
+      .then(([s1, s2]) => {
+        if (alive) {
+          const merged: BlockRow[] = [
+            ...s1.docs.map((d) => d.data() as BlockRow),
+            ...s2.docs.map((d) => d.data() as BlockRow),
+          ];
+          setBlocks(merged);
+        }
       })
       .catch(() => {
         if (alive) setBlocks([]);
@@ -268,16 +262,16 @@ export default function NewChatScreen() {
     return () => {
       alive = false;
     };
-  }, [user?.id]);
+  }, [myId]);
 
   const blockedSet = useMemo(() => {
     const s = new Set<string>();
     for (const b of blocks) {
-      const other = b.blocker_id === user?.id ? b.blocked_id : b.blocker_id;
+      const other = b.blocker_id === myId ? b.blocked_id : b.blocker_id;
       if (other) s.add(other);
     }
     return s;
-  }, [blocks, user?.id]);
+  }, [blocks, myId]);
 
   const targetIds = useMemo(() => results.map((r) => r.id), [results]);
   const [followingAccepted, setFollowingAccepted] = useState<Set<string>>(
@@ -285,7 +279,7 @@ export default function NewChatScreen() {
   );
 
   useEffect(() => {
-    if (!user?.id || !targetIds.length) {
+    if (!myId || !targetIds.length) {
       setFollowingAccepted(new Set());
       return;
     }
@@ -294,16 +288,12 @@ export default function NewChatScreen() {
       try {
         const all: FollowRow[] = [];
         for (const b of chunk(targetIds, 10)) {
-          const snap = await getDocs(
-            query(
-              collection(db, "follows"),
-              and(
-                where("follower_id", "==", user.id),
-                where("status", "==", "accepted"),
-                where("following_id", "in", b),
-              ),
-            ),
-          );
+          const snap = await firestore()
+            .collection("follows")
+            .where("follower_id", "==", myId)
+            .where("status", "==", "accepted")
+            .where("following_id", "in", b)
+            .get();
           snap.docs.forEach((d) => {
             const x = d.data() as any;
             all.push({ following_id: x.following_id, status: x.status });
@@ -319,7 +309,7 @@ export default function NewChatScreen() {
     return () => {
       alive = false;
     };
-  }, [user?.id, targetIds.join(",")]);
+  }, [myId, targetIds.join(",")]);
 
   const dmGate = (p: ProfileRow): { ok: boolean; reason: string } => {
     if (blockedSet.has(p.id)) return { ok: false, reason: "Blocked" };
@@ -329,13 +319,15 @@ export default function NewChatScreen() {
   };
 
   const startDm = async (p: ProfileRow) => {
-    if (!user?.id) return;
+    if (!myId) return;
     const gate = dmGate(p);
     if (!gate.ok) return;
     try {
       setCreatingId(p.id);
-      const conversationId = await createOrOpenChat(user.id, p.id);
+      const conversationId = await createOrOpenChat(myId, p.id);
       router.replace(`/chat/${conversationId}`);
+    } catch (e: any) {
+      console.error("startDm failed:", e);
     } finally {
       setCreatingId(null);
     }

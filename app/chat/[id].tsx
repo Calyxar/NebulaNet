@@ -45,18 +45,18 @@ export default function ChatConversationScreen() {
 
     const markAsRead = async () => {
       try {
-        const participantRef = await firestore()
-          .collection("conversation_participants")
-          .where("conversation_id", "==", id)
-          .where("user_id", "==", user.uid)
-          .get();
-
-        if (!participantRef.empty) {
-          await participantRef.docs[0].ref.update({
-            unread_count: 0,
-            last_read_at: firestore.FieldValue.serverTimestamp(),
-          });
-        }
+        await firestore()
+          .collection("conversations")
+          .doc(id)
+          .collection("participants")
+          .doc(user.uid)
+          .set(
+            {
+              unread_count: 0,
+              last_read_at: firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          );
       } catch (error) {
         console.error("Error marking messages as read:", error);
       }

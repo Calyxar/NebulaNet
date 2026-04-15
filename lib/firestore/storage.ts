@@ -1,17 +1,9 @@
+// lib/firestore/storage.ts — REACT NATIVE FIREBASE ✅
+import auth from "@react-native-firebase/auth";
+import storage from "@react-native-firebase/storage";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { getAuth } from "firebase/auth";
-import {
-  deleteObject,
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytes,
-} from "firebase/storage";
-
-const storage = getStorage();
-const auth = getAuth();
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
@@ -33,7 +25,7 @@ export interface UploadResult {
 }
 
 function generatePath(folder: string, ext: string) {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
 
   const timestamp = Date.now();
@@ -67,21 +59,6 @@ function guessContentType(type: "image" | "video" | "file", ext: string) {
   }
 
   return undefined;
-}
-
-/**
- * RN/Expo-safe: convert file/content URI -> Blob via XHR
- * Fixes: "Creating blobs from ArrayBuffer/ArrayBufferView are not supported"
- */
-async function uriToBlob(uri: string): Promise<Blob> {
-  return await new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.onerror = () => reject(new Error("Failed to read file"));
-    xhr.onload = () => resolve(xhr.response);
-    xhr.responseType = "blob";
-    xhr.open("GET", uri, true);
-    xhr.send(null);
-  });
 }
 
 async function compressImage(
@@ -121,6 +98,10 @@ export async function uploadFile(
   options: UploadOptions = {},
 ): Promise<UploadResult> {
   try {
+    if (!auth().currentUser) {
+      throw new Error("Not authenticated");
+    }
+
     const fileInfo = await FileSystem.getInfoAsync(uri);
     if (!fileInfo.exists) throw new Error("File does not exist");
 
@@ -136,38 +117,26 @@ export async function uploadFile(
 
     const ext = guessExtFromUri(uploadUri);
     const storagePath = generatePath(folder, ext);
-    const storageRef = ref(storage, storagePath);
+    const storageRef = storage().ref(storagePath);
 
-    const blob = await uriToBlob(uploadUri);
+    const contentType = guessContentType(type, ext);
+    await storageRef.putFile(
+      uploadUri,
+      contentType ? { contentType } : undefined,
+    );
 
-    try {
-      const contentType = guessContentType(type, ext);
-      await uploadBytes(
-        storageRef,
-        blob,
-        contentType ? { contentType } : undefined,
-      );
-    } finally {
-      (blob as any)?.close?.();
-    }
-
-    const downloadURL = await getDownloadURL(storageRef);
+    const downloadURL = await storageRef.getDownloadURL();
 
     let thumbnailUrl: string | undefined;
 
     if (options.generateThumbnails && type === "video") {
       const thumbUri = await generateVideoThumbnail(uri);
       const thumbPath = generatePath("thumbnails", "jpg");
-      const thumbRef = ref(storage, thumbPath);
+      const thumbRef = storage().ref(thumbPath);
 
-      const thumbBlob = await uriToBlob(thumbUri);
-      try {
-        await uploadBytes(thumbRef, thumbBlob, { contentType: "image/jpeg" });
-      } finally {
-        (thumbBlob as any)?.close?.();
-      }
+      await thumbRef.putFile(thumbUri, { contentType: "image/jpeg" });
 
-      thumbnailUrl = await getDownloadURL(thumbRef);
+      thumbnailUrl = await thumbRef.getDownloadURL();
     }
 
     return {
@@ -191,20 +160,16 @@ export async function uploadChatFile(params: {
   storagePath: string;
   contentType: string;
 }): Promise<{ downloadURL: string }> {
-  const storageRef = ref(storage, params.storagePath);
-
-  const blob = await uriToBlob(params.uri);
-  try {
-    await uploadBytes(storageRef, blob, { contentType: params.contentType });
-  } finally {
-    (blob as any)?.close?.();
+  if (!auth().currentUser) {
+    throw new Error("Not authenticated");
   }
 
-  const downloadURL = await getDownloadURL(storageRef);
+  const storageRef = storage().ref(params.storagePath);
+  await storageRef.putFile(params.uri, { contentType: params.contentType });
+  const downloadURL = await storageRef.getDownloadURL();
   return { downloadURL };
 }
 
 export async function deleteFile(storagePath: string) {
-  const storageRef = ref(storage, storagePath);
-  await deleteObject(storageRef);
+  await storage().ref(storagePath).delete();
 }
