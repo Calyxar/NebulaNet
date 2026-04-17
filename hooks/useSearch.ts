@@ -1,11 +1,16 @@
-// hooks/useSearch.ts - FIXED to use React Native Firebase
+// hooks/useSearch.ts — React Native Firebase ✅
+
+import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
-import { useQuery } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type SearchType = "account" | "post" | "community";
+
+export type FollowStatusLite = "none" | "pending" | "accepted";
 
 export type SearchAccount = {
   id: string;
@@ -14,6 +19,7 @@ export type SearchAccount = {
   avatar_url: string | null;
   follower_count: number;
   is_private: boolean;
+  follow_status: FollowStatusLite;
 };
 
 export type SearchPost = {
@@ -95,55 +101,61 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
+/**
+ * Fetches the viewer's follows once and returns a map of
+ * following_id -> status. Used to tag search results and seed the
+ * useFollowStatus cache so the "Following" state renders instantly.
+ */
+async function fetchMyFollowMap(
+  uid: string,
+): Promise<Map<string, FollowStatusLite>> {
+  const snap = await firestore()
+    .collection("follows")
+    .where("follower_id", "==", uid)
+    .limit(1000)
+    .get();
+  const map = new Map<string, FollowStatusLite>();
+  snap.docs.forEach((d) => {
+    const data = d.data() as any;
+    if (data.following_id) {
+      const status = (data.status ?? "accepted") as FollowStatusLite;
+      map.set(data.following_id, status);
+    }
+  });
+  return map;
+}
+
 async function searchAccounts(
   q: string,
   lim: number,
+  uid: string | null,
 ): Promise<SearchAccount[]> {
-  console.log("🔍 SEARCH DEBUG - Query:", q);
-  console.log("🔍 SEARCH DEBUG - User ID:", auth().currentUser?.uid);
-  console.log("🔍 SEARCH DEBUG - Is authenticated:", !!auth().currentUser);
   const lower = q.toLowerCase();
 
-  console.log("🔍 SEARCH DEBUG - Starting Firestore query...");
+  const [profilesSnap, followMap] = await Promise.all([
+    firestore().collection("profiles").limit(200).get(),
+    uid ? fetchMyFollowMap(uid) : Promise.resolve(new Map()),
+  ]);
 
-  try {
-    const snap = await firestore().collection("profiles").limit(200).get();
-    console.log("🔍 SEARCH DEBUG - Query completed!");
-    console.log("🔍 SEARCH DEBUG - Total profiles fetched:", snap.docs.length);
+  const allProfiles = profilesSnap.docs.map(
+    (d) => ({ id: d.id, ...d.data() }) as any,
+  );
 
-    const allProfiles = snap.docs.map(
-      (d) => ({ id: d.id, ...d.data() }) as any,
-    );
-    console.log(
-      "🔍 SEARCH DEBUG - Sample usernames:",
-      allProfiles.slice(0, 5).map((p) => p.username),
-    );
+  const filtered = allProfiles.filter(
+    (p: any) =>
+      p.username?.toLowerCase().includes(lower) ||
+      p.full_name?.toLowerCase().includes(lower),
+  );
 
-    const filtered = allProfiles.filter(
-      (p: any) =>
-        p.username?.toLowerCase().includes(lower) ||
-        p.full_name?.toLowerCase().includes(lower),
-    );
-    console.log("🔍 SEARCH DEBUG - Filtered results:", filtered.length);
-    console.log(
-      "🔍 SEARCH DEBUG - Matching usernames:",
-      filtered.map((p) => p.username),
-    );
-
-    return filtered.slice(0, lim).map((p: any) => ({
-      id: p.id,
-      username: p.username ?? null,
-      full_name: p.full_name ?? null,
-      avatar_url: p.avatar_url ?? null,
-      follower_count: p.follower_count ?? 0,
-      is_private: !!p.is_private,
-    }));
-  } catch (error) {
-    console.error("🔍 SEARCH DEBUG - ERROR:", error);
-    console.error("🔍 SEARCH DEBUG - ERROR CODE:", (error as any)?.code);
-    console.error("🔍 SEARCH DEBUG - ERROR MESSAGE:", (error as any)?.message);
-    throw error;
-  }
+  return filtered.slice(0, lim).map((p: any) => ({
+    id: p.id,
+    username: p.username ?? null,
+    full_name: p.full_name ?? null,
+    avatar_url: p.avatar_url ?? null,
+    follower_count: p.follower_count ?? 0,
+    is_private: !!p.is_private,
+    follow_status: followMap.get(p.id) ?? "none",
+  }));
 }
 
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
@@ -202,6 +214,16 @@ async function searchCommunities(
       image_url: c.image_url ?? null,
       avatar_url: c.avatar_url ?? null,
     }));
+}
+
+function seedFollowStatusCache(
+  qc: QueryClient,
+  uid: string,
+  accounts: SearchAccount[],
+) {
+  accounts.forEach((a) => {
+    qc.setQueryData(qk.social.followStatus(uid, a.id), a.follow_status);
+  });
 }
 
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
@@ -336,6 +358,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     debounceMs = 350,
   } = params;
 
+  const qc = useQueryClient();
   const trimmed = (rawQuery ?? "").trim();
   const debouncedQuery = useDebouncedValue(trimmed, debounceMs);
   const enabled = debouncedQuery.length >= minChars;
@@ -350,18 +373,20 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     enabled,
     staleTime: 30_000,
     queryFn: async () => {
-      if (type === "account")
-        return {
-          accounts: await searchAccounts(debouncedQuery, lim),
-          posts: [],
-          communities: [],
-        };
-      if (type === "post")
+      const uid = auth().currentUser?.uid ?? null;
+
+      if (type === "account") {
+        const accounts = await searchAccounts(debouncedQuery, lim, uid);
+        if (uid) seedFollowStatusCache(qc, uid, accounts);
+        return { accounts, posts: [], communities: [] };
+      }
+      if (type === "post") {
         return {
           accounts: [],
           posts: await searchPosts(debouncedQuery, lim),
           communities: [],
         };
+      }
       return {
         accounts: [],
         posts: [],

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteCommunity = exports.handleBoostCreated = exports.generateUserDataExport = exports.handleAccountDeletion = exports.sendPushNotification = void 0;
+exports.deleteCommunity = exports.handleBoostCreated = exports.generateUserDataExport = exports.handleAccountDeletion = exports.onFollowDeleted = exports.onFollowUpdated = exports.onFollowCreated = exports.sendPushNotification = void 0;
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
@@ -130,7 +130,7 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         const response = await fetch("https://exp.host/--/api/v2/push/send", {
             method: "POST",
             headers: {
-                "Accept": "application/json",
+                Accept: "application/json",
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(payload),
@@ -153,6 +153,102 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
     }
     catch (err) {
         console.error("sendPushNotification error:", String(err));
+    }
+});
+/**
+ * Increments follower/following counts when an accepted follow is created.
+ */
+exports.onFollowCreated = (0, firestore_2.onDocumentCreated)("follows/{followId}", async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const data = snap.data();
+    if (data.status !== "accepted")
+        return;
+    const followerId = data.follower_id;
+    const followingId = data.following_id;
+    if (!followerId || !followingId)
+        return;
+    try {
+        await Promise.all([
+            db
+                .collection("profiles")
+                .doc(followerId)
+                .update({ following_count: firestore_1.FieldValue.increment(1) }),
+            db
+                .collection("profiles")
+                .doc(followingId)
+                .update({ follower_count: firestore_1.FieldValue.increment(1) }),
+        ]);
+    }
+    catch (err) {
+        console.error("onFollowCreated error:", String(err));
+    }
+});
+/**
+ * Adjusts counts when a follow's status changes (e.g. pending -> accepted
+ * after approving a follow request). Only writes deltas when the accepted
+ * state actually flips.
+ */
+exports.onFollowUpdated = (0, firestore_2.onDocumentUpdated)("follows/{followId}", async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after)
+        return;
+    const wasAccepted = before.status === "accepted";
+    const isAccepted = after.status === "accepted";
+    if (wasAccepted === isAccepted)
+        return;
+    const followerId = after.follower_id;
+    const followingId = after.following_id;
+    if (!followerId || !followingId)
+        return;
+    const delta = isAccepted ? 1 : -1;
+    try {
+        await Promise.all([
+            db
+                .collection("profiles")
+                .doc(followerId)
+                .update({ following_count: firestore_1.FieldValue.increment(delta) }),
+            db
+                .collection("profiles")
+                .doc(followingId)
+                .update({ follower_count: firestore_1.FieldValue.increment(delta) }),
+        ]);
+    }
+    catch (err) {
+        console.error("onFollowUpdated error:", String(err));
+    }
+});
+/**
+ * Decrements counts when an accepted follow is deleted. Pending follow
+ * deletions are a no-op because pending follows never counted.
+ */
+exports.onFollowDeleted = (0, firestore_2.onDocumentDeleted)("follows/{followId}", async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const data = snap.data();
+    if (data.status !== "accepted")
+        return;
+    const followerId = data.follower_id;
+    const followingId = data.following_id;
+    if (!followerId || !followingId)
+        return;
+    try {
+        await Promise.all([
+            db
+                .collection("profiles")
+                .doc(followerId)
+                .update({ following_count: firestore_1.FieldValue.increment(-1) }),
+            db
+                .collection("profiles")
+                .doc(followingId)
+                .update({ follower_count: firestore_1.FieldValue.increment(-1) }),
+        ]);
+    }
+    catch (err) {
+        console.error("onFollowDeleted error:", String(err));
     }
 });
 exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_deletion_requests/{userId}", async (event) => {
@@ -203,7 +299,7 @@ exports.handleBoostCreated = (0, firestore_2.onDocumentCreated)("boosts/{boostId
         const email = userRecord.email;
         if (!email)
             return;
-        console.log("Boost confirmation f or", email, ": post", boost.post_id, boost.duration_days, "days $", boost.total_amount);
+        console.log("Boost confirmation for", email, ": post", boost.post_id, boost.duration_days, "days $", boost.total_amount);
         await snap.ref.update({
             email_sent: true,
             email_sent_at: new Date().toISOString(),

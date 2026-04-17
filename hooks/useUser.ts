@@ -1,19 +1,8 @@
-// hooks/useUser.ts — FIREBASE ✅
+// hooks/useUser.ts — React Native Firebase ✅
 
-import { auth, db } from "@/lib/firebase";
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
 
 interface UserProfile {
   id: string;
@@ -27,6 +16,7 @@ interface UserProfile {
   following_count: number;
   post_count: number;
   created_at: string;
+  is_private?: boolean;
   is_following?: boolean;
 }
 
@@ -46,9 +36,11 @@ export function useUser(username?: string) {
     enabled: !!username,
     queryFn: async () => {
       if (!username) return null;
-      const snap = await getDocs(
-        query(collection(db, "profiles"), where("username", "==", username)),
-      );
+      const snap = await firestore()
+        .collection("profiles")
+        .where("username", "==", username)
+        .limit(1)
+        .get();
       if (snap.empty) throw new Error("User not found");
       const d = snap.docs[0].data() as any;
       return { id: snap.docs[0].id, ...d } as UserProfile;
@@ -58,9 +50,9 @@ export function useUser(username?: string) {
   const currentUserQuery = useQuery({
     queryKey: ["currentUser"],
     queryFn: async () => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) return null;
-      const snap = await getDoc(doc(db, "profiles", user.uid));
+      const snap = await firestore().collection("profiles").doc(user.uid).get();
       if (!snap.exists()) return null;
       return { id: snap.id, ...snap.data() } as UserProfile;
     },
@@ -68,35 +60,44 @@ export function useUser(username?: string) {
 
   const toggleFollow = useMutation({
     mutationFn: async (targetUserId: string) => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
 
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", user.uid),
-          where("following_id", "==", targetUserId),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", user.uid)
+        .where("following_id", "==", targetUserId)
+        .limit(1)
+        .get();
 
       if (!snap.empty) {
-        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
-        return "unfollowed";
-      } else {
-        await addDoc(collection(db, "follows"), {
+        await snap.docs[0].ref.delete();
+        return "unfollowed" as const;
+      }
+
+      const target = await firestore()
+        .collection("profiles")
+        .doc(targetUserId)
+        .get();
+      const isPrivate = !!(target.data() as any)?.is_private;
+
+      await firestore()
+        .collection("follows")
+        .add({
           follower_id: user.uid,
           following_id: targetUserId,
-          status: "accepted",
-          created_at: serverTimestamp(),
+          status: isPrivate ? "pending" : "accepted",
+          created_at: firestore.FieldValue.serverTimestamp(),
         });
-        return "followed";
-      }
+      return "followed" as const;
     },
     onSuccess: (_result, targetUserId) => {
       queryClient.invalidateQueries({ queryKey: ["user"] });
       queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-by-username"] });
       queryClient.invalidateQueries({ queryKey: ["followers", targetUserId] });
       queryClient.invalidateQueries({ queryKey: ["following", targetUserId] });
+      queryClient.invalidateQueries({ queryKey: ["follow-status"] });
     },
   });
 
@@ -105,16 +106,18 @@ export function useUser(username?: string) {
     enabled: !!userQuery.data?.id,
     queryFn: async () => {
       if (!userQuery.data?.id) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("following_id", "==", userQuery.data.id),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("following_id", "==", userQuery.data.id)
+        .where("status", "==", "accepted")
+        .get();
       const profiles = await Promise.all(
         snap.docs.map(async (d) => {
           const followerId = (d.data() as any).follower_id;
-          const pSnap = await getDoc(doc(db, "profiles", followerId));
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(followerId)
+            .get();
           return pSnap.exists() ? { id: pSnap.id, ...pSnap.data() } : null;
         }),
       );
@@ -127,16 +130,18 @@ export function useUser(username?: string) {
     enabled: !!userQuery.data?.id,
     queryFn: async () => {
       if (!userQuery.data?.id) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", userQuery.data.id),
-        ),
-      );
+      const snap = await firestore()
+        .collection("follows")
+        .where("follower_id", "==", userQuery.data.id)
+        .where("status", "==", "accepted")
+        .get();
       const profiles = await Promise.all(
         snap.docs.map(async (d) => {
           const followingId = (d.data() as any).following_id;
-          const pSnap = await getDoc(doc(db, "profiles", followingId));
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(followingId)
+            .get();
           return pSnap.exists() ? { id: pSnap.id, ...pSnap.data() } : null;
         }),
       );
@@ -146,14 +151,16 @@ export function useUser(username?: string) {
 
   const updateProfile = useMutation({
     mutationFn: async (updates: UpdateProfileData) => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        { ...updates, updated_at: new Date().toISOString() },
-        { merge: true },
-      );
-      const snap = await getDoc(doc(db, "profiles", user.uid));
+      await firestore()
+        .collection("profiles")
+        .doc(user.uid)
+        .set(
+          { ...updates, updated_at: new Date().toISOString() },
+          { merge: true },
+        );
+      const snap = await firestore().collection("profiles").doc(user.uid).get();
       return { id: snap.id, ...snap.data() } as UserProfile;
     },
     onSuccess: (data) => {

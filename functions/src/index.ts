@@ -1,8 +1,12 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { https, setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentDeleted,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 
 initializeApp();
 
@@ -119,7 +123,7 @@ export const sendPushNotification = onDocumentCreated(
       const response = await fetch("https://exp.host/--/api/v2/push/send", {
         method: "POST",
         headers: {
-          "Accept": "application/json",
+          Accept: "application/json",
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
@@ -142,6 +146,110 @@ export const sendPushNotification = onDocumentCreated(
       }
     } catch (err) {
       console.error("sendPushNotification error:", String(err));
+    }
+  },
+);
+
+/**
+ * Increments follower/following counts when an accepted follow is created.
+ */
+export const onFollowCreated = onDocumentCreated(
+  "follows/{followId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data() as Record<string, unknown>;
+    if (data.status !== "accepted") return;
+
+    const followerId = data.follower_id as string;
+    const followingId = data.following_id as string;
+    if (!followerId || !followingId) return;
+
+    try {
+      await Promise.all([
+        db
+          .collection("profiles")
+          .doc(followerId)
+          .update({ following_count: FieldValue.increment(1) }),
+        db
+          .collection("profiles")
+          .doc(followingId)
+          .update({ follower_count: FieldValue.increment(1) }),
+      ]);
+    } catch (err) {
+      console.error("onFollowCreated error:", String(err));
+    }
+  },
+);
+
+/**
+ * Adjusts counts when a follow's status changes (e.g. pending -> accepted
+ * after approving a follow request). Only writes deltas when the accepted
+ * state actually flips.
+ */
+export const onFollowUpdated = onDocumentUpdated(
+  "follows/{followId}",
+  async (event) => {
+    const before = event.data?.before.data() as Record<string, unknown>;
+    const after = event.data?.after.data() as Record<string, unknown>;
+    if (!before || !after) return;
+
+    const wasAccepted = before.status === "accepted";
+    const isAccepted = after.status === "accepted";
+    if (wasAccepted === isAccepted) return;
+
+    const followerId = after.follower_id as string;
+    const followingId = after.following_id as string;
+    if (!followerId || !followingId) return;
+
+    const delta = isAccepted ? 1 : -1;
+
+    try {
+      await Promise.all([
+        db
+          .collection("profiles")
+          .doc(followerId)
+          .update({ following_count: FieldValue.increment(delta) }),
+        db
+          .collection("profiles")
+          .doc(followingId)
+          .update({ follower_count: FieldValue.increment(delta) }),
+      ]);
+    } catch (err) {
+      console.error("onFollowUpdated error:", String(err));
+    }
+  },
+);
+
+/**
+ * Decrements counts when an accepted follow is deleted. Pending follow
+ * deletions are a no-op because pending follows never counted.
+ */
+export const onFollowDeleted = onDocumentDeleted(
+  "follows/{followId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data() as Record<string, unknown>;
+    if (data.status !== "accepted") return;
+
+    const followerId = data.follower_id as string;
+    const followingId = data.following_id as string;
+    if (!followerId || !followingId) return;
+
+    try {
+      await Promise.all([
+        db
+          .collection("profiles")
+          .doc(followerId)
+          .update({ following_count: FieldValue.increment(-1) }),
+        db
+          .collection("profiles")
+          .doc(followingId)
+          .update({ follower_count: FieldValue.increment(-1) }),
+      ]);
+    } catch (err) {
+      console.error("onFollowDeleted error:", String(err));
     }
   },
 );
@@ -201,7 +309,7 @@ export const handleBoostCreated = onDocumentCreated(
       const email = userRecord.email;
       if (!email) return;
       console.log(
-        "Boost confirmation f or",
+        "Boost confirmation for",
         email,
         ": post",
         boost.post_id,
@@ -239,3 +347,4 @@ export const deleteCommunity = https.onCall(
     return { success: true, message: "Community deleted successfully" };
   },
 );
+

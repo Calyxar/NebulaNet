@@ -1,23 +1,7 @@
-import { db } from "@/lib/firebase";
-import { getAuth } from "firebase/auth";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  increment,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-
-const auth = getAuth();
+import auth from "@react-native-firebase/auth";
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
 
 export interface UserProfile {
   id: string;
@@ -32,6 +16,7 @@ export interface UserProfile {
   post_count: number;
   created_at: any;
   updated_at: any;
+  is_private?: boolean;
   is_following?: boolean;
   is_followed_by?: boolean;
   is_self?: boolean;
@@ -40,31 +25,27 @@ export interface UserProfile {
 export async function getUserProfile(
   identifier: string,
 ): Promise<UserProfile | null> {
-  let snap;
+  let doc: FirebaseFirestoreTypes.DocumentSnapshot;
 
   if (identifier.length === 28) {
-    snap = await getDoc(doc(db, "profiles", identifier));
+    doc = await firestore().collection("profiles").doc(identifier).get();
   } else {
-    const q = query(
-      collection(db, "profiles"),
-      where("username", "==", identifier),
-      limit(1),
-    );
-    const res = await getDocs(q);
-    if (res.empty) return null;
-    snap = res.docs[0];
+    const snap = await firestore()
+      .collection("profiles")
+      .where("username", "==", identifier)
+      .limit(1)
+      .get();
+    if (snap.empty) return null;
+    doc = snap.docs[0];
   }
 
-  if (!snap.exists()) return null;
+  if (!doc.exists()) return null;
 
-  const profile = { id: snap.id, ...(snap.data() as any) };
-
-  const currentUser = auth.currentUser;
-
+  const profile = { id: doc.id, ...(doc.data() as any) };
+  const currentUser = auth().currentUser;
   if (!currentUser) return profile;
 
   const followStatus = await getFollowStatus(currentUser.uid, profile.id);
-
   return {
     ...profile,
     is_following: followStatus.is_following,
@@ -76,131 +57,123 @@ export async function getUserProfile(
 export async function updateUserProfile(
   updates: Partial<UserProfile>,
 ): Promise<void> {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  await updateDoc(doc(db, "profiles", user.uid), {
-    ...updates,
-    updated_at: serverTimestamp(),
-  });
+  await firestore()
+    .collection("profiles")
+    .doc(user.uid)
+    .update({
+      ...updates,
+      updated_at: firestore.FieldValue.serverTimestamp(),
+    });
 }
 
+/**
+ * Returns whether follower -> following and following -> follower
+ * relationships exist AND are accepted. Pending follows don't count
+ * as "following" for UI purposes.
+ */
 export async function getFollowStatus(followerId: string, followingId: string) {
-  const q1 = query(
-    collection(db, "follows"),
-    where("follower_id", "==", followerId),
-    where("following_id", "==", followingId),
-    limit(1),
-  );
-
-  const q2 = query(
-    collection(db, "follows"),
-    where("follower_id", "==", followingId),
-    where("following_id", "==", followerId),
-    limit(1),
-  );
-
-  const [r1, r2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+  const [r1, r2] = await Promise.all([
+    firestore()
+      .collection("follows")
+      .where("follower_id", "==", followerId)
+      .where("following_id", "==", followingId)
+      .limit(1)
+      .get(),
+    firestore()
+      .collection("follows")
+      .where("follower_id", "==", followingId)
+      .where("following_id", "==", followerId)
+      .limit(1)
+      .get(),
+  ]);
 
   return {
-    is_following: !r1.empty,
-    is_followed_by: !r2.empty,
+    is_following: !r1.empty && r1.docs[0].data().status === "accepted",
+    is_followed_by: !r2.empty && r2.docs[0].data().status === "accepted",
   };
 }
 
+/**
+ * Creates or deletes a follow doc. Counts are maintained by the
+ * onFollowCreated / onFollowDeleted / onFollowUpdated Cloud Functions —
+ * do NOT increment/decrement client-side.
+ */
 export async function toggleFollow(followingId: string) {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
   if (user.uid === followingId) throw new Error("Cannot follow yourself");
 
-  const q = query(
-    collection(db, "follows"),
-    where("follower_id", "==", user.uid),
-    where("following_id", "==", followingId),
-    limit(1),
-  );
-
-  const snap = await getDocs(q);
+  const snap = await firestore()
+    .collection("follows")
+    .where("follower_id", "==", user.uid)
+    .where("following_id", "==", followingId)
+    .limit(1)
+    .get();
 
   if (!snap.empty) {
-    await deleteDoc(snap.docs[0].ref);
-
-    await Promise.all([
-      updateDoc(doc(db, "profiles", followingId), {
-        follower_count: increment(-1),
-      }),
-      updateDoc(doc(db, "profiles", user.uid), {
-        following_count: increment(-1),
-      }),
-    ]);
-
+    await snap.docs[0].ref.delete();
     return { following: false };
   }
 
-  await setDoc(doc(collection(db, "follows")), {
+  // Check privacy so we write the right status.
+  const targetSnap = await firestore()
+    .collection("profiles")
+    .doc(followingId)
+    .get();
+  const isPrivate = !!(targetSnap.data() as any)?.is_private;
+  const status = isPrivate ? "pending" : "accepted";
+
+  await firestore().collection("follows").add({
     follower_id: user.uid,
     following_id: followingId,
-    created_at: serverTimestamp(),
+    status,
+    created_at: firestore.FieldValue.serverTimestamp(),
   });
 
-  await Promise.all([
-    updateDoc(doc(db, "profiles", followingId), {
-      follower_count: increment(1),
-    }),
-    updateDoc(doc(db, "profiles", user.uid), {
-      following_count: increment(1),
-    }),
-  ]);
+  await firestore()
+    .collection("notifications")
+    .add({
+      type: isPrivate ? "follow_request" : "follow",
+      sender_id: user.uid,
+      receiver_id: followingId,
+      is_read: false,
+      created_at: new Date().toISOString(),
+      created_at_ts: firestore.FieldValue.serverTimestamp(),
+    });
 
-  await setDoc(doc(collection(db, "notifications")), {
-    type: "follow",
-    sender_id: user.uid,
-    receiver_id: followingId,
-    is_read: false,
-    created_at: new Date().toISOString(),
-    created_at_ts: serverTimestamp(),
-  });
-
-  return { following: true };
+  return { following: true, pending: isPrivate };
 }
 
 export async function getUserFollowers(userId: string) {
-  const q = query(
-    collection(db, "follows"),
-    where("following_id", "==", userId),
-    orderBy("created_at", "desc"),
-  );
-
-  const snap = await getDocs(q);
-
+  const snap = await firestore()
+    .collection("follows")
+    .where("following_id", "==", userId)
+    .where("status", "==", "accepted")
+    .orderBy("created_at", "desc")
+    .get();
   const userIds = snap.docs.map((d) => d.data().follower_id);
-
   return getUsersByIds(userIds);
 }
 
 export async function getUserFollowing(userId: string) {
-  const q = query(
-    collection(db, "follows"),
-    where("follower_id", "==", userId),
-    orderBy("created_at", "desc"),
-  );
-
-  const snap = await getDocs(q);
-
+  const snap = await firestore()
+    .collection("follows")
+    .where("follower_id", "==", userId)
+    .where("status", "==", "accepted")
+    .orderBy("created_at", "desc")
+    .get();
   const userIds = snap.docs.map((d) => d.data().following_id);
-
   return getUsersByIds(userIds);
 }
 
 export async function searchUsers(text: string) {
   const searchLower = text.toLowerCase().trim();
-
   if (searchLower.length < 2) return [];
 
-  const q = query(collection(db, "profiles"), limit(50));
-
-  const snap = await getDocs(q);
-
+  const snap = await firestore().collection("profiles").limit(50).get();
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as any) }))
     .filter(
@@ -210,17 +183,18 @@ export async function searchUsers(text: string) {
     );
 }
 
-export async function getUsersByIds(ids: string[]) {
+export async function getUsersByIds(ids: string[]): Promise<UserProfile[]> {
   if (!ids.length) return [];
-
   const results: UserProfile[] = [];
 
-  for (const id of ids) {
-    const snap = await getDoc(doc(db, "profiles", id));
-    if (snap.exists()) {
-      results.push({ id, ...(snap.data() as any) });
-    }
-  }
+  await Promise.all(
+    ids.map(async (id) => {
+      const snap = await firestore().collection("profiles").doc(id).get();
+      if (snap.exists()) {
+        results.push({ id, ...(snap.data() as any) } as UserProfile);
+      }
+    }),
+  );
 
   return results;
 }
@@ -229,8 +203,11 @@ export function subscribeToUserProfile(
   userId: string,
   callback: (profile: UserProfile) => void,
 ) {
-  return onSnapshot(doc(db, "profiles", userId), (snap) => {
-    if (!snap.exists()) return;
-    callback({ id: snap.id, ...(snap.data() as any) });
-  });
+  return firestore()
+    .collection("profiles")
+    .doc(userId)
+    .onSnapshot((snap) => {
+      if (!snap || !snap.exists()) return;
+      callback({ id: snap.id, ...(snap.data() as any) } as UserProfile);
+    });
 }
