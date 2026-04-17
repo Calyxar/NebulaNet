@@ -41,8 +41,7 @@ export default function CreateMediaScreen() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTab, setSelectedTab] = useState<"photos" | "videos">("photos");
-  const [visibility, setVisibility] = useState;
-  "public" | "followers" | ("private" > "public");
+  const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
   const canPost = mediaItems.length > 0 && !isLoading;
@@ -68,7 +67,7 @@ export default function CreateMediaScreen() {
   const vis = visibilityConfig[visibility];
 
   const cycleVisibility = () =>
-    setVisibility((v) =>
+    setVisibility((v: "public" | "followers" | "private") =>
       v === "public" ? "followers" : v === "followers" ? "private" : "public",
     );
 
@@ -111,8 +110,6 @@ export default function CreateMediaScreen() {
 
     setIsLoading(true);
     try {
-      // Delegate to createPost — uploads + profile snapshot + post doc in
-      // one call using the native SDK. Map MediaItem[] to its shape.
       await createPost({
         content: caption.trim(),
         visibility,
