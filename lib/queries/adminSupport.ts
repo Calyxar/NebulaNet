@@ -1,27 +1,8 @@
-// lib/queries/adminSupport.ts — COMPLETED + UPDATED ✅
-// ✅ Cursor-based pagination (no offset)
-// ✅ Uses created_at_ts when present (fallback to created_at)
-// ✅ Storage getDownloadURL for screenshot_path (bucket ignored)
-// ✅ Safe null returns when rules block access
-
-import { db, storage } from "@/lib/firebase";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  startAfter,
-  Timestamp,
-  updateDoc,
-  type DocumentData,
-  type QueryDocumentSnapshot,
-} from "firebase/firestore";
-import { getDownloadURL, ref } from "firebase/storage";
-
-/* -------------------- TYPES -------------------- */
+// lib/queries/adminSupport.ts — React Native Firebase ✅
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
+import storage from "@react-native-firebase/storage";
 
 export type SupportProfile = {
   id: string;
@@ -35,8 +16,7 @@ export type SupportReportRow = {
   subject: string;
   details: string;
 
-  // keep fields if already in DB
-  screenshot_bucket: string | null; // ignored by Firebase Storage, kept for compatibility
+  screenshot_bucket: string | null;
   screenshot_path: string | null;
 
   app_version: string | null;
@@ -49,11 +29,8 @@ export type SupportReportRow = {
   profile: SupportProfile | null;
   status?: "open" | "resolved";
 
-  // cursor helpers
-  _cursor?: QueryDocumentSnapshot<DocumentData>;
+  _cursor?: FirebaseFirestoreTypes.QueryDocumentSnapshot;
 };
-
-/* -------------------- HELPERS -------------------- */
 
 function tsToIso(v: any): string {
   if (!v) return "";
@@ -61,8 +38,8 @@ function tsToIso(v: any): string {
     const d = new Date(v);
     return isNaN(d.getTime()) ? "" : d.toISOString();
   }
-  if (v instanceof Timestamp) return v.toDate().toISOString();
   if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  if (v?.seconds) return new Date(v.seconds * 1000).toISOString();
 
   const d = new Date(v);
   return isNaN(d.getTime()) ? "" : d.toISOString();
@@ -70,7 +47,7 @@ function tsToIso(v: any): string {
 
 async function fetchProfile(uid: string): Promise<SupportProfile | null> {
   try {
-    const snap = await getDoc(doc(db, "profiles", uid));
+    const snap = await firestore().collection("profiles").doc(uid).get();
     if (!snap.exists()) return null;
 
     const p = snap.data() as any;
@@ -85,35 +62,21 @@ async function fetchProfile(uid: string): Promise<SupportProfile | null> {
   }
 }
 
-/* -------------------- QUERIES -------------------- */
-
-/**
- * Cursor-based pagination:
- * - First call: adminGetSupportReports({ pageSize: 50 })
- * - Next call: adminGetSupportReports({ pageSize: 50, cursor: last._cursor })
- */
 export async function adminGetSupportReports(params?: {
   pageSize?: number;
-  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  cursor?: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
 }): Promise<SupportReportRow[]> {
   const pageSize = Math.min(200, Math.max(1, params?.pageSize ?? 50));
   const cursor = params?.cursor ?? null;
 
-  // Prefer created_at_ts if you have it in docs, else created_at.
-  // We can only order by one field at a time. If some docs don't have created_at_ts,
-  // you should backfill it. For now we order by created_at (string/timestamp),
-  // but if your support_reports uses created_at_ts, switch to that below.
-  //
-  // ✅ Recommended: orderBy("created_at_ts", "desc")
-  const base = query(
-    collection(db, "support_reports"),
-    orderBy("created_at_ts", "desc"),
-    limit(pageSize),
-  );
+  let q: FirebaseFirestoreTypes.Query = firestore()
+    .collection("support_reports")
+    .orderBy("created_at_ts", "desc");
 
-  const qy = cursor ? query(base, startAfter(cursor)) : base;
+  if (cursor) q = q.startAfter(cursor);
+  q = q.limit(pageSize);
 
-  const snap = await getDocs(qy);
+  const snap = await q.get();
 
   const results: SupportReportRow[] = await Promise.all(
     snap.docs.map(async (d) => {
@@ -145,17 +108,13 @@ export async function adminGetSupportReports(params?: {
   return results;
 }
 
-/**
- * Firebase Storage: returns a download URL if rules allow reads.
- * Returns null if blocked.
- */
 export async function adminGetScreenshotUrl(
   screenshotPath: string | null | undefined,
 ): Promise<string | null> {
   if (!screenshotPath) return null;
 
   try {
-    const url = await getDownloadURL(ref(storage, screenshotPath));
+    const url = await storage().ref(screenshotPath).getDownloadURL();
     return url;
   } catch {
     return null;
@@ -166,6 +125,9 @@ export async function adminUpdateSupportReportStatus(
   reportId: string,
   status: "open" | "resolved",
 ): Promise<boolean> {
-  await updateDoc(doc(db, "support_reports", reportId), { status });
+  await firestore()
+    .collection("support_reports")
+    .doc(reportId)
+    .update({ status });
   return true;
 }

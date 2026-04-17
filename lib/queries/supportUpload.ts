@@ -1,8 +1,6 @@
-// lib/queries/supportUpload.ts — FIREBASE STORAGE ✅
+// lib/queries/supportUpload.ts — React Native Firebase ✅
 
-import { getStorage, ref, uploadBytes } from "firebase/storage";
-
-const storage = getStorage();
+import storage from "@react-native-firebase/storage";
 
 export async function uploadSupportScreenshot(params: {
   uri: string;
@@ -13,12 +11,7 @@ export async function uploadSupportScreenshot(params: {
 
   const path = `support-screenshots/${userId}/support/${reportId}.jpg`;
 
-  const resp = await fetch(uri);
-  const blob = await resp.blob();
-
-  await uploadBytes(ref(storage, path), blob, {
-    contentType: "image/jpeg",
-  });
+  await storage().ref(path).putFile(uri, { contentType: "image/jpeg" });
 
   return { bucket: "support-screenshots", path };
 }

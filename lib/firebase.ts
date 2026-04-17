@@ -1,14 +1,12 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApp, getApps, initializeApp } from "firebase/app";
-import {
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth,
-  type Auth,
-} from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions";
-import { getStorage } from "firebase/storage";
+// lib/firebase.ts — React Native Firebase ✅
+// All services routed through @react-native-firebase so auth state is
+// shared across auth, firestore, storage, and functions calls.
+
+import { firebase as rnApp } from "@react-native-firebase/app";
+import rnAuth from "@react-native-firebase/auth";
+import rnFirestore from "@react-native-firebase/firestore";
+import rnFunctions from "@react-native-firebase/functions";
+import rnStorage from "@react-native-firebase/storage";
 
 export const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY!,
@@ -19,20 +17,13 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID!,
 };
 
-export const app =
-  getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+// RN Firebase reads config from google-services.json on Android, so we don't
+// need to call initializeApp manually — rnApp.app() returns the default.
+export const app = rnApp.app();
 
-let authInstance: Auth;
-
-try {
-  authInstance = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
-} catch {
-  authInstance = getAuth(app);
-}
-
-export const auth = authInstance;
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const functions = getFunctions(app);
+// These look like the web SDK's singletons but return RN Firebase modules
+// whose methods are accessed via instance (e.g. auth().currentUser).
+export const auth = rnAuth();
+export const db = rnFirestore();
+export const storage = rnStorage();
+export const functions = rnFunctions();

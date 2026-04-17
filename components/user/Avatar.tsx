@@ -1,6 +1,6 @@
-// components/user/Avatar.tsx — FIREBASE ✅
+// components/user/Avatar.tsx — React Native Firebase ✅
 
-import { getDownloadURL, getStorage, ref } from "firebase/storage";
+import storage from "@react-native-firebase/storage";
 import React, { useEffect, useMemo, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
@@ -72,30 +72,22 @@ export default function Avatar({
         return;
       }
 
-      // Local file preview (e.g. just picked from camera roll)
       if (isLocalFile(image)) {
         setResolvedUri(image);
         return;
       }
 
-      // Already a full public/download URL — use directly with cache-bust
       if (isProbablyUrl(image)) {
         const join = image.includes("?") ? "&" : "?";
         if (isMounted) setResolvedUri(`${image}${join}t=${Date.now()}`);
         return;
       }
 
-      // Storage path — fetch Firebase download URL
       try {
-        const storage = getStorage();
-        const key = image.startsWith(stripPrefix)
-          ? image.slice(stripPrefix.length)
-          : image;
-        // Full path in Firebase Storage: e.g. "avatars/userId/file.jpg"
         const fullPath = image.startsWith(stripPrefix)
           ? image
-          : `${bucket}/${key}`;
-        const url = await getDownloadURL(ref(storage, fullPath));
+          : `${bucket}/${image}`;
+        const url = await storage().ref(fullPath).getDownloadURL();
         if (isMounted) {
           const join = url.includes("?") ? "&" : "?";
           setResolvedUri(`${url}${join}t=${Date.now()}`);

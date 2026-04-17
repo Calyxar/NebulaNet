@@ -1,4 +1,4 @@
-// components/stories/StoryViewer.tsx — UPDATED ✅
+// components/stories/StoryViewer.tsx — React Native Firebase ✅
 // ✅ Pinch-to-zoom on image stories via long-press (react-native-image-viewing)
 // ✅ Smooth progress bar (JS interval, pause-safe elapsed tracking)
 // ✅ Pause on press-and-hold
@@ -11,9 +11,9 @@
 
 import HashtagText from "@/components/post/HashtagText";
 import { Ionicons } from "@expo/vector-icons";
+import storage from "@react-native-firebase/storage";
 import { ResizeMode, Video } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
-import { getDownloadURL, getStorage, ref } from "firebase/storage";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,7 +30,7 @@ import {
 } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 
-const { width: W, height: H } = Dimensions.get("window");
+const { width: W } = Dimensions.get("window");
 const IMAGE_DURATION_MS = 6000;
 const TICK_MS = 50;
 
@@ -150,7 +150,9 @@ export default function StoryViewer({
     }
 
     setMediaLoading(true);
-    getDownloadURL(ref(getStorage(), raw))
+    storage()
+      .ref(raw)
+      .getDownloadURL()
       .then((url) => {
         if (!cancelled) setMediaUrl(url);
       })
@@ -291,7 +293,6 @@ export default function StoryViewer({
           />
         )
       ) : mediaUrl ? (
-        // ✅ Image story — long-press to open pinch-to-zoom lightbox
         <>
           <TouchableOpacity
             activeOpacity={1}

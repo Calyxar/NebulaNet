@@ -1,27 +1,13 @@
-// app/create/community.tsx — UPDATED ✅ dark mode + LinearGradient + useTheme
+// app/create/community.tsx — React Native Firebase ✅
 import { useAuth } from "@/hooks/useAuth";
-import { auth, db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import * as FileSystemLegacy from "expo-file-system/legacy";
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
+import storage from "@react-native-firebase/storage";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
-import {
-  getDownloadURL,
-  getStorage,
-  ref as storageRef,
-  uploadString,
-} from "firebase/storage";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -61,13 +47,11 @@ async function ensureUniqueSlug(base: string) {
   const slug = base || `community-${randomSuffix(6)}`;
   for (let i = 0; i < 6; i++) {
     const attempt = i === 0 ? slug : `${slug}-${randomSuffix(5)}`;
-    const snap = await getDocs(
-      query(
-        collection(db, "communities"),
-        where("slug", "==", attempt),
-        limit(1),
-      ),
-    );
+    const snap = await firestore()
+      .collection("communities")
+      .where("slug", "==", attempt)
+      .limit(1)
+      .get();
     if (snap.empty) return attempt;
   }
   return `${slug}-${Date.now().toString().slice(-5)}`;
@@ -80,19 +64,12 @@ async function uploadCommunityImage(
   const extGuess = uri.split("?")[0]?.split(".").pop()?.toLowerCase();
   const ext = extGuess && extGuess.length <= 5 ? extGuess : "jpg";
   const path = `community/${userId}/${Date.now()}-${randomSuffix(8)}.${ext}`;
-  const storage = getStorage();
-  const fileRef = storageRef(storage, path);
-  let readUri = uri;
-  if (uri.startsWith("content://")) {
-    const localPath = `${FileSystemLegacy.cacheDirectory}community-upload-${Date.now()}.${ext}`;
-    await FileSystemLegacy.copyAsync({ from: uri, to: localPath });
-    readUri = localPath;
-  }
-  const base64 = await FileSystemLegacy.readAsStringAsync(readUri, {
-    encoding: "base64" as any,
-  });
-  await uploadString(fileRef, base64, "base64");
-  return getDownloadURL(fileRef);
+  const mimeType =
+    ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+  const fileRef = storage().ref(path);
+  // putFile handles content:// URIs natively — no FileSystem dance required.
+  await fileRef.putFile(uri, { contentType: mimeType });
+  return fileRef.getDownloadURL();
 }
 
 export default function CreateCommunityScreen() {
@@ -132,7 +109,8 @@ export default function CreateCommunityScreen() {
   };
 
   const handleCreate = async () => {
-    if (!auth.currentUser) {
+    const user = auth().currentUser;
+    if (!user) {
       Alert.alert("Not logged in", "Please log in again.");
       return;
     }
@@ -150,30 +128,29 @@ export default function CreateCommunityScreen() {
       let image_url: string | null = null;
       if (imageUri) {
         try {
-          image_url = await uploadCommunityImage(
-            auth.currentUser.uid,
-            imageUri,
-          );
+          image_url = await uploadCommunityImage(user.uid, imageUri);
         } catch (e) {
           console.warn("Image upload skipped:", e);
         }
       }
-      const ref = await addDoc(collection(db, "communities"), {
-        name: trimmedName,
-        slug,
-        description: description.trim() || null,
-        image_url,
-        is_private: isPrivate,
-        owner_id: auth.currentUser.uid,
-        member_count: 1,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
-      });
-      await addDoc(collection(db, "community_members"), {
+      const ref = await firestore()
+        .collection("communities")
+        .add({
+          name: trimmedName,
+          slug,
+          description: description.trim() || null,
+          image_url,
+          is_private: isPrivate,
+          owner_id: user.uid,
+          member_count: 1,
+          created_at: firestore.FieldValue.serverTimestamp(),
+          updated_at: firestore.FieldValue.serverTimestamp(),
+        });
+      await firestore().collection("community_members").add({
         community_id: ref.id,
-        user_id: auth.currentUser.uid,
+        user_id: user.uid,
         role: "owner",
-        joined_at: serverTimestamp(),
+        joined_at: firestore.FieldValue.serverTimestamp(),
       });
       router.replace(`/community/${slug}` as any);
     } catch (e: any) {
@@ -199,7 +176,6 @@ export default function CreateCommunityScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        {/* Header */}
         <View
           style={[
             styles.header,
@@ -243,7 +219,6 @@ export default function CreateCommunityScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Composer row */}
           <View style={styles.composerRow}>
             <View style={styles.avatarCol}>
               {profile?.avatar_url ? (
@@ -295,11 +270,9 @@ export default function CreateCommunityScreen() {
             </View>
           </View>
 
-          {/* Settings */}
           <View style={styles.settingsSection}>
             <View style={styles.avatarColSpacer} />
             <View style={styles.settingsCol}>
-              {/* Community image */}
               <Text
                 style={[styles.sectionLabel, { color: colors.textTertiary }]}
               >
@@ -345,7 +318,6 @@ export default function CreateCommunityScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Privacy */}
               <Text
                 style={[
                   styles.sectionLabel,

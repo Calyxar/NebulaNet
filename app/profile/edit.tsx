@@ -1,14 +1,9 @@
 import { useAuth } from "@/hooks/useAuth";
-import { storage } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import storage from "@react-native-firebase/storage";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import {
-  getDownloadURL,
-  ref as storageRef,
-  uploadBytes,
-} from "firebase/storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -104,10 +99,6 @@ export default function EditProfileScreen() {
   };
 
   const uploadAvatar = async (uri: string) => {
-    console.log("=== AVATAR UPLOAD START ===");
-    console.log("URI:", uri);
-    console.log("User UID:", user?.uid);
-
     if (!user?.uid) {
       Alert.alert("Error", "User not found. Please log in again.");
       return;
@@ -118,42 +109,24 @@ export default function EditProfileScreen() {
     try {
       const ext = guessExtFromUri(uri);
       const mimeType = guessMimeType(ext);
-      console.log("Extension:", ext);
-      console.log("MIME type:", mimeType);
-
-      const response = await fetch(uri);
-      console.log("Fetch response status:", response.status, response.ok);
-
-      if (!response.ok) throw new Error("Failed to read image file.");
-      const blob = await response.blob();
-      console.log("Blob size:", blob.size, "type:", blob.type);
-
       const fileName = `${Date.now()}.${ext}`;
       const filePath = `avatars/${user.uid}/${fileName}`;
-      console.log("Upload path:", filePath);
 
-      const fileRef = storageRef(storage, filePath);
-      await uploadBytes(fileRef, blob, { contentType: mimeType });
-      console.log("Upload successful!");
+      const fileRef = storage().ref(filePath);
+      // putFile takes the local URI directly — content:// or file:// both work.
+      await fileRef.putFile(uri, { contentType: mimeType });
 
-      const publicUrl = await getDownloadURL(fileRef);
-      console.log("Download URL:", publicUrl);
-
+      const publicUrl = await fileRef.getDownloadURL();
       if (!publicUrl)
         throw new Error("Could not create download URL for avatar.");
 
       setAvatar(publicUrl);
-      console.log("Avatar state updated");
       Alert.alert(
         "Success",
         "Avatar uploaded! Click Continue to save your changes.",
       );
-      console.log("=== AVATAR UPLOAD COMPLETE ===");
     } catch (e: any) {
-      console.error("=== AVATAR UPLOAD ERROR ===");
-      console.error("Error:", e);
-      console.error("Error message:", e?.message);
-      console.error("Error code:", e?.code);
+      console.error("Avatar upload error:", e);
       Alert.alert(
         "Upload Failed",
         e?.message || "Failed to upload avatar. Please try again.",
@@ -165,12 +138,6 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
-    console.log("=== SAVE PROFILE START ===");
-    console.log("Form data:", formData);
-    console.log("Avatar:", avatar);
-    console.log("Previous avatar:", profile?.avatar_url);
-    console.log("Avatar changed?", avatar !== profile?.avatar_url);
-
     if (!formData.username.trim()) {
       Alert.alert("Validation Error", "Username is required");
       return;
@@ -197,18 +164,11 @@ export default function EditProfileScreen() {
         ...(avatar !== profile?.avatar_url && { avatar_url: avatar }),
       };
 
-      console.log("Updates to save:", updates);
       await updateProfileMutation.mutateAsync(updates);
-      console.log("Profile update successful!");
       Alert.alert("Success", "Profile updated successfully!");
       setTimeout(() => router.back(), 300);
-      console.log("=== SAVE PROFILE COMPLETE ===");
     } catch (error: any) {
-      console.error("=== SAVE PROFILE ERROR ===");
-      console.error("Error object:", error);
-      console.error("Error message:", error?.message);
-      console.error("Error code:", error?.code);
-
+      console.error("Save profile error:", error);
       let errorMessage = "Failed to update profile";
       if (
         error?.message?.includes("duplicate") &&

@@ -1,20 +1,7 @@
-// lib/queries/stories.ts — UPDATED ✅ removed orderBy to avoid index requirement, sort in JS
-import { auth, db, storage } from "@/lib/firebase";
-import {
-  Timestamp,
-  addDoc,
-  collection,
-  doc,
-  documentId,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+// lib/queries/stories.ts — React Native Firebase ✅
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
+import storage from "@react-native-firebase/storage";
 
 export type StoryProfile = {
   username: string | null;
@@ -33,14 +20,10 @@ export type StoryRow = {
   profiles: StoryProfile | null;
 };
 
-const STORIES = collection(db, "stories");
-const STORY_SEEN = collection(db, "story_seen");
-const STORY_COMMENTS = collection(db, "story_comments");
-const PROFILES = collection(db, "profiles");
-
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts?.toDate) return ts.toDate().toISOString();
+  if (ts?.seconds) return new Date(ts.seconds * 1000).toISOString();
   return new Date(ts).toISOString();
 }
 
@@ -56,9 +39,12 @@ async function batchGetProfiles(
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   if (!ids.length) return map;
-  for (const group of chunk(ids, 30)) {
-    const q = query(PROFILES, where(documentId(), "in", group));
-    const snap = await getDocs(q);
+  // RN Firebase 'in' query max is 10
+  for (const group of chunk(ids, 10)) {
+    const snap = await firestore()
+      .collection("profiles")
+      .where(firestore.FieldPath.documentId(), "in", group)
+      .get();
     snap.docs.forEach((d) => {
       const data = d.data() as any;
       map.set(d.id, {
@@ -90,19 +76,16 @@ function guessContentType(ext: string, mediaType: "image" | "video" | "gif") {
   return "image/jpeg";
 }
 
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("Failed to read file");
-  return await res.blob();
-}
-
 export async function fetchStoryById(
   storyId: string,
 ): Promise<StoryRow | null> {
-  const snap = await getDoc(doc(db, "stories", storyId));
+  const snap = await firestore().collection("stories").doc(storyId).get();
   if (!snap.exists()) return null;
   const d = snap.data() as any;
-  const profileSnap = await getDoc(doc(db, "profiles", d.user_id));
+  const profileSnap = await firestore()
+    .collection("profiles")
+    .doc(d.user_id)
+    .get();
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
   return {
     id: snap.id,
@@ -122,48 +105,48 @@ export async function fetchStoryById(
   };
 }
 
-// ✅ No orderBy — sort in JS to avoid composite index requirement
 export async function fetchActiveStories(): Promise<StoryRow[]> {
-  const now = Timestamp.fromDate(new Date());
-  const q = query(STORIES, where("expires_at_ts", ">", now), limit(200));
-  const snap = await getDocs(q);
+  const now = firestore.Timestamp.fromDate(new Date());
+  const snap = await firestore()
+    .collection("stories")
+    .where("expires_at_ts", ">", now)
+    .limit(200)
+    .get();
   if (snap.empty) return [];
   const docs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
   const profilesMap = await batchGetProfiles(docs.map((d) => d.user_id));
-  return (
-    docs
-      .map((d) => ({
-        id: d.id,
-        user_id: d.user_id,
-        media_url: d.media_url,
-        media_type: d.media_type,
-        caption: d.caption ?? null,
-        created_at: tsToIso(d.created_at_ts),
-        expires_at: tsToIso(d.expires_at_ts),
-        profiles: profilesMap.get(d.user_id) ?? null,
-      }))
-      // ✅ Sort newest first in JS
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      )
-  );
+  return docs
+    .map((d) => ({
+      id: d.id,
+      user_id: d.user_id,
+      media_url: d.media_url,
+      media_type: d.media_type,
+      caption: d.caption ?? null,
+      created_at: tsToIso(d.created_at_ts),
+      expires_at: tsToIso(d.expires_at_ts),
+      profiles: profilesMap.get(d.user_id) ?? null,
+    }))
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
 }
 
-// ✅ No orderBy — sort in JS to avoid composite index requirement
 export async function fetchActiveStoriesByUser(
   userId: string,
 ): Promise<StoryRow[]> {
-  const now = Timestamp.fromDate(new Date());
-  const q = query(
-    STORIES,
-    where("user_id", "==", userId),
-    where("expires_at_ts", ">", now),
-    limit(100),
-  );
-  const snap = await getDocs(q);
+  const now = firestore.Timestamp.fromDate(new Date());
+  const snap = await firestore()
+    .collection("stories")
+    .where("user_id", "==", userId)
+    .where("expires_at_ts", ">", now)
+    .limit(100)
+    .get();
   if (snap.empty) return [];
-  const profileSnap = await getDoc(doc(db, "profiles", userId));
+  const profileSnap = await firestore()
+    .collection("profiles")
+    .doc(userId)
+    .get();
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
   const profile: StoryProfile | null = p
     ? {
@@ -172,39 +155,35 @@ export async function fetchActiveStoriesByUser(
         avatar_url: p.avatar_url ?? null,
       }
     : null;
-  return (
-    snap.docs
-      .map((docSnap) => {
-        const d = docSnap.data() as any;
-        return {
-          id: docSnap.id,
-          user_id: d.user_id,
-          media_url: d.media_url,
-          media_type: d.media_type,
-          caption: d.caption ?? null,
-          created_at: tsToIso(d.created_at_ts),
-          expires_at: tsToIso(d.expires_at_ts),
-          profiles: profile,
-        };
-      })
-      // ✅ Sort newest first in JS
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      )
-  );
+  return snap.docs
+    .map((docSnap) => {
+      const d = docSnap.data() as any;
+      return {
+        id: docSnap.id,
+        user_id: d.user_id,
+        media_url: d.media_url,
+        media_type: d.media_type,
+        caption: d.caption ?? null,
+        created_at: tsToIso(d.created_at_ts),
+        expires_at: tsToIso(d.expires_at_ts),
+        profiles: profile,
+      };
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
 }
 
 export async function markStorySeen(storyId: string) {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) return;
   const key = `${storyId}_${user.uid}`;
-  await setDoc(
-    doc(db, "story_seen", key),
+  await firestore().collection("story_seen").doc(key).set(
     {
       story_id: storyId,
       viewer_id: user.uid,
-      seen_at_ts: serverTimestamp(),
+      seen_at_ts: firestore.FieldValue.serverTimestamp(),
     },
     { merge: true },
   );
@@ -214,15 +193,14 @@ export async function uploadStoryMedia(
   uri: string,
   mediaType: "image" | "video" | "gif",
 ): Promise<{ publicUrl: string; path: string }> {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
   const ext = guessExt(uri, mediaType);
   const contentType = guessContentType(ext, mediaType);
   const path = `stories/${user.uid}/${Date.now()}.${ext}`;
-  const storageRef = ref(storage, path);
-  const blob = await uriToBlob(uri);
-  await uploadBytes(storageRef, blob, { contentType });
-  const publicUrl = await getDownloadURL(storageRef);
+  const fileRef = storage().ref(path);
+  await fileRef.putFile(uri, { contentType });
+  const publicUrl = await fileRef.getDownloadURL();
   return { publicUrl, path };
 }
 
@@ -232,20 +210,25 @@ export async function createStory(params: {
   caption?: string | null;
   expires_in_hours?: number;
 }): Promise<StoryRow> {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
   const expiresAt = new Date(
     Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000,
   );
-  const refDoc = await addDoc(STORIES, {
-    user_id: user.uid,
-    media_url: params.media_url,
-    media_type: params.media_type,
-    caption: params.caption ?? null,
-    created_at_ts: serverTimestamp(),
-    expires_at_ts: Timestamp.fromDate(expiresAt),
-  });
-  const profileSnap = await getDoc(doc(db, "profiles", user.uid));
+  const refDoc = await firestore()
+    .collection("stories")
+    .add({
+      user_id: user.uid,
+      media_url: params.media_url,
+      media_type: params.media_type,
+      caption: params.caption ?? null,
+      created_at_ts: firestore.FieldValue.serverTimestamp(),
+      expires_at_ts: firestore.Timestamp.fromDate(expiresAt),
+    });
+  const profileSnap = await firestore()
+    .collection("profiles")
+    .doc(user.uid)
+    .get();
   const p = profileSnap.exists() ? (profileSnap.data() as any) : null;
   return {
     id: refDoc.id,
@@ -269,12 +252,12 @@ export async function sendStoryReply(
   storyId: string,
   content: string,
 ): Promise<void> {
-  const user = auth.currentUser;
+  const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
-  await addDoc(STORY_COMMENTS, {
+  await firestore().collection("story_comments").add({
     story_id: storyId,
     user_id: user.uid,
     content: content.trim(),
-    created_at_ts: serverTimestamp(),
+    created_at_ts: firestore.FieldValue.serverTimestamp(),
   });
 }
