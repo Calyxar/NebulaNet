@@ -1,7 +1,5 @@
-// hooks/useSettings.ts — FIREBASE ✅
-
+// hooks/useSettings.ts — REACT NATIVE FIREBASE ✅
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import {
   LinkedAccount,
   NotificationSettings,
@@ -10,21 +8,9 @@ import {
   UserPreferences,
   UserSettings,
 } from "@/types/settings";
+import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  Timestamp,
-  where,
-} from "firebase/firestore";
 import { useCallback } from "react";
 
 type BlockedUserRow = {
@@ -51,8 +37,11 @@ type MutedUserRow = {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
-  return new Date(ts).toISOString();
+  if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
+  if (typeof ts?.seconds === "number")
+    return new Date(ts.seconds * 1000).toISOString();
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -122,14 +111,16 @@ const DEFAULT_SECURITY: SecuritySettings = {
 export function useSettings() {
   const { user, profile } = useAuth();
   const queryClient = useQueryClient();
+  const uid = user?.uid;
 
   const { data: settings, isLoading } = useQuery<UserSettings>({
-    queryKey: ["settings", user?.id],
-    enabled: !!user,
+    queryKey: ["settings", uid],
+    enabled: !!uid,
     queryFn: async () => {
-      if (!user) throw new Error("Not authenticated");
-      const snap = await getDoc(doc(db, "profiles", user.uid));
+      if (!uid) throw new Error("Not authenticated");
+      const snap = await firestore().collection("profiles").doc(uid).get();
       const d = snap.exists() ? (snap.data() as any) : {};
+      const currentUser = auth().currentUser;
       return {
         preferences: { ...DEFAULT_PREFERENCES, ...(d.preferences || {}) },
         privacy: { ...DEFAULT_PRIVACY, ...(d.privacy_settings || {}) },
@@ -140,7 +131,7 @@ export function useSettings() {
         security: {
           ...DEFAULT_SECURITY,
           ...(d.security_settings || {}),
-          email_verified: user.emailVerified || false,
+          email_verified: currentUser?.emailVerified || false,
           two_factor_enabled: d.two_factor_enabled || false,
           last_login: d.last_login || null,
         },
@@ -151,40 +142,46 @@ export function useSettings() {
 
   const updatePreferences = useMutation<void, Error, Partial<UserPreferences>>({
     mutationFn: async (updates) => {
-      if (!user) throw new Error("Not authenticated");
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          preferences: {
-            ...(settings?.preferences ?? DEFAULT_PREFERENCES),
-            ...updates,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .set(
+          {
+            preferences: {
+              ...(settings?.preferences ?? DEFAULT_PREFERENCES),
+              ...updates,
+            },
+            updated_at: new Date().toISOString(),
           },
-          updated_at: new Date().toISOString(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", uid] });
+      queryClient.invalidateQueries({ queryKey: ["feed-preferences", uid] });
+    },
   });
 
   const updatePrivacy = useMutation<void, Error, Partial<PrivacySettings>>({
     mutationFn: async (updates) => {
-      if (!user) throw new Error("Not authenticated");
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          privacy_settings: {
-            ...(settings?.privacy ?? DEFAULT_PRIVACY),
-            ...updates,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .set(
+          {
+            privacy_settings: {
+              ...(settings?.privacy ?? DEFAULT_PRIVACY),
+              ...updates,
+            },
+            updated_at: new Date().toISOString(),
           },
-          updated_at: new Date().toISOString(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["settings", uid] }),
   });
 
   const updateNotifications = useMutation<
@@ -193,112 +190,110 @@ export function useSettings() {
     Partial<NotificationSettings>
   >({
     mutationFn: async (updates) => {
-      if (!user) throw new Error("Not authenticated");
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          notification_settings: {
-            ...(settings?.notifications ?? DEFAULT_NOTIFICATIONS),
-            ...updates,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .set(
+          {
+            notification_settings: {
+              ...(settings?.notifications ?? DEFAULT_NOTIFICATIONS),
+              ...updates,
+            },
+            updated_at: new Date().toISOString(),
           },
-          updated_at: new Date().toISOString(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["settings", uid] }),
   });
 
   const updateSecurity = useMutation<void, Error, Partial<SecuritySettings>>({
     mutationFn: async (updates) => {
-      if (!user) throw new Error("Not authenticated");
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          security_settings: {
-            ...(settings?.security ?? DEFAULT_SECURITY),
-            ...updates,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .set(
+          {
+            security_settings: {
+              ...(settings?.security ?? DEFAULT_SECURITY),
+              ...updates,
+            },
+            updated_at: new Date().toISOString(),
           },
-          updated_at: new Date().toISOString(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["settings", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["settings", uid] }),
   });
 
   const blockUser = useMutation<void, Error, string>({
     mutationFn: async (targetId) => {
-      if (!user) throw new Error("Not authenticated");
-      await addDoc(collection(db, "blocked_users"), {
-        blocker_id: user.uid,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore().collection("blocked_users").add({
+        blocker_id: uid,
         blocked_id: targetId,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", uid] }),
   });
 
   const unblockUser = useMutation<void, Error, string>({
     mutationFn: async (targetId) => {
-      if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(
-        query(
-          collection(db, "blocked_users"),
-          where("blocker_id", "==", user.uid),
-          where("blocked_id", "==", targetId),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      if (!uid) throw new Error("Not authenticated");
+      const snap = await firestore()
+        .collection("blocked_users")
+        .where("blocker_id", "==", uid)
+        .where("blocked_id", "==", targetId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["blocked-users", uid] }),
   });
 
   const muteUser = useMutation<void, Error, string>({
     mutationFn: async (targetId) => {
-      if (!user) throw new Error("Not authenticated");
-      await addDoc(collection(db, "muted_users"), {
-        muter_id: user.uid,
+      if (!uid) throw new Error("Not authenticated");
+      await firestore().collection("muted_users").add({
+        muter_id: uid,
         muted_id: targetId,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["muted-users", uid] }),
   });
 
   const unmuteUser = useMutation<void, Error, string>({
     mutationFn: async (targetId) => {
-      if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(
-        query(
-          collection(db, "muted_users"),
-          where("muter_id", "==", user.uid),
-          where("muted_id", "==", targetId),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      if (!uid) throw new Error("Not authenticated");
+      const snap = await firestore()
+        .collection("muted_users")
+        .where("muter_id", "==", uid)
+        .where("muted_id", "==", targetId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["muted-users", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["muted-users", uid] }),
   });
 
   const { data: blockedUsers } = useQuery<BlockedUserRow[]>({
-    queryKey: ["blocked-users", user?.id],
-    enabled: !!user,
+    queryKey: ["blocked-users", uid],
+    enabled: !!uid,
     queryFn: async () => {
-      if (!user) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, "blocked_users"),
-          where("blocker_id", "==", user.uid),
-          orderBy("created_at", "desc"),
-        ),
-      );
+      if (!uid) return [];
+      const snap = await firestore()
+        .collection("blocked_users")
+        .where("blocker_id", "==", uid)
+        .orderBy("created_at", "desc")
+        .get();
       return snap.docs.map((d) => {
         const data = d.data() as any;
         return {
@@ -311,17 +306,15 @@ export function useSettings() {
   });
 
   const { data: mutedUsers } = useQuery<MutedUserRow[]>({
-    queryKey: ["muted-users", user?.id],
-    enabled: !!user,
+    queryKey: ["muted-users", uid],
+    enabled: !!uid,
     queryFn: async () => {
-      if (!user) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, "muted_users"),
-          where("muter_id", "==", user.uid),
-          orderBy("created_at", "desc"),
-        ),
-      );
+      if (!uid) return [];
+      const snap = await firestore()
+        .collection("muted_users")
+        .where("muter_id", "==", uid)
+        .orderBy("created_at", "desc")
+        .get();
       return snap.docs.map((d) => {
         const data = d.data() as any;
         return {
@@ -334,17 +327,15 @@ export function useSettings() {
   });
 
   const { data: linkedAccounts } = useQuery<LinkedAccount[]>({
-    queryKey: ["linked-accounts", user?.id],
-    enabled: !!user,
+    queryKey: ["linked-accounts", uid],
+    enabled: !!uid,
     queryFn: async () => {
-      if (!user) return [];
-      const snap = await getDocs(
-        query(
-          collection(db, "linked_accounts"),
-          where("user_id", "==", user.uid),
-          orderBy("created_at", "desc"),
-        ),
-      );
+      if (!uid) return [];
+      const snap = await firestore()
+        .collection("linked_accounts")
+        .where("user_id", "==", uid)
+        .orderBy("created_at", "desc")
+        .get();
       return snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
@@ -358,65 +349,57 @@ export function useSettings() {
     Omit<LinkedAccount, "id" | "connected_at">
   >({
     mutationFn: async (account) => {
-      if (!user) throw new Error("Not authenticated");
-      await addDoc(collection(db, "linked_accounts"), {
-        user_id: user.uid,
-        ...account,
-        connected_at: serverTimestamp(),
-      });
+      if (!uid) throw new Error("Not authenticated");
+      await firestore()
+        .collection("linked_accounts")
+        .add({
+          user_id: uid,
+          ...account,
+          connected_at: firestore.FieldValue.serverTimestamp(),
+        });
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["linked-accounts", user?.id],
-      }),
+      queryClient.invalidateQueries({ queryKey: ["linked-accounts", uid] }),
   });
 
   const unlinkAccount = useMutation<void, Error, string>({
     mutationFn: async (accountId) => {
-      if (!user) throw new Error("Not authenticated");
-      await deleteDoc(doc(db, "linked_accounts", accountId));
+      if (!uid) throw new Error("Not authenticated");
+      await firestore().collection("linked_accounts").doc(accountId).delete();
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["linked-accounts", user?.id],
-      }),
+      queryClient.invalidateQueries({ queryKey: ["linked-accounts", uid] }),
   });
 
   const clearSearchHistory = useMutation<void, Error, void>({
     mutationFn: async () => {
-      if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(
-        query(
-          collection(db, "search_history"),
-          where("user_id", "==", user.uid),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      if (!uid) throw new Error("Not authenticated");
+      const snap = await firestore()
+        .collection("search_history")
+        .where("user_id", "==", uid)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["search-history", user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["search-history", uid] }),
   });
 
   const clearActivityHistory = useMutation<void, Error, void>({
     mutationFn: async () => {
-      if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(
-        query(
-          collection(db, "user_activity"),
-          where("user_id", "==", user.uid),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      if (!uid) throw new Error("Not authenticated");
+      const snap = await firestore()
+        .collection("user_activity")
+        .where("user_id", "==", uid)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["activity-history", user?.id],
-      }),
+      queryClient.invalidateQueries({ queryKey: ["activity-history", uid] }),
   });
 
   const exportUserData = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error("Not authenticated");
+      if (!uid) throw new Error("Not authenticated");
       return {
         profile,
         settings,
