@@ -8,7 +8,6 @@ import {
   type StoryRow,
 } from "@/lib/queries/stories";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteDoc, doc } from "firebase/firestore";
 
 export const storyKeys = {
   all: ["stories"] as const,
@@ -63,11 +62,9 @@ export function useDeleteStory() {
     mutationFn: async (storyId: string) => {
       const user = auth.currentUser;
       if (!user) throw new Error("Not authenticated");
-      const storyRef = doc(db, "stories", storyId);
-      await deleteDoc(storyRef);
+      await db.collection("stories").doc(storyId).delete();
     },
     onSuccess: () => {
-      // Invalidate all story queries so home feed + profile update instantly
       qc.invalidateQueries({ queryKey: storyKeys.all });
     },
   });

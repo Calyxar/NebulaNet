@@ -11,7 +11,6 @@
 
 import { db } from "@/lib/firebase";
 import Constants from "expo-constants";
-import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 
 type ForceUpdateState = {
@@ -45,7 +44,7 @@ export function useForceUpdate(): ForceUpdateState {
 
     const check = async () => {
       try {
-        const snap = await getDoc(doc(db, "app_config", "android"));
+        const snap = await db.collection("app_config").doc("android").get();
         if (!snap.exists() || !mounted) {
           setState({
             checking: false,

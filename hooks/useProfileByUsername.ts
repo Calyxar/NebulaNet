@@ -2,7 +2,6 @@
 
 import { db } from "@/lib/firebase";
 import { useQuery } from "@tanstack/react-query";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 
 export type PublicProfile = {
   id: string;
@@ -19,13 +18,11 @@ export function useProfileByUsername(username?: string) {
     queryKey: ["profile-by-username", username],
     enabled: !!username,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "profiles"),
-          where("username", "==", username!),
-          limit(1),
-        ),
-      );
+      const snap = await db
+        .collection("profiles")
+        .where("username", "==", username!)
+        .limit(1)
+        .get();
       if (snap.empty) throw new Error("Profile not found");
       const d = snap.docs[0].data() as any;
       return {

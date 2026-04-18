@@ -8,15 +8,6 @@
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  collection,
-  endAt,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  startAt,
-} from "firebase/firestore";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -70,7 +61,6 @@ function parseSegments(text: string) {
     }));
 }
 
-// ✅ Deduplication: extract unique lowercase hashtags from text
 export function extractUniqueHashtags(text: string): string[] {
   const matches = text.match(/#([a-zA-Z0-9_]+)/g) ?? [];
   return [...new Set(matches.map((m) => m.toLowerCase()))];
@@ -79,26 +69,24 @@ export function extractUniqueHashtags(text: string): string[] {
 async function fetchSuggestions(prefix: string): Promise<HashtagSuggestion[]> {
   try {
     if (!prefix) {
-      const q = query(
-        collection(db, "hashtags"),
-        orderBy("post_count", "desc"),
-        limit(6),
-      );
-      const snap = await getDocs(q);
+      const snap = await db
+        .collection("hashtags")
+        .orderBy("post_count", "desc")
+        .limit(6)
+        .get();
       return snap.docs.map((d) => ({
         tag: d.id,
         post_count: (d.data() as any).post_count ?? 0,
       }));
     }
     const lower = prefix.toLowerCase();
-    const q = query(
-      collection(db, "hashtags"),
-      orderBy("__name__"),
-      startAt(lower),
-      endAt(lower + "\uf8ff"),
-      limit(6),
-    );
-    const snap = await getDocs(q);
+    const snap = await db
+      .collection("hashtags")
+      .orderBy("__name__")
+      .startAt(lower)
+      .endAt(lower + "\uf8ff")
+      .limit(6)
+      .get();
     return snap.docs.map((d) => ({
       tag: d.id,
       post_count: (d.data() as any).post_count ?? 0,
@@ -179,7 +167,6 @@ export default function HashtagInput({
     paddingBottom: 0,
   };
 
-  // ✅ Deduplicated hashtag chips
   const uniqueHashtags = extractUniqueHashtags(value);
 
   return (
@@ -309,7 +296,7 @@ export default function HashtagInput({
         />
       </View>
 
-      {/* ✅ Deduplicated hashtag chip preview */}
+      {/* Deduplicated hashtag chip preview */}
       {uniqueHashtags.length > 0 && (
         <View
           style={[

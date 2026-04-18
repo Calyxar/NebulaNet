@@ -10,17 +10,23 @@ import { useAuth } from "@/hooks/useAuth";
 import { postKeys, useToggleBookmark, useToggleLike } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
 import type { Post } from "@/lib/firestore/posts";
+import firestore from "@react-native-firebase/firestore";
 import { useQueryClient } from "@tanstack/react-query";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 async function trackPostView(postId: string, viewerId: string) {
   if (!postId || !viewerId) return;
   const id = `${viewerId}_${postId}`;
-  await setDoc(
-    doc(db, "post_views", id),
-    { post_id: postId, viewer_id: viewerId, created_at_ts: serverTimestamp() },
-    { merge: true },
-  );
+  await db
+    .collection("post_views")
+    .doc(id)
+    .set(
+      {
+        post_id: postId,
+        viewer_id: viewerId,
+        created_at_ts: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
 }
 
 export function useFeedInteractions() {

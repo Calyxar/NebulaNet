@@ -4,22 +4,9 @@ import { auth, db } from "@/lib/firebase";
 import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import rnAuth from "@react-native-firebase/auth";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  verifyBeforeUpdateEmail
-} from "firebase/auth";
-import {
-  collection,
-  doc,
-  getDocs,
-  limit,
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import React, { useState } from "react";
 import {
   Alert,
@@ -67,16 +54,14 @@ export default function AccountCenterScreen() {
     try {
       const currentUser = auth.currentUser;
       if (!currentUser?.email) throw new Error("Not signed in");
-      // Re-authenticate first
-      await reauthenticateWithCredential(
-        currentUser,
-        EmailAuthProvider.credential(currentUser.email, password),
+      const credential = rnAuth.EmailAuthProvider.credential(
+        currentUser.email,
+        password,
       );
-      // Send verification to new email
-      await verifyBeforeUpdateEmail(currentUser, newEmail.trim());
-      // Update in Firestore profiles
+      await currentUser.reauthenticateWithCredential(credential);
+      await currentUser.verifyBeforeUpdateEmail(newEmail.trim());
       if (user?.uid) {
-        await updateDoc(doc(db, "profiles", user.uid), {
+        await db.collection("profiles").doc(user.uid).update({
           email: newEmail.trim(),
         });
       }
@@ -123,21 +108,17 @@ export default function AccountCenterScreen() {
     }
     setIsLoading(true);
     try {
-      // Check uniqueness
-      const snap = await getDocs(
-        query(
-          collection(db, "profiles"),
-          where("username", "==", trimmed),
-          limit(1),
-        ),
-      );
+      const snap = await db
+        .collection("profiles")
+        .where("username", "==", trimmed)
+        .limit(1)
+        .get();
       if (!snap.empty) {
         Alert.alert("Taken", "That username is already taken. Try another.");
         return;
       }
-      // Update profile
       if (user?.uid) {
-        await updateDoc(doc(db, "profiles", user.uid), {
+        await db.collection("profiles").doc(user.uid).update({
           username: trimmed,
           username_lc: trimmed,
         });
@@ -162,7 +143,6 @@ export default function AccountCenterScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={[
@@ -223,7 +203,6 @@ export default function AccountCenterScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Identity */}
           <SectionLabel title="Identity" colors={colors} />
           <View style={[styles.card, { backgroundColor: colors.card }]}>
             {/* Email row */}
@@ -441,7 +420,6 @@ export default function AccountCenterScreen() {
             )}
           </View>
 
-          {/* Account */}
           <SectionLabel title="Account" colors={colors} />
           <View style={[styles.card, { backgroundColor: colors.card }]}>
             <TouchableOpacity

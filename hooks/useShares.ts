@@ -3,16 +3,15 @@
 import { postKeys } from "@/hooks/usePosts";
 import { auth, db } from "@/lib/firebase";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 async function incrementShareCount(postId: string): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-  const ref = doc(db, "posts", postId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Post not found");
+  const ref = db.collection("posts").doc(postId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Post not found");
   const current = (snap.data() as any).share_count ?? 0;
-  await updateDoc(ref, { share_count: current + 1 });
+  await ref.update({ share_count: current + 1 });
 }
 
 type FeedPage = { posts: any[] };

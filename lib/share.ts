@@ -5,8 +5,8 @@
 // ✅ FIXED: incrementShareCount only called once per share action
 
 import { db } from "@/lib/firebase";
+import firestore from "@react-native-firebase/firestore";
 import * as Clipboard from "expo-clipboard";
-import { doc, increment, updateDoc } from "firebase/firestore";
 import { Alert, Platform, Share as RNShare } from "react-native";
 
 /* -------------------- LINK GENERATORS -------------------- */
@@ -31,14 +31,16 @@ export const generateEventLink = (eventId: string): string => {
 
 export const incrementShareCount = async (postId: string): Promise<void> => {
   try {
-    await updateDoc(doc(db, "posts", postId), {
-      share_count: increment(1),
-    });
+    await db
+      .collection("posts")
+      .doc(postId)
+      .update({
+        share_count: firestore.FieldValue.increment(1),
+      });
   } catch (error) {
     console.error("Error incrementing share count:", error);
   }
 };
-
 interface ShareOptions {
   title?: string;
   message?: string;

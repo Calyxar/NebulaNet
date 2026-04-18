@@ -4,14 +4,13 @@
 
 import { db } from "@/lib/firebase";
 import {
-    getDatabase,
-    onDisconnect,
-    onValue,
-    ref,
-    serverTimestamp,
-    set,
+  getDatabase,
+  onDisconnect,
+  onValue,
+  ref,
+  serverTimestamp,
+  set,
 } from "firebase/database";
-import { doc, updateDoc } from "firebase/firestore";
 
 const rtdb = getDatabase();
 
@@ -35,7 +34,7 @@ export function initPresence(userId: string) {
     });
 
     // mirror last seen into Firestore
-    await updateDoc(doc(db, "profiles", userId), {
+    await db.collection("profiles").doc(userId).update({
       last_seen: new Date(),
     });
   });

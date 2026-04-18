@@ -22,7 +22,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import { deleteDoc, doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -158,7 +157,6 @@ export default function PostDetailScreen() {
     ? [colors.background, colors.background, colors.background]
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
-  // Load repost status
   useEffect(() => {
     if (post?.id) {
       getRepostStatus(post.id).then(setIsReposted);
@@ -241,13 +239,13 @@ export default function PostDetailScreen() {
     setIsDeleting(true);
     try {
       if (!viewerId) throw new Error("Not logged in");
-      const ref = doc(db, "posts", post.id);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) throw new Error("Post not found");
+      const ref = db.collection("posts").doc(post.id);
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error("Post not found");
       const data: any = snap.data();
       if (data?.user_id && data.user_id !== viewerId)
         throw new Error("You can only delete your own post");
-      await deleteDoc(ref);
+      await ref.delete();
       Alert.alert("Deleted", "Your post was deleted.", [
         { text: "OK", onPress: () => router.back() },
       ]);
@@ -447,7 +445,6 @@ export default function PostDetailScreen() {
                 },
               ]}
             >
-              {/* Author */}
               <Pressable
                 style={styles.authorRow}
                 onPress={() =>
@@ -484,7 +481,6 @@ export default function PostDetailScreen() {
                 </Text>
               </Pressable>
 
-              {/* Community badge */}
               {post.community && (
                 <Pressable
                   style={[
@@ -583,7 +579,6 @@ export default function PostDetailScreen() {
                 </Text>
               </View>
 
-              {/* Actions */}
               <View
                 style={[styles.actionRow, { borderTopColor: colors.border }]}
               >
@@ -938,7 +933,6 @@ export default function PostDetailScreen() {
           </View>
         </KeyboardAvoidingView>
 
-        {/* Custom Repost Sheet */}
         <RepostSheet
           ref={repostSheetRef}
           isReposted={isReposted}
@@ -947,7 +941,6 @@ export default function PostDetailScreen() {
           onUndoRepost={handleRepost}
         />
 
-        {/* Custom Share Sheet */}
         <ShareSheet
           ref={shareSheetRef}
           title="Share Post"
@@ -1063,11 +1056,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   videoBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  statsRow: {
-    flexDirection: "row",
-    gap: 16,
-    paddingBottom: 12,
-  },
+  statsRow: { flexDirection: "row", gap: 16, paddingBottom: 12 },
   statText: { fontSize: 13 },
   statNum: { fontWeight: "700" },
   actionRow: {

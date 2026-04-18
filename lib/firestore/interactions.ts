@@ -1,19 +1,7 @@
 // lib/firestore/interactions.ts — FIRESTORE ✅ (COMPLETED + UPDATED)
 
 import { auth, db } from "@/lib/firebase";
-import {
-    postLikeRef,
-    postRef,
-    postSaveRef,
-    postShareRef,
-} from "@/lib/firestore/refs";
-import {
-    deleteDoc,
-    getDoc,
-    runTransaction,
-    serverTimestamp,
-    type DocumentData
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 /* =========================
    Helpers
@@ -29,22 +17,38 @@ function n(v: any): number {
   return typeof v === "number" && isFinite(v) ? v : 0;
 }
 
+function likeRef(postId: string, uid: string) {
+  return db.collection("post_likes").doc(`${postId}_${uid}`);
+}
+
+function saveRef(postId: string, uid: string) {
+  return db.collection("post_saves").doc(`${postId}_${uid}`);
+}
+
+function shareRef(postId: string, uid: string) {
+  return db.collection("post_shares").doc(`${postId}_${uid}`);
+}
+
+function postDocRef(postId: string) {
+  return db.collection("posts").doc(postId);
+}
+
 /* =========================
    Likes
 ========================= */
 
 export async function hasLikedPost(postId: string): Promise<boolean> {
   const uid = requireUid();
-  const snap = await getDoc(postLikeRef(postId, uid));
+  const snap = await likeRef(postId, uid).get();
   return snap.exists();
 }
 
 export async function likePost(postId: string): Promise<void> {
   const uid = requireUid();
 
-  await runTransaction(db, async (tx) => {
-    const likeDoc = postLikeRef(postId, uid);
-    const postDoc = postRef(postId);
+  await db.runTransaction(async (tx) => {
+    const likeDoc = likeRef(postId, uid);
+    const postDoc = postDocRef(postId);
 
     const [likeSnap, postSnap] = await Promise.all([
       tx.get(likeDoc),
@@ -52,22 +56,20 @@ export async function likePost(postId: string): Promise<void> {
     ]);
 
     if (!postSnap.exists()) throw new Error("Post not found");
-
-    // already liked => idempotent
     if (likeSnap.exists()) return;
 
-    const post = postSnap.data() as DocumentData;
+    const post = postSnap.data() as any;
     const likeCount = n(post.like_count);
 
     tx.set(likeDoc, {
       post_id: postId,
       user_id: uid,
-      created_at: serverTimestamp(),
+      created_at: firestore.FieldValue.serverTimestamp(),
     });
 
     tx.update(postDoc, {
       like_count: likeCount + 1,
-      updated_at_ts: serverTimestamp(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
     });
   });
 }
@@ -75,9 +77,9 @@ export async function likePost(postId: string): Promise<void> {
 export async function unlikePost(postId: string): Promise<void> {
   const uid = requireUid();
 
-  await runTransaction(db, async (tx) => {
-    const likeDoc = postLikeRef(postId, uid);
-    const postDoc = postRef(postId);
+  await db.runTransaction(async (tx) => {
+    const likeDoc = likeRef(postId, uid);
+    const postDoc = postDocRef(postId);
 
     const [likeSnap, postSnap] = await Promise.all([
       tx.get(likeDoc),
@@ -87,13 +89,13 @@ export async function unlikePost(postId: string): Promise<void> {
     if (!postSnap.exists()) throw new Error("Post not found");
     if (!likeSnap.exists()) return;
 
-    const post = postSnap.data() as DocumentData;
+    const post = postSnap.data() as any;
     const likeCount = n(post.like_count);
 
     tx.delete(likeDoc);
     tx.update(postDoc, {
       like_count: Math.max(0, likeCount - 1),
-      updated_at_ts: serverTimestamp(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
     });
   });
 }
@@ -104,16 +106,16 @@ export async function unlikePost(postId: string): Promise<void> {
 
 export async function hasSavedPost(postId: string): Promise<boolean> {
   const uid = requireUid();
-  const snap = await getDoc(postSaveRef(postId, uid));
+  const snap = await saveRef(postId, uid).get();
   return snap.exists();
 }
 
 export async function savePost(postId: string): Promise<void> {
   const uid = requireUid();
 
-  await runTransaction(db, async (tx) => {
-    const saveDoc = postSaveRef(postId, uid);
-    const postDoc = postRef(postId);
+  await db.runTransaction(async (tx) => {
+    const saveDoc = saveRef(postId, uid);
+    const postDoc = postDocRef(postId);
 
     const [saveSnap, postSnap] = await Promise.all([
       tx.get(saveDoc),
@@ -123,18 +125,18 @@ export async function savePost(postId: string): Promise<void> {
     if (!postSnap.exists()) throw new Error("Post not found");
     if (saveSnap.exists()) return;
 
-    const post = postSnap.data() as DocumentData;
+    const post = postSnap.data() as any;
     const saveCount = n(post.save_count);
 
     tx.set(saveDoc, {
       post_id: postId,
       user_id: uid,
-      created_at: serverTimestamp(),
+      created_at: firestore.FieldValue.serverTimestamp(),
     });
 
     tx.update(postDoc, {
       save_count: saveCount + 1,
-      updated_at_ts: serverTimestamp(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
     });
   });
 }
@@ -142,9 +144,9 @@ export async function savePost(postId: string): Promise<void> {
 export async function unsavePost(postId: string): Promise<void> {
   const uid = requireUid();
 
-  await runTransaction(db, async (tx) => {
-    const saveDoc = postSaveRef(postId, uid);
-    const postDoc = postRef(postId);
+  await db.runTransaction(async (tx) => {
+    const saveDoc = saveRef(postId, uid);
+    const postDoc = postDocRef(postId);
 
     const [saveSnap, postSnap] = await Promise.all([
       tx.get(saveDoc),
@@ -154,13 +156,13 @@ export async function unsavePost(postId: string): Promise<void> {
     if (!postSnap.exists()) throw new Error("Post not found");
     if (!saveSnap.exists()) return;
 
-    const post = postSnap.data() as DocumentData;
+    const post = postSnap.data() as any;
     const saveCount = n(post.save_count);
 
     tx.delete(saveDoc);
     tx.update(postDoc, {
       save_count: Math.max(0, saveCount - 1),
-      updated_at_ts: serverTimestamp(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
     });
   });
 }
@@ -171,32 +173,30 @@ export async function unsavePost(postId: string): Promise<void> {
 
 export async function sharePost(postId: string): Promise<void> {
   const uid = requireUid();
+  const shareDoc = shareRef(postId, uid);
 
-  // You can store multiple shares, but using a deterministic doc ID makes it "one per user"
-  // If you want MANY share events per user, change doc id to `${postId}_${uid}_${Date.now()}`
-  const shareDoc = postShareRef(postId, uid);
-
-  await runTransaction(db, async (tx) => {
-    const postDoc = postRef(postId);
-    const postSnap = await tx.get(postDoc);
+  await db.runTransaction(async (tx) => {
+    const postDoc = postDocRef(postId);
+    const [postSnap, existing] = await Promise.all([
+      tx.get(postDoc),
+      tx.get(shareDoc),
+    ]);
 
     if (!postSnap.exists()) throw new Error("Post not found");
-    const post = postSnap.data() as DocumentData;
 
-    const shareCount = n(post.share_count);
-
-    // If share doc already exists, still allow (idempotent) without incrementing
-    const existing = await tx.get(shareDoc);
     if (!existing.exists()) {
+      const post = postSnap.data() as any;
+      const shareCount = n(post.share_count);
+
       tx.set(shareDoc, {
         post_id: postId,
         user_id: uid,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
 
       tx.update(postDoc, {
         share_count: shareCount + 1,
-        updated_at_ts: serverTimestamp(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
     }
   });
@@ -232,10 +232,10 @@ export async function toggleSave(postId: string): Promise<boolean> {
 
 export async function removeMyLikeDoc(postId: string): Promise<void> {
   const uid = requireUid();
-  await deleteDoc(postLikeRef(postId, uid));
+  await likeRef(postId, uid).delete();
 }
 
 export async function removeMySaveDoc(postId: string): Promise<void> {
   const uid = requireUid();
-  await deleteDoc(postSaveRef(postId, uid));
+  await saveRef(postId, uid).delete();
 }

@@ -1,17 +1,7 @@
 // lib/queries/communities.ts — FIRESTORE ✅ (joined + created)
 
-import { db } from "@/lib/firebase";
-import { getAuth } from "firebase/auth";
-import {
-  collection,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  where,
-} from "firebase/firestore";
-
-const auth = getAuth();
+import { auth, db } from "@/lib/firebase";
+import { documentId } from "firebase/firestore";
 
 export type Community = {
   id: string;
@@ -25,45 +15,40 @@ export async function fetchMyCommunities(): Promise<Community[]> {
   if (!user) return [];
 
   // 1) joined communities
-  const memberSnap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("user_id", "==", user.uid),
-      limit(500),
-    ),
-  );
+  const memberSnap = await db
+    .collection("community_members")
+    .where("user_id", "==", user.uid)
+    .limit(500)
+    .get();
 
   const joinedIds = memberSnap.docs
     .map((d) => (d.data() as any).community_id as string | undefined)
     .filter(Boolean) as string[];
 
   // 2) created communities — support multiple possible owner fields
-  // We try 3 queries; whichever returns results we merge.
-  const createdQueries = [
-    query(
-      collection(db, "communities"),
-      where("created_by", "==", user.uid),
-      orderBy("created_at", "desc"),
-      limit(200),
-    ),
-    query(
-      collection(db, "communities"),
-      where("owner_id", "==", user.uid),
-      orderBy("created_at", "desc"),
-      limit(200),
-    ),
-    query(
-      collection(db, "communities"),
-      where("user_id", "==", user.uid),
-      orderBy("created_at", "desc"),
-      limit(200),
-    ),
-  ];
-
   const createdSnaps = await Promise.all(
-    createdQueries.map(async (q) => {
+    [
+      db
+        .collection("communities")
+        .where("created_by", "==", user.uid)
+        .orderBy("created_at", "desc")
+        .limit(200)
+        .get(),
+      db
+        .collection("communities")
+        .where("owner_id", "==", user.uid)
+        .orderBy("created_at", "desc")
+        .limit(200)
+        .get(),
+      db
+        .collection("communities")
+        .where("user_id", "==", user.uid)
+        .orderBy("created_at", "desc")
+        .limit(200)
+        .get(),
+    ].map(async (q) => {
       try {
-        return await getDocs(q);
+        return await q;
       } catch {
         return null;
       }
@@ -74,13 +59,14 @@ export async function fetchMyCommunities(): Promise<Community[]> {
     .flatMap((s) => (s ? s.docs : []))
     .map((d) => ({ id: d.id, ...(d.data() as any) }));
 
-  // 3) fetch joined community docs (Firestore doesn't have "in" >10 easily without chunking)
+  // 3) fetch joined community docs in batches of 10
   const joinedRows: any[] = [];
   for (let i = 0; i < joinedIds.length; i += 10) {
     const batch = joinedIds.slice(i, i + 10);
-    const snap = await getDocs(
-      query(collection(db, "communities"), where("__name__", "in", batch)),
-    );
+    const snap = await db
+      .collection("communities")
+      .where(documentId(), "in", batch)
+      .get();
     snap.docs.forEach((d) =>
       joinedRows.push({ id: d.id, ...(d.data() as any) }),
     );

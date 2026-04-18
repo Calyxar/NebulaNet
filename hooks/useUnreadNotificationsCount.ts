@@ -1,6 +1,5 @@
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 
 export function useUnreadNotificationsCount() {
@@ -14,22 +13,19 @@ export function useUnreadNotificationsCount() {
       return;
     }
 
-    const q = query(
-      collection(db, "notifications"),
-      where("receiver_id", "==", userId),
-      where("is_read", "==", false),
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        setCount(snapshot.size);
-      },
-      (error) => {
-        console.error("Error listening to unread notifications:", error);
-        setCount(0);
-      },
-    );
+    const unsubscribe = db
+      .collection("notifications")
+      .where("receiver_id", "==", userId)
+      .where("is_read", "==", false)
+      .onSnapshot(
+        (snapshot) => {
+          setCount(snapshot.size);
+        },
+        (error) => {
+          console.error("Error listening to unread notifications:", error);
+          setCount(0);
+        },
+      );
 
     return () => unsubscribe();
   }, [userId]);

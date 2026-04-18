@@ -1,7 +1,6 @@
 // providers/ThemeProvider.tsx
 import { auth, db } from "@/lib/firebase";
 import { Colors, storage, type Theme } from "@/lib/theme";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, {
   createContext,
   useCallback,
@@ -74,7 +73,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const uid = auth.currentUser?.uid;
     if (uid) {
       try {
-        await updateDoc(doc(db, "profiles", uid), {
+        await db.collection("profiles").doc(uid).update({
           theme_preference: newTheme,
         });
       } catch (e) {
@@ -85,8 +84,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const loadUserPrefs = useCallback(async (uid: string) => {
     try {
-      const snap = await getDoc(doc(db, "profiles", uid));
-      if (!snap.exists()) return;
+      const snap = await db.collection("profiles").doc(uid).get();
+      if (!snap.exists) return;
       const prefs = (snap.data() as any)?.preferences ?? {};
       const data = snap.data() as any;
       if (isTheme(data?.theme_preference)) {

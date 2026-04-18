@@ -3,25 +3,8 @@
 // communities: id, name, description, image_url, member_count, created_at, updated_at, slug, owner_id
 // community_members: id, user_id, community_id, role, created_at
 
-import { db } from "@/lib/firebase";
-import { getAuth } from "firebase/auth";
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    serverTimestamp,
-    Timestamp,
-    updateDoc,
-    where,
-    writeBatch
-} from "firebase/firestore";
-
-const auth = getAuth();
+import { auth, db } from "@/lib/firebase";
+import firestore from "@react-native-firebase/firestore";
 
 /* =========================================================
    TYPES
@@ -60,7 +43,7 @@ export type CreateCommunityData = {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts instanceof firestore.Timestamp) return ts.toDate().toISOString();
   if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
   const d = new Date(ts);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
@@ -84,69 +67,61 @@ function docToCommunity(d: any, id: string): Community {
    FETCH
 ========================================================= */
 
-// Get all communities (latest first)
 export async function fetchAllCommunities(
   limitCount = 50,
 ): Promise<Community[]> {
-  const snap = await getDocs(
-    query(
-      collection(db, "communities"),
-      orderBy("created_at", "desc"),
-      limit(limitCount),
-    ),
-  );
+  const snap = await db
+    .collection("communities")
+    .orderBy("created_at", "desc")
+    .limit(limitCount)
+    .get();
 
   return snap.docs.map((d) => docToCommunity(d.data(), d.id));
 }
 
-// Get a single community by Firestore doc ID
 export async function fetchCommunityById(
   id: string,
 ): Promise<Community | null> {
-  const snap = await getDoc(doc(db, "communities", id));
-  if (!snap.exists()) return null;
+  const snap = await db.collection("communities").doc(id).get();
+  if (!snap.exists) return null;
   return docToCommunity(snap.data(), snap.id);
 }
 
-// Get a single community by slug
 export async function fetchCommunityBySlug(
   slug: string,
 ): Promise<Community | null> {
-  const snap = await getDocs(
-    query(collection(db, "communities"), where("slug", "==", slug), limit(1)),
-  );
+  const snap = await db
+    .collection("communities")
+    .where("slug", "==", slug)
+    .limit(1)
+    .get();
 
   if (snap.empty) return null;
   return docToCommunity(snap.docs[0].data(), snap.docs[0].id);
 }
 
-// Get communities the current user has joined or created
 export async function fetchMyCommunities(): Promise<Community[]> {
   const user = auth.currentUser;
   if (!user) return [];
 
   // 1) Communities user is a member of
-  const memberSnap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("user_id", "==", user.uid),
-      limit(500),
-    ),
-  );
+  const memberSnap = await db
+    .collection("community_members")
+    .where("user_id", "==", user.uid)
+    .limit(500)
+    .get();
 
   const joinedIds = memberSnap.docs
     .map((d) => (d.data() as any).community_id as string)
     .filter(Boolean);
 
   // 2) Communities user owns
-  const ownedSnap = await getDocs(
-    query(
-      collection(db, "communities"),
-      where("owner_id", "==", user.uid),
-      orderBy("created_at", "desc"),
-      limit(200),
-    ),
-  );
+  const ownedSnap = await db
+    .collection("communities")
+    .where("owner_id", "==", user.uid)
+    .orderBy("created_at", "desc")
+    .limit(200)
+    .get();
 
   const ownedRows = ownedSnap.docs.map((d) => docToCommunity(d.data(), d.id));
 
@@ -154,9 +129,10 @@ export async function fetchMyCommunities(): Promise<Community[]> {
   const joinedRows: Community[] = [];
   for (let i = 0; i < joinedIds.length; i += 10) {
     const batch = joinedIds.slice(i, i + 10);
-    const snap = await getDocs(
-      query(collection(db, "communities"), where("__name__", "in", batch)),
-    );
+    const snap = await db
+      .collection("communities")
+      .where(firestore.FieldPath.documentId(), "in", batch)
+      .get();
     snap.docs.forEach((d) => joinedRows.push(docToCommunity(d.data(), d.id)));
   }
 
@@ -167,17 +143,14 @@ export async function fetchMyCommunities(): Promise<Community[]> {
   return Array.from(map.values());
 }
 
-// Get members of a community
 export async function fetchCommunityMembers(
   communityId: string,
 ): Promise<CommunityMember[]> {
-  const snap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("community_id", "==", communityId),
-      orderBy("created_at", "asc"),
-    ),
-  );
+  const snap = await db
+    .collection("community_members")
+    .where("community_id", "==", communityId)
+    .orderBy("created_at", "asc")
+    .get();
 
   return snap.docs.map((d) => {
     const data = d.data() as any;
@@ -191,19 +164,16 @@ export async function fetchCommunityMembers(
   });
 }
 
-// Check if current user is a member
 export async function fetchIsMember(communityId: string): Promise<boolean> {
   const user = auth.currentUser;
   if (!user) return false;
 
-  const snap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("community_id", "==", communityId),
-      where("user_id", "==", user.uid),
-      limit(1),
-    ),
-  );
+  const snap = await db
+    .collection("community_members")
+    .where("community_id", "==", communityId)
+    .where("user_id", "==", user.uid)
+    .limit(1)
+    .get();
 
   return !snap.empty;
 }
@@ -218,30 +188,29 @@ export async function createCommunity(
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  // Check slug is unique
   const existing = await fetchCommunityBySlug(data.slug);
   if (existing) throw new Error("A community with this slug already exists");
 
-  const docRef = await addDoc(collection(db, "communities"), {
+  const docRef = await db.collection("communities").add({
     name: data.name.trim(),
     description: data.description ?? null,
     image_url: data.image_url ?? null,
     slug: data.slug.trim(),
     owner_id: user.uid,
     member_count: 1,
-    created_at: serverTimestamp(),
-    updated_at: serverTimestamp(),
+    created_at: firestore.FieldValue.serverTimestamp(),
+    updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
   // Auto-join creator as owner
-  await addDoc(collection(db, "community_members"), {
+  await db.collection("community_members").add({
     user_id: user.uid,
     community_id: docRef.id,
     role: "owner",
-    created_at: serverTimestamp(),
+    created_at: firestore.FieldValue.serverTimestamp(),
   });
 
-  const snap = await getDoc(docRef);
+  const snap = await docRef.get();
   return docToCommunity(snap.data(), snap.id);
 }
 
@@ -251,13 +220,11 @@ export async function createCommunity(
 
 export async function updateCommunity(
   communityId: string,
-  updates: Partial<
-    Pick<Community, "name" | "description" | "image_url" | "slug">
-  >,
+  updates: Partial<Pick<Community, "name" | "description" | "image_url" | "slug">>,
 ): Promise<void> {
-  await updateDoc(doc(db, "communities", communityId), {
+  await db.collection("communities").doc(communityId).update({
     ...updates,
-    updated_at: serverTimestamp(),
+    updated_at: firestore.FieldValue.serverTimestamp(),
   });
 }
 
@@ -266,19 +233,15 @@ export async function updateCommunity(
 ========================================================= */
 
 export async function deleteCommunity(communityId: string): Promise<void> {
-  const batch = writeBatch(db);
+  const batch = db.batch();
 
-  // Delete all members
-  const memberSnap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("community_id", "==", communityId),
-    ),
-  );
+  const memberSnap = await db
+    .collection("community_members")
+    .where("community_id", "==", communityId)
+    .get();
+
   memberSnap.docs.forEach((d) => batch.delete(d.ref));
-
-  // Delete community doc
-  batch.delete(doc(db, "communities", communityId));
+  batch.delete(db.collection("communities").doc(communityId));
 
   await batch.commit();
 }
@@ -294,24 +257,22 @@ export async function joinCommunity(communityId: string): Promise<void> {
   const already = await fetchIsMember(communityId);
   if (already) return;
 
-  const batch = writeBatch(db);
+  const batch = db.batch();
 
-  // Add member doc
-  const memberRef = doc(collection(db, "community_members"));
+  const memberRef = db.collection("community_members").doc();
   batch.set(memberRef, {
     user_id: user.uid,
     community_id: communityId,
     role: "member",
-    created_at: serverTimestamp(),
+    created_at: firestore.FieldValue.serverTimestamp(),
   });
 
-  // Increment member_count
-  const communityRef = doc(db, "communities", communityId);
-  const communitySnap = await getDoc(communityRef);
+  const communityRef = db.collection("communities").doc(communityId);
+  const communitySnap = await communityRef.get();
   const current = (communitySnap.data() as any)?.member_count ?? 0;
   batch.update(communityRef, {
     member_count: current + 1,
-    updated_at: serverTimestamp(),
+    updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
   await batch.commit();
@@ -321,29 +282,25 @@ export async function leaveCommunity(communityId: string): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  const snap = await getDocs(
-    query(
-      collection(db, "community_members"),
-      where("community_id", "==", communityId),
-      where("user_id", "==", user.uid),
-      limit(1),
-    ),
-  );
+  const snap = await db
+    .collection("community_members")
+    .where("community_id", "==", communityId)
+    .where("user_id", "==", user.uid)
+    .limit(1)
+    .get();
 
   if (snap.empty) return;
 
-  const batch = writeBatch(db);
+  const batch = db.batch();
 
-  // Remove member doc
   batch.delete(snap.docs[0].ref);
 
-  // Decrement member_count
-  const communityRef = doc(db, "communities", communityId);
-  const communitySnap = await getDoc(communityRef);
+  const communityRef = db.collection("communities").doc(communityId);
+  const communitySnap = await communityRef.get();
   const current = (communitySnap.data() as any)?.member_count ?? 1;
   batch.update(communityRef, {
     member_count: Math.max(0, current - 1),
-    updated_at: serverTimestamp(),
+    updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
   await batch.commit();

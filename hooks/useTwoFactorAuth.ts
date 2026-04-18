@@ -1,10 +1,7 @@
 // hooks/useTwoFactorAuth.ts ✅
-// Manual 2FA using Firestore + Firebase Phone Auth
-// Stores 2FA config in user_settings document
-
 import { auth, db } from "@/lib/firebase";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 
 export interface TwoFactorSettings {
   enabled: boolean;
@@ -18,7 +15,6 @@ const DEFAULT: TwoFactorSettings = {
   enrolled_at: null,
 };
 
-// ── Read current 2FA status ──────────────────────────────────────────────────
 export function useTwoFactorStatus() {
   const uid = auth.currentUser?.uid;
 
@@ -27,8 +23,8 @@ export function useTwoFactorStatus() {
     enabled: !!uid,
     queryFn: async () => {
       if (!uid) return DEFAULT;
-      const snap = await getDoc(doc(db, "user_settings", uid));
-      if (!snap.exists()) return DEFAULT;
+      const snap = await db.collection("user_settings").doc(uid).get();
+      if (!snap.exists) return DEFAULT;
       const d = snap.data() as any;
       return {
         enabled: !!d.two_factor_enabled,
@@ -39,7 +35,6 @@ export function useTwoFactorStatus() {
   });
 }
 
-// ── Enable 2FA (call after OTP verified) ─────────────────────────────────────
 export function useEnableTwoFactor() {
   const qc = useQueryClient();
   const uid = auth.currentUser?.uid;
@@ -47,11 +42,11 @@ export function useEnableTwoFactor() {
   return useMutation({
     mutationFn: async (phoneNumber: string) => {
       if (!uid) throw new Error("Not authenticated");
-      await updateDoc(doc(db, "user_settings", uid), {
+      await db.collection("user_settings").doc(uid).update({
         two_factor_enabled: true,
         two_factor_phone: phoneNumber,
         two_factor_enrolled_at: new Date().toISOString(),
-        updated_at_ts: serverTimestamp(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
     },
     onSuccess: () => {
@@ -60,7 +55,6 @@ export function useEnableTwoFactor() {
   });
 }
 
-// ── Disable 2FA ───────────────────────────────────────────────────────────────
 export function useDisableTwoFactor() {
   const qc = useQueryClient();
   const uid = auth.currentUser?.uid;
@@ -68,11 +62,11 @@ export function useDisableTwoFactor() {
   return useMutation({
     mutationFn: async () => {
       if (!uid) throw new Error("Not authenticated");
-      await updateDoc(doc(db, "user_settings", uid), {
+      await db.collection("user_settings").doc(uid).update({
         two_factor_enabled: false,
         two_factor_phone: null,
         two_factor_enrolled_at: null,
-        updated_at_ts: serverTimestamp(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
     },
     onSuccess: () => {
@@ -81,14 +75,13 @@ export function useDisableTwoFactor() {
   });
 }
 
-// ── Check if a user has 2FA enabled (used during login) ──────────────────────
 export async function checkTwoFactorEnabled(uid: string): Promise<{
   enabled: boolean;
   phoneNumber: string | null;
 }> {
   try {
-    const snap = await getDoc(doc(db, "user_settings", uid));
-    if (!snap.exists()) return { enabled: false, phoneNumber: null };
+    const snap = await db.collection("user_settings").doc(uid).get();
+    if (!snap.exists) return { enabled: false, phoneNumber: null };
     const d = snap.data() as any;
     return {
       enabled: !!d.two_factor_enabled,

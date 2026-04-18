@@ -1,10 +1,8 @@
 // lib/firestore/deleteAccount.ts
 
 import { functions } from "@/lib/firebase";
-import { httpsCallable } from "firebase/functions";
 
 export async function deleteAccountRequest() {
-  const callable = httpsCallable(functions, "deleteAccount");
-  const result = await callable();
+  const result = await functions.httpsCallable("deleteAccount")();
   return result.data as { success: boolean; message: string };
 }

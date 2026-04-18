@@ -1,13 +1,6 @@
 // lib/firestore/reposts.ts
 import { auth, db } from "@/lib/firebase";
-import {
-  deleteDoc,
-  doc,
-  getDoc,
-  increment,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 export async function toggleRepost(
   postId: string,
@@ -16,24 +9,23 @@ export async function toggleRepost(
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Not authenticated");
 
-  const repostId = `${uid}_${postId}`;
-  const repostRef = doc(db, "reposts", repostId);
-  const postRef = doc(db, "posts", postId);
+  const repostRef = db.collection("reposts").doc(`${uid}_${postId}`);
+  const postRef = db.collection("posts").doc(postId);
 
   if (isReposted) {
     await Promise.all([
-      deleteDoc(repostRef),
-      updateDoc(postRef, { repost_count: increment(-1) }),
+      repostRef.delete(),
+      postRef.update({ repost_count: firestore.FieldValue.increment(-1) }),
     ]);
     return false;
   } else {
     await Promise.all([
-      setDoc(repostRef, {
+      repostRef.set({
         user_id: uid,
         post_id: postId,
         created_at: new Date().toISOString(),
       }),
-      updateDoc(postRef, { repost_count: increment(1) }),
+      postRef.update({ repost_count: firestore.FieldValue.increment(1) }),
     ]);
     return true;
   }
@@ -42,7 +34,6 @@ export async function toggleRepost(
 export async function getRepostStatus(postId: string): Promise<boolean> {
   const uid = auth.currentUser?.uid;
   if (!uid) return false;
-  const repostId = `${uid}_${postId}`;
-  const snap = await getDoc(doc(db, "reposts", repostId));
+  const snap = await db.collection("reposts").doc(`${uid}_${postId}`).get();
   return snap.exists();
 }

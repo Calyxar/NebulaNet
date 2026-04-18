@@ -1,22 +1,8 @@
 // lib/social/useBlockUserMutation.ts — FIRESTORE FINAL ✅
-// Fully replaces Supabase version
-// Preserves react-query structure & optimistic updates
-// Mirrors old Supabase trigger cleanup behavior client-side
-
 import { db } from "@/lib/firebase";
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, type QueryClient } from "@tanstack/react-query";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
-} from "firebase/firestore";
 
 type Args = {
   qc: QueryClient;
@@ -30,47 +16,45 @@ type BlockInput = {
 
 async function cleanupAfterBlock(myId: string, targetId: string) {
   // ---- Remove follows both directions ----
-  const q1 = query(
-    collection(db, "follows"),
-    where("follower_id", "==", myId),
-    where("following_id", "==", targetId),
-    limit(25),
-  );
-
-  const q2 = query(
-    collection(db, "follows"),
-    where("follower_id", "==", targetId),
-    where("following_id", "==", myId),
-    limit(25),
-  );
-
-  const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+  const [s1, s2] = await Promise.all([
+    db
+      .collection("follows")
+      .where("follower_id", "==", myId)
+      .where("following_id", "==", targetId)
+      .limit(25)
+      .get(),
+    db
+      .collection("follows")
+      .where("follower_id", "==", targetId)
+      .where("following_id", "==", myId)
+      .limit(25)
+      .get(),
+  ]);
 
   await Promise.all([
-    ...s1.docs.map((d) => deleteDoc(d.ref)),
-    ...s2.docs.map((d) => deleteDoc(d.ref)),
+    ...s1.docs.map((d) => d.ref.delete()),
+    ...s2.docs.map((d) => d.ref.delete()),
   ]);
 
   // ---- Remove notifications both directions ----
-  const n1 = query(
-    collection(db, "notifications"),
-    where("sender_id", "==", myId),
-    where("receiver_id", "==", targetId),
-    limit(50),
-  );
-
-  const n2 = query(
-    collection(db, "notifications"),
-    where("sender_id", "==", targetId),
-    where("receiver_id", "==", myId),
-    limit(50),
-  );
-
-  const [ns1, ns2] = await Promise.all([getDocs(n1), getDocs(n2)]);
+  const [ns1, ns2] = await Promise.all([
+    db
+      .collection("notifications")
+      .where("sender_id", "==", myId)
+      .where("receiver_id", "==", targetId)
+      .limit(50)
+      .get(),
+    db
+      .collection("notifications")
+      .where("sender_id", "==", targetId)
+      .where("receiver_id", "==", myId)
+      .limit(50)
+      .get(),
+  ]);
 
   await Promise.all([
-    ...ns1.docs.map((d) => deleteDoc(d.ref)),
-    ...ns2.docs.map((d) => deleteDoc(d.ref)),
+    ...ns1.docs.map((d) => d.ref.delete()),
+    ...ns2.docs.map((d) => d.ref.delete()),
   ]);
 }
 
@@ -83,14 +67,12 @@ export function useBlockUserMutation({ qc, myId }: Args) {
 
       const blockId = `${myId}_${targetId}`;
 
-      // Create block doc (id prevents duplicates)
-      await setDoc(doc(db, "user_blocks", blockId), {
+      await db.collection("user_blocks").doc(blockId).set({
         blocker_id: myId,
         blocked_id: targetId,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
 
-      // Mirror old Supabase trigger behavior
       await cleanupAfterBlock(myId, targetId);
 
       return { targetId };

@@ -1,5 +1,6 @@
+// lib/firestore/deleteCommunity.ts
+
 import { functions } from "@/lib/firebase";
-import { httpsCallable } from "firebase/functions";
 
 type DeleteCommunityResult = {
   success: boolean;
@@ -9,11 +10,8 @@ type DeleteCommunityResult = {
 export async function deleteCommunityRequest(
   communityId: string,
 ): Promise<DeleteCommunityResult> {
-  const callable = httpsCallable<{ communityId: string }, DeleteCommunityResult>(
-    functions,
-    "deleteCommunity",
-  );
-
-  const result = await callable({ communityId });
-  return result.data;
+  const result = await functions.httpsCallable("deleteCommunity")({
+    communityId,
+  });
+  return result.data as DeleteCommunityResult;
 }

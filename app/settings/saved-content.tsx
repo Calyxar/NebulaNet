@@ -8,15 +8,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   FlatList,
@@ -60,25 +51,25 @@ export default function SavedContentScreen() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"saved" | "hidden">("saved");
 
-  // ✅ FIXED: reads from "saves" collection (was "saved_posts")
   const savedQuery = useQuery({
     queryKey: ["saved-posts", user?.uid],
     enabled: !!user && activeTab === "saved",
     queryFn: async (): Promise<SavedItem[]> => {
       if (!user) return [];
-      const snap = await getDocs(
-        query(collection(db, "saves"), where("user_id", "==", user.uid)),
-      );
+      const snap = await db
+        .collection("saves")
+        .where("user_id", "==", user.uid)
+        .get();
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "posts", data.post_id));
-          if (!pSnap.exists()) return null;
+          const pSnap = await db.collection("posts").doc(data.post_id).get();
+          if (!pSnap.exists) return null;
           const post = pSnap.data() as any;
           const aSnap = post.user_id
-            ? await getDoc(doc(db, "profiles", post.user_id))
+            ? await db.collection("profiles").doc(post.user_id).get()
             : null;
-          const author = aSnap?.exists() ? (aSnap.data() as any) : null;
+          const author = aSnap?.exists ? (aSnap.data() as any) : null;
           return {
             id: d.id,
             post_id: data.post_id,
@@ -107,19 +98,20 @@ export default function SavedContentScreen() {
     enabled: !!user && activeTab === "hidden",
     queryFn: async (): Promise<HiddenItem[]> => {
       if (!user) return [];
-      const hSnap = await getDocs(
-        query(collection(db, "hidden_posts"), where("user_id", "==", user.uid)),
-      );
+      const hSnap = await db
+        .collection("hidden_posts")
+        .where("user_id", "==", user.uid)
+        .get();
       const hRows = await Promise.all(
         hSnap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "posts", data.post_id));
-          if (!pSnap.exists()) return null;
+          const pSnap = await db.collection("posts").doc(data.post_id).get();
+          if (!pSnap.exists) return null;
           const post = pSnap.data() as any;
           const aSnap = post.user_id
-            ? await getDoc(doc(db, "profiles", post.user_id))
+            ? await db.collection("profiles").doc(post.user_id).get()
             : null;
-          const author = aSnap?.exists() ? (aSnap.data() as any) : null;
+          const author = aSnap?.exists ? (aSnap.data() as any) : null;
           return {
             id: d.id,
             post_id: data.post_id,
@@ -142,14 +134,12 @@ export default function SavedContentScreen() {
   const unhideMutation = useMutation({
     mutationFn: async (postId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const uhSnap = await getDocs(
-        query(
-          collection(db, "hidden_posts"),
-          where("user_id", "==", user.uid),
-          where("post_id", "==", postId),
-        ),
-      );
-      await Promise.all(uhSnap.docs.map((d) => deleteDoc(d.ref)));
+      const uhSnap = await db
+        .collection("hidden_posts")
+        .where("user_id", "==", user.uid)
+        .where("post_id", "==", postId)
+        .get();
+      await Promise.all(uhSnap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["hidden-posts", user?.uid] }),
@@ -284,7 +274,6 @@ export default function SavedContentScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View
@@ -320,7 +309,6 @@ export default function SavedContentScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
       <View style={[styles.tabsWrap, { backgroundColor: colors.card }]}>
         {(["saved", "hidden"] as const).map((tab) => (
           <TouchableOpacity

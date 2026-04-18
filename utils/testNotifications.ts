@@ -1,7 +1,7 @@
 // utils/testNotifications.ts — FIREBASE ✅
 
 import { auth, db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 export async function createTestNotifications() {
   const user = auth.currentUser;
@@ -27,9 +27,9 @@ export async function createTestNotifications() {
   ];
 
   for (const n of testNotifications) {
-    await addDoc(collection(db, "notifications"), {
+    await db.collection("notifications").add({
       ...n,
-      created_at: serverTimestamp(),
+      created_at: firestore.FieldValue.serverTimestamp(),
     });
   }
 

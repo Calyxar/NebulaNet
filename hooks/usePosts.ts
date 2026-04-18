@@ -26,6 +26,7 @@ import {
   type PostFilters,
   type UpdatePostData,
 } from "@/lib/firestore/posts";
+import firestore from "@react-native-firebase/firestore";
 import {
   useInfiniteQuery,
   useMutation,
@@ -33,17 +34,6 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  increment,
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 
 export type { CommentWithAuthor };
 
@@ -339,20 +329,20 @@ export function useToggleLike() {
     mutationFn: async (vars: { postId: string; isLiked: boolean }) => {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not signed in");
-      const postRef = doc(db, "posts", vars.postId);
+      const postRef = db.collection("posts").doc(vars.postId);
       if (vars.isLiked) {
-        await updateDoc(postRef, { like_count: increment(-1) });
-        const snap = await getDocs(
-          query(
-            collection(db, "likes"),
-            where("post_id", "==", vars.postId),
-            where("user_id", "==", uid),
-          ),
-        );
-        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+        await postRef.update({
+          like_count: firestore.FieldValue.increment(-1),
+        });
+        const snap = await db
+          .collection("likes")
+          .where("post_id", "==", vars.postId)
+          .where("user_id", "==", uid)
+          .get();
+        await Promise.all(snap.docs.map((d) => d.ref.delete()));
       } else {
-        await updateDoc(postRef, { like_count: increment(1) });
-        await addDoc(collection(db, "likes"), {
+        await postRef.update({ like_count: firestore.FieldValue.increment(1) });
+        await db.collection("likes").add({
           post_id: vars.postId,
           user_id: uid,
           created_at: new Date().toISOString(),
@@ -429,18 +419,14 @@ export function useToggleBookmark() {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not signed in");
       if (vars.isSaved) {
-        // ✅ reads from "saves" collection
-        const snap = await getDocs(
-          query(
-            collection(db, "saves"),
-            where("post_id", "==", vars.postId),
-            where("user_id", "==", uid),
-          ),
-        );
-        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+        const snap = await db
+          .collection("saves")
+          .where("post_id", "==", vars.postId)
+          .where("user_id", "==", uid)
+          .get();
+        await Promise.all(snap.docs.map((d) => d.ref.delete()));
       } else {
-        // ✅ writes to "saves" collection
-        await addDoc(collection(db, "saves"), {
+        await db.collection("saves").add({
           post_id: vars.postId,
           user_id: uid,
           saved_at: new Date().toISOString(),
@@ -552,8 +538,12 @@ export function useIncrementShareCount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (postId: string) => {
-      const ref = doc(db, "posts", postId);
-      await updateDoc(ref, { share_count: increment(1) });
+      await db
+        .collection("posts")
+        .doc(postId)
+        .update({
+          share_count: firestore.FieldValue.increment(1),
+        });
       return postId;
     },
     onMutate: async (postId) => {

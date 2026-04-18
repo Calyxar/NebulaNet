@@ -2,19 +2,7 @@
 // Hashtag indexing, trending queries, and extraction
 
 import { db } from "@/lib/firebase";
-import {
-    collection,
-    doc,
-    getDocs,
-    increment,
-    limit,
-    orderBy,
-    query,
-    serverTimestamp,
-    writeBatch,
-} from "firebase/firestore";
-
-const HASHTAGS = collection(db, "hashtags");
+import firestore from "@react-native-firebase/firestore";
 
 /* =====================================================
    TYPES
@@ -41,10 +29,6 @@ export function extractHashtags(text: string): string[] {
    INDEX HASHTAGS (call on post create / update)
 ===================================================== */
 
-/**
- * Increment counters for each tag in the `hashtags` collection.
- * Uses a batched write — safe for up to 30 unique tags per post.
- */
 export async function indexHashtags(tags: string[]): Promise<void> {
   if (!tags.length) return;
 
@@ -52,18 +36,17 @@ export async function indexHashtags(tags: string[]): Promise<void> {
     ...new Set(tags.map((t) => t.toLowerCase().replace(/^#/, ""))),
   ].filter(Boolean);
 
-  // Firestore batch supports up to 500 ops; 30 unique tags is well within limits
-  const batch = writeBatch(db);
+  const batch = db.batch();
 
   for (const tag of unique) {
-    const ref = doc(HASHTAGS, tag);
+    const ref = db.collection("hashtags").doc(tag);
     batch.set(
       ref,
       {
         tag,
-        post_count: increment(1),
-        week_count: increment(1), // reset weekly via Cloud Function (optional)
-        updated_at: serverTimestamp(),
+        post_count: firestore.FieldValue.increment(1),
+        week_count: firestore.FieldValue.increment(1),
+        updated_at: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
@@ -79,8 +62,11 @@ export async function indexHashtags(tags: string[]): Promise<void> {
 export async function getTrendingHashtags(
   limitN = 15,
 ): Promise<TrendingHashtag[]> {
-  const q = query(HASHTAGS, orderBy("week_count", "desc"), limit(limitN));
-  const snap = await getDocs(q);
+  const snap = await db
+    .collection("hashtags")
+    .orderBy("week_count", "desc")
+    .limit(limitN)
+    .get();
 
   return snap.docs.map((d) => {
     const data = d.data() as any;

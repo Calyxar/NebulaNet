@@ -3,7 +3,6 @@ import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -42,7 +41,7 @@ export default function ResetPasswordScreen() {
           }
           return;
         }
-        await verifyPasswordResetCode(auth, oobCode);
+        await auth.verifyPasswordResetCode(oobCode);
         if (!cancelled) {
           setLinkValid(true);
           setCheckingLink(false);
@@ -96,7 +95,7 @@ export default function ResetPasswordScreen() {
     }
     setIsLoading(true);
     try {
-      await confirmPasswordReset(auth, oobCode, password);
+      await auth.confirmPasswordReset(oobCode, password);
       Alert.alert(
         "Success!",
         "Your password has been reset. You can now log in.",

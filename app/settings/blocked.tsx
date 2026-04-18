@@ -5,7 +5,6 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -29,13 +28,20 @@ export default function BlockedAccountsScreen() {
     queryKey: ["blocked-users", user?.uid],
     queryFn: async () => {
       if (!user) return [];
-      const snap = await getDocs(query(collection(db, "user_blocks"), where("blocker_id", "==", user.uid)));
+      const snap = await db
+        .collection("user_blocks")
+        .where("blocker_id", "==", user.uid)
+        .get();
       return Promise.all(snap.docs.map(async (d) => {
         const data = d.data() as any;
-        const pSnap = await getDoc(doc(db, "profiles", data.blocked_id));
+        const pSnap = await db.collection("profiles").doc(data.blocked_id).get();
         const p = pSnap.exists() ? (pSnap.data() as any) : null;
-        return { id: d.id, blocked_id: data.blocked_id, created_at: data.created_at ?? "",
-          profile: p ? { username: p.username, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : { username: "Unknown" } };
+        return {
+          id: d.id, blocked_id: data.blocked_id, created_at: data.created_at ?? "",
+          profile: p
+            ? { username: p.username, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null }
+            : { username: "Unknown" },
+        };
       })) as Promise<BlockedUser[]>;
     },
     enabled: !!user?.uid,
@@ -45,13 +51,20 @@ export default function BlockedAccountsScreen() {
     queryKey: ["muted-users", user?.uid],
     queryFn: async () => {
       if (!user) return [];
-      const snap = await getDocs(query(collection(db, "muted_users"), where("muter_id", "==", user.uid)));
+      const snap = await db
+        .collection("muted_users")
+        .where("muter_id", "==", user.uid)
+        .get();
       return Promise.all(snap.docs.map(async (d) => {
         const data = d.data() as any;
-        const pSnap = await getDoc(doc(db, "profiles", data.muted_id));
+        const pSnap = await db.collection("profiles").doc(data.muted_id).get();
         const p = pSnap.exists() ? (pSnap.data() as any) : null;
-        return { id: d.id, muted_id: data.muted_id, created_at: data.created_at ?? "",
-          profile: p ? { username: p.username, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null } : { username: "Unknown" } };
+        return {
+          id: d.id, muted_id: data.muted_id, created_at: data.created_at ?? "",
+          profile: p
+            ? { username: p.username, full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null }
+            : { username: "Unknown" },
+        };
       })) as Promise<MutedUser[]>;
     },
     enabled: !!user?.uid,
@@ -60,8 +73,12 @@ export default function BlockedAccountsScreen() {
   const unblockUser = useMutation({
     mutationFn: async (blockedUserId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(query(collection(db, "user_blocks"), where("blocker_id", "==", user.uid), where("blocked_id", "==", blockedUserId)));
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await db
+        .collection("user_blocks")
+        .where("blocker_id", "==", user.uid)
+        .where("blocked_id", "==", blockedUserId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["blocked-users", user?.uid] }),
   });
@@ -69,8 +86,12 @@ export default function BlockedAccountsScreen() {
   const unmuteUser = useMutation({
     mutationFn: async (mutedUserId: string) => {
       if (!user) throw new Error("Not authenticated");
-      const snap = await getDocs(query(collection(db, "muted_users"), where("muter_id", "==", user.uid), where("muted_id", "==", mutedUserId)));
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await db
+        .collection("muted_users")
+        .where("muter_id", "==", user.uid)
+        .where("muted_id", "==", mutedUserId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["muted-users", user?.uid] }),
   });

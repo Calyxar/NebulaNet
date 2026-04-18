@@ -1,9 +1,9 @@
 // lib/notifications.ts — PUSH NOTIFICATION UTILITIES ✅
 import { auth, db } from "@/lib/firebase";
+import firestore from "@react-native-firebase/firestore";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
-import { doc, setDoc } from "firebase/firestore";
 import { Platform } from "react-native";
 
 /**
@@ -78,11 +78,7 @@ export async function registerForPushNotificationsAsync(): Promise<
         return null;
       }
 
-      token = (
-        await Notifications.getExpoPushTokenAsync({
-          projectId,
-        })
-      ).data;
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
       console.log("Push token obtained:", token);
     } catch (error) {
@@ -103,12 +99,11 @@ export async function savePushTokenToFirestore(
   token: string,
 ): Promise<void> {
   try {
-    await setDoc(
-      doc(db, "profiles", userId),
+    await db.collection("profiles").doc(userId).set(
       {
         push_token: token,
         push_enabled: true,
-        updated_at: new Date().toISOString(),
+        updated_at: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
@@ -141,7 +136,6 @@ export function setupNotificationListeners(
   onNotificationReceived?: (notification: Notifications.Notification) => void,
   onNotificationTapped?: (response: Notifications.NotificationResponse) => void,
 ) {
-  // Notification received while app is foregrounded
   const receivedSubscription = Notifications.addNotificationReceivedListener(
     (notification) => {
       console.log("Notification received:", notification);
@@ -149,7 +143,6 @@ export function setupNotificationListeners(
     },
   );
 
-  // Notification tapped
   const responseSubscription =
     Notifications.addNotificationResponseReceivedListener((response) => {
       console.log("Notification tapped:", response);

@@ -7,16 +7,15 @@ import {
   type UserPrivacySettings,
 } from "@/lib/queries/privacy";
 import { useQuery } from "@tanstack/react-query";
-import { doc, getDoc, setDoc } from "firebase/firestore";
 
 async function ensurePrivacyRow(userId: string): Promise<UserPrivacySettings> {
-  const ref = doc(db, "user_privacy_settings", userId);
-  const snap = await getDoc(ref);
+  const ref = db.collection("user_privacy_settings").doc(userId);
+  const snap = await ref.get();
   if (snap.exists())
     return { user_id: userId, ...snap.data() } as UserPrivacySettings;
 
   const defaults = { user_id: userId, ...DEFAULT_PRIVACY_SETTINGS };
-  await setDoc(ref, defaults, { merge: true });
+  await ref.set(defaults, { merge: true });
   return defaults as UserPrivacySettings;
 }
 

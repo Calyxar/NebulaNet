@@ -3,7 +3,6 @@ import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { sendPasswordResetEmail } from "firebase/auth";
 import React, { useState } from "react";
 import {
   Alert,
@@ -40,7 +39,7 @@ export default function ForgotPasswordScreen() {
 
     setIsLoading(true);
     try {
-      await sendPasswordResetEmail(auth, trimmed);
+      await auth.sendPasswordResetEmail(trimmed);
       setEmailSent(true);
       Alert.alert(
         "Check Your Email",

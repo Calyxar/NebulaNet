@@ -1,22 +1,8 @@
 // lib/firestore/polls.ts
-// Poll creation + voting on top of the `posts` collection (post_type: "poll")
-//
-// ✅ createPoll()   — writes poll post, extracts + indexes hashtags
-// ✅ votePoll()     — transaction-safe: increments option votes + writes vote record
-// ✅ getUserVote()  — checks if current user already voted + which options they picked
-// ✅ isPollExpired()— utility to check whether a poll has ended
 
 import { auth, db } from "@/lib/firebase";
 import { extractHashtags, indexHashtags } from "@/lib/firestore/hashtags";
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    increment,
-    runTransaction,
-    serverTimestamp,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 /* =====================================================
    TYPES
@@ -37,13 +23,13 @@ export interface PollData {
   allow_multiple: boolean;
   is_anonymous: boolean;
   duration_days: PollDurationDays;
-  ends_at: string; // ISO
+  ends_at: string;
   total_votes: number;
 }
 
 export interface CreatePollInput {
   question: string;
-  options: string[]; // plain text options
+  options: string[];
   allow_multiple: boolean;
   is_anonymous: boolean;
   duration_days: PollDurationDays;
@@ -79,17 +65,12 @@ export function getPollOptionPercentage(
    CREATE POLL
 ===================================================== */
 
-/**
- * Creates a new poll as a post (post_type: "poll") in Firestore.
- * Returns the new post ID for navigation to /post/[id].
- */
 export async function createPoll(input: CreatePollInput): Promise<string> {
   const viewer = auth.currentUser;
   if (!viewer) throw new Error("Not authenticated");
 
   const uid = viewer.uid;
 
-  // Build options with IDs + zero vote counts
   const pollOptions: PollOption[] = input.options
     .map((t) => t.trim())
     .filter(Boolean)
@@ -115,15 +96,13 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
   };
 
   const now = new Date().toISOString();
-
-  // Extract hashtags from question
   const hashtags = extractHashtags(input.question);
 
   // Fetch profile snapshot for denormalization
   let userSnap: any = null;
   try {
-    const profileDoc = await getDoc(doc(db, "profiles", uid));
-    if (profileDoc.exists()) {
+    const profileDoc = await db.collection("profiles").doc(uid).get();
+  if (profileDoc.exists()) {
       const d = profileDoc.data() as any;
       userSnap = {
         id: uid,
@@ -133,14 +112,17 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
       };
     }
   } catch {
-    // non-fatal — feed will show fallback
+    // non-fatal
   }
 
   // Fetch community snapshot if provided
   let communitySnap: any = null;
   if (input.community_id) {
     try {
-      const commDoc = await getDoc(doc(db, "communities", input.community_id));
+      const commDoc = await db
+        .collection("communities")
+        .doc(input.community_id)
+        .get();
       if (commDoc.exists()) {
         const d = commDoc.data() as any;
         communitySnap = {
@@ -155,7 +137,7 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
     }
   }
 
-  const ref = await addDoc(collection(db, "posts"), {
+  const ref = await db.collection("posts").add({
     user_id: uid,
     title: input.question.trim(),
     content: input.question.trim(),
@@ -165,26 +147,18 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
     is_visible: true,
     community_id: input.community_id ?? null,
     hashtags,
-
-    // Standard counters
     like_count: 0,
     comment_count: 0,
     share_count: 0,
-
-    // Poll payload
     poll,
-
-    // Denormalized for feed
     user: userSnap,
     community: communitySnap,
-
     created_at: now,
     updated_at: now,
-    created_at_ts: serverTimestamp(),
-    updated_at_ts: serverTimestamp(),
+    created_at_ts: firestore.FieldValue.serverTimestamp(),
+    updated_at_ts: firestore.FieldValue.serverTimestamp(),
   });
 
-  // Fire-and-forget hashtag indexing
   if (hashtags.length) {
     indexHashtags(hashtags).catch((e) =>
       console.warn("Poll hashtag indexing failed:", e),
@@ -198,12 +172,6 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
    VOTE ON POLL
 ===================================================== */
 
-/**
- * Cast a vote on a poll. Uses a Firestore transaction so:
- * - Vote counts are updated atomically
- * - Duplicate votes are prevented (the vote doc acts as a guard)
- * - Works for both anonymous and identified votes
- */
 export async function votePoll(
   postId: string,
   optionIds: string[],
@@ -212,10 +180,14 @@ export async function votePoll(
   if (!viewer) throw new Error("Not authenticated");
 
   const uid = viewer.uid;
-  const postRef = doc(db, "posts", postId);
-  const voteRef = doc(db, "posts", postId, "poll_votes", uid);
+  const postRef = db.collection("posts").doc(postId);
+  const voteRef = db
+    .collection("posts")
+    .doc(postId)
+    .collection("poll_votes")
+    .doc(uid);
 
-  await runTransaction(db, async (tx) => {
+  await db.runTransaction(async (tx) => {
     const [postSnap, voteSnap] = await Promise.all([
       tx.get(postRef),
       tx.get(voteRef),
@@ -230,15 +202,12 @@ export async function votePoll(
     if (!poll) throw new Error("This post is not a poll");
     if (isPollExpired(poll.ends_at)) throw new Error("This poll has ended");
 
-    // Validate option IDs belong to this poll
     const validIds = new Set(poll.options.map((o) => o.id));
     const chosen = optionIds.filter((id) => validIds.has(id));
     if (!chosen.length) throw new Error("No valid options selected");
 
-    // If single-choice, cap at 1
     const finalChosen = poll.allow_multiple ? chosen : [chosen[0]];
 
-    // Update options array with incremented vote counts
     const updatedOptions: PollOption[] = poll.options.map((opt) => ({
       ...opt,
       votes: finalChosen.includes(opt.id) ? opt.votes + 1 : opt.votes,
@@ -246,16 +215,15 @@ export async function votePoll(
 
     tx.update(postRef, {
       "poll.options": updatedOptions,
-      "poll.total_votes": increment(finalChosen.length),
+      "poll.total_votes": firestore.FieldValue.increment(finalChosen.length),
       updated_at: new Date().toISOString(),
     });
 
-    // Write vote record — using uid as doc ID prevents double-voting
     const isAnonymous = poll.is_anonymous;
     tx.set(voteRef, {
       user_id: isAnonymous ? null : uid,
       option_ids: finalChosen,
-      voted_at: serverTimestamp(),
+      voted_at: firestore.FieldValue.serverTimestamp(),
     });
   });
 }
@@ -264,17 +232,17 @@ export async function votePoll(
    GET USER VOTE
 ===================================================== */
 
-/**
- * Returns the option IDs the current user voted for,
- * or null if they haven't voted yet.
- */
 export async function getUserVote(postId: string): Promise<string[] | null> {
   const viewer = auth.currentUser;
   if (!viewer) return null;
 
-  const voteRef = doc(db, "posts", postId, "poll_votes", viewer.uid);
-  const snap = await getDoc(voteRef);
+  const snap = await db
+    .collection("posts")
+    .doc(postId)
+    .collection("poll_votes")
+    .doc(viewer.uid)
+    .get();
 
-  if (!snap.exists()) return null;
+  if (!snap.exists) return null;
   return (snap.data() as PollVoteRecord).option_ids ?? null;
 }

@@ -1,7 +1,6 @@
 // lib/inactivity.ts — FIREBASE ✅
 
 import { auth } from "@/lib/firebase";
-import { signOut } from "firebase/auth";
 import { AppState, type AppStateStatus } from "react-native";
 
 const LAST_ACTIVE_KEY = "nebulanet:last_active_ms";
@@ -36,7 +35,7 @@ async function checkAndLogoutIfInactive() {
   const last = await getLastActiveMs();
   if (!last) return;
   if (Date.now() - last >= INACTIVITY_LIMIT_MS) {
-    await signOut(auth);
+    await auth.signOut();
   }
 }
 

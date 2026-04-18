@@ -3,7 +3,6 @@ import Avatar from "@/components/user/Avatar";
 import { auth, db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import { doc, getDoc } from "firebase/firestore";
 import React, { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -25,8 +24,8 @@ interface CommentInputProps {
 async function getCurrentUserProfile() {
   const user = auth.currentUser;
   if (!user) return null;
-  const snap = await getDoc(doc(db, "profiles", user.uid));
-  if (!snap.exists()) return null;
+  const snap = await db.collection("profiles").doc(user.uid).get();
+  if (!snap.exists) return null;
   return { id: snap.id, ...snap.data() } as any;
 }
 

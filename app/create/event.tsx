@@ -4,13 +4,13 @@
 // ✅ FIXED: guard against null user before submitting
 
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
+import "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, getFirestore, serverTimestamp } from "firebase/firestore";
 import React, { useState } from "react";
 import {
   Alert,
@@ -76,7 +76,7 @@ export default function CreateEventScreen() {
     }
     setIsLoading(true);
     try {
-      await addDoc(collection(db, "events"), {
+      await addDoc(collection(getFirestore(), "events"), {
         user_id: user.uid,
         creator_id: user.uid, // ✅ required by Firestore rules
         title: title.trim(),

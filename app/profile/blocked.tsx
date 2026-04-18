@@ -1,42 +1,17 @@
 // app/profile/blocked.tsx — COMPLETED + UPDATED
-// ✅ Blocked list screen
-// ✅ Join typed as array (stable PostgREST typing)
-// ✅ Unblock flow (optimistic)
-// ✅ Uses UserRow + UserActionsSheet
-// ✅ invalidateAfterBlock after unblock
-// ✅ hideBlock on sheet
 
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where
-} from "firebase/firestore";
 
-import UserActionsSheet, {
-  type UserActionsSheetRef,
-} from "@/components/UserActionsSheet";
+import UserActionsSheet, { type UserActionsSheetRef } from "@/components/UserActionsSheet";
 import UserRow, { type UserRowModel } from "@/components/UserRow";
-
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 
 type BlockedProfile = {
@@ -52,7 +27,6 @@ type BlockedJoinRow = {
   blocker_id: string;
   blocked_id: string;
   created_at: string;
-  // ✅ treat as array always (PostgREST commonly returns arrays for joins)
   blocked: BlockedProfile[] | null;
 };
 
@@ -64,9 +38,7 @@ function SkeletonRow() {
         <View style={[styles.skel, { width: 180, height: 12 }]} />
         <View style={[styles.skel, { width: 120, height: 10 }]} />
       </View>
-      <View
-        style={[styles.skel, { width: 34, height: 34, borderRadius: 12 }]}
-      />
+      <View style={[styles.skel, { width: 34, height: 34, borderRadius: 12 }]} />
     </View>
   );
 }
@@ -79,23 +51,18 @@ export default function BlockedUsersScreen() {
   const sheetRef = useRef<UserActionsSheetRef>(null);
   const [selected, setSelected] = useState<UserRowModel | null>(null);
 
-  // 1) Load blocked list
-  const {
-    data: rows,
-    isLoading,
-    isRefetching,
-    refetch,
-  } = useQuery({
+  const { data: rows, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ["my-blocks", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(collection(db, "user_blocks"), where("blocker_id", "==", myId!)),
-      );
+      const snap = await db
+        .collection("user_blocks")
+        .where("blocker_id", "==", myId!)
+        .get();
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "profiles", data.blocked_id));
+          const pSnap = await db.collection("profiles").doc(data.blocked_id).get();
           const p = pSnap.exists() ? (pSnap.data() as any) : null;
           return {
             id: d.id,
@@ -103,15 +70,13 @@ export default function BlockedUsersScreen() {
             blocked_id: data.blocked_id,
             created_at: data.created_at ?? "",
             blocked: p
-              ? [
-                  {
-                    id: pSnap.id,
-                    username: p.username,
-                    full_name: p.full_name ?? null,
-                    avatar_url: p.avatar_url ?? null,
-                    is_private: p.is_private ?? false,
-                  },
-                ]
+              ? [{
+                  id: pSnap.id,
+                  username: p.username,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                  is_private: p.is_private ?? false,
+                }]
               : null,
           } as BlockedJoinRow;
         }),
@@ -120,14 +85,12 @@ export default function BlockedUsersScreen() {
     },
   });
 
-  // Normalize into UserRowModel list
   const list: UserRowModel[] = useMemo(() => {
     const safe = rows ?? [];
     return safe
       .map((r) => {
         const b = r.blocked?.[0] ?? null;
         if (!b) return null;
-
         return {
           id: b.id,
           username: b.username,
@@ -139,40 +102,28 @@ export default function BlockedUsersScreen() {
       .filter(Boolean) as UserRowModel[];
   }, [rows]);
 
-  // Quick lookup for unblock guard
   const blockedIdSet = useMemo(() => {
     const set = new Set<string>();
     (rows ?? []).forEach((r) => set.add(r.blocked_id));
     return set;
   }, [rows]);
 
-  // 2) Unblock mutation (optimistic)
   const unblockMutation = useMutation({
     mutationFn: async (targetUserId: string) => {
       if (!myId) throw new Error("Not signed in");
-
-      const snap = await getDocs(
-        query(
-          collection(db, "user_blocks"),
-          where("blocker_id", "==", myId),
-          where("blocked_id", "==", targetUserId),
-        ),
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      const snap = await db
+        .collection("user_blocks")
+        .where("blocker_id", "==", myId)
+        .where("blocked_id", "==", targetUserId)
+        .get();
+      await Promise.all(snap.docs.map((d) => d.ref.delete()));
       return targetUserId;
     },
     onMutate: async (targetUserId) => {
       const key = ["my-blocks", myId];
       await qc.cancelQueries({ queryKey: key });
-
       const prev = qc.getQueryData<BlockedJoinRow[]>(key) ?? [];
-
-      // optimistic remove
-      qc.setQueryData<BlockedJoinRow[]>(
-        key,
-        prev.filter((r) => r.blocked_id !== targetUserId),
-      );
-
+      qc.setQueryData<BlockedJoinRow[]>(key, prev.filter((r) => r.blocked_id !== targetUserId));
       return { prev };
     },
     onError: (_err, _targetId, ctx) => {
@@ -214,17 +165,9 @@ export default function BlockedUsersScreen() {
         <FlatList
           data={list}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            paddingBottom: 20,
-          }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}
           refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              tintColor="#7C3AED"
-            />
+            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#7C3AED" />
           }
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           renderItem={({ item }) => (
@@ -247,20 +190,16 @@ export default function BlockedUsersScreen() {
         />
       )}
 
-      {/* BottomSheet */}
       <UserActionsSheet
         ref={sheetRef}
         username={selected?.username}
         removeLabel="Unblock"
         onRemove={async () => {
           if (!selected) return;
-
-          // guard: only try if we truly have this blocked
           if (!blockedIdSet.has(selected.id)) {
             sheetRef.current?.close();
             return;
           }
-
           sheetRef.current?.close();
           await unblockMutation.mutateAsync(selected.id);
         }}
@@ -276,9 +215,7 @@ function Header({ title }: { title: string }) {
       <Pressable style={styles.headerBtn} onPress={() => router.back()}>
         <Ionicons name="arrow-back" size={22} color="#111827" />
       </Pressable>
-
       <Text style={styles.headerTitle}>{title}</Text>
-
       <View style={styles.headerBtn} />
     </View>
   );
@@ -286,64 +223,15 @@ function Header({ title }: { title: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E8EAF6" },
-
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#E8EAF6",
-  },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#E8EAF6" },
+  headerBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   subtle: { color: "#6B7280", fontWeight: "800" },
-
-  empty: {
-    paddingTop: 80,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    marginTop: 12,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#111827",
-  },
-  emptyDesc: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 18,
-  },
-
+  empty: { paddingTop: 80, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  emptyTitle: { marginTop: 12, fontSize: 18, fontWeight: "900", color: "#111827" },
+  emptyDesc: { marginTop: 6, fontSize: 13, fontWeight: "700", color: "#6B7280", textAlign: "center", lineHeight: 18 },
   skel: { backgroundColor: "#E5E7EB", borderRadius: 10 },
-  skelRow: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "#EEF2FF",
-  },
-  skelAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#E5E7EB",
-  },
+  skelRow: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 12, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "#EEF2FF" },
+  skelAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#E5E7EB" },
 });

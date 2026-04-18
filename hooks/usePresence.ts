@@ -1,7 +1,7 @@
 // hooks/usePresence.ts — FIREBASE ✅
 
 import { db } from "@/lib/firebase";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import { useEffect } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
@@ -14,11 +14,17 @@ export function usePresence(userId?: string) {
 
     const setStatus = async (status: PresenceStatus) => {
       if (!mounted) return;
-      await setDoc(
-        doc(db, "user_presence", userId),
-        { user_id: userId, status, last_seen: serverTimestamp() },
-        { merge: true },
-      );
+      await db
+        .collection("user_presence")
+        .doc(userId)
+        .set(
+          {
+            user_id: userId,
+            status,
+            last_seen: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
     };
 
     setStatus("online").catch(() => {});

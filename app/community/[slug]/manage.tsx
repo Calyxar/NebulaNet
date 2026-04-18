@@ -4,19 +4,8 @@ import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
+import firestore from "@react-native-firebase/firestore";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -68,8 +57,7 @@ export default function CommunityManageScreen() {
 
   const canManage = useMemo(() => {
     if (!community || !user?.id) return false;
-    if (community.owner_id === user.id) return true;
-    return false;
+    return community.owner_id === user.id;
   }, [community, user?.id]);
 
   /* =========================================================
@@ -78,17 +66,13 @@ export default function CommunityManageScreen() {
 
   const load = useCallback(async () => {
     if (!slug) return;
-
     setLoading(true);
-
     try {
-      const snap = await getDocs(
-        query(
-          collection(db, "communities"),
-          where("slug", "==", slug),
-          limit(1),
-        ),
-      );
+      const snap = await db
+        .collection("communities")
+        .where("slug", "==", slug)
+        .limit(1)
+        .get();
 
       if (snap.empty) throw new Error("Community not found");
 
@@ -101,12 +85,10 @@ export default function CommunityManageScreen() {
       setImageUrl(c.image_url ?? "");
       setIsPrivate(normalizeBool(c.is_private));
 
-      const rulesSnap = await getDocs(
-        query(
-          collection(db, "community_rules"),
-          where("community_id", "==", c.id),
-        ),
-      );
+      const rulesSnap = await db
+        .collection("community_rules")
+        .where("community_id", "==", c.id)
+        .get();
 
       setRules(
         rulesSnap.docs.map((r) => ({
@@ -132,19 +114,17 @@ export default function CommunityManageScreen() {
 
   const saveCommunity = useCallback(async () => {
     if (!community?.id) return;
-
     setSaving(true);
-
     try {
-      const payload = {
-        name: name.trim(),
-        description: desc.trim() || null,
-        image_url: imageUrl.trim() || null,
-        is_private: isPrivate,
-      };
-
-      await updateDoc(doc(db, "communities", community.id), payload);
-
+      await db
+        .collection("communities")
+        .doc(community.id)
+        .update({
+          name: name.trim(),
+          description: desc.trim() || null,
+          image_url: imageUrl.trim() || null,
+          is_private: isPrivate,
+        });
       Alert.alert("Saved", "Community updated.");
       router.back();
     } catch (e: any) {
@@ -167,13 +147,12 @@ export default function CommunityManageScreen() {
       async (title) => {
         const t = (title ?? "").trim();
         if (!t) return;
-
         try {
-          await addDoc(collection(db, "community_rules"), {
+          await db.collection("community_rules").add({
             community_id: community.id,
             title: t,
             description: null,
-            created_at: serverTimestamp(),
+            created_at: firestore.FieldValue.serverTimestamp(),
           });
           load();
         } catch (e: any) {
@@ -197,7 +176,7 @@ export default function CommunityManageScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, "community_rules", ruleId));
+              await db.collection("community_rules").doc(ruleId).delete();
               load();
             } catch (e: any) {
               Alert.alert("Error", e?.message ?? "Failed to delete rule");
@@ -227,7 +206,7 @@ export default function CommunityManageScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={styles.center}>
-          <Text style={{ color: colors.text }}>You don’t have permission.</Text>
+          <Text style={{ color: colors.text }}>You don't have permission.</Text>
         </View>
       </SafeAreaView>
     );
@@ -257,7 +236,6 @@ export default function CommunityManageScreen() {
           style={styles.input}
           placeholder="Community name"
         />
-
         <TextInput
           value={desc}
           onChangeText={setDesc}
@@ -265,14 +243,12 @@ export default function CommunityManageScreen() {
           style={[styles.input, { height: 100 }]}
           placeholder="Description"
         />
-
         <TextInput
           value={imageUrl}
           onChangeText={setImageUrl}
           style={styles.input}
           placeholder="Image URL"
         />
-
         <TouchableOpacity onPress={() => setIsPrivate((v) => !v)}>
           <Text style={{ marginTop: 12 }}>
             {isPrivate ? "Private" : "Public"}
@@ -283,7 +259,6 @@ export default function CommunityManageScreen() {
           <TouchableOpacity onPress={addRule}>
             <Text>Add Rule</Text>
           </TouchableOpacity>
-
           {rules.map((r) => (
             <View key={r.id} style={styles.ruleRow}>
               <Text>{r.title}</Text>

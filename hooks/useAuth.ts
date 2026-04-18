@@ -1,6 +1,5 @@
 import { auth } from "@/lib/firebase";
 import { useAuth as useProviderAuth } from "@/providers/AuthProvider";
-import { reload } from "firebase/auth";
 
 export const useAuth = () => {
   const ctx = useProviderAuth();
@@ -11,7 +10,7 @@ export const useAuth = () => {
     const u = auth.currentUser;
     if (u) {
       try {
-        await reload(u);
+        await u.reload();
       } catch {}
     }
     return auth.currentUser;

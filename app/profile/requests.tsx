@@ -1,10 +1,4 @@
 // app/profile/requests.tsx — UPDATED ✅
-// ✅ Full useTheme() support — no hardcoded colors
-// ✅ AppHeader replaces inline Header component
-// ✅ Linear gradient background (light mode only)
-// ✅ Skeleton, approve/deny, block logic preserved from original
-// ✅ Approve/Deny button colors use theme tokens
-
 import AppHeader from "@/components/navigation/AppHeader";
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -18,21 +12,10 @@ import {
 } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useRef, useState } from "react";
 import {
   FlatList,
@@ -149,17 +132,18 @@ export default function RequestedFollowersScreen() {
     queryKey: ["requested-followers", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("following_id", "==", myId!),
-          where("status", "==", "pending"),
-        ),
-      );
+      const snap = await db
+        .collection("follows")
+        .where("following_id", "==", myId!)
+        .where("status", "==", "pending")
+        .get();
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await getDoc(doc(db, "profiles", data.follower_id));
+          const pSnap = await db
+            .collection("profiles")
+            .doc(data.follower_id)
+            .get();
           const p = pSnap.exists() ? (pSnap.data() as any) : null;
           if (!p) return null;
           return {
@@ -191,14 +175,12 @@ export default function RequestedFollowersScreen() {
     queryKey: ["mutual-following-set", myId, requesterIds.join(",")],
     enabled: !!myId && requesterIds.length > 0,
     queryFn: async () => {
-      const snap = await getDocs(
-        query(
-          collection(db, "follows"),
-          where("follower_id", "==", myId!),
-          where("status", "==", "accepted"),
-          where("following_id", "in", requesterIds),
-        ),
-      );
+      const snap = await db
+        .collection("follows")
+        .where("follower_id", "==", myId!)
+        .where("status", "==", "accepted")
+        .where("following_id", "in", requesterIds)
+        .get();
       const set = new Set<string>();
       snap.docs.forEach((d) => set.add((d.data() as any).following_id));
       return set;
@@ -222,7 +204,7 @@ export default function RequestedFollowersScreen() {
   // ── Approve ──
   const approveMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
-      await updateDoc(doc(db, "follows", row.id), { status: "accepted" });
+      await db.collection("follows").doc(row.id).update({ status: "accepted" });
       return row;
     },
     onMutate: async (row) => {
@@ -247,7 +229,7 @@ export default function RequestedFollowersScreen() {
   // ── Deny ──
   const denyMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
-      await deleteDoc(doc(db, "follows", row.id));
+      await db.collection("follows").doc(row.id).delete();
       return row;
     },
     onMutate: async (row) => {
@@ -273,10 +255,10 @@ export default function RequestedFollowersScreen() {
   const blockMutation = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-      await addDoc(collection(db, "user_blocks"), {
+      await db.collection("user_blocks").add({
         blocker_id: myId,
         blocked_id: target.id,
-        created_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
       });
       return target;
     },
@@ -365,9 +347,7 @@ export default function RequestedFollowersScreen() {
                     onMenu={() => openMenu(item)}
                     hideMenu={false}
                   />
-
                   <View style={styles.actionsRow}>
-                    {/* Deny */}
                     <Pressable
                       style={[
                         styles.actionBtn,
@@ -386,8 +366,6 @@ export default function RequestedFollowersScreen() {
                         Deny
                       </Text>
                     </Pressable>
-
-                    {/* Approve */}
                     <Pressable
                       style={[
                         styles.actionBtn,
@@ -463,23 +441,10 @@ export default function RequestedFollowersScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
-
   listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
   listEmpty: { flex: 1 },
-
-  card: {
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    gap: 0,
-  },
-
-  actionsRow: {
-    marginTop: 10,
-    flexDirection: "row",
-    gap: 8,
-  },
-
+  card: { borderRadius: 16, padding: 12, borderWidth: 1, gap: 0 },
+  actionsRow: { marginTop: 10, flexDirection: "row", gap: 8 },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -490,7 +455,6 @@ const styles = StyleSheet.create({
   },
   approveText: { color: "#fff", fontWeight: "900", fontSize: 13 },
   denyText: { fontWeight: "900", fontSize: 13 },
-
   empty: {
     flex: 1,
     alignItems: "center",
@@ -515,17 +479,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     maxWidth: 260,
   },
-
-  // Skeleton
   skel: { borderRadius: 6 },
-  skelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  skelAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-  },
+  skelRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  skelAvatar: { width: 44, height: 44, borderRadius: 22 },
 });

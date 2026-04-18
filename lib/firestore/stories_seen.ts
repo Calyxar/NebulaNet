@@ -1,18 +1,7 @@
 // lib/firestore/stories_seen.ts — FIRESTORE ✅ COMPLETED + UPDATED
-// ✅ exports StorySeenViewer
-// ✅ exports fetchStorySeenViewers(storyId)
-// ✅ "join" viewer -> profiles (chunked where __name__ in <= 10)
 
 import { db } from "@/lib/firebase";
-import {
-    collection,
-    limit as fsLimit,
-    getDocs,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 /* -------------------- TYPES -------------------- */
 
@@ -26,11 +15,6 @@ export type StorySeenViewer = {
   } | null;
 };
 
-/* -------------------- COLLECTIONS -------------------- */
-
-const STORY_SEEN = collection(db, "story_seen");
-const PROFILES = collection(db, "profiles");
-
 /* -------------------- HELPERS -------------------- */
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -41,7 +25,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 function tsToIso(ts: any): string {
   if (!ts) return "";
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts instanceof firestore.Timestamp) return ts.toDate().toISOString();
   if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
   const d = new Date(ts);
   return isNaN(d.getTime()) ? "" : d.toISOString();
@@ -51,10 +35,12 @@ async function getProfilesMap(userIds: string[]) {
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   const map = new Map<string, StorySeenViewer["profile"]>();
 
-  // Firestore "in" supports max 10 values
   for (const b of chunk(ids, 10)) {
-    const qy = query(PROFILES, where("__name__", "in", b), fsLimit(10));
-    const snap = await getDocs(qy);
+    const snap = await db
+      .collection("profiles")
+      .where(firestore.FieldPath.documentId(), "in", b)
+      .limit(10)
+      .get();
 
     snap.docs.forEach((d) => {
       const x = d.data() as any;
@@ -77,17 +63,12 @@ export async function fetchStorySeenViewers(
   const sid = storyId.trim();
   if (!sid) return [];
 
-  // IMPORTANT:
-  // This assumes your story_seen docs have:
-  // { story_id, viewer_id, seen_at_ts }
-  const qy = query(
-    STORY_SEEN,
-    where("story_id", "==", sid),
-    orderBy("seen_at_ts", "desc"),
-    fsLimit(200),
-  );
-
-  const snap = await getDocs(qy);
+  const snap = await db
+    .collection("story_seen")
+    .where("story_id", "==", sid)
+    .orderBy("seen_at_ts", "desc")
+    .limit(200)
+    .get();
 
   const rows = snap.docs.map((d) => {
     const x = d.data() as any;

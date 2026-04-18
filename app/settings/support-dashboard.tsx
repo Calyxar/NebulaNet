@@ -10,7 +10,6 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -37,8 +36,8 @@ type ProfileAdminFlag = {
 async function getMyProfile(): Promise<ProfileAdminFlag | null> {
   const u = auth.currentUser;
   if (!u) return null;
-  const snap = await getDoc(doc(db, "profiles", u.uid));
-  if (!snap.exists()) return { id: u.uid };
+  const snap = await db.collection("profiles").doc(u.uid).get();
+  if (!snap.exists) return { id: u.uid };
   const d = snap.data() as any;
   return {
     id: snap.id,

@@ -8,13 +8,12 @@ import {
   type PrivacySettings,
 } from "@/lib/queries/privacy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 type Patch = Partial<Omit<PrivacySettings, "user_id" | "updated_at">>;
 
 async function ensurePrivacyRow(userId: string): Promise<PrivacySettings> {
-  const ref = doc(db, "user_privacy_settings", userId);
-  const snap = await getDoc(ref);
+  const ref = db.collection("user_privacy_settings").doc(userId);
+  const snap = await ref.get();
   if (snap.exists())
     return { user_id: userId, ...snap.data() } as PrivacySettings;
 
@@ -23,7 +22,7 @@ async function ensurePrivacyRow(userId: string): Promise<PrivacySettings> {
     ...DEFAULT_PRIVACY_SETTINGS,
     updated_at: new Date().toISOString(),
   };
-  await setDoc(ref, defaults, { merge: true });
+  await ref.set(defaults, { merge: true });
   return defaults as PrivacySettings;
 }
 
@@ -64,12 +63,12 @@ export function usePrivacySettings() {
       )
         delete nextPatch.mentions;
 
-      const ref = doc(db, "user_privacy_settings", user.uid);
-      await updateDoc(ref, {
+      const ref = db.collection("user_privacy_settings").doc(user.uid);
+      await ref.update({
         ...nextPatch,
         updated_at: new Date().toISOString(),
       });
-      const snap = await getDoc(ref);
+      const snap = await ref.get();
       return { user_id: user.uid, ...snap.data() } as PrivacySettings;
     },
     onMutate: async (patch) => {

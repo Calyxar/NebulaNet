@@ -10,7 +10,6 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -50,22 +49,18 @@ export default function ChatSearchScreen() {
       setLoading(true);
       try {
         const [byUsername, byFullName] = await Promise.all([
-          getDocs(
-            query(
-              collection(db, "profiles"),
-              where("username_lower", ">=", term),
-              where("username_lower", "<=", term + "\uf8ff"),
-              limit(20),
-            ),
-          ),
-          getDocs(
-            query(
-              collection(db, "profiles"),
-              where("full_name_lower", ">=", term),
-              where("full_name_lower", "<=", term + "\uf8ff"),
-              limit(20),
-            ),
-          ),
+          db
+            .collection("profiles")
+            .where("username_lower", ">=", term)
+            .where("username_lower", "<=", term + "\uf8ff")
+            .limit(20)
+            .get(),
+          db
+            .collection("profiles")
+            .where("full_name_lower", ">=", term)
+            .where("full_name_lower", "<=", term + "\uf8ff")
+            .limit(20)
+            .get(),
         ]);
 
         const dedup = new Map<string, UserProfile>();

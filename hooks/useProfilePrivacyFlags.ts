@@ -3,7 +3,6 @@
 import { db } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import { useQuery } from "@tanstack/react-query";
-import { doc, getDoc } from "firebase/firestore";
 
 export type ProfilePrivacyFlags = {
   id: string;
@@ -17,8 +16,8 @@ export function useProfilePrivacyFlags(profileId?: string) {
     queryKey: qk.social.profilePrivacyFlags(profileId),
     enabled: !!profileId,
     queryFn: async () => {
-      const snap = await getDoc(doc(db, "profiles", profileId!));
-      if (!snap.exists()) throw new Error("Profile not found");
+      const snap = await db.collection("profiles").doc(profileId!).get();
+      if (!snap.exists) throw new Error("Profile not found");
       const d = snap.data() as any;
       return {
         id: snap.id,

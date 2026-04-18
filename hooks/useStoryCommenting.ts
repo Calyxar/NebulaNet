@@ -1,15 +1,7 @@
 // hooks/useStoryCommenting.ts — FIREBASE ✅
 
 import { auth, db } from "@/lib/firebase";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 
@@ -23,11 +15,11 @@ async function createStoryComment(storyId: string, content: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  const ref = await addDoc(collection(db, "story_comments"), {
+  const ref = await db.collection("story_comments").add({
     story_id: storyId,
     user_id: user.uid,
     content: content.trim(),
-    created_at: serverTimestamp(),
+    created_at: firestore.FieldValue.serverTimestamp(),
   });
 
   return {
@@ -40,13 +32,11 @@ async function createStoryComment(storyId: string, content: string) {
 }
 
 async function getStoryComments(storyId: string) {
-  const snap = await getDocs(
-    query(
-      collection(db, "story_comments"),
-      where("story_id", "==", storyId),
-      orderBy("created_at", "desc"),
-    ),
-  );
+  const snap = await db
+    .collection("story_comments")
+    .where("story_id", "==", storyId)
+    .orderBy("created_at", "desc")
+    .get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 

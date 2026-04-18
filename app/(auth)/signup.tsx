@@ -4,7 +4,6 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
-import { sendEmailVerification } from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -152,7 +151,7 @@ export default function SignUpScreen() {
         }
       }
       if (createdUser && !createdUser.emailVerified) {
-        await sendEmailVerification(createdUser);
+        await createdUser.sendEmailVerification();
         await signOut();
         Alert.alert(
           "Check your email",

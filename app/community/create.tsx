@@ -1,26 +1,12 @@
 // app/community/create.tsx — ✅ COMPLETED + UPDATED (create + auto-join + invalidate My Community)
-//
-// - Creates a community row (name, slug, description, image_url, member_count)
-// - Generates slug from name (editable)
-// - Optional image picker (stores the image URL as a string for now)
-// - ✅ Auto-joins creator into community_members (so it shows in "My Community")
-// - ✅ Invalidates react-query cache so it appears immediately on Home
 
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import {
-  addDoc,
-  collection,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -85,9 +71,6 @@ export default function CreateCommunityScreen() {
     });
 
     if (result.canceled || !result.assets?.length) return;
-
-    // For now we store the local uri as image_url.
-    // Later we’ll upload to Supabase Storage and store the public URL instead.
     setImageUri(result.assets[0].uri);
   };
 
@@ -116,17 +99,18 @@ export default function CreateCommunityScreen() {
 
     setIsSaving(true);
     try {
-      // Optional: quick check slug uniqueness (friendly error before insert)
-      const existSnap = await getDocs(
-        query(collection(db, "communities"), where("slug", "==", s), limit(1)),
-      );
+      const existSnap = await db
+        .collection("communities")
+        .where("slug", "==", s)
+        .limit(1)
+        .get();
       if (!existSnap.empty) {
         Alert.alert("Slug already taken", "Try a different slug.");
         return;
       }
 
       // ✅ Create the community document
-      const communityRef = await addDoc(collection(db, "communities"), {
+      const communityRef = await db.collection("communities").add({
         slug: s,
         name: n,
         description: description.trim() || null,
@@ -134,18 +118,18 @@ export default function CreateCommunityScreen() {
         is_private: false,
         owner_id: auth.currentUser!.uid,
         member_count: 1,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
+        created_at: firestore.FieldValue.serverTimestamp(),
+        updated_at: firestore.FieldValue.serverTimestamp(),
       });
       const data = { id: communityRef.id, slug: s };
 
       // ✅ Auto-join creator so "My Community" shows it immediately
       try {
-        await addDoc(collection(db, "community_members"), {
+        await db.collection("community_members").add({
           community_id: data.id,
           user_id: auth.currentUser!.uid,
           role: "owner",
-          joined_at: serverTimestamp(),
+          joined_at: firestore.FieldValue.serverTimestamp(),
         });
       } catch (e) {
         console.warn("Auto-join failed:", e);
@@ -245,9 +229,8 @@ export default function CreateCommunityScreen() {
                 <Image source={{ uri: imageUri }} style={styles.imagePreview} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.helper} numberOfLines={2}>
-                    Image selected. (We’ll upload to Storage later.)
+                    Image selected. (We'll upload to Storage later.)
                   </Text>
-
                   <View
                     style={{ flexDirection: "row", gap: 10, marginTop: 10 }}
                   >
@@ -262,7 +245,6 @@ export default function CreateCommunityScreen() {
                       />
                       <Text style={styles.smallBtnText}>Change</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[styles.smallBtn, styles.smallBtnDanger]}
                       onPress={removeImage}
@@ -304,7 +286,7 @@ export default function CreateCommunityScreen() {
           </TouchableOpacity>
 
           <Text style={styles.note}>
-            Next: we’ll add Storage upload, memberships, and proper permissions
+            Next: we'll add Storage upload, memberships, and proper permissions
             (RLS).
           </Text>
         </ScrollView>
@@ -315,7 +297,6 @@ export default function CreateCommunityScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F6F7FB" },
-
   header: {
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -343,9 +324,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#111827",
   },
-
   content: { padding: 14, paddingBottom: 24 },
-
   card: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
@@ -353,7 +332,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
   },
-
   label: { fontSize: 13, fontWeight: "900", color: "#111827", marginBottom: 6 },
   helper: { fontSize: 12, color: "#6B7280", marginBottom: 8 },
   input: {
@@ -366,12 +344,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#111827",
   },
-  textarea: {
-    minHeight: 110,
-    paddingTop: 12,
-  },
+  textarea: { minHeight: 110, paddingTop: 12 },
   counter: { marginTop: 8, fontSize: 12, color: "#9CA3AF", textAlign: "right" },
-
   pickBtn: {
     marginTop: 6,
     height: 44,
@@ -385,7 +359,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pickBtnText: { fontWeight: "800", color: "#111827" },
-
   imageRow: {
     flexDirection: "row",
     gap: 12,
@@ -398,7 +371,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: "#F3F4F6",
   },
-
   smallBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -410,12 +382,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  smallBtnDanger: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FECACA",
-  },
+  smallBtnDanger: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
   smallBtnText: { fontWeight: "900", color: "#111827", fontSize: 12 },
-
   cta: {
     marginTop: 14,
     height: 52,
@@ -426,6 +394,5 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { backgroundColor: "#C7B7F6" },
   ctaText: { color: "#FFFFFF", fontWeight: "900", fontSize: 15 },
-
   note: { marginTop: 10, fontSize: 12, color: "#6B7280", textAlign: "center" },
 });

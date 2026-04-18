@@ -1,20 +1,11 @@
 // lib/queries/support.ts — FIRESTORE ✅
 
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import firestore from "@react-native-firebase/firestore";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import { getAuth } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  doc,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
 import { Platform } from "react-native";
 import { uploadSupportScreenshot } from "./supportUpload";
-
-const auth = getAuth();
 
 export async function submitSupportReport(params: {
   subject: string;
@@ -30,7 +21,7 @@ export async function submitSupportReport(params: {
     null;
 
   // 1) create report
-  const createdRef = await addDoc(collection(db, "support_reports"), {
+  const createdRef = await db.collection("support_reports").add({
     user_id: user.uid,
     subject: params.subject.trim(),
     details: params.details.trim(),
@@ -42,8 +33,8 @@ export async function submitSupportReport(params: {
     screenshot_path: null,
     status: "open",
     admin_note: null,
-    created_at: serverTimestamp(),
-    updated_at: serverTimestamp(),
+    created_at: firestore.FieldValue.serverTimestamp(),
+    updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
   // 2) upload screenshot + update
@@ -54,10 +45,10 @@ export async function submitSupportReport(params: {
       reportId: createdRef.id,
     });
 
-    await updateDoc(doc(db, "support_reports", createdRef.id), {
+    await db.collection("support_reports").doc(createdRef.id).update({
       screenshot_bucket: uploaded.bucket,
       screenshot_path: uploaded.path,
-      updated_at: serverTimestamp(),
+      updated_at: firestore.FieldValue.serverTimestamp(),
     });
   }
 

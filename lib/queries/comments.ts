@@ -1,20 +1,7 @@
 // lib/queries/comments.ts — FIRESTORE ✅
 
 import { db } from "@/lib/firebase";
-import { getAuth } from "firebase/auth";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  Timestamp,
-  where,
-} from "firebase/firestore";
-
-const auth = getAuth();
+import firestore from "@react-native-firebase/firestore";
 
 /* -------------------- TYPES -------------------- */
 
@@ -40,7 +27,7 @@ export interface Comment {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts instanceof firestore.Timestamp) return ts.toDate().toISOString();
   if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
   const d = new Date(ts);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
@@ -60,7 +47,7 @@ async function getProfilesMap(
 
   for (const batch of chunk(ids, 10)) {
     const snaps = await Promise.all(
-      batch.map((id) => getDoc(doc(db, "profiles", id))),
+      batch.map((id) => db.collection("profiles").doc(id).get()),
     );
     snaps.forEach((snap) => {
       if (snap.exists()) {
@@ -82,15 +69,13 @@ async function getProfilesMap(
 
 export async function getComments(postId: string): Promise<Comment[]> {
   try {
-    const snap = await getDocs(
-      query(
-        collection(db, "comments"),
-        where("post_id", "==", postId),
-        where("parent_comment_id", "==", null),
-        orderBy("created_at", "desc"),
-        limit(100),
-      ),
-    );
+    const snap = await db
+      .collection("comments")
+      .where("post_id", "==", postId)
+      .where("parent_comment_id", "==", null)
+      .orderBy("created_at", "desc")
+      .limit(100)
+      .get();
 
     if (snap.empty) return [];
 

@@ -2,12 +2,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import CommentInput from "./CommentInput";
 import CommentItem from "./CommentItem";
@@ -22,6 +22,7 @@ interface Comment {
     avatar?: string;
   };
   timestamp: string;
+  likes: number;
   likeCount: number;
   isLiked: boolean;
   replies?: Comment[];
@@ -61,8 +62,6 @@ export default function CommentsSection({
       } else {
         await onCommentSubmit(content);
       }
-
-      // Clear reply state
       setReplyingTo(null);
     } catch (error) {
       console.error("Error submitting comment:", error);
@@ -73,8 +72,6 @@ export default function CommentsSection({
   const handleLikeComment = async (commentId: string) => {
     try {
       await onCommentLike(commentId);
-
-      // Update local state
       setComments((prev) => updateCommentLikes(prev, commentId));
     } catch (error) {
       console.error("Error liking comment:", error);
@@ -95,14 +92,12 @@ export default function CommentsSection({
             : comment.likeCount + 1,
         };
       }
-
       if (comment.replies) {
         return {
           ...comment,
           replies: updateCommentLikes(comment.replies, commentId),
         };
       }
-
       return comment;
     });
   };
@@ -123,9 +118,7 @@ export default function CommentsSection({
     id: string,
   ): Comment | null => {
     for (const comment of commentsList) {
-      if (comment.id === id) {
-        return comment;
-      }
+      if (comment.id === id) return comment;
       if (comment.replies) {
         const found = findCommentById(comment.replies, id);
         if (found) return found;
@@ -135,7 +128,6 @@ export default function CommentsSection({
   };
 
   const handleMorePress = (commentId: string) => {
-    // Show options menu for comment
     console.log("More options for comment:", commentId);
   };
 
@@ -180,9 +172,12 @@ export default function CommentsSection({
                 <CommentItem
                   key={comment.id}
                   {...comment}
+                  likes={comment.likeCount}
                   onLikePress={() => handleLikeComment(comment.id)}
-                  onReplyPress={handleReplyPress}
-                  onMorePress={handleMorePress}
+                  onReplyPress={() =>
+                    handleReplyPress(comment.id, comment.author.name)
+                  }
+                  onMorePress={() => handleMorePress(comment.id)}
                 />
               ))
             )}

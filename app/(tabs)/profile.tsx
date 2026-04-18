@@ -7,20 +7,10 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getCountFromServer,
-  getDoc,
-  getDocs,
-  query,
-  Timestamp,
-  where,
-} from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -63,7 +53,7 @@ function tsToIso(v: any): string {
   if (!v) return new Date().toISOString();
   if (typeof v === "string") return v;
   if (v instanceof Date) return v.toISOString();
-  if (v instanceof Timestamp) return v.toDate().toISOString();
+  if (v instanceof firestore.Timestamp) return v.toDate().toISOString();
   if (typeof v?.toDate === "function") return v.toDate().toISOString();
   return new Date().toISOString();
 }
@@ -94,9 +84,10 @@ export default function ProfileTabScreen() {
     enabled: !!uid,
     queryFn: async () => {
       if (!uid) return [];
-      const snap = await getDocs(
-        query(collection(db, "posts"), where("user_id", "==", uid)),
-      );
+      const snap = await db
+        .collection("posts")
+        .where("user_id", "==", uid)
+        .get();
       return snap.docs
         .map((d) => {
           const x: any = d.data();
@@ -125,15 +116,9 @@ export default function ProfileTabScreen() {
     queryFn: async (): Promise<UserStats> => {
       if (!uid) return { posts: 0, followers: 0, following: 0 };
       const [postsAgg, followersAgg, followingAgg] = await Promise.all([
-        getCountFromServer(
-          query(collection(db, "posts"), where("user_id", "==", uid)),
-        ),
-        getCountFromServer(
-          query(collection(db, "follows"), where("following_id", "==", uid)),
-        ),
-        getCountFromServer(
-          query(collection(db, "follows"), where("follower_id", "==", uid)),
-        ),
+        db.collection("posts").where("user_id", "==", uid).count().get(),
+        db.collection("follows").where("following_id", "==", uid).count().get(),
+        db.collection("follows").where("follower_id", "==", uid).count().get(),
       ]);
       return {
         posts: postsAgg.data().count ?? 0,
@@ -197,9 +182,9 @@ export default function ProfileTabScreen() {
         onPress: () => {
           void (async () => {
             try {
-              const ref = doc(db, "posts", postId);
-              const snap = await getDoc(ref);
-              if (!snap.exists()) return;
+              const ref = db.collection("posts").doc(postId);
+              const snap = await ref.get();
+              if (!snap.exists) return;
               const d = snap.data() as any;
               if (d.user_id !== uid) {
                 Alert.alert(
@@ -208,7 +193,7 @@ export default function ProfileTabScreen() {
                 );
                 return;
               }
-              await deleteDoc(ref);
+              await ref.delete();
               await queryClient.invalidateQueries({
                 queryKey: ["user-posts", uid],
               });
@@ -512,7 +497,6 @@ export default function ProfileTabScreen() {
                         </Pressable>
                       );
                     }
-
                     return (
                       <View key={s.label} style={styles.statItem}>
                         <Text

@@ -10,7 +10,6 @@ import {
   statusCodes,
 } from "@react-native-google-signin/google-signin";
 import { Link, router } from "expo-router";
-import { signOut as firebaseSignOut } from "firebase/auth";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -109,7 +108,7 @@ export default function LoginScreen() {
           res.user.uid,
         );
         if (enabled && phoneNumber) {
-          await firebaseSignOut(auth);
+          await auth.signOut();
           const ok = await sendOTP(phoneNumber);
           if (ok) {
             router.push({

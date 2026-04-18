@@ -1,23 +1,24 @@
 // lib/firestore/saves.ts — FIREBASE ✅
 
 import { auth, db } from "@/lib/firebase";
-import { deleteDoc, doc, serverTimestamp, setDoc } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 export async function toggleSavePost(postId: string, isSaved: boolean) {
   const viewer = auth.currentUser;
   if (!viewer) throw new Error("Not authenticated");
 
   const uid = viewer.uid;
-
-  const saveId = `${uid}_${postId}`;
-  const saveRef = doc(db, "saves", saveId);
+  const saveRef = db.collection("saves").doc(`${uid}_${postId}`);
 
   if (isSaved) {
-    await deleteDoc(saveRef);
+    await saveRef.delete();
   } else {
-    await setDoc(
-      saveRef,
-      { user_id: uid, post_id: postId, created_at_ts: serverTimestamp() },
+    await saveRef.set(
+      {
+        user_id: uid,
+        post_id: postId,
+        created_at_ts: firestore.FieldValue.serverTimestamp(),
+      },
       { merge: true },
     );
   }

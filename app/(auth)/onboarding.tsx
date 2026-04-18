@@ -7,8 +7,8 @@
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
+import firestore from "@react-native-firebase/firestore";
 import { router } from "expo-router";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -48,13 +48,12 @@ const INTERESTS = [
 const nowIso = () => new Date().toISOString();
 
 async function saveUserInterests(uid: string, interests: string[]) {
-  await setDoc(
-    doc(db, "user_interests", uid),
+  await db.collection("user_interests").doc(uid).set(
     {
       user_id: uid,
       interests,
       updated_at: nowIso(),
-      updated_at_ts: serverTimestamp(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
     },
     { merge: true },
   );

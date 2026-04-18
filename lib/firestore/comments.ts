@@ -4,17 +4,7 @@
 // ✅ Sort is now done in JS after fetch — works without any index
 
 import { auth, db } from "@/lib/firebase";
-import {
-  Timestamp,
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 
 type ProfileRow = {
   id: string;
@@ -36,11 +26,8 @@ export type CommentWithAuthor = {
   replies?: CommentWithAuthor[];
 };
 
-const COMMENTS = collection(db, "comments");
-const COMMENT_LIKES = collection(db, "comment_likes");
-
 async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
-  const snap = await getDoc(doc(db, "profiles", uid));
+  const snap = await db.collection("profiles").doc(uid).get();
   if (!snap.exists()) return null;
   const d = snap.data() as any;
   return {
@@ -53,7 +40,7 @@ async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (ts instanceof firestore.Timestamp) return ts.toDate().toISOString();
   return new Date(ts).toISOString();
 }
 
@@ -62,12 +49,11 @@ async function fetchLikedCommentIds(uid: string, commentIds: string[]) {
   if (!uid || !commentIds.length) return liked;
   for (let i = 0; i < commentIds.length; i += 30) {
     const chunk = commentIds.slice(i, i + 30);
-    const q1 = query(
-      COMMENT_LIKES,
-      where("user_id", "==", uid),
-      where("comment_id", "in", chunk),
-    );
-    const snap = await getDocs(q1);
+    const snap = await db
+      .collection("comment_likes")
+      .where("user_id", "==", uid)
+      .where("comment_id", "in", chunk)
+      .get();
     snap.docs.forEach((d) => liked.add((d.data() as any).comment_id));
   }
   return liked;
@@ -80,9 +66,10 @@ export async function getComments(
   if (!clean) return [];
 
   // ✅ FIXED: no orderBy — avoids missing composite index error
-  // Firestore silently returns 0 results when index is missing
-  const q1 = query(COMMENTS, where("post_id", "==", clean));
-  const snap = await getDocs(q1);
+  const snap = await db
+    .collection("comments")
+    .where("post_id", "==", clean)
+    .get();
 
   const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
 
@@ -140,7 +127,7 @@ export async function addComment(input: {
   const now = new Date().toISOString();
   const author = await getProfileSnapshot(uid);
 
-  const refDoc = await addDoc(COMMENTS, {
+  const refDoc = await db.collection("comments").add({
     post_id: input.post_id,
     user_id: uid,
     content: input.content,
@@ -148,7 +135,7 @@ export async function addComment(input: {
     like_count: 0,
     author,
     created_at: now,
-    created_at_ts: serverTimestamp(),
+    created_at_ts: firestore.FieldValue.serverTimestamp(),
   });
 
   return { id: refDoc.id };
@@ -164,39 +151,36 @@ export async function toggleCommentLike(input: {
 
   const uid = viewer.uid;
   const likeId = `${uid}_${input.commentId}`;
-  const likeRef = doc(db, "comment_likes", likeId);
-  const cRef = doc(db, "comments", input.commentId);
-
-  const { deleteDoc, updateDoc, setDoc } = await import("firebase/firestore");
+  const likeRef = db.collection("comment_likes").doc(likeId);
+  const cRef = db.collection("comments").doc(input.commentId);
 
   if (input.isLiked) {
-    const cSnap = await getDoc(cRef);
+    const cSnap = await cRef.get();
     if (cSnap.exists()) {
       const d = cSnap.data() as any;
       const cur = typeof d.like_count === "number" ? d.like_count : 0;
       await Promise.all([
-        deleteDoc(likeRef),
-        updateDoc(cRef, { like_count: Math.max(0, cur - 1) }),
+        likeRef.delete(),
+        cRef.update({ like_count: Math.max(0, cur - 1) }),
       ]);
     } else {
-      await deleteDoc(likeRef);
+      await likeRef.delete();
     }
   } else {
-    const cSnap = await getDoc(cRef);
+    const cSnap = await cRef.get();
     const d = cSnap.exists() ? (cSnap.data() as any) : {};
     const cur = typeof d.like_count === "number" ? d.like_count : 0;
     await Promise.all([
-      setDoc(
-        likeRef,
+      likeRef.set(
         {
           user_id: uid,
           comment_id: input.commentId,
           post_id: input.postId,
-          created_at_ts: serverTimestamp(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
       ),
-      updateDoc(cRef, { like_count: cur + 1 }),
+      cRef.update({ like_count: cur + 1 }),
     ]);
   }
 
