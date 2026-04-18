@@ -1,4 +1,4 @@
-import { getComments } from "@/lib/queries/comments";
+import { getComments } from "@/lib/firestore/comments"; // ✅ FIX: correct path
 import { useQuery } from "@tanstack/react-query";
 
 export function useComments(postId: string | undefined) {

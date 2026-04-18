@@ -1,34 +1,50 @@
-// app/settings/appearance.tsx — COMPLETED + UPDATED
-import { Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
+// app/settings/appearance.tsx
+import { useSettings } from "@/hooks/useSettings";
 import { closeSettings } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
+import React from "react";
+import {
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type ThemeOption = "system" | "light" | "dark";
+type FontSize = "small" | "medium" | "large";
 
-function ThemeOptionRow({
-  value,
+function SectionTitle({ label, colors }: { label: string; colors: any }) {
+  return (
+    <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>
+      {label}
+    </Text>
+  );
+}
+
+function OptionRow({
   title,
   subtitle,
   selected,
-  onSelect,
+  onPress,
   colors,
 }: {
-  value: ThemeOption;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   selected: boolean;
-  onSelect: (value: ThemeOption) => void;
+  onPress: () => void;
   colors: any;
 }) {
   return (
     <TouchableOpacity
       activeOpacity={0.85}
-      onPress={() => onSelect(value)}
+      onPress={onPress}
       style={[
         styles.option,
         {
@@ -41,36 +57,58 @@ function ThemeOptionRow({
         <Text style={[styles.optionTitle, { color: colors.text }]}>
           {title}
         </Text>
-        <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
-          {subtitle}
-        </Text>
+        {subtitle ? (
+          <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
-
-      {selected ? (
-        <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
-      ) : (
-        <Ionicons
-          name="ellipse-outline"
-          size={22}
-          color={colors.textTertiary}
-        />
-      )}
+      <Ionicons
+        name={selected ? "checkmark-circle" : "ellipse-outline"}
+        size={22}
+        color={selected ? colors.primary : colors.textTertiary}
+      />
     </TouchableOpacity>
   );
 }
 
 export default function AppearanceScreen() {
-  const { theme, setTheme, colors } = useTheme();
+  const { theme, setTheme, colors, isDark, fontScale, reduceAnimations } =
+    useTheme();
+  const { settings, updatePreferences } = useSettings();
   const params = useLocalSearchParams<{ returnTo?: string }>();
 
-  const onSelect = (value: ThemeOption) => {
-    void setTheme(value); // setTheme is async (local + remote persist)
+  const currentFontSize =
+    (settings?.preferences?.font_size as FontSize) ?? "medium";
+  const currentReduceAnimations =
+    settings?.preferences?.reduce_animations ?? false;
+
+  const handleTheme = (value: ThemeOption) => {
+    void setTheme(value);
   };
 
-  return (
+  const handleFontSize = (value: FontSize) => {
+    // ✅ FIX: save to Firestore AND update ThemeProvider immediately
+    updatePreferences.mutate({ font_size: value });
+  };
+
+  const handleReduceAnimations = (value: boolean) => {
+    // ✅ FIX: save to Firestore AND update ThemeProvider immediately
+    updatePreferences.mutate({ reduce_animations: value });
+  };
+
+  const content = (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
+      style={{ flex: 1, backgroundColor: "transparent" }}
+      edges={["top", "left", "right"]}
     >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           activeOpacity={0.85}
@@ -80,56 +118,153 @@ export default function AppearanceScreen() {
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
-          <Ionicons name="chevron-back" size={18} color={colors.text} />
+          <Ionicons name="arrow-back" size={18} color={colors.text} />
         </TouchableOpacity>
-
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Appearance
         </Text>
-
         <View style={{ width: 44 }} />
       </View>
 
-      <Text style={[styles.helper, { color: colors.textSecondary }]}>
-        Choose how NebulaNet looks on your device.
-      </Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        {/* Preview card */}
+        <View
+          style={[
+            styles.previewCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text
+            style={[
+              styles.previewTitle,
+              { color: colors.text, fontSize: 16 * fontScale },
+            ]}
+          >
+            Preview
+          </Text>
+          <Text
+            style={[
+              styles.previewBody,
+              { color: colors.textSecondary, fontSize: 13 * fontScale },
+            ]}
+          >
+            This text reflects your current font size setting.
+          </Text>
+        </View>
 
-      <View style={styles.list}>
-        <ThemeOptionRow
-          value="system"
-          title="System"
-          subtitle="Match your device setting"
-          selected={theme === "system"}
-          onSelect={onSelect}
-          colors={colors}
-        />
-        <ThemeOptionRow
-          value="light"
-          title="Light"
-          subtitle="Always use light mode"
-          selected={theme === "light"}
-          onSelect={onSelect}
-          colors={colors}
-        />
-        <ThemeOptionRow
-          value="dark"
-          title="Dark"
-          subtitle="Always use dark mode"
-          selected={theme === "dark"}
-          onSelect={onSelect}
-          colors={colors}
-        />
-      </View>
+        {/* Theme */}
+        <SectionTitle label="THEME" colors={colors} />
+        <View style={styles.group}>
+          <OptionRow
+            title="System"
+            subtitle="Match your device setting"
+            selected={theme === "system"}
+            onPress={() => handleTheme("system")}
+            colors={colors}
+          />
+          <OptionRow
+            title="Light"
+            subtitle="Always use light mode"
+            selected={theme === "light"}
+            onPress={() => handleTheme("light")}
+            colors={colors}
+          />
+          <OptionRow
+            title="Dark"
+            subtitle="Always use dark mode"
+            selected={theme === "dark"}
+            onPress={() => handleTheme("dark")}
+            colors={colors}
+          />
+        </View>
+
+        {/* Font size */}
+        <SectionTitle label="FONT SIZE" colors={colors} />
+        <View style={styles.group}>
+          <OptionRow
+            title="Small"
+            subtitle="Compact text, more content visible"
+            selected={currentFontSize === "small"}
+            onPress={() => handleFontSize("small")}
+            colors={colors}
+          />
+          <OptionRow
+            title="Medium"
+            subtitle="Default size"
+            selected={currentFontSize === "medium"}
+            onPress={() => handleFontSize("medium")}
+            colors={colors}
+          />
+          <OptionRow
+            title="Large"
+            subtitle="Easier to read"
+            selected={currentFontSize === "large"}
+            onPress={() => handleFontSize("large")}
+            colors={colors}
+          />
+        </View>
+
+        {/* Animations */}
+        <SectionTitle label="ACCESSIBILITY" colors={colors} />
+        <View
+          style={[
+            styles.toggleCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.toggleLeft}>
+            <Text style={[styles.optionTitle, { color: colors.text }]}>
+              Reduce Animations
+            </Text>
+            <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
+              Minimise motion effects throughout the app
+            </Text>
+          </View>
+          <Switch
+            value={currentReduceAnimations}
+            onValueChange={handleReduceAnimations}
+            trackColor={{ false: colors.border, true: colors.primary + "60" }}
+            thumbColor={
+              currentReduceAnimations ? colors.primary : colors.textTertiary
+            }
+          />
+        </View>
+
+        <Text style={[styles.footer, { color: colors.textTertiary }]}>
+          Font size changes apply immediately. Theme changes apply instantly.
+        </Text>
+      </ScrollView>
     </SafeAreaView>
+  );
+
+  if (!isDark) {
+    return (
+      <LinearGradient
+        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+        locations={[0, 0.45, 1]}
+        style={{ flex: 1 }}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {content}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 18, paddingTop: 6 },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 6,
     paddingBottom: 10,
   },
   headerBtn: {
@@ -140,11 +275,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  headerTitle: { fontSize: 18, fontWeight: "800" },
-  helper: { marginTop: 4, fontSize: 13, lineHeight: 18 },
-  list: { marginTop: 14, gap: 10 },
-  option: {
+  headerTitle: { fontSize: 17, fontWeight: "800" },
+  scroll: { padding: 16, paddingBottom: 32, gap: 8 },
+  previewCard: {
     borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  previewTitle: { fontWeight: "800", marginBottom: 6 },
+  previewBody: { lineHeight: 20 },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    marginTop: 8,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
+  group: { gap: 8 },
+  option: {
+    borderRadius: 16,
     borderWidth: 1,
     paddingVertical: 14,
     paddingHorizontal: 14,
@@ -155,4 +306,20 @@ const styles = StyleSheet.create({
   optionLeft: { flex: 1, paddingRight: 12 },
   optionTitle: { fontSize: 14, fontWeight: "800" },
   optionSub: { marginTop: 4, fontSize: 12, lineHeight: 16 },
+  toggleCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  toggleLeft: { flex: 1, paddingRight: 12 },
+  footer: {
+    textAlign: "center",
+    fontSize: 12,
+    marginTop: 12,
+    paddingHorizontal: 8,
+  },
 });

@@ -1,5 +1,6 @@
 // app/_layout.tsx
 import { useAuth } from "@/hooks/useAuth";
+import "@/lib/i18n";
 import {
   registerPushNotifications,
   setupNotificationChannels,
@@ -114,8 +115,8 @@ function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="user" options={{ headerShown: false }} />
-        <Stack.Screen name="post/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="post/create" options={{ headerShown: false }} />
+        {/* ✅ FIX: treat post as a group, not individual screens */}
+        <Stack.Screen name="post" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
         <Stack.Screen
           name="community/[slug]"

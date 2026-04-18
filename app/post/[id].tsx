@@ -1,7 +1,10 @@
-// app/post/[id].tsx — WITH CUSTOM REPOST & SHARE SHEETS ✅
+// app/post/[id].tsx
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
+import PostOptionsSheet, {
+  type PostOption,
+} from "@/components/post/PostOptionsSheet";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import { PostCardSkeleton } from "@/components/Skeleton";
@@ -120,6 +123,7 @@ export default function PostDetailScreen() {
   const [showAllComments, setShowAllComments] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
+  const [optionsVisible, setOptionsVisible] = useState(false); // ✅ NEW
 
   const commentInputRef = useRef<TextInput>(null);
   const repostSheetRef = useRef<RepostSheetRef>(null);
@@ -263,21 +267,38 @@ export default function PostDetailScreen() {
     ] as AlertButton[]);
   };
 
+  // ✅ FIX: replaced Alert.alert with themed PostOptionsSheet
   const openMenu = () => {
     if (!post) return;
-    const buttons: AlertButton[] = [];
-    if (isOwner)
-      buttons.push({
-        text: isDeleting ? "Deleting…" : "Delete Post",
-        style: "destructive",
+    setOptionsVisible(true);
+  };
+
+  const postOptions = useMemo((): PostOption[] => {
+    const opts: PostOption[] = [];
+    if (isOwner) {
+      opts.push({
+        label: isDeleting ? "Deleting…" : "Delete Post",
+        icon: "trash-outline",
+        destructive: true,
+        disabled: isDeleting,
         onPress: confirmDelete,
       });
-    buttons.push(
-      { text: "Share", onPress: handleShare },
-      { text: "Cancel", style: "cancel" },
-    );
-    Alert.alert("Post Options", undefined, buttons);
-  };
+    }
+    opts.push({
+      label: "Share",
+      icon: "arrow-redo-outline",
+      onPress: handleShare,
+    });
+    if (!isOwner) {
+      opts.push({
+        label: "Report",
+        icon: "flag-outline",
+        destructive: true,
+        onPress: () => {}, // wire up report flow later
+      });
+    }
+    return opts;
+  }, [isOwner, isDeleting]);
 
   const isPoll = (post as any)?.post_type === "poll";
   const hasMedia = (post?.media_urls?.length ?? 0) > 0;
@@ -947,6 +968,13 @@ export default function PostDetailScreen() {
           url={`https://nebulanet.space/post/${post.id}`}
           text={post.content}
           shareMessage={`Check out this post on NebulaNet!`}
+        />
+
+        {/* ✅ FIX: themed options sheet replaces Alert.alert */}
+        <PostOptionsSheet
+          visible={optionsVisible}
+          onClose={() => setOptionsVisible(false)}
+          options={postOptions}
         />
       </SafeAreaView>
     </LinearGradient>

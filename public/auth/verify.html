@@ -1,84 +1,217 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NebulaNet — Verify Email</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      body {
-        font-family:
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          Arial;
-        background: #0b0f1a;
-        color: #fff;
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
         margin: 0;
+        padding: 0;
       }
-      .wrap {
-        max-width: 520px;
-        margin: 0 auto;
-        padding: 40px 20px;
+
+      :root {
+        --p: #7c3aed;
+        --p2: #a78bfa;
+        --pk: #ec4899;
+        --bg: #08050f;
+        --bg2: #0f0a1e;
+        --t: #f0ecf8;
+        --m: #7b6fa0;
+        --m2: #5a5175;
       }
+
+      body {
+        font-family: "Instrument Sans", sans-serif;
+        background: var(--bg);
+        color: var(--t);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        overflow: hidden;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse at 60% 20%,
+            rgba(124, 58, 237, 0.22) 0%,
+            transparent 55%
+          ),
+          radial-gradient(
+            ellipse at 20% 80%,
+            rgba(236, 72, 153, 0.1) 0%,
+            transparent 50%
+          );
+        pointer-events: none;
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.3;
+      }
+
       .card {
-        background: #121a2b;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        position: relative;
+        z-index: 1;
+        background: var(--bg2);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        border-radius: 20px;
+        padding: 48px 40px;
+        max-width: 440px;
+        width: 100%;
+        text-align: center;
+        animation: slideUp 0.5s ease forwards;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .logo {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 20px;
+        letter-spacing: 3px;
+        color: var(--m);
+        margin-bottom: 32px;
+        display: block;
+      }
+
+      .icon-wrap {
+        width: 64px;
+        height: 64px;
         border-radius: 16px;
-        padding: 22px;
+        margin: 0 auto 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        transition:
+          background 0.4s,
+          border-color 0.4s;
+        background: rgba(124, 58, 237, 0.15);
+        border: 1px solid rgba(124, 58, 237, 0.25);
       }
+      .icon-wrap.ok {
+        background: rgba(52, 211, 153, 0.12);
+        border-color: rgba(52, 211, 153, 0.3);
+      }
+      .icon-wrap.err {
+        background: rgba(251, 113, 133, 0.12);
+        border-color: rgba(251, 113, 133, 0.3);
+      }
+
       h1 {
-        margin: 0 0 10px;
-        font-size: 22px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 32px;
+        letter-spacing: 1px;
+        margin-bottom: 10px;
+        transition: color 0.4s;
       }
-      p {
-        margin: 8px 0;
-        color: rgba(255, 255, 255, 0.8);
-        line-height: 1.4;
+
+      .subtitle {
+        font-size: 14px;
+        color: var(--m);
+        line-height: 1.6;
+        margin-bottom: 32px;
+        min-height: 44px;
       }
+
+      /* spinner */
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 2.5px solid rgba(167, 139, 250, 0.2);
+        border-top-color: var(--p2);
+        border-radius: 50%;
+        animation: spin 0.75s linear infinite;
+        display: none;
+        margin: 0 auto 24px;
+      }
+      .spinner.active {
+        display: block;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .btn {
-        display: inline-block;
-        margin-top: 14px;
-        background: #6d8bff;
-        color: #0b0f1a;
-        padding: 12px 16px;
-        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--p);
+        color: #fff;
         text-decoration: none;
-        font-weight: 700;
+        padding: 14px 28px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        transition: all 0.2s;
+        margin-top: 4px;
       }
-      .muted {
-        font-size: 13px;
-        color: rgba(255, 255, 255, 0.65);
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 32px rgba(124, 58, 237, 0.4);
       }
-      .ok {
-        color: #34d399;
-        font-weight: 700;
-      }
-      .bad {
-        color: #fb7185;
-        font-weight: 700;
+
+      .note {
+        margin-top: 20px;
+        font-size: 12px;
+        color: var(--m2);
+        line-height: 1.6;
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="card">
-        <h1>Email verification</h1>
-        <p id="status" class="muted">Processing…</p>
+    <div class="card">
+      <span class="logo">NEBULANET</span>
 
-        
-          id="openApp"
-          class="btn"
-          href="nebulanet://auth/login"
-          style="display: none"
-        >
-          Open NebulaNet
-        </a>
+      <div class="icon-wrap" id="iconWrap">⏳</div>
+      <div class="spinner active" id="spinner"></div>
 
-        <p class="muted" style="margin-top: 14px">
-          If nothing happens, return to the app and log in again.
-        </p>
-      </div>
+      <h1 id="heading">Verifying…</h1>
+      <p class="subtitle" id="subtitle">
+        Hang tight while we confirm your email address.
+      </p>
+
+      <a
+        id="openApp"
+        class="btn"
+        href="nebulanet://auth/login"
+        style="display: none"
+      >
+        Open NebulaNet →
+      </a>
+
+      <p class="note" id="note" style="display: none">
+        If the app doesn't open, return to NebulaNet and log in again.
+      </p>
     </div>
 
     <script type="module">
@@ -89,7 +222,6 @@
         checkActionCode,
       } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
-      // Build-time injected from .env.production via scripts/inject-firebase-config.js
       const firebaseConfig = {
         apiKey: "__FIREBASE_API_KEY__",
         authDomain: "__FIREBASE_AUTH_DOMAIN__",
@@ -99,37 +231,67 @@
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
 
-      const statusEl = document.getElementById("status");
-      const openAppBtn = document.getElementById("openApp");
+      const iconWrap = document.getElementById("iconWrap");
+      const spinner = document.getElementById("spinner");
+      const heading = document.getElementById("heading");
+      const subtitle = document.getElementById("subtitle");
+      const openApp = document.getElementById("openApp");
+      const note = document.getElementById("note");
+
+      function setOk(msg) {
+        spinner.classList.remove("active");
+        iconWrap.textContent = "✅";
+        iconWrap.classList.add("ok");
+        heading.textContent = "Email verified!";
+        subtitle.textContent = msg;
+        openApp.style.display = "inline-flex";
+        note.style.display = "block";
+      }
+
+      function setErr(msg) {
+        spinner.classList.remove("active");
+        iconWrap.textContent = "✗";
+        iconWrap.classList.add("err");
+        heading.textContent = "Verification failed";
+        heading.style.color = "#fb7185";
+        subtitle.textContent = msg;
+        openApp.style.display = "inline-flex";
+        note.style.display = "block";
+      }
 
       const params = new URLSearchParams(window.location.search);
       const mode = params.get("mode");
       const oobCode = params.get("oobCode");
 
-      const showOpenApp = () => {
-        openAppBtn.style.display = "inline-block";
-        setTimeout(() => {
-          window.location.href = "nebulanet://auth/login";
-        }, 1500);
-      };
-
       (async () => {
         try {
           if (mode !== "verifyEmail" || !oobCode) {
-            statusEl.innerHTML = `<span class="bad">Invalid verification link.</span>`;
-            showOpenApp();
+            setErr("This link is invalid or has already been used.");
             return;
           }
 
           await checkActionCode(auth, oobCode);
           await applyActionCode(auth, oobCode);
 
-          statusEl.innerHTML = `<span class="ok">✅ Email verified successfully.</span>`;
-          showOpenApp();
-        } catch (e) {
-          console.error(e);
-          statusEl.innerHTML = `<span class="bad">Verification failed or link expired.</span>`;
-          showOpenApp();
+          setOk(
+            "Your email address has been confirmed. You can now log in to NebulaNet.",
+          );
+
+          // Auto-open app after 1.5s
+          setTimeout(() => {
+            window.location.href = "nebulanet://auth/login";
+          }, 1500);
+        } catch (err) {
+          console.error(err);
+          if (err.code === "auth/invalid-action-code") {
+            setErr(
+              "This verification link has expired or already been used. Request a new one from the app.",
+            );
+          } else {
+            setErr(
+              "Something went wrong. Please try again or request a new verification email.",
+            );
+          }
         }
       })();
     </script>

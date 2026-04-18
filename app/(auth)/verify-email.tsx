@@ -3,9 +3,11 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import auth from "@react-native-firebase/auth";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
+  AppStateStatus,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,22 +20,57 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function VerifyEmailScreen() {
   const { colors, isDark } = useTheme();
   const [isResending, setIsResending] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const user = auth().currentUser;
-  const email = useMemo(() => user?.email ?? "", [user?.email]);
+  const [email, setEmail] = useState(auth().currentUser?.email ?? "");
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
+  // ─── FIX 1: Reactive auth state listener ────────────────────────────────
+  // auth().currentUser is a static snapshot — it never updates on its own.
+  // onAuthStateChanged fires whenever Firebase refreshes the token/user object,
+  // which can happen after applyActionCode succeeds in the browser.
   useEffect(() => {
-    if (user?.emailVerified) {
-      router.replace("/(auth)/onboarding");
-    }
-  }, [user?.emailVerified]);
+    const unsubscribe = auth().onAuthStateChanged((user) => {
+      if (!user) {
+        router.replace("/(auth)/login");
+        return;
+      }
+      setEmail(user.email ?? "");
+      if (user.emailVerified) {
+        router.replace("/(auth)/onboarding");
+      }
+    });
+    return unsubscribe;
+  }, []);
 
+  // ─── FIX 2: AppState listener — reload when user returns from browser ────
+  // When the user taps the link in their email, they leave the app.
+  // When they come back, AppState transitions active→background→active.
+  // We reload the Firebase user at that point so emailVerified is fresh.
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      "change",
+      async (nextState: AppStateStatus) => {
+        if (
+          appStateRef.current.match(/inactive|background/) &&
+          nextState === "active"
+        ) {
+          await reloadAndCheck(false);
+        }
+        appStateRef.current = nextState;
+      },
+    );
+    return () => subscription.remove();
+  }, []);
+
+  // ─── Countdown timer ─────────────────────────────────────────────────────
   useEffect(() => {
     if (countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
 
+  // ─── Helpers ─────────────────────────────────────────────────────────────
   const requireUser = () => {
     const current = auth().currentUser;
     if (current) return current;
@@ -41,6 +78,41 @@ export default function VerifyEmailScreen() {
       { text: "OK", onPress: () => router.replace("/(auth)/login") },
     ]);
     return null;
+  };
+
+  // Reload Firebase user and check emailVerified.
+  // silent=true → no alert if not yet verified (used by AppState listener).
+  // silent=false → show "Not Verified Yet" alert (used by manual button).
+  const reloadAndCheck = async (silent: boolean) => {
+    const u = requireUser();
+    if (!u) return;
+    try {
+      await u.reload();
+      const fresh = auth().currentUser;
+      if (fresh?.emailVerified) {
+        // onAuthStateChanged will fire and redirect, but redirect here too
+        // in case it doesn't fire fast enough.
+        router.replace("/(auth)/onboarding");
+      } else if (!silent) {
+        Alert.alert(
+          "Not Verified Yet",
+          "Please check your email and click the verification link, then come back here.",
+        );
+      }
+    } catch (e: any) {
+      if (!silent) {
+        Alert.alert(
+          "Error",
+          e?.message || "Failed to check verification status",
+        );
+      }
+    }
+  };
+
+  const handleCheck = async () => {
+    setIsChecking(true);
+    await reloadAndCheck(false);
+    setIsChecking(false);
   };
 
   const handleResend = async () => {
@@ -56,36 +128,12 @@ export default function VerifyEmailScreen() {
       setCountdown(60);
       Alert.alert(
         "Email Sent",
-        "Please check your inbox for the verification link.",
+        "A new verification link has been sent. Check your inbox (and spam folder).",
       );
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to resend email");
+      Alert.alert("Error", e?.message || "Failed to resend verification email");
     } finally {
       setIsResending(false);
-    }
-  };
-
-  const handleCheck = async () => {
-    const u = requireUser();
-    if (!u) return;
-    try {
-      await u.reload();
-      const fresh = auth().currentUser;
-      if (fresh?.emailVerified) {
-        Alert.alert("Email Verified!", "Your email has been verified.", [
-          {
-            text: "Continue",
-            onPress: () => router.replace("/(auth)/onboarding"),
-          },
-        ]);
-      } else {
-        Alert.alert(
-          "Not Verified Yet",
-          "Please check your email and click the verification link, then come back.",
-        );
-      }
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to check verification status");
     }
   };
 
@@ -137,7 +185,7 @@ export default function VerifyEmailScreen() {
             {[
               "Check your email inbox",
               "Click the verification link",
-              "Return to complete setup",
+              "Return here — we'll detect it automatically",
             ].map((step) => (
               <View key={step} style={styles.instructionItem}>
                 <Ionicons
@@ -156,9 +204,12 @@ export default function VerifyEmailScreen() {
             <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
               onPress={handleCheck}
+              disabled={isChecking}
               activeOpacity={0.9}
             >
-              <Text style={styles.primaryBtnText}>I've Verified My Email</Text>
+              <Text style={styles.primaryBtnText}>
+                {isChecking ? "Checking..." : "I've Verified My Email"}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -202,8 +253,8 @@ export default function VerifyEmailScreen() {
               color={colors.textSecondary}
             />
             <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-              Didn't receive the email? Check your spam folder or request a new
-              verification link.
+              After clicking the link in your email, just come back to the app —
+              it will detect the verification automatically.
             </Text>
           </View>
 

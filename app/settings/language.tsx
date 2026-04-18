@@ -1,5 +1,6 @@
-// app/settings/language.tsx — UPDATED ✅ dark mode
+// app/settings/language.tsx
 import { useAuth } from "@/hooks/useAuth";
+import i18n from "@/lib/i18n";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -102,6 +103,8 @@ export default function LanguageRegionScreen() {
       setSelectedLanguage(dbLang || "en");
       setSelectedRegion(dbRegion || "US");
       setLocalizedContent(dbLocalized);
+      // ✅ FIX: apply saved language to i18n on load
+      if (dbLang) void i18n.changeLanguage(dbLang);
       setHydratedOnce(true);
       return;
     }
@@ -111,6 +114,7 @@ export default function LanguageRegionScreen() {
       setSelectedRegion(fallback.region);
       setLocalizedContent(false);
       setHydratedOnce(true);
+      void i18n.changeLanguage(fallback.language);
       void updateSettings({
         language: fallback.language,
         region: fallback.region,
@@ -146,6 +150,13 @@ export default function LanguageRegionScreen() {
     void updateSettings(patch);
   };
 
+  const handleSelectLanguage = (code: string) => {
+    setSelectedLanguage(code);
+    save({ language: code });
+    // ✅ FIX: actually change the UI language immediately
+    void i18n.changeLanguage(code);
+  };
+
   const content = (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: "transparent" }}
@@ -157,7 +168,6 @@ export default function LanguageRegionScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={[
@@ -228,7 +238,7 @@ export default function LanguageRegionScreen() {
             Language
           </Text>
           <Text style={[styles.sectionSub, { color: colors.textSecondary }]}>
-            Changes menus and UI labels.
+            Changes menus and UI labels immediately.
           </Text>
           <FlatList
             data={LANGUAGES}
@@ -242,10 +252,7 @@ export default function LanguageRegionScreen() {
                   index === LANGUAGES.length - 1 && { borderBottomWidth: 0 },
                 ]}
                 activeOpacity={0.85}
-                onPress={() => {
-                  setSelectedLanguage(item.code);
-                  save({ language: item.code });
-                }}
+                onPress={() => handleSelectLanguage(item.code)}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowTitle, { color: colors.text }]}>
@@ -378,7 +385,8 @@ export default function LanguageRegionScreen() {
         </View>
 
         <Text style={[styles.footer, { color: colors.textTertiary }]}>
-          Some changes may require restarting the app.
+          Language changes apply immediately. Some regional changes may require
+          restarting the app.
         </Text>
       </ScrollView>
     </SafeAreaView>

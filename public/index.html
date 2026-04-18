@@ -6,8 +6,14 @@
     <title>NebulaNet — Your Space to Connect</title>
     <meta
       name="description"
-      content="A social platform built for real connection. Posts, stories, communities, chat — all in one place. Free, always."
+      content="A social platform built for real connection. Posts, stories, communities, chat — all in one place. Free, always. Join the Android beta now."
     />
+    <meta property="og:title" content="NebulaNet — Your Space to Connect" />
+    <meta
+      property="og:description"
+      content="Built by one indie developer. Posts, stories, communities, real-time chat, GIFs, polls. Free, always. Beta is live on Android."
+    />
+    <meta property="og:url" content="https://nebulanet.space" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap"
@@ -28,9 +34,11 @@
         --pk: #ec4899;
         --bg: #08050f;
         --bg2: #0f0a1e;
+        --bg3: #13092a;
         --t: #f0ecf8;
         --m: #7b6fa0;
         --m2: #5a5175;
+        --ok: #22c55e;
       }
 
       html {
@@ -44,7 +52,6 @@
         overflow-x: hidden;
       }
 
-      /* grain */
       body::after {
         content: "";
         position: fixed;
@@ -70,7 +77,6 @@
         backdrop-filter: blur(12px);
         border-bottom: 1px solid rgba(124, 58, 237, 0.08);
       }
-
       .nav-logo {
         font-family: "Bebas Neue", sans-serif;
         font-size: 22px;
@@ -78,14 +84,12 @@
         color: #fff;
         text-decoration: none;
       }
-
       nav ul {
         display: flex;
         gap: 36px;
         list-style: none;
         align-items: center;
       }
-
       nav ul a {
         font-size: 13px;
         color: rgba(255, 255, 255, 0.55);
@@ -96,7 +100,6 @@
       nav ul a:hover {
         color: #fff;
       }
-
       .nav-cta {
         background: var(--p) !important;
         color: #fff !important;
@@ -104,7 +107,6 @@
         border-radius: 6px;
         font-weight: 600 !important;
         font-size: 13px !important;
-        letter-spacing: 0.3px !important;
         transition: all 0.2s !important;
       }
       .nav-cta:hover {
@@ -122,7 +124,6 @@
         position: relative;
         overflow: hidden;
       }
-
       .hero-blob {
         position: absolute;
         top: -20%;
@@ -139,7 +140,6 @@
         filter: blur(60px);
         pointer-events: none;
       }
-
       .hero-blob2 {
         position: absolute;
         bottom: -30%;
@@ -155,33 +155,11 @@
         filter: blur(80px);
         pointer-events: none;
       }
-
       .hero-left {
         position: relative;
         z-index: 2;
         padding: 120px 0 80px;
       }
-
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 11px;
-        letter-spacing: 2.5px;
-        text-transform: uppercase;
-        color: var(--p2);
-        margin-bottom: 28px;
-        font-weight: 500;
-      }
-      .eyebrow::before {
-        content: "";
-        display: block;
-        width: 28px;
-        height: 1px;
-        background: var(--p2);
-      }
-
-      /* ✅ UPDATED: live beta badge */
       .beta-badge {
         display: inline-flex;
         align-items: center;
@@ -201,8 +179,8 @@
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: #22c55e;
-        box-shadow: 0 0 8px #22c55e;
+        background: var(--ok);
+        box-shadow: 0 0 8px var(--ok);
         animation: pulse 2s ease infinite;
       }
       @keyframes pulse {
@@ -216,7 +194,6 @@
           transform: scale(0.85);
         }
       }
-
       h1 {
         font-family: "Bebas Neue", sans-serif;
         font-size: clamp(80px, 10vw, 148px);
@@ -224,24 +201,19 @@
         letter-spacing: -1px;
         margin-bottom: 36px;
       }
-
       h1 em {
         font-style: normal;
         display: block;
         -webkit-text-stroke: 1px var(--p2);
         color: transparent;
       }
-
       .hero-desc {
         font-size: 16px;
         color: var(--m);
         max-width: 380px;
         line-height: 1.75;
         margin-bottom: 40px;
-        font-weight: 400;
       }
-
-      /* ✅ UPDATED: button group */
       .btn-group {
         display: flex;
         align-items: center;
@@ -249,7 +221,6 @@
         flex-wrap: wrap;
         margin-bottom: 28px;
       }
-
       .dl-btn {
         display: inline-flex;
         align-items: center;
@@ -261,7 +232,6 @@
         border-radius: 6px;
         font-size: 14px;
         font-weight: 600;
-        letter-spacing: 0.2px;
         transition: all 0.2s;
         position: relative;
         overflow: hidden;
@@ -286,7 +256,6 @@
         transform: translateY(-2px);
         box-shadow: 0 12px 40px rgba(124, 58, 237, 0.4);
       }
-
       .ghost-btn {
         display: inline-flex;
         align-items: center;
@@ -297,7 +266,6 @@
         border-radius: 6px;
         font-size: 14px;
         font-weight: 500;
-        letter-spacing: 0.2px;
         border: 1px solid rgba(167, 139, 250, 0.25);
         transition: all 0.2s;
       }
@@ -306,8 +274,6 @@
         background: rgba(124, 58, 237, 0.08);
         transform: translateY(-1px);
       }
-
-      /* ✅ UPDATED: social proof strip */
       .social-proof {
         display: flex;
         align-items: center;
@@ -335,7 +301,7 @@
         margin-left: 0;
       }
 
-      /* ─── RIGHT SIDE ─── */
+      /* ─── HERO RIGHT ─── */
       .hero-right {
         position: relative;
         z-index: 2;
@@ -345,7 +311,6 @@
         justify-content: center;
         padding: 120px 0 80px;
       }
-
       .abstract-grid {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -353,7 +318,6 @@
         gap: 8px;
         width: 420px;
       }
-
       .ag-cell {
         border-radius: 12px;
         overflow: hidden;
@@ -370,7 +334,6 @@
       .ag-cell.wide {
         grid-column: span 2;
       }
-
       .ag-cell.c1 {
         background: var(--bg2);
         padding: 20px;
@@ -424,7 +387,6 @@
         color: var(--p2);
         letter-spacing: 1px;
       }
-
       .cell-tag {
         font-size: 10px;
         letter-spacing: 1.5px;
@@ -432,18 +394,6 @@
         color: var(--p2);
         font-weight: 500;
       }
-      .cell-val {
-        font-family: "Bebas Neue", sans-serif;
-        font-size: 42px;
-        color: var(--t);
-        line-height: 1;
-      }
-      .cell-label {
-        font-size: 11px;
-        color: var(--m);
-        font-weight: 400;
-      }
-
       .mini-rings {
         display: flex;
         gap: 6px;
@@ -473,7 +423,6 @@
       .mini-ring.seen {
         background: #3d3550;
       }
-
       .htag {
         display: inline-block;
         font-size: 11px;
@@ -485,7 +434,6 @@
         margin: 2px;
         font-weight: 500;
       }
-
       .mini-post-row {
         display: flex;
         align-items: center;
@@ -524,13 +472,9 @@
         font-size: 10px;
         color: var(--pk);
       }
-
-      /* ─── DIVIDER ─── */
-      .divider {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 0 52px;
-        border-top: 1px solid rgba(124, 58, 237, 0.12);
+      .cell-label {
+        font-size: 11px;
+        color: var(--m);
       }
 
       /* ─── MARQUEE ─── */
@@ -574,13 +518,32 @@
         flex-shrink: 0;
       }
 
+      /* ─── SECTION SHARED ─── */
+      .section-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 11px;
+        letter-spacing: 2.5px;
+        text-transform: uppercase;
+        color: var(--p2);
+        margin-bottom: 20px;
+        font-weight: 500;
+      }
+      .section-eyebrow::before {
+        content: "";
+        display: block;
+        width: 28px;
+        height: 1px;
+        background: var(--p2);
+      }
+
       /* ─── FEATURES ─── */
       .features {
         padding: 120px 52px;
         max-width: 1100px;
         margin: 0 auto;
       }
-
       .feat-header {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -588,20 +551,16 @@
         align-items: end;
         margin-bottom: 80px;
       }
-
       .feat-header h2 {
         font-family: "Bebas Neue", sans-serif;
         font-size: clamp(56px, 7vw, 96px);
         line-height: 0.9;
-        letter-spacing: -0.5px;
       }
-
       .feat-header h2 span {
         display: block;
         -webkit-text-stroke: 1px var(--m2);
         color: transparent;
       }
-
       .feat-header p {
         font-size: 16px;
         color: var(--m);
@@ -609,7 +568,6 @@
         max-width: 400px;
         align-self: end;
       }
-
       .feat-list {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -619,7 +577,6 @@
         border-radius: 16px;
         overflow: hidden;
       }
-
       .feat-item {
         background: var(--bg);
         padding: 36px 32px;
@@ -629,7 +586,6 @@
       .feat-item:hover {
         background: var(--bg2);
       }
-
       .feat-num {
         font-family: "Bebas Neue", sans-serif;
         font-size: 13px;
@@ -647,10 +603,131 @@
         font-size: 14px;
         color: var(--m);
         line-height: 1.7;
-        font-weight: 400;
       }
 
-      /* ✅ NEW: built by section */
+      /* ─── JOIN BETA ─── */
+      .join-beta {
+        padding: 100px 52px;
+        max-width: 1100px;
+        margin: 0 auto;
+        border-top: 1px solid rgba(124, 58, 237, 0.1);
+      }
+      .join-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 60px;
+        align-items: start;
+      }
+      .join-left h2 {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(48px, 6vw, 80px);
+        line-height: 0.9;
+        margin-bottom: 20px;
+      }
+      .join-left h2 span {
+        -webkit-text-stroke: 1px var(--m2);
+        color: transparent;
+      }
+      .join-left p {
+        font-size: 15px;
+        color: var(--m);
+        line-height: 1.8;
+        margin-bottom: 32px;
+        max-width: 400px;
+      }
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .step {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        padding: 20px;
+        border-radius: 12px;
+        background: var(--bg2);
+        border: 1px solid rgba(124, 58, 237, 0.12);
+        transition: border-color 0.2s;
+      }
+      .step:hover {
+        border-color: rgba(124, 58, 237, 0.28);
+      }
+      .step-num {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        flex-shrink: 0;
+        background: rgba(124, 58, 237, 0.2);
+        border: 1px solid rgba(124, 58, 237, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 16px;
+        color: var(--p2);
+      }
+      .step-content h4 {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .step-content p {
+        font-size: 13px;
+        color: var(--m);
+        line-height: 1.6;
+      }
+      .step-content a {
+        color: var(--p2);
+        text-decoration: none;
+      }
+      .step-content a:hover {
+        text-decoration: underline;
+      }
+
+      .perks {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .perk {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 18px 20px;
+        border-radius: 12px;
+        background: var(--bg2);
+        border: 1px solid rgba(124, 58, 237, 0.1);
+        transition: all 0.2s;
+      }
+      .perk:hover {
+        border-color: rgba(124, 58, 237, 0.25);
+        transform: translateX(4px);
+      }
+      .perk-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        background: rgba(124, 58, 237, 0.15);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      }
+      .perk-text h4 {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .perk-text p {
+        font-size: 12px;
+        color: var(--m);
+      }
+
+      /* ─── BUILT BY ─── */
       .built-by {
         padding: 80px 52px;
         max-width: 1100px;
@@ -661,45 +738,37 @@
         align-items: center;
         border-top: 1px solid rgba(124, 58, 237, 0.1);
       }
-
       .built-by h3 {
         font-family: "Bebas Neue", sans-serif;
         font-size: clamp(40px, 5vw, 72px);
         line-height: 0.9;
-        letter-spacing: -0.5px;
         margin-bottom: 20px;
       }
-
       .built-by h3 span {
         -webkit-text-stroke: 1px var(--m2);
         color: transparent;
       }
-
       .built-by p {
         font-size: 15px;
         color: var(--m);
         line-height: 1.8;
         margin-bottom: 28px;
       }
-
       .stat-row {
         display: flex;
         gap: 32px;
       }
-
       .stat-box {
         display: flex;
         flex-direction: column;
         gap: 4px;
       }
-
       .stat-num {
         font-family: "Bebas Neue", sans-serif;
         font-size: 42px;
         color: var(--p2);
         line-height: 1;
       }
-
       .stat-label {
         font-size: 11px;
         color: var(--m);
@@ -707,7 +776,6 @@
         letter-spacing: 1.5px;
         font-weight: 500;
       }
-
       .quote-card {
         background: var(--bg2);
         border: 1px solid rgba(124, 58, 237, 0.18);
@@ -715,7 +783,6 @@
         padding: 32px;
         position: relative;
       }
-
       .quote-card::before {
         content: '"';
         position: absolute;
@@ -726,7 +793,6 @@
         color: var(--p);
         line-height: 1;
       }
-
       .quote-text {
         font-size: 16px;
         line-height: 1.7;
@@ -734,13 +800,11 @@
         margin-bottom: 20px;
         font-style: italic;
       }
-
       .quote-author {
         display: flex;
         align-items: center;
         gap: 10px;
       }
-
       .quote-avatar {
         width: 36px;
         height: 36px;
@@ -753,13 +817,11 @@
         font-weight: 700;
         color: #fff;
       }
-
       .quote-name {
         font-size: 13px;
         font-weight: 600;
         color: var(--t);
       }
-
       .quote-handle {
         font-size: 12px;
         color: var(--m);
@@ -772,7 +834,6 @@
         position: relative;
         overflow: hidden;
       }
-
       .cta-blob {
         position: absolute;
         top: 50%;
@@ -788,7 +849,6 @@
         filter: blur(40px);
         pointer-events: none;
       }
-
       .cta h2 {
         font-family: "Bebas Neue", sans-serif;
         font-size: clamp(64px, 10vw, 130px);
@@ -797,21 +857,17 @@
         margin-bottom: 32px;
         position: relative;
       }
-
       .cta h2 .outline {
         display: block;
         -webkit-text-stroke: 1px rgba(167, 139, 250, 0.5);
         color: transparent;
       }
-
       .cta p {
         font-size: 17px;
         color: var(--m);
         margin-bottom: 52px;
-        font-weight: 400;
         position: relative;
       }
-
       .cta-btns {
         display: flex;
         align-items: center;
@@ -831,14 +887,12 @@
         flex-wrap: wrap;
         gap: 16px;
       }
-
       .footer-logo {
         font-family: "Bebas Neue", sans-serif;
         font-size: 18px;
         letter-spacing: 3px;
         color: var(--m2);
       }
-
       footer nav a {
         font-size: 12px;
         color: var(--m2);
@@ -850,11 +904,50 @@
       footer nav a:hover {
         color: var(--t);
       }
-
       footer p {
         font-size: 12px;
         color: var(--m2);
-        letter-spacing: 0.3px;
+      }
+
+      /* ─── REVEAL ANIMATIONS ─── */
+      .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        animation: reveal 0.8s ease forwards;
+      }
+      @keyframes reveal {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .d1 {
+        animation-delay: 0.05s;
+      }
+      .d2 {
+        animation-delay: 0.15s;
+      }
+      .d3 {
+        animation-delay: 0.28s;
+      }
+      .d4 {
+        animation-delay: 0.42s;
+      }
+      .d5 {
+        animation-delay: 0.58s;
+      }
+
+      /* scroll-triggered reveal */
+      .scroll-reveal {
+        opacity: 0;
+        transform: translateY(30px);
+        transition:
+          opacity 0.7s ease,
+          transform 0.7s ease;
+      }
+      .scroll-reveal.visible {
+        opacity: 1;
+        transform: translateY(0);
       }
 
       /* ─── RESPONSIVE ─── */
@@ -885,6 +978,13 @@
         .feat-list {
           grid-template-columns: 1fr 1fr;
         }
+        .join-beta {
+          padding: 80px 24px;
+        }
+        .join-grid {
+          grid-template-columns: 1fr;
+          gap: 40px;
+        }
         .built-by {
           grid-template-columns: 1fr;
           padding: 60px 24px;
@@ -902,7 +1002,6 @@
           margin-left: 0;
         }
       }
-
       @media (max-width: 560px) {
         .feat-list {
           grid-template-columns: 1fr;
@@ -910,34 +1009,6 @@
         .stat-row {
           gap: 20px;
         }
-      }
-
-      /* ─── FADE-IN ─── */
-      .reveal {
-        opacity: 0;
-        transform: translateY(24px);
-        animation: reveal 0.8s ease forwards;
-      }
-      @keyframes reveal {
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-      .d1 {
-        animation-delay: 0.05s;
-      }
-      .d2 {
-        animation-delay: 0.15s;
-      }
-      .d3 {
-        animation-delay: 0.28s;
-      }
-      .d4 {
-        animation-delay: 0.42s;
-      }
-      .d5 {
-        animation-delay: 0.58s;
       }
     </style>
   </head>
@@ -947,19 +1018,13 @@
       <a href="#" class="nav-logo">NEBULANET</a>
       <ul>
         <li><a href="#features">Features</a></li>
+        <li><a href="#join">Testers</a></li>
         <li><a href="#built-by">About</a></li>
         <li>
-          <a
-            href="https://nebulanet.beehiiv.com/"
-            target="_blank"
-            class="nav-cta"
-          >
-            Get Early Access
-          </a>
+          <a href="#join" class="nav-cta">Join Beta</a>
         </li>
       </ul>
     </nav>
-    <!-- Terms/Privacy are in the footer only -->
 
     <!-- HERO -->
     <section class="hero">
@@ -967,7 +1032,6 @@
       <div class="hero-blob2"></div>
 
       <div class="hero-left">
-        <!-- ✅ Live beta badge instead of plain eyebrow -->
         <div class="beta-badge reveal d1">
           <span class="beta-dot"></span>
           Beta is live on Android
@@ -985,19 +1049,22 @@
           always.
         </p>
 
-        <!-- ✅ Two buttons: primary CTA + learn more -->
         <div class="btn-group reveal d4">
           <a
-            href="https://nebulanet.beehiiv.com/"
+            href="https://play.google.com/store/apps/details?id=com.nebulanet.app"
             class="dl-btn"
             target="_blank"
           >
-            Get Early Access
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M3.18 23.76c.33.19.7.24 1.06.14l11.37-11.37L12 9l-8.82 14.76zM20.5 10.42l-2.6-1.5-3.27 3.27 3.27 3.27 2.62-1.52c.75-.43.75-1.58-.02-2.02zM4.24.1a1.4 1.4 0 0 0-1.06.14L15.55 12l3.61-3.61L4.24.1zM2.5 1.47C2.18 1.8 2 2.31 2 3v18c0 .69.18 1.2.5 1.53L12 13 2.5 1.47z"
+              />
+            </svg>
+            Get it on Google Play
           </a>
-          <a href="#features" class="ghost-btn"> See features → </a>
+          <a href="#join" class="ghost-btn">Become a tester →</a>
         </div>
 
-        <!-- ✅ Social proof -->
         <div class="social-proof reveal d5">
           <div class="proof-avatars">
             <div
@@ -1025,11 +1092,10 @@
               K
             </div>
           </div>
-          <span>Join early testers already on the platform</span>
+          <span>Testers already exploring the platform</span>
         </div>
       </div>
 
-      <!-- Abstract data grid -->
       <div class="hero-right reveal d3">
         <div class="abstract-grid">
           <div class="ag-cell c1 tall">
@@ -1198,22 +1264,18 @@
 
     <!-- FEATURES -->
     <section class="features" id="features">
-      <div class="feat-header">
-        <h2>
-          BUILT<br />
-          <span>DIFFERENT</span>
-        </h2>
+      <div class="feat-header scroll-reveal">
+        <h2>BUILT<br /><span>DIFFERENT</span></h2>
         <p>
           Every feature was chosen with one goal — making real connection feel
           effortless. No algorithm tricks. No dark patterns. Just the people and
           content you actually care about.
         </p>
       </div>
-
-      <div class="feat-list">
+      <div class="feat-list scroll-reveal">
         <div class="feat-item">
           <div class="feat-num">01</div>
-          <div class="feat-name">Posts & stories</div>
+          <div class="feat-name">Posts &amp; stories</div>
           <p class="feat-desc">
             Photos, videos, GIFs, and polls. Stories vanish after 24 hours —
             gradient rings show you who posted before you've even tapped.
@@ -1262,21 +1324,127 @@
       </div>
     </section>
 
-    <!-- ✅ NEW: Built by one person section -->
+    <!-- JOIN BETA -->
+    <section class="join-beta" id="join">
+      <div class="section-eyebrow scroll-reveal">Beta testers wanted</div>
+      <div class="join-grid">
+        <div class="join-left scroll-reveal">
+          <h2>SHAPE WHAT<br /><span>IT BECOMES</span></h2>
+          <p>
+            NebulaNet is live on Android and actively looking for testers. Your
+            feedback directly influences what gets built next — no middlemen, no
+            ticket queues. Just you and the developer.
+          </p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div class="step-content">
+                <h4>Join the Google Group</h4>
+                <p>
+                  Request access at
+                  <a
+                    href="https://groups.google.com/g/nebulanet-beta"
+                    target="_blank"
+                    >groups.google.com/g/nebulanet-beta</a
+                  >
+                  — approval is fast.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div class="step-content">
+                <h4>Download from Google Play</h4>
+                <p>
+                  Once approved, install directly from the
+                  <a
+                    href="https://play.google.com/store/apps/details?id=com.nebulanet.app"
+                    target="_blank"
+                    >Play Store</a
+                  >. No sideloading needed.
+                </p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div class="step-content">
+                <h4>Report bugs &amp; suggest features</h4>
+                <p>
+                  Use the in-app feedback or reply in the Google Group. Every
+                  report gets read.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="scroll-reveal">
+          <p
+            style="
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 2px;
+              color: var(--m2);
+              margin-bottom: 20px;
+              font-weight: 500;
+            "
+          >
+            What testers get
+          </p>
+          <div class="perks">
+            <div class="perk">
+              <div class="perk-icon">🏷️</div>
+              <div class="perk-text">
+                <h4>Founder badge</h4>
+                <p>
+                  Early testers get a permanent founder badge on their profile.
+                </p>
+              </div>
+            </div>
+            <div class="perk">
+              <div class="perk-icon">🔮</div>
+              <div class="perk-text">
+                <h4>Early access to every feature</h4>
+                <p>
+                  New features ship to testers first, weeks before anyone else.
+                </p>
+              </div>
+            </div>
+            <div class="perk">
+              <div class="perk-icon">📣</div>
+              <div class="perk-text">
+                <h4>Direct line to the developer</h4>
+                <p>
+                  Your feedback shapes the roadmap. No filters, no product
+                  managers.
+                </p>
+              </div>
+            </div>
+            <div class="perk">
+              <div class="perk-icon">🆓</div>
+              <div class="perk-text">
+                <h4>Free forever</h4>
+                <p>NebulaNet will always be free. No premium tiers, no ads.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUILT BY ONE PERSON -->
     <section class="built-by" id="built-by">
-      <div>
-        <h3>
-          BUILT BY<br />
-          <span>ONE PERSON</span>
-        </h3>
+      <div class="scroll-reveal">
+        <div class="section-eyebrow">The story</div>
+        <h3>BUILT BY<br /><span>ONE PERSON</span></h3>
         <p>
           NebulaNet was built solo over the past year — no team, no funding, no
           shortcuts. Every screen, every feature, every bug fix shipped by one
           indie developer.
         </p>
         <p>
-          It's live now on Android in closed beta. Join early, shape what it
-          becomes.
+          It's live now on Android in beta. Join early, shape what it becomes.
         </p>
         <div class="stat-row">
           <div class="stat-box">
@@ -1293,7 +1461,7 @@
           </div>
         </div>
       </div>
-      <div class="quote-card">
+      <div class="quote-card scroll-reveal">
         <p class="quote-text">
           Spent the last year building NebulaNet from scratch. Posts, stories,
           communities, real-time chat, GIFs, polls, events — all of it. No team.
@@ -1312,28 +1480,25 @@
     <!-- CTA -->
     <section class="cta">
       <div class="cta-blob"></div>
-      <h2>
+      <h2 class="scroll-reveal">
         JOIN THE
         <span class="outline">NEBULA</span>
       </h2>
-      <p>Free to use. Free forever. Beta is open now.</p>
-      <div class="cta-btns">
+      <p class="scroll-reveal">
+        Free to use. Free forever. Beta is open now on Android.
+      </p>
+      <div class="cta-btns scroll-reveal">
         <a
-          href="https://nebulanet.beehiiv.com/"
+          href="https://play.google.com/store/apps/details?id=com.nebulanet.app"
           class="dl-btn"
           target="_blank"
           style="font-size: 15px; padding: 16px 36px"
         >
-          Get Early Access
+          Get it on Google Play
         </a>
-        <a
-          href="https://bsky.app/profile/alybak.bsky.social"
-          class="ghost-btn"
-          target="_blank"
-          style="font-size: 14px"
+        <a href="#join" class="ghost-btn" style="font-size: 14px"
+          >Become a tester →</a
         >
-          Follow updates →
-        </a>
       </div>
     </section>
 
@@ -1417,5 +1582,23 @@
         </div>
       </div>
     </footer>
+
+    <script>
+      // Scroll-triggered reveals
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (e.isIntersecting) {
+              e.target.classList.add("visible");
+              observer.unobserve(e.target);
+            }
+          });
+        },
+        { threshold: 0.12 },
+      );
+      document
+        .querySelectorAll(".scroll-reveal")
+        .forEach((el) => observer.observe(el));
+    </script>
   </body>
 </html>

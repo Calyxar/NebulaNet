@@ -49,16 +49,32 @@ export default function PhoneOTPScreen() {
   }, [countdown]);
 
   useEffect(() => {
-    if (error) Alert.alert("Error", error);
+    if (error) Alert.alert("Verification Failed", error);
   }, [error]);
 
-  const finishTwoFactor = async () => {
-    if (twoFactor === "1" && email && password) {
-      try {
-        await auth().signInWithEmailAndPassword(email, password);
-      } catch {
-        // If re-sign-in fails, still navigate — user is phone-verified
-      }
+  // ─── FIX: Two-factor sign-in with proper error handling ─────────────────
+  // Previously this silently swallowed errors, which could leave the user
+  // phone-verified but not email-signed-in with no feedback or recovery path.
+  const finishTwoFactor = async (): Promise<boolean> => {
+    if (twoFactor !== "1" || !email || !password) return true;
+    try {
+      await auth().signInWithEmailAndPassword(email, password);
+      return true;
+    } catch (e: any) {
+      // Phone verification succeeded but email re-auth failed.
+      // This can happen if the session expired. Show a clear message
+      // and send them to login so they can start fresh.
+      Alert.alert(
+        "Session Expired",
+        "Phone verified successfully, but your session expired. Please log in again.",
+        [
+          {
+            text: "Log In",
+            onPress: () => router.replace("/(auth)/login"),
+          },
+        ],
+      );
+      return false;
     }
   };
 
@@ -66,8 +82,8 @@ export default function PhoneOTPScreen() {
     if (code.length !== CODE_LENGTH) return;
     const otpUser = await verifyOTP(code);
     if (otpUser) {
-      await finishTwoFactor();
-      router.replace("/(tabs)/home" as any);
+      const ok = await finishTwoFactor();
+      if (ok) router.replace("/(tabs)/home" as any);
     }
   };
 
@@ -78,8 +94,8 @@ export default function PhoneOTPScreen() {
       setTimeout(async () => {
         const otpUser = await verifyOTP(clean);
         if (otpUser) {
-          await finishTwoFactor();
-          router.replace("/(tabs)/home" as any);
+          const ok = await finishTwoFactor();
+          if (ok) router.replace("/(tabs)/home" as any);
         }
       }, 200);
     }
@@ -87,8 +103,8 @@ export default function PhoneOTPScreen() {
 
   const isVerifying = state === "verifying";
 
-  const renderBoxes = () => {
-    return Array(CODE_LENGTH)
+  const renderBoxes = () =>
+    Array(CODE_LENGTH)
       .fill(0)
       .map((_, i) => {
         const char = code[i] ?? "";
@@ -113,7 +129,6 @@ export default function PhoneOTPScreen() {
           </View>
         );
       });
-  };
 
   const inner = (
     <SafeAreaView
@@ -226,10 +241,11 @@ export default function PhoneOTPScreen() {
             ) : (
               <TouchableOpacity
                 onPress={() => {
+                  reset();
                   router.back();
                 }}
               >
-                <Text style={[styles.resendBtn, { color: colors.primary }]}>
+                <Text style={[styles.resendLink, { color: colors.primary }]}>
                   Resend
                 </Text>
               </TouchableOpacity>
@@ -310,5 +326,5 @@ const styles = StyleSheet.create({
   resendRow: { flexDirection: "row", alignItems: "center" },
   resendLabel: { fontSize: 14 },
   resendTimer: { fontSize: 14, fontWeight: "600" },
-  resendBtn: { fontSize: 14, fontWeight: "700" },
+  resendLink: { fontSize: 14, fontWeight: "700" },
 });

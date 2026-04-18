@@ -1,8 +1,4 @@
-// lib/firestore/comments.ts — UPDATED ✅
-// ✅ FIXED: removed orderBy("created_at_ts") — requires a composite index that
-//           doesn't exist, causing getComments to silently return 0 results
-// ✅ Sort is now done in JS after fetch — works without any index
-
+// lib/firestore/comments.ts
 import { auth, db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
@@ -65,7 +61,6 @@ export async function getComments(
   const clean = postId?.trim();
   if (!clean) return [];
 
-  // ✅ FIXED: no orderBy — avoids missing composite index error
   const snap = await db
     .collection("comments")
     .where("post_id", "==", clean)
@@ -73,7 +68,6 @@ export async function getComments(
 
   const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
 
-  // ✅ Sort by created_at in JS instead
   rows.sort((a, b) => {
     const aTime =
       a.created_at_ts?.toMillis?.() ?? new Date(a.created_at ?? 0).getTime();
@@ -101,7 +95,6 @@ export async function getComments(
     replies: [],
   }));
 
-  // Build reply tree
   const byId = new Map(normalized.map((c) => [c.id, c]));
   const top: CommentWithAuthor[] = [];
   for (const c of normalized) {
@@ -127,7 +120,11 @@ export async function addComment(input: {
   const now = new Date().toISOString();
   const author = await getProfileSnapshot(uid);
 
-  const refDoc = await db.collection("comments").add({
+  const batch = db.batch();
+
+  // ✅ FIX: use batch so comment + count update are atomic
+  const commentRef = db.collection("comments").doc();
+  batch.set(commentRef, {
     post_id: input.post_id,
     user_id: uid,
     content: input.content,
@@ -138,7 +135,13 @@ export async function addComment(input: {
     created_at_ts: firestore.FieldValue.serverTimestamp(),
   });
 
-  return { id: refDoc.id };
+  const postRef = db.collection("posts").doc(input.post_id);
+  batch.update(postRef, {
+    comment_count: firestore.FieldValue.increment(1),
+  });
+
+  await batch.commit();
+  return { id: commentRef.id };
 }
 
 export async function toggleCommentLike(input: {

@@ -1,121 +1,354 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NebulaNet — Reset Password</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      body {
-        font-family:
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          Arial;
-        background: #0b0f1a;
-        color: #fff;
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
         margin: 0;
+        padding: 0;
       }
-      .wrap {
-        max-width: 520px;
-        margin: 0 auto;
-        padding: 40px 20px;
+
+      :root {
+        --p: #7c3aed;
+        --p2: #a78bfa;
+        --pk: #ec4899;
+        --bg: #08050f;
+        --bg2: #0f0a1e;
+        --t: #f0ecf8;
+        --m: #7b6fa0;
+        --m2: #5a5175;
+        --err: #fb7185;
+        --ok: #34d399;
       }
+
+      body {
+        font-family: "Instrument Sans", sans-serif;
+        background: var(--bg);
+        color: var(--t);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        overflow: hidden;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse at 60% 20%,
+            rgba(124, 58, 237, 0.22) 0%,
+            transparent 55%
+          ),
+          radial-gradient(
+            ellipse at 20% 80%,
+            rgba(236, 72, 153, 0.1) 0%,
+            transparent 50%
+          );
+        pointer-events: none;
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.3;
+      }
+
       .card {
-        background: #121a2b;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 22px;
+        position: relative;
+        z-index: 1;
+        background: var(--bg2);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        border-radius: 20px;
+        padding: 48px 40px;
+        max-width: 440px;
+        width: 100%;
+        animation: slideUp 0.5s ease forwards;
       }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .logo {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 20px;
+        letter-spacing: 3px;
+        color: var(--m);
+        margin-bottom: 32px;
+        display: block;
+        text-align: center;
+      }
+
       h1 {
-        margin: 0 0 10px;
-        font-size: 22px;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 30px;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
       }
-      p {
-        margin: 8px 0;
-        color: rgba(255, 255, 255, 0.8);
-        line-height: 1.4;
+
+      .desc {
+        font-size: 14px;
+        color: var(--m);
+        line-height: 1.6;
+        margin-bottom: 28px;
       }
-      .row {
+
+      .field {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        margin-top: 14px;
+        gap: 6px;
+        margin-bottom: 16px;
       }
-      input {
-        padding: 12px 14px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: #fff;
+
+      label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--m);
+      }
+
+      input[type="password"] {
+        background: rgba(124, 58, 237, 0.08);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        border-radius: 10px;
+        padding: 13px 16px;
+        font-family: inherit;
+        font-size: 15px;
+        color: var(--t);
         outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+        width: 100%;
       }
-      button {
-        padding: 12px 14px;
-        border-radius: 12px;
-        border: 0;
-        background: #6d8bff;
-        color: #0b0f1a;
-        font-weight: 800;
+      input[type="password"]:focus {
+        border-color: var(--p2);
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+      }
+      input[type="password"]::placeholder {
+        color: var(--m2);
+      }
+
+      .field-err {
+        font-size: 12px;
+        color: var(--err);
+        min-height: 18px;
+      }
+
+      .requirements {
+        background: rgba(124, 58, 237, 0.06);
+        border: 1px solid rgba(124, 58, 237, 0.12);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .req {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--m);
+        transition: color 0.2s;
+      }
+      .req.met {
+        color: var(--ok);
+      }
+      .req-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--m2);
+        flex-shrink: 0;
+        transition: background 0.2s;
+      }
+      .req.met .req-dot {
+        background: var(--ok);
+      }
+
+      .btn {
+        width: 100%;
+        background: var(--p);
+        color: #fff;
+        border: none;
+        padding: 14px;
+        border-radius: 10px;
+        font-family: inherit;
+        font-size: 15px;
+        font-weight: 600;
         cursor: pointer;
+        transition: all 0.2s;
+        margin-top: 4px;
       }
-      button:disabled {
-        opacity: 0.6;
+      .btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 32px rgba(124, 58, 237, 0.4);
+      }
+      .btn:disabled {
+        opacity: 0.5;
         cursor: not-allowed;
       }
-      .muted {
-        font-size: 13px;
-        color: rgba(255, 255, 255, 0.65);
+
+      /* success / error state */
+      .result {
+        text-align: center;
+        display: none;
       }
-      .ok {
-        color: #34d399;
-        font-weight: 700;
+      .result.visible {
+        display: block;
       }
-      .bad {
-        color: #fb7185;
-        font-weight: 700;
+
+      .result-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        margin: 0 auto 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
       }
-      .btnlink {
-        display: inline-block;
-        margin-top: 14px;
-        color: #6d8bff;
+      .result-icon.ok {
+        background: rgba(52, 211, 153, 0.12);
+        border: 1px solid rgba(52, 211, 153, 0.3);
+      }
+      .result-icon.err {
+        background: rgba(251, 113, 133, 0.12);
+        border: 1px solid rgba(251, 113, 133, 0.3);
+      }
+
+      .result h1 {
+        margin-bottom: 10px;
+      }
+
+      .result p {
+        font-size: 14px;
+        color: var(--m);
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+
+      .open-app {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--p);
+        color: #fff;
         text-decoration: none;
-        font-weight: 700;
+        padding: 14px 28px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s;
+      }
+      .open-app:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 32px rgba(124, 58, 237, 0.4);
+      }
+
+      .global-err {
+        background: rgba(251, 113, 133, 0.1);
+        border: 1px solid rgba(251, 113, 133, 0.25);
+        border-radius: 10px;
+        padding: 12px 16px;
+        font-size: 13px;
+        color: var(--err);
+        line-height: 1.5;
+        margin-bottom: 20px;
+        display: none;
+      }
+      .global-err.visible {
+        display: block;
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="card">
-        <h1>Reset your password</h1>
-        <p id="status" class="muted">Loading…</p>
+    <div class="card">
+      <span class="logo">NEBULANET</span>
 
-        <form id="form" style="display: none" class="row">
+      <!-- Form state -->
+      <div id="formState">
+        <h1>Reset password</h1>
+        <p class="desc">Enter a new password for your NebulaNet account.</p>
+
+        <div class="global-err" id="globalErr"></div>
+
+        <div class="requirements">
+          <div class="req" id="reqLen">
+            <div class="req-dot"></div>
+            At least 8 characters
+          </div>
+          <div class="req" id="reqUpper">
+            <div class="req-dot"></div>
+            One uppercase letter
+          </div>
+          <div class="req" id="reqNum">
+            <div class="req-dot"></div>
+            One number
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="pw">New password</label>
           <input
+            type="password"
             id="pw"
-            type="password"
-            placeholder="New password (min 8 chars)"
-            minlength="8"
-            required
+            placeholder="••••••••"
+            autocomplete="new-password"
           />
-          <input
-            id="pw2"
-            type="password"
-            placeholder="Confirm new password"
-            minlength="8"
-            required
-          />
-          <button id="submit" type="submit">Reset password</button>
-        </form>
+          <span class="field-err" id="pwErr"></span>
+        </div>
 
-        <a
-          id="openApp"
-          class="btnlink"
-          href="nebulanet://auth/login"
-          style="display: none"
-        >
-          Open NebulaNet
-        </a>
+        <div class="field">
+          <label for="pw2">Confirm password</label>
+          <input
+            type="password"
+            id="pw2"
+            placeholder="••••••••"
+            autocomplete="new-password"
+          />
+          <span class="field-err" id="pw2Err"></span>
+        </div>
+
+        <button class="btn" id="submitBtn" disabled>Set new password</button>
+      </div>
+
+      <!-- Result state -->
+      <div class="result" id="resultState">
+        <div class="result-icon ok" id="resultIcon">✅</div>
+        <h1 id="resultHeading">Password updated!</h1>
+        <p id="resultMsg">
+          Your password has been changed. You can now log in to NebulaNet with
+          your new password.
+        </p>
+        <a href="nebulanet://auth/login" class="open-app">Open NebulaNet →</a>
       </div>
     </div>
 
@@ -128,84 +361,105 @@
       } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
       const firebaseConfig = {
-        apiKey: "AIzaSyCld45HfLvQHTY7FpPXhwUIE5docgd5nv0",
-        authDomain: "nebulanet-abf99.firebaseapp.com",
-        projectId: "nebulanet-abf99",
-        storageBucket: "nebulanet-abf99.firebasestorage.app",
-        messagingSenderId: "218927734181",
-        appId: "1:218927734181:web:4ef20e8f3eca46da3d1c4c",
-        measurementId: "G-2QLTHPBWSP",
+        apiKey: "__FIREBASE_API_KEY__",
+        authDomain: "__FIREBASE_AUTH_DOMAIN__",
+        projectId: "__FIREBASE_PROJECT_ID__",
       };
 
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
 
-      const statusEl = document.getElementById("status");
-      const form = document.getElementById("form");
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode");
+      const oobCode = params.get("oobCode");
+
       const pw = document.getElementById("pw");
       const pw2 = document.getElementById("pw2");
-      const btn = document.getElementById("submit");
-      const openApp = document.getElementById("openApp");
+      const pwErr = document.getElementById("pwErr");
+      const pw2Err = document.getElementById("pw2Err");
+      const submitBtn = document.getElementById("submitBtn");
+      const globalErr = document.getElementById("globalErr");
+      const formState = document.getElementById("formState");
+      const resultState = document.getElementById("resultState");
+      const resultIcon = document.getElementById("resultIcon");
+      const resultHeading = document.getElementById("resultHeading");
+      const resultMsg = document.getElementById("resultMsg");
 
-      const params = new URLSearchParams(window.location.search);
-      const mode = params.get("mode"); // resetPassword
-      const oobCode = params.get("oobCode"); // action code
+      const reqLen = document.getElementById("reqLen");
+      const reqUpper = document.getElementById("reqUpper");
+      const reqNum = document.getElementById("reqNum");
 
-      const showOpenApp = () => {
-        openApp.style.display = "inline-block";
-        setTimeout(() => {
-          window.location.href = "nebulanet://auth/login";
-        }, 1200);
-      };
+      // Invalid link check
+      if (mode !== "resetPassword" || !oobCode) {
+        formState.style.display = "none";
+        resultIcon.className = "result-icon err";
+        resultIcon.textContent = "✗";
+        resultHeading.textContent = "Invalid link";
+        resultHeading.style.color = "#fb7185";
+        resultMsg.textContent =
+          "This password reset link is invalid or has expired. Request a new one from the app.";
+        resultState.classList.add("visible");
+      }
 
-      (async () => {
+      function validate() {
+        const val = pw.value;
+        const hasLen = val.length >= 8;
+        const hasUpper = /[A-Z]/.test(val);
+        const hasNum = /[0-9]/.test(val);
+
+        reqLen.classList.toggle("met", hasLen);
+        reqUpper.classList.toggle("met", hasUpper);
+        reqNum.classList.toggle("met", hasNum);
+
+        const pwOk = hasLen && hasUpper && hasNum;
+        const matchOk = pw2.value === "" || pw.value === pw2.value;
+
+        if (pw2.value && pw.value !== pw2.value) {
+          pw2Err.textContent = "Passwords do not match";
+        } else {
+          pw2Err.textContent = "";
+        }
+
+        submitBtn.disabled = !(
+          pwOk &&
+          pw.value === pw2.value &&
+          pw2.value.length > 0
+        );
+      }
+
+      pw.addEventListener("input", validate);
+      pw2.addEventListener("input", validate);
+
+      submitBtn.addEventListener("click", async () => {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Updating…";
+        globalErr.classList.remove("visible");
+
         try {
-          if (mode !== "resetPassword" || !oobCode) {
-            statusEl.innerHTML = `<span class="bad">Invalid reset link.</span>`;
-            showOpenApp();
-            return;
-          }
-
-          // Validate code
           await verifyPasswordResetCode(auth, oobCode);
+          await confirmPasswordReset(auth, oobCode, pw.value);
 
-          statusEl.textContent = "Enter a new password.";
-          form.style.display = "flex";
-        } catch (e) {
-          console.error(e);
-          statusEl.innerHTML = `<span class="bad">Reset link is invalid or expired.</span>`;
-          showOpenApp();
-        }
-      })();
+          formState.style.display = "none";
+          resultState.classList.add("visible");
 
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
+          setTimeout(() => {
+            window.location.href = "nebulanet://auth/login";
+          }, 2000);
+        } catch (err) {
+          console.error(err);
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Set new password";
 
-        const a = pw.value.trim();
-        const b = pw2.value.trim();
-
-        if (a.length < 8) {
-          statusEl.innerHTML = `<span class="bad">Password must be at least 8 characters.</span>`;
-          return;
-        }
-        if (a !== b) {
-          statusEl.innerHTML = `<span class="bad">Passwords do not match.</span>`;
-          return;
-        }
-
-        btn.disabled = true;
-        statusEl.textContent = "Resetting…";
-
-        try {
-          await confirmPasswordReset(auth, oobCode, a);
-          statusEl.innerHTML = `<span class="ok">✅ Password reset successful.</span>`;
-          form.style.display = "none";
-          showOpenApp();
-        } catch (e) {
-          console.error(e);
-          statusEl.innerHTML = `<span class="bad">Could not reset password. Try again.</span>`;
-        } finally {
-          btn.disabled = false;
+          if (err.code === "auth/invalid-action-code") {
+            globalErr.textContent =
+              "This reset link has expired or already been used. Request a new one from the app.";
+          } else if (err.code === "auth/weak-password") {
+            globalErr.textContent =
+              "Password is too weak. Please choose a stronger password.";
+          } else {
+            globalErr.textContent = "Something went wrong. Please try again.";
+          }
+          globalErr.classList.add("visible");
         }
       });
     </script>

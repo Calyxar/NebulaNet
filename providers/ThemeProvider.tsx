@@ -30,6 +30,9 @@ interface ThemeContextType {
   reduceAnimations: boolean;
   animDuration: (ms: number) => number;
   loadUserPrefs: (uid: string) => Promise<void>;
+  // ✅ NEW: allow direct updates from useSettings without re-login
+  applyFontSize: (size: string) => void;
+  applyReduceAnimations: (value: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -69,7 +72,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setTheme = useCallback(async (newTheme: Theme) => {
     setThemeState(newTheme);
     await storage.setTheme(newTheme);
-
     const uid = auth.currentUser?.uid;
     if (uid) {
       try {
@@ -86,8 +88,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     try {
       const snap = await db.collection("profiles").doc(uid).get();
       if (!snap.exists) return;
-      const prefs = (snap.data() as any)?.preferences ?? {};
       const data = snap.data() as any;
+      const prefs = data?.preferences ?? {};
+
       if (isTheme(data?.theme_preference)) {
         setThemeState(data.theme_preference);
         await storage.setTheme(data.theme_preference);
@@ -97,6 +100,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setReduceAnimations(prefs.reduce_animations);
       }
     } catch {}
+  }, []);
+
+  // ✅ FIX: these let useSettings push changes into ThemeProvider immediately
+  const applyFontSize = useCallback((size: string) => {
+    setFontSizePref(size);
+  }, []);
+
+  const applyReduceAnimations = useCallback((value: boolean) => {
+    setReduceAnimations(value);
   }, []);
 
   const isDark = useMemo(() => {
@@ -148,6 +160,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         reduceAnimations,
         animDuration,
         loadUserPrefs,
+        applyFontSize,
+        applyReduceAnimations,
       }}
     >
       {children}

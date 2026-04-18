@@ -1,572 +1,688 @@
-// lib/firestore/posts.ts — React Native Firebase ✅
-import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
-import { detectLanguage } from "@/utils/detectLanguage";
+// lib/firestore/chat.ts — REACT NATIVE FIREBASE ✅
+import { ChatAttachment } from "@/components/chat/ChatInput";
 import auth from "@react-native-firebase/auth";
-import firestore, {
-  FirebaseFirestoreTypes,
-} from "@react-native-firebase/firestore";
-import storage from "@react-native-firebase/storage";
+import firestore from "@react-native-firebase/firestore";
 
-/* =========================================================
-   TYPES
-========================================================= */
+/* -------------------- TYPES -------------------- */
 
-export type PostVisibility = "public" | "followers" | "private";
-export type PostType = "text" | "image" | "video" | "mixed" | "poll";
-
-export type ProfileRow = {
+type ProfileRow = {
   id: string;
   username: string;
-  full_name?: string | null;
-  avatar_url?: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
 };
 
-export type CommunityRow = {
+type MessageRow = {
   id: string;
-  name: string;
-  slug: string;
-  avatar_url?: string | null;
+  conversation_id: string;
+  sender_id: string;
+  content: string | null;
+  media_url: string | null;
+  media_type: string | null;
+  attachments?: ChatAttachment[];
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
 };
 
-export type PostLocation = {
-  name: string;
-  place_id: string;
-};
-
-export interface Post {
+type ConversationRow = {
   id: string;
-  user_id: string;
-  title?: string | null;
-  content: string;
-  media_urls: string[];
-  visibility: PostVisibility;
-  community_id?: string | null;
-  post_type?: PostType | null;
-  is_visible?: boolean | null;
-  hashtags?: string[];
-  poll?: import("@/lib/firestore/polls").PollData | null;
-  location?: PostLocation | null;
-  like_count: number;
-  comment_count: number;
-  share_count: number;
+  name: string | null;
   created_at: string;
   updated_at: string;
-  user: ProfileRow | null;
-  community: CommunityRow | null;
-  is_liked?: boolean;
-  is_saved?: boolean;
-  is_owned?: boolean;
-}
-
-export interface PostFilters {
-  limit?: number;
-  communitySlug?: string;
-  communityIds?: string[];
-  username?: string;
-  userId?: string;
-  hashtag?: string;
-  visibility?: PostVisibility;
-  sortBy?: "newest" | "popular" | "trending";
-  language?: string | null;
-  cursor?: { lastDocId?: string } | null;
-}
-
-export interface PaginatedPosts {
-  posts: Post[];
-  total: number;
-  hasMore: boolean;
-  nextCursor: PostFilters["cursor"];
-}
-
-export type CreatePostData = {
-  title?: string;
-  content: string;
-  media?: MediaItem[];
-  community_id?: string;
-  visibility: PostVisibility;
-  location?: PostLocation;
+  last_message_id: string | null;
+  is_typing: boolean | null;
+  is_group?: boolean | null;
+  avatar_url?: string | null;
+  unread_count?: number | null;
+  is_online?: boolean | null;
+  is_pinned?: boolean | null;
+  participant_ids?: string[];
+  dm_pair_key?: string | null;
 };
 
-export type UpdatePostData = {
-  title?: string | null;
-  content?: string | null;
-  media_urls?: string[] | null;
-  visibility?: PostVisibility | null;
-  community_id?: string | null;
-  is_visible?: boolean | null;
-  post_type?: PostType | null;
-  location?: PostLocation | null;
+export type ChatMessage = MessageRow & {
+  sender?: ProfileRow;
+  attachments?: ChatAttachment[];
 };
 
-/* =========================================================
-   HELPERS
-========================================================= */
+export type ChatConversation = ConversationRow & {
+  participants?: {
+    user_id: string;
+    profiles?: ProfileRow;
+  }[];
+  last_message?: ChatMessage;
+};
 
-const POST_MEDIA_TYPES: ReadonlySet<MediaType> = new Set([
-  "image",
-  "video",
-  "gif",
-]);
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-function normalizeVisibility(v: any): PostVisibility {
-  return v === "public" || v === "followers" || v === "private" ? v : "public";
-}
-
-function normalizePostType(p: { post_type?: any; media_urls?: any }): PostType {
-  const t = p?.post_type;
-  if (
-    t === "text" ||
-    t === "image" ||
-    t === "video" ||
-    t === "mixed" ||
-    t === "poll"
-  )
-    return t;
-  const urls = Array.isArray(p?.media_urls) ? (p.media_urls as string[]) : [];
-  if (!urls.length) return "text";
-  const hasVideo = urls.some((u) =>
-    /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
-  );
-  if (hasVideo && urls.length > 1) return "mixed";
-  if (hasVideo) return "video";
-  return "image";
-}
+/* -------------------- HELPERS -------------------- */
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts?.toDate) return ts.toDate().toISOString();
-  if (ts?.seconds) return new Date(ts.seconds * 1000).toISOString();
   const d = new Date(ts);
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
+const profileCache = new Map<string, ProfileRow | undefined>();
+
+async function getProfile(userId: string): Promise<ProfileRow | undefined> {
+  if (profileCache.has(userId)) return profileCache.get(userId);
+  const snap = await firestore().collection("profiles").doc(userId).get();
+  const d = snap.data();
+  const profile: ProfileRow | undefined = d
+    ? {
+        id: snap.id,
+        username: d.username ?? "",
+        full_name: d.full_name ?? null,
+        avatar_url: d.avatar_url ?? null,
+        bio: d.bio ?? null,
+      }
+    : undefined;
+  profileCache.set(userId, profile);
+  return profile;
+}
+
+async function getProfilesBatch(
+  userIds: string[],
+): Promise<Map<string, ProfileRow>> {
+  const out = new Map<string, ProfileRow>();
+  const toFetch: string[] = [];
+
+  for (const id of userIds) {
+    const cached = profileCache.get(id);
+    if (cached) {
+      out.set(id, cached);
+    } else if (cached === undefined && !profileCache.has(id)) {
+      toFetch.push(id);
+    }
+  }
+
+  for (let i = 0; i < toFetch.length; i += 10) {
+    const batch = toFetch.slice(i, i + 10);
+    const snap = await firestore()
+      .collection("profiles")
+      .where(firestore.FieldPath.documentId(), "in", batch)
+      .get();
+    snap.docs.forEach((d) => {
+      const data = d.data() as any;
+      const profile: ProfileRow = {
+        id: d.id,
+        username: data.username ?? "",
+        full_name: data.full_name ?? null,
+        avatar_url: data.avatar_url ?? null,
+        bio: data.bio ?? null,
+      };
+      profileCache.set(d.id, profile);
+      out.set(d.id, profile);
+    });
+  }
+
+  return out;
+}
+
+// ✅ FIX: fetch real presence status from user_presence collection
+async function getPresenceBatch(
+  userIds: string[],
+): Promise<Map<string, boolean>> {
+  const out = new Map<string, boolean>();
+  if (!userIds.length) return out;
+  const unique = [...new Set(userIds)];
+  for (let i = 0; i < unique.length; i += 10) {
+    const batch = unique.slice(i, i + 10);
+    const snap = await firestore()
+      .collection("user_presence")
+      .where(firestore.FieldPath.documentId(), "in", batch)
+      .get();
+    snap.docs.forEach((d) => {
+      const data = d.data() as any;
+      // Consider online only if status is "online" and last_seen within 2 minutes
+      const lastSeen: number = data?.last_seen?.toDate
+        ? data.last_seen.toDate().getTime()
+        : 0;
+      const fresh = Date.now() - lastSeen < 2 * 60 * 1000;
+      out.set(d.id, data?.status === "online" && fresh);
+    });
+  }
+  return out;
+}
+
+function docToMessage(d: any, id: string, conversationId: string): MessageRow {
   return {
     id,
-    user_id: d.user_id,
-    title: d.title ?? null,
-    content: d.content ?? "",
-    media_urls: Array.isArray(d.media_urls) ? d.media_urls : [],
-    visibility: normalizeVisibility(d.visibility),
-    community_id: d.community_id ?? null,
-    post_type: normalizePostType(d),
-    is_visible: typeof d.is_visible === "boolean" ? d.is_visible : true,
-    hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
-    poll: d.poll ?? null,
-    location: d.location ?? null,
-    like_count: typeof d.like_count === "number" ? d.like_count : 0,
-    comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
-    share_count: typeof d.share_count === "number" ? d.share_count : 0,
+    conversation_id: d.conversation_id ?? conversationId,
+    sender_id: d.sender_id,
+    content: d.content ?? null,
+    media_url: d.media_url ?? null,
+    media_type: d.media_type ?? null,
+    attachments: d.attachments ?? [],
+    created_at: tsToIso(d.created_at_ts ?? d.created_at),
+    delivered_at: d.delivered_at ? tsToIso(d.delivered_at) : null,
+    read_at: d.read_at ? tsToIso(d.read_at) : null,
+  };
+}
+
+function docToConversation(d: any, id: string): ConversationRow {
+  return {
+    id,
+    name: d.name ?? null,
     created_at: tsToIso(d.created_at_ts ?? d.created_at),
     updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
-    user: d.user ?? null,
-    community: d.community ?? null,
-    ...extras,
-  };
-}
-
-async function resolveCommunityIdFromSlug(
-  slug: string,
-): Promise<string | null> {
-  const s = slug.trim();
-  if (!s) return null;
-  const snap = await firestore()
-    .collection("communities")
-    .where("slug", "==", s)
-    .limit(1)
-    .get();
-  return snap.docs[0]?.id ?? null;
-}
-
-async function resolveUserIdFromUsername(
-  username: string,
-): Promise<string | null> {
-  const raw = username.trim();
-  if (!raw) return null;
-  const u = raw.toLowerCase();
-  let snap = await firestore()
-    .collection("profiles")
-    .where("username_lc", "==", u)
-    .limit(1)
-    .get();
-  if (!snap.empty) return snap.docs[0].id;
-  snap = await firestore()
-    .collection("profiles")
-    .where("username", "==", raw)
-    .limit(1)
-    .get();
-  return snap.docs[0]?.id ?? null;
-}
-
-async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
-  const snap = await firestore().collection("profiles").doc(uid).get();
-  if (!snap.exists()) return null;
-  const d = snap.data() as any;
-  return {
-    id: uid,
-    username: d.username ?? "",
-    full_name: d.full_name ?? null,
+    last_message_id: d.last_message_id ?? null,
+    is_typing: d.is_typing ?? false,
+    is_group: d.is_group ?? false,
     avatar_url: d.avatar_url ?? null,
+    unread_count: d.unread_count ?? 0,
+    is_online: false, // resolved separately from user_presence
+    is_pinned: d.is_pinned ?? false,
+    participant_ids: Array.isArray(d.participant_ids) ? d.participant_ids : [],
+    dm_pair_key: d.dm_pair_key ?? null,
   };
 }
 
-async function getCommunitySnapshot(
-  communityId: string,
-): Promise<CommunityRow | null> {
-  const snap = await firestore()
-    .collection("communities")
-    .doc(communityId)
-    .get();
-  if (!snap.exists()) return null;
-  const d = snap.data() as any;
-  return {
-    id: communityId,
-    name: d.name ?? "",
-    slug: d.slug ?? "",
-    avatar_url: d.avatar_url ?? d.image_url ?? null,
-  };
-}
+/* -------------------- SUBSCRIPTIONS -------------------- */
 
-/* =========================================================
-   STORAGE UPLOAD (native putFile)
-========================================================= */
+export const chatSubscriptions = {
+  subscribeToMessages: (
+    conversationId: string,
+    _userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    return firestore()
+      .collection("conversations")
+      .doc(conversationId)
+      .collection("messages")
+      .orderBy("created_at_ts", "desc")
+      .limit(50)
+      .onSnapshot(
+        (snap) => {
+          if (!snap) return;
+          snap.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const data = change.doc.data() as any;
+              callback({
+                new: docToMessage(data, change.doc.id, conversationId),
+              });
+            }
+          });
+        },
+        (error) => {
+          console.error("Error in subscribeToMessages:", error);
+        },
+      );
+  },
 
-function isRemoteUrl(u: string): boolean {
-  return /^https?:\/\//i.test(u);
-}
+  subscribeToUserConversations: (
+    userId: string,
+    callback: (payload: any) => void,
+  ) => {
+    return firestore()
+      .collection("conversations")
+      .where("participant_ids", "array-contains", userId)
+      .onSnapshot(
+        (snap) => {
+          if (!snap) return;
+          const docs = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }));
+          callback({ docs });
+        },
+        (error) => {
+          console.error("Error in subscribeToUserConversations:", error);
+        },
+      );
+  },
 
-function guessExt(uri: string, fallback: string): string {
-  const clean = uri.split("?")[0]?.split("#")[0] ?? uri;
-  const last = clean.split(".").pop();
-  if (!last || last.length > 8) return fallback;
-  return last.toLowerCase();
-}
+  subscribeToTypingStatus: (
+    conversationId: string,
+    callback: (payload: any) => void,
+  ) => {
+    return firestore()
+      .collection("conversations")
+      .doc(conversationId)
+      .collection("typing")
+      .onSnapshot(
+        (snap) => {
+          if (!snap) return;
+          const typing: Record<string, boolean> = {};
+          snap.docs.forEach((d) => {
+            const data = d.data() as any;
+            const updated = data?.updated_at?.toDate
+              ? data.updated_at.toDate().getTime()
+              : 0;
+            const fresh = updated > Date.now() - 6000;
+            typing[d.id] = !!data?.is_typing && fresh;
+          });
+          callback({ new: { typing } });
+        },
+        (error) => {
+          console.error("Error in subscribeToTypingStatus:", error);
+        },
+      );
+  },
+};
 
-function guessMimeType(ext: string, type: MediaType): string {
-  if (type === "gif") return "image/gif";
-  if (type === "video") return ext === "mov" ? "video/quicktime" : "video/mp4";
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  return "image/jpeg";
-}
+/* -------------------- QUERIES -------------------- */
 
-function makeObjectPath(userId: string, ext: string): string {
-  const rand = Math.random().toString(36).slice(2);
-  return `post-media/${userId}/${Date.now()}-${rand}.${ext}`;
-}
+export const chatQueries = {
+  getConversations: async (userId: string) => {
+    try {
+      // ✅ FIX: removed orderBy("updated_at_ts") — combining array-contains with
+      // orderBy requires a composite Firestore index that may not exist, causing
+      // the entire query to throw and conversations to never load.
+      // Sort is done in JS below instead.
+      const convSnap = await firestore()
+        .collection("conversations")
+        .where("participant_ids", "array-contains", userId)
+        .limit(50)
+        .get();
 
-async function uploadMediaForPost(
-  userId: string,
-  media: MediaItem[] | undefined,
-): Promise<string[]> {
-  if (!media?.length) return [];
-  const urls: string[] = [];
-  for (const item of media) {
-    if (!POST_MEDIA_TYPES.has(item.type)) continue;
-    if (isRemoteUrl(item.uri)) {
-      urls.push(item.uri);
-      continue;
+      if (convSnap.empty) return { data: [], error: null };
+
+      const allUserIds = new Set<string>();
+      convSnap.docs.forEach((d) => {
+        const ids = (d.data() as any).participant_ids;
+        if (Array.isArray(ids)) ids.forEach((id) => allUserIds.add(id));
+      });
+      await getProfilesBatch(Array.from(allUserIds));
+
+      // ✅ FIX: fetch real presence for all participants
+      const otherUserIds = Array.from(allUserIds).filter((id) => id !== userId);
+      const presenceMap = await getPresenceBatch(otherUserIds);
+
+      const conversations: ChatConversation[] = await Promise.all(
+        convSnap.docs.map(async (convDoc) => {
+          const conv = docToConversation(convDoc.data(), convDoc.id);
+
+          const participants = (conv.participant_ids ?? []).map((uid) => ({
+            user_id: uid,
+            profiles: profileCache.get(uid) ?? undefined,
+          }));
+
+          // ✅ FIX: resolve is_online from presence, not from conversation doc
+          const otherParticipants = (conv.participant_ids ?? []).filter(
+            (id) => id !== userId,
+          );
+          const is_online = otherParticipants.some(
+            (id) => presenceMap.get(id) === true,
+          );
+
+          let last_message: ChatMessage | undefined;
+          if (conv.last_message_id) {
+            try {
+              const msgSnap = await firestore()
+                .collection("conversations")
+                .doc(convDoc.id)
+                .collection("messages")
+                .doc(conv.last_message_id)
+                .get();
+              const msgData = msgSnap.data();
+              if (msgData) {
+                last_message = docToMessage(
+                  msgData as any,
+                  msgSnap.id,
+                  convDoc.id,
+                ) as ChatMessage;
+              }
+            } catch (e) {
+              console.warn("Failed to load last message:", e);
+            }
+          }
+
+          return { ...conv, is_online, participants, last_message };
+        }),
+      );
+
+      // ✅ FIX: sort by updated_at in JS since we removed Firestore orderBy
+      conversations.sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
+
+      return { data: conversations, error: null };
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+      return { data: null, error: error as Error };
     }
-    const fallbackExt =
-      item.type === "video" ? "mp4" : item.type === "gif" ? "gif" : "jpg";
-    const ext = guessExt(item.uri, fallbackExt);
-    const mimeType = guessMimeType(ext, item.type);
-    const path = makeObjectPath(userId, ext);
-    const fileRef = storage().ref(path);
-    // putFile takes a local URI directly — no fetch/blob dance, uses less
-    // memory and is significantly faster for large videos.
-    await fileRef.putFile(item.uri, { contentType: mimeType });
-    const dl = await fileRef.getDownloadURL();
-    urls.push(dl);
-  }
-  return urls;
-}
+  },
 
-/* =========================================================
-   LIKE/SAVE FLAGS
-========================================================= */
+  getMessages: async (
+    conversationId: string,
+    page = 0,
+    pageSize: number = 20,
+  ) => {
+    try {
+      const limitCount = pageSize * (page + 1);
+      const snap = await firestore()
+        .collection("conversations")
+        .doc(conversationId)
+        .collection("messages")
+        .orderBy("created_at_ts", "desc")
+        .limit(limitCount)
+        .get();
 
-async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
-  if (!uid || !postIds.length)
-    return { liked: new Set<string>(), saved: new Set<string>() };
-  const chunks = chunk(postIds, 10);
-  const liked = new Set<string>();
-  const saved = new Set<string>();
-  await Promise.all([
-    (async () => {
-      for (const c of chunks) {
-        const s = await firestore()
-          .collection("likes")
-          .where("user_id", "==", uid)
-          .where("post_id", "in", c)
-          .get();
-        s.docs.forEach((d) => liked.add((d.data() as any).post_id));
+      const senderIds = Array.from(
+        new Set(snap.docs.map((d) => (d.data() as any).sender_id as string)),
+      );
+      await getProfilesBatch(senderIds);
+
+      const msgs: ChatMessage[] = snap.docs.map((d) => {
+        const data = d.data() as any;
+        const msg = docToMessage(data, d.id, conversationId) as ChatMessage;
+        msg.sender = profileCache.get(data.sender_id);
+        return msg;
+      });
+
+      const from = page * pageSize;
+      return { data: msgs.slice(from, from + pageSize), error: null };
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      return { data: null, error: error as Error };
+    }
+  },
+
+  sendMessage: async (
+    conversationId: string,
+    senderId: string,
+    content: string,
+    attachments?: ChatAttachment[],
+    mediaUrl?: string,
+    mediaType?: "image" | "video" | "audio" | "file",
+  ) => {
+    try {
+      const messageData: any = {
+        conversation_id: conversationId,
+        sender_id: senderId,
+        content: content.trim() || null,
+        delivered_at: new Date().toISOString(),
+        read_at: null,
+        created_at: new Date().toISOString(),
+        created_at_ts: firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (attachments && attachments.length > 0) {
+        messageData.attachments = attachments;
+        messageData.media_url = attachments[0].url;
+        messageData.media_type = attachments[0].type;
+      } else if (mediaUrl && mediaType) {
+        messageData.media_url = mediaUrl;
+        messageData.media_type = mediaType;
+        messageData.attachments = [
+          {
+            url: mediaUrl,
+            type: mediaType,
+            name: mediaUrl.split("/").pop() ?? "file",
+            storagePath: "",
+          },
+        ];
       }
-    })(),
-    (async () => {
-      for (const c of chunks) {
-        const s = await firestore()
-          .collection("saves")
-          .where("user_id", "==", uid)
-          .where("post_id", "in", c)
-          .get();
-        s.docs.forEach((d) => saved.add((d.data() as any).post_id));
+
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
+
+      const msgRef = await convRef.collection("messages").add(messageData);
+
+      await convRef.update({
+        updated_at: new Date().toISOString(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        last_message_id: msgRef.id,
+        last_message: {
+          id: msgRef.id,
+          content: messageData.content,
+          sender_id: senderId,
+          media_type: messageData.media_type ?? null,
+        },
+      });
+
+      try {
+        const partsSnap = await convRef.collection("participants").get();
+        const batch = firestore().batch();
+        partsSnap.docs.forEach((p) => {
+          if (p.id !== senderId) {
+            batch.set(
+              p.ref,
+              { unread_count: firestore.FieldValue.increment(1) },
+              { merge: true },
+            );
+          }
+        });
+        await batch.commit();
+      } catch (e) {
+        console.warn("Failed to bump unread counts:", e);
       }
-    })(),
-  ]);
-  return { liked, saved };
-}
 
-/* =========================================================
-   GET POSTS
-========================================================= */
+      const sender = await getProfile(senderId);
+      const newMsg: ChatMessage = {
+        ...docToMessage(messageData, msgRef.id, conversationId),
+        sender,
+      };
 
-export async function getPosts(
-  filters: PostFilters = {},
-): Promise<PaginatedPosts> {
-  const {
-    limit = 20,
-    communitySlug,
-    communityIds,
-    username,
-    userId,
-    hashtag,
-    visibility,
-    sortBy = "newest",
-    language = null,
-    cursor = null,
-  } = filters;
+      return { data: newMsg, error: null };
+    } catch (error) {
+      console.error("Error sending message:", error);
+      return { data: null, error: error as Error };
+    }
+  },
 
-  let resolvedCommunityIds = (communityIds ?? []).filter(Boolean);
-  if (communitySlug && !resolvedCommunityIds.length) {
-    const cid = await resolveCommunityIdFromSlug(communitySlug);
-    if (cid) resolvedCommunityIds = [cid];
-  }
+  createConversation: async (
+    participantIds: string[],
+    name?: string,
+    isGroup = false,
+  ) => {
+    try {
+      if (!participantIds.length) throw new Error("No participants provided");
 
-  let resolvedUserId = userId ?? null;
-  if (username && !resolvedUserId)
-    resolvedUserId = await resolveUserIdFromUsername(username);
+      const dmPairKey =
+        !isGroup && participantIds.length === 2
+          ? [...participantIds].sort().join("__")
+          : null;
 
-  // Build the query step by step — RN Firebase uses chained methods.
-  let q: FirebaseFirestoreTypes.Query = firestore().collection("posts");
+      const convRef = await firestore()
+        .collection("conversations")
+        .add({
+          name: name || null,
+          is_group: isGroup,
+          dm_pair_key: dmPairKey,
+          participant_ids: participantIds,
+          avatar_url: null,
+          is_online: false,
+          is_typing: false,
+          is_pinned: false,
+          unread_count: 0,
+          last_message_id: null,
+          last_message: null,
+          last_message_at: null,
+          created_at: firestore.FieldValue.serverTimestamp(),
+          updated_at: firestore.FieldValue.serverTimestamp(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+          updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
 
-  if (resolvedCommunityIds.length)
-    q = q.where("community_id", "in", resolvedCommunityIds.slice(0, 10));
-  if (resolvedUserId) q = q.where("user_id", "==", resolvedUserId);
-  if (visibility) q = q.where("visibility", "==", visibility);
-  if (hashtag)
-    q = q.where(
-      "hashtags",
-      "array-contains",
-      hashtag.toLowerCase().replace(/^#/, ""),
-    );
-  if (language && language !== "en") q = q.where("language", "==", language);
+      const batch = firestore().batch();
+      participantIds.forEach((userId) => {
+        const partRef = convRef.collection("participants").doc(userId);
+        batch.set(partRef, {
+          user_id: userId,
+          unread_count: 0,
+          joined_at: firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      await batch.commit();
 
-  if (sortBy === "trending") {
-    const weekAgo = firestore.Timestamp.fromDate(
-      new Date(Date.now() - 7 * 86400000),
-    );
-    q = q
-      .where("created_at_ts", ">=", weekAgo)
-      .orderBy("like_count", "desc")
-      .orderBy("created_at_ts", "desc");
-  } else if (sortBy === "popular") {
-    q = q.orderBy("like_count", "desc").orderBy("created_at_ts", "desc");
-  } else {
-    q = q.orderBy("created_at_ts", "desc");
-  }
+      const convSnap = await convRef.get();
+      const conv = docToConversation(convSnap.data(), convSnap.id);
 
-  if (cursor?.lastDocId) {
-    const lastSnap = await firestore()
-      .collection("posts")
-      .doc(cursor.lastDocId)
-      .get();
-    if (lastSnap.exists()) q = q.startAfter(lastSnap);
-  }
+      const participants = await Promise.all(
+        participantIds.map(async (userId) => ({
+          user_id: userId,
+          profiles: await getProfile(userId),
+        })),
+      );
 
-  const snap = await q.limit(limit + 10).get();
-  const viewerId = auth().currentUser?.uid ?? "";
-  const raw = snap.docs
-    .map((d) => docToPost(d.id, d.data()))
-    .filter((p) => p.is_visible !== false)
-    .slice(0, limit);
-  const ids = raw.map((p) => p.id);
-  const { liked, saved } = viewerId
-    ? await fetchMyLikeSaveFlags(viewerId, ids)
-    : { liked: new Set<string>(), saved: new Set<string>() };
+      return {
+        data: { ...conv, participants } as ChatConversation,
+        error: null,
+      };
+    } catch (error) {
+      console.error("Error creating conversation:", error);
+      return { data: null, error: error as Error };
+    }
+  },
 
-  const posts = raw.map((p) =>
-    docToPost(p.id, p, {
-      is_liked: viewerId ? liked.has(p.id) : false,
-      is_saved: viewerId ? saved.has(p.id) : false,
-      is_owned: viewerId ? p.user_id === viewerId : false,
-    }),
-  );
+  markAsRead: async (conversationId: string, userId: string) => {
+    try {
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
 
-  const last = snap.docs[snap.docs.length - 1];
-  const nextCursor: PostFilters["cursor"] = last
-    ? { lastDocId: last.id }
-    : null;
+      await convRef.collection("participants").doc(userId).set(
+        {
+          user_id: userId,
+          unread_count: 0,
+          last_read_at: firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
 
-  return { posts, total: -1, hasMore: snap.docs.length >= limit, nextCursor };
-}
+      const msgSnap = await convRef
+        .collection("messages")
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
+        .get();
 
-/* =========================================================
-   GET SINGLE POST
-========================================================= */
+      const batch = firestore().batch();
+      let updates = 0;
+      msgSnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        if (data.sender_id !== userId && !data.read_at) {
+          batch.update(d.ref, { read_at: new Date().toISOString() });
+          updates++;
+        }
+      });
+      if (updates > 0) await batch.commit();
 
-export async function getPostById(id: string): Promise<Post | null> {
-  const clean = id?.trim();
-  if (!clean) return null;
-  const snap = await firestore().collection("posts").doc(clean).get();
-  if (!snap.exists()) return null;
-  const d = snap.data() as any;
-  if (d.is_visible === false) return null;
-  const viewerId = auth().currentUser?.uid ?? "";
-  let is_liked = false;
-  let is_saved = false;
-  if (viewerId) {
-    const [likeSnap, saveSnap] = await Promise.all([
-      firestore()
-        .collection("likes")
-        .where("user_id", "==", viewerId)
-        .where("post_id", "==", clean)
-        .limit(1)
-        .get(),
-      firestore()
-        .collection("saves")
-        .where("user_id", "==", viewerId)
-        .where("post_id", "==", clean)
-        .limit(1)
-        .get(),
-    ]);
-    is_liked = !likeSnap.empty;
-    is_saved = !saveSnap.empty;
-  }
-  return docToPost(snap.id, d, {
-    is_liked,
-    is_saved,
-    is_owned: viewerId ? d.user_id === viewerId : false,
-  });
-}
+      return { error: null };
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+      return { error: error as Error };
+    }
+  },
 
-/* =========================================================
-   CREATE POST
-========================================================= */
+  getConversation: async (conversationId: string) => {
+    try {
+      const convSnap = await firestore()
+        .collection("conversations")
+        .doc(conversationId)
+        .get();
+      const convData = convSnap.data();
+      if (!convData) throw new Error("Conversation not found");
 
-export async function createPost(
-  postData: CreatePostData,
-): Promise<Post | null> {
-  const viewer = auth().currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const urls = await uploadMediaForPost(uid, postData.media);
-  const hasVideo = urls.some((u) =>
-    /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
-  );
-  const post_type: PostType = !urls.length
-    ? "text"
-    : hasVideo && urls.length > 1
-      ? "mixed"
-      : hasVideo
-        ? "video"
-        : "image";
+      const conv = docToConversation(convData, convSnap.id);
 
-  const textForDetection = [postData.title, postData.content]
-    .filter(Boolean)
-    .join(" ");
-  const detectedLanguage = detectLanguage(textForDetection);
-  const profileSnap = await getProfileSnapshot(uid);
-  const communitySnap = postData.community_id
-    ? await getCommunitySnapshot(postData.community_id)
-    : null;
-  const now = new Date().toISOString();
+      const participants = await Promise.all(
+        (conv.participant_ids ?? []).map(async (uid) => ({
+          user_id: uid,
+          profiles: await getProfile(uid),
+        })),
+      );
 
-  const refDoc = await firestore()
-    .collection("posts")
-    .add({
-      user_id: uid,
-      title: postData.title ?? null,
-      content: postData.content,
-      community_id: postData.community_id ?? null,
-      visibility: postData.visibility,
-      media_urls: urls,
-      post_type,
-      is_visible: true,
-      language: detectedLanguage ?? "en",
-      location: postData.location ?? null,
-      like_count: 0,
-      comment_count: 0,
-      share_count: 0,
-      user: profileSnap,
-      community: communitySnap,
-      created_at: now,
-      updated_at: now,
-      created_at_ts: firestore.FieldValue.serverTimestamp(),
-      updated_at_ts: firestore.FieldValue.serverTimestamp(),
-    });
+      // ✅ FIX: resolve is_online from presence
+      const currentUid = auth().currentUser?.uid;
+      const otherIds = (conv.participant_ids ?? []).filter(
+        (id) => id !== currentUid,
+      );
+      const presenceMap = await getPresenceBatch(otherIds);
+      const is_online = otherIds.some((id) => presenceMap.get(id) === true);
 
-  const createdSnap = await refDoc.get();
-  if (!createdSnap.exists()) return null;
-  return docToPost(createdSnap.id, createdSnap.data(), {
-    is_owned: true,
-    is_liked: false,
-    is_saved: false,
-  });
-}
+      let last_message: ChatMessage | undefined;
+      if (conv.last_message_id) {
+        const msgSnap = await firestore()
+          .collection("conversations")
+          .doc(conversationId)
+          .collection("messages")
+          .doc(conv.last_message_id)
+          .get();
+        const msgData = msgSnap.data();
+        if (msgData) {
+          last_message = docToMessage(
+            msgData as any,
+            msgSnap.id,
+            conversationId,
+          ) as ChatMessage;
+        }
+      }
 
-/* =========================================================
-   UPDATE POST
-========================================================= */
+      return {
+        data: {
+          ...conv,
+          is_online,
+          participants,
+          last_message,
+        } as ChatConversation,
+        error: null,
+      };
+    } catch (error) {
+      console.error("Error fetching conversation:", error);
+      return { data: null, error: error as Error };
+    }
+  },
 
-export async function updatePost(
-  postId: string,
-  patch: UpdatePostData,
-): Promise<Post | null> {
-  const viewer = auth().currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const refDoc = firestore().collection("posts").doc(postId);
-  const snap = await refDoc.get();
-  if (!snap.exists()) return null;
-  const d = snap.data() as any;
-  if (d.user_id !== uid) throw new Error("Not allowed");
-  let communitySnap: CommunityRow | null | undefined = undefined;
-  if (patch.community_id !== undefined)
-    communitySnap = patch.community_id
-      ? await getCommunitySnapshot(patch.community_id)
-      : null;
-  const now = new Date().toISOString();
-  await refDoc.update({
-    ...patch,
-    ...(communitySnap !== undefined ? { community: communitySnap } : {}),
-    updated_at: now,
-    updated_at_ts: firestore.FieldValue.serverTimestamp(),
-  });
-  const updated = await refDoc.get();
-  if (!updated.exists()) return null;
-  return docToPost(updated.id, updated.data(), { is_owned: true });
-}
+  deleteConversation: async (conversationId: string) => {
+    try {
+      const convRef = firestore()
+        .collection("conversations")
+        .doc(conversationId);
 
-/* =========================================================
-   DELETE POST
-========================================================= */
+      const msgSnap = await convRef.collection("messages").get();
+      const partSnap = await convRef.collection("participants").get();
+      const typingSnap = await convRef.collection("typing").get();
 
-export async function deletePost(postId: string): Promise<boolean> {
-  const viewer = auth().currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const refDoc = firestore().collection("posts").doc(postId);
-  const snap = await refDoc.get();
-  if (!snap.exists()) return false;
-  const d = snap.data() as any;
-  if (d.user_id !== uid) throw new Error("Not allowed");
-  await refDoc.delete();
-  return true;
-}
+      const batch = firestore().batch();
+      msgSnap.docs.forEach((d) => batch.delete(d.ref));
+      partSnap.docs.forEach((d) => batch.delete(d.ref));
+      typingSnap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(convRef);
+
+      await batch.commit();
+      return { error: null };
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      return { error: error as Error };
+    }
+  },
+
+  updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
+    try {
+      const uid = auth().currentUser?.uid;
+      if (!uid) return { error: null };
+      await firestore()
+        .collection("conversations")
+        .doc(conversationId)
+        .collection("typing")
+        .doc(uid)
+        .set(
+          {
+            is_typing: isTyping,
+            updated_at: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      return { error: null };
+    } catch (error) {
+      console.error("Error updating typing status:", error);
+      return { error: error as Error };
+    }
+  },
+};
+
+/* -------------------- BACKWARD COMPAT EXPORTS -------------------- */
+export const getConversations = chatQueries.getConversations;
+export const getMessages = chatQueries.getMessages;
+export const sendMessage = chatQueries.sendMessage;
+export const createConversation = chatQueries.createConversation;
+export const markAsRead = chatQueries.markAsRead;
+export const getConversation = chatQueries.getConversation;
+export const deleteConversation = chatQueries.deleteConversation;
+export const updateTypingStatus = chatQueries.updateTypingStatus;

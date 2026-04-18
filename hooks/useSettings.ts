@@ -1,5 +1,6 @@
 // hooks/useSettings.ts — REACT NATIVE FIREBASE ✅
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/providers/ThemeProvider";
 import {
   LinkedAccount,
   NotificationSettings,
@@ -113,6 +114,9 @@ export function useSettings() {
   const queryClient = useQueryClient();
   const uid = user?.uid;
 
+  // ✅ FIX: wire into ThemeProvider so font/animation changes apply immediately
+  const { applyFontSize, applyReduceAnimations } = useTheme();
+
   const { data: settings, isLoading } = useQuery<UserSettings>({
     queryKey: ["settings", uid],
     enabled: !!uid,
@@ -140,8 +144,9 @@ export function useSettings() {
     },
   });
 
+  // ✅ FIX: all generics on one line to prevent TSX parse ambiguity in .ts files
   const updatePreferences = useMutation<void, Error, Partial<UserPreferences>>({
-    mutationFn: async (updates) => {
+    mutationFn: async (updates: Partial<UserPreferences>) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore()
         .collection("profiles")
@@ -157,14 +162,19 @@ export function useSettings() {
           { merge: true },
         );
     },
-    onSuccess: () => {
+    onSuccess: (_: void, updates: Partial<UserPreferences>) => {
+      // ✅ push font/animation into ThemeProvider immediately — no re-login needed
+      if (updates.font_size) applyFontSize(updates.font_size);
+      if (typeof updates.reduce_animations === "boolean") {
+        applyReduceAnimations(updates.reduce_animations);
+      }
       queryClient.invalidateQueries({ queryKey: ["settings", uid] });
       queryClient.invalidateQueries({ queryKey: ["feed-preferences", uid] });
     },
   });
 
   const updatePrivacy = useMutation<void, Error, Partial<PrivacySettings>>({
-    mutationFn: async (updates) => {
+    mutationFn: async (updates: Partial<PrivacySettings>) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore()
         .collection("profiles")
@@ -189,7 +199,7 @@ export function useSettings() {
     Error,
     Partial<NotificationSettings>
   >({
-    mutationFn: async (updates) => {
+    mutationFn: async (updates: Partial<NotificationSettings>) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore()
         .collection("profiles")
@@ -210,7 +220,7 @@ export function useSettings() {
   });
 
   const updateSecurity = useMutation<void, Error, Partial<SecuritySettings>>({
-    mutationFn: async (updates) => {
+    mutationFn: async (updates: Partial<SecuritySettings>) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore()
         .collection("profiles")
@@ -231,7 +241,7 @@ export function useSettings() {
   });
 
   const blockUser = useMutation<void, Error, string>({
-    mutationFn: async (targetId) => {
+    mutationFn: async (targetId: string) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore().collection("blocked_users").add({
         blocker_id: uid,
@@ -244,7 +254,7 @@ export function useSettings() {
   });
 
   const unblockUser = useMutation<void, Error, string>({
-    mutationFn: async (targetId) => {
+    mutationFn: async (targetId: string) => {
       if (!uid) throw new Error("Not authenticated");
       const snap = await firestore()
         .collection("blocked_users")
@@ -258,7 +268,7 @@ export function useSettings() {
   });
 
   const muteUser = useMutation<void, Error, string>({
-    mutationFn: async (targetId) => {
+    mutationFn: async (targetId: string) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore().collection("muted_users").add({
         muter_id: uid,
@@ -271,7 +281,7 @@ export function useSettings() {
   });
 
   const unmuteUser = useMutation<void, Error, string>({
-    mutationFn: async (targetId) => {
+    mutationFn: async (targetId: string) => {
       if (!uid) throw new Error("Not authenticated");
       const snap = await firestore()
         .collection("muted_users")
@@ -348,7 +358,7 @@ export function useSettings() {
     Error,
     Omit<LinkedAccount, "id" | "connected_at">
   >({
-    mutationFn: async (account) => {
+    mutationFn: async (account: Omit<LinkedAccount, "id" | "connected_at">) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore()
         .collection("linked_accounts")
@@ -363,7 +373,7 @@ export function useSettings() {
   });
 
   const unlinkAccount = useMutation<void, Error, string>({
-    mutationFn: async (accountId) => {
+    mutationFn: async (accountId: string) => {
       if (!uid) throw new Error("Not authenticated");
       await firestore().collection("linked_accounts").doc(accountId).delete();
     },
