@@ -123,11 +123,13 @@ export default function PostDetailScreen() {
   const [showAllComments, setShowAllComments] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
-  const [optionsVisible, setOptionsVisible] = useState(false); // ✅ NEW
+  const [optionsVisible, setOptionsVisible] = useState(false);
 
   const commentInputRef = useRef<TextInput>(null);
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
+  // ✅ FIX: scroll ref so comment input stays visible above keyboard
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const {
     data: post,
@@ -267,7 +269,6 @@ export default function PostDetailScreen() {
     ] as AlertButton[]);
   };
 
-  // ✅ FIX: replaced Alert.alert with themed PostOptionsSheet
   const openMenu = () => {
     if (!post) return;
     setOptionsVisible(true);
@@ -294,7 +295,7 @@ export default function PostDetailScreen() {
         label: "Report",
         icon: "flag-outline",
         destructive: true,
-        onPress: () => {}, // wire up report flow later
+        onPress: () => {},
       });
     }
     return opts;
@@ -445,16 +446,22 @@ export default function PostDetailScreen() {
         <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <HeaderBar />
 
+        {/* ✅ FIX: use "padding" on both platforms so input floats above keyboard */}
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
         >
+          {/* ✅ FIX: scrollViewRef + onContentSizeChange scrolls to bottom when comment added */}
           <ScrollView
+            ref={scrollViewRef}
             style={styles.flex}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() =>
+              scrollViewRef.current?.scrollToEnd({ animated: false })
+            }
           >
             {/* Post card */}
             <View
@@ -470,7 +477,7 @@ export default function PostDetailScreen() {
                 style={styles.authorRow}
                 onPress={() =>
                   post.user?.username
-                    ? router.push(`/user/${post.user.username}` as any)
+                    ? router.push(`/user/${post.user?.username}` as any)
                     : undefined
                 }
               >
@@ -550,7 +557,6 @@ export default function PostDetailScreen() {
                   borderColor={colors.border}
                 />
               )}
-
               {hasMedia &&
                 !isPoll &&
                 (isVideo ? (
@@ -626,9 +632,18 @@ export default function PostDetailScreen() {
                     Like
                   </Text>
                 </TouchableOpacity>
+
+                {/* ✅ FIX: Comment button scrolls to bottom so user sees input */}
                 <TouchableOpacity
                   style={styles.actionBtn}
-                  onPress={() => commentInputRef.current?.focus()}
+                  onPress={() => {
+                    commentInputRef.current?.focus();
+                    setTimeout(
+                      () =>
+                        scrollViewRef.current?.scrollToEnd({ animated: true }),
+                      100,
+                    );
+                  }}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -645,6 +660,7 @@ export default function PostDetailScreen() {
                     Comment
                   </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={() => repostSheetRef.current?.snapToIndex(0)}
@@ -668,6 +684,7 @@ export default function PostDetailScreen() {
                     Repost
                   </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={handleShare}
@@ -687,6 +704,7 @@ export default function PostDetailScreen() {
                     Share
                   </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={handleBookmark}
@@ -929,6 +947,13 @@ export default function PostDetailScreen() {
               maxLength={500}
               returnKeyType="send"
               onSubmitEditing={handlePostComment}
+              // ✅ FIX: scroll to end when keyboard opens so input stays visible
+              onFocus={() =>
+                setTimeout(
+                  () => scrollViewRef.current?.scrollToEnd({ animated: true }),
+                  300,
+                )
+              }
             />
             <TouchableOpacity
               style={[
@@ -970,7 +995,6 @@ export default function PostDetailScreen() {
           shareMessage={`Check out this post on NebulaNet!`}
         />
 
-        {/* ✅ FIX: themed options sheet replaces Alert.alert */}
         <PostOptionsSheet
           visible={optionsVisible}
           onClose={() => setOptionsVisible(false)}

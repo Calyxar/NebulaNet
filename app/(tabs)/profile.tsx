@@ -1,13 +1,14 @@
+// app/(tabs)/profile.tsx — REACT NATIVE FIREBASE ✅ with unlike support
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import FounderBadge from "@/components/user/FounderBadge";
+import { useToggleLike } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
 import { shareProfileLink } from "@/lib/shareProfile";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
-import firestore from "@react-native-firebase/firestore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -39,6 +40,7 @@ interface UserPost {
   comment_count: number;
   share_count: number;
   created_at: string;
+  is_liked?: boolean;
 }
 
 interface UserStats {
@@ -53,10 +55,19 @@ function tsToIso(v: any): string {
   if (!v) return new Date().toISOString();
   if (typeof v === "string") return v;
   if (v instanceof Date) return v.toISOString();
-  if (v instanceof firestore.Timestamp) return v.toDate().toISOString();
   if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  if (typeof v?.seconds === "number")
+    return new Date(v.seconds * 1000).toISOString();
   return new Date().toISOString();
 }
+
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
+  );
+};
 
 export default function ProfileTabScreen() {
   const insets = useSafeAreaInsets();
@@ -66,8 +77,10 @@ export default function ProfileTabScreen() {
   const { user, profile, isProfileLoading } = useAuth();
 
   const uid = user?.uid ?? null;
-
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
+  // ✅ FIX: track liked posts locally for immediate UI feedback
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
+  const toggleLikeMutation = useToggleLike();
 
   const profileTabs: ProfileTab[] = useMemo(
     () => ["Activity", "Post", "Tagged", "Media"],
@@ -100,6 +113,7 @@ export default function ProfileTabScreen() {
             comment_count: Number(x.comment_count ?? 0),
             share_count: Number(x.share_count ?? 0),
             created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            is_liked: false,
           } as UserPost;
         })
         .sort(
@@ -108,6 +122,12 @@ export default function ProfileTabScreen() {
         );
     },
   });
+
+  // ✅ Media posts — filter from userPosts
+  const mediaPosts = useMemo(
+    () => userPosts.filter((p) => p.media_urls && p.media_urls.length > 0),
+    [userPosts],
+  );
 
   const { data: userStats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["user-stats", uid],
@@ -172,6 +192,16 @@ export default function ProfileTabScreen() {
     }
   };
 
+  // ✅ FIX: like/unlike handler with optimistic local state
+  const handleLike = (postId: string, currentIsLiked: boolean) => {
+    setLikedPosts((prev) => {
+      const next = new Set(prev);
+      currentIsLiked ? next.delete(postId) : next.add(postId);
+      return next;
+    });
+    toggleLikeMutation.mutate({ postId, isLiked: currentIsLiked });
+  };
+
   const deletePost = async (postId: string) => {
     if (!uid) return;
     Alert.alert("Delete post?", "This cannot be undone.", [
@@ -226,6 +256,10 @@ export default function ProfileTabScreen() {
 
   const renderPostCard = (post: UserPost) => {
     const img = post.media_urls?.[0];
+    const isVideo = isVideoUrl(img);
+    // ✅ FIX: check local liked state first, fall back to post data
+    const isLiked = likedPosts.has(post.id) ?? post.is_liked ?? false;
+
     return (
       <Pressable
         key={post.id}
@@ -300,26 +334,58 @@ export default function ProfileTabScreen() {
         ) : null}
 
         {img ? (
-          <Image
-            source={{ uri: img }}
-            style={[styles.postMedia, { backgroundColor: colors.surface }]}
-            resizeMode="cover"
-          />
+          <View
+            style={[styles.postMediaWrap, { backgroundColor: colors.surface }]}
+          >
+            <Image
+              source={{ uri: img }}
+              style={styles.postMedia}
+              resizeMode="cover"
+            />
+            {isVideo && (
+              <>
+                <View
+                  style={[
+                    styles.videoBadge,
+                    { backgroundColor: "rgba(0,0,0,0.5)" },
+                  ]}
+                >
+                  <Ionicons name="videocam" size={13} color="#fff" />
+                  <Text style={styles.videoBadgeText}>Video</Text>
+                </View>
+                <View style={styles.playOverlay}>
+                  <Ionicons name="play" size={24} color="#fff" />
+                </View>
+              </>
+            )}
+          </View>
         ) : null}
 
         <View style={[styles.postFooterRow, { borderTopColor: colors.border }]}>
-          <View style={styles.postFooterItem}>
+          {/* ✅ FIX: tappable like button with red heart when liked */}
+          <TouchableOpacity
+            style={styles.postFooterItem}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              handleLike(post.id, isLiked);
+            }}
+            activeOpacity={0.7}
+          >
             <Ionicons
-              name="heart-outline"
+              name={isLiked ? "heart" : "heart-outline"}
               size={18}
-              color={colors.textTertiary}
+              color={isLiked ? "#FF375F" : colors.textTertiary}
             />
             <Text
-              style={[styles.postFooterText, { color: colors.textTertiary }]}
+              style={[
+                styles.postFooterText,
+                { color: isLiked ? "#FF375F" : colors.textTertiary },
+              ]}
             >
               {post.like_count}
             </Text>
-          </View>
+          </TouchableOpacity>
+
           <View style={styles.postFooterItem}>
             <Ionicons
               name="chatbubble-outline"
@@ -332,6 +398,7 @@ export default function ProfileTabScreen() {
               {post.comment_count}
             </Text>
           </View>
+
           <View style={styles.postFooterItem}>
             <Ionicons
               name="arrow-redo-outline"
@@ -346,6 +413,75 @@ export default function ProfileTabScreen() {
           </View>
         </View>
       </Pressable>
+    );
+  };
+
+  // ✅ Media tab — 3-column grid
+  const renderMediaGrid = () => {
+    if (isLoadingPosts)
+      return (
+        <View style={styles.loadingInline}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      );
+    if (mediaPosts.length === 0) {
+      return (
+        <EmptyPanel
+          colors={colors}
+          icon="images-outline"
+          title="No Media Yet"
+          subtitle="Photos and videos from your posts will appear here."
+        />
+      );
+    }
+    const rows: UserPost[][] = [];
+    for (let i = 0; i < mediaPosts.length; i += 3)
+      rows.push(mediaPosts.slice(i, i + 3));
+    return (
+      <View style={styles.mediaGrid}>
+        {rows.map((row, ri) => (
+          <View key={ri} style={styles.mediaGridRow}>
+            {row.map((post) => {
+              const img = post.media_urls![0];
+              const isVid = isVideoUrl(img);
+              return (
+                <TouchableOpacity
+                  key={post.id}
+                  style={[
+                    styles.mediaGridCell,
+                    { backgroundColor: colors.surface },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={() => router.push(`/post/${post.id}` as any)}
+                >
+                  <Image
+                    source={{ uri: img }}
+                    style={styles.mediaGridImage}
+                    resizeMode="cover"
+                  />
+                  {isVid && (
+                    <View style={styles.mediaGridVideoBadge}>
+                      <Ionicons name="play" size={10} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            {row.length < 3 &&
+              Array(3 - row.length)
+                .fill(null)
+                .map((_, i) => (
+                  <View
+                    key={`sp-${i}`}
+                    style={[
+                      styles.mediaGridCell,
+                      { backgroundColor: "transparent" },
+                    ]}
+                  />
+                ))}
+          </View>
+        ))}
+      </View>
     );
   };
 
@@ -663,14 +799,7 @@ export default function ProfileTabScreen() {
                   subtitle="Posts where you're tagged will appear here."
                 />
               )}
-              {activeTab === "Media" && (
-                <EmptyPanel
-                  colors={colors}
-                  icon="images-outline"
-                  title="No Media"
-                  subtitle="Photos and videos from your posts will appear here."
-                />
-              )}
+              {activeTab === "Media" && renderMediaGrid()}
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -704,6 +833,11 @@ function EmptyPanel({
     </View>
   );
 }
+
+const GRID_GAP = 2;
+const CELL_SIZE =
+  (require("react-native").Dimensions.get("window").width - 36 - GRID_GAP * 2) /
+  3;
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
@@ -855,7 +989,42 @@ const styles = StyleSheet.create({
   postTime: { fontSize: 11.5, marginTop: 2, fontWeight: "700" },
   postTitle: { fontSize: 14, fontWeight: "800", marginBottom: 6 },
   postBodyText: { fontSize: 13.5, lineHeight: 19, marginBottom: 10 },
-  postMedia: { width: "100%", height: 180, borderRadius: 16, marginBottom: 12 },
+  postMediaWrap: {
+    width: "100%",
+    height: 200,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    position: "relative",
+  },
+  postMedia: { width: "100%", height: "100%" },
+  videoBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  videoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  playOverlay: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    width: 48,
+    height: 48,
+    marginLeft: -24,
+    marginTop: -24,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+  },
   postFooterRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -865,4 +1034,22 @@ const styles = StyleSheet.create({
   },
   postFooterItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   postFooterText: { fontSize: 12.5, fontWeight: "800" },
+  mediaGrid: { gap: GRID_GAP, borderRadius: 18, overflow: "hidden" },
+  mediaGridRow: { flexDirection: "row", gap: GRID_GAP },
+  mediaGridCell: {
+    width: CELL_SIZE,
+    height: CELL_SIZE,
+    overflow: "hidden",
+    position: "relative",
+  },
+  mediaGridImage: { width: "100%", height: "100%" },
+  mediaGridVideoBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
 });

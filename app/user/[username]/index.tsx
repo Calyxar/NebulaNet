@@ -1163,7 +1163,6 @@ export default function UserProfileScreen() {
             isMuted={!!isMuted}
             onMessage={canMessage ? handleMessage : undefined}
             onCopyLink={handleCopyProfileLink}
-            onShare={handleShareProfile}
             onMute={() => {
               sheetRef.current?.close();
               muteMutation.mutate(!!isMuted);
