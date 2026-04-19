@@ -1,7 +1,4 @@
 // hooks/useFeed.ts — REACT NATIVE FIREBASE ✅
-// ✅ Migrated from web SDK to @react-native-firebase
-// ✅ Reads feed preferences (show_nsfw, default_sort) from user settings
-
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import {
@@ -31,7 +28,7 @@ export interface Post {
     username: string;
     full_name?: string | null;
     avatar_url?: string | null;
-  };
+  } | null;
   community?: {
     id: string;
     name: string;
@@ -93,12 +90,10 @@ function normalizeVisibility(v: any): PostVisibility {
   return "public";
 }
 
-// Profile cache to avoid N+1 lookups
 const profileCache = new Map<string, any>();
 
 async function getProfilesBatch(userIds: string[]): Promise<Map<string, any>> {
   const toFetch = userIds.filter((id) => !profileCache.has(id));
-
   for (let i = 0; i < toFetch.length; i += 10) {
     const batch = toFetch.slice(i, i + 10);
     const snap = await firestore()
@@ -109,7 +104,6 @@ async function getProfilesBatch(userIds: string[]): Promise<Map<string, any>> {
       profileCache.set(d.id, { id: d.id, ...d.data() });
     });
   }
-
   const out = new Map<string, any>();
   userIds.forEach((id) => {
     if (profileCache.has(id)) out.set(id, profileCache.get(id));
@@ -117,9 +111,48 @@ async function getProfilesBatch(userIds: string[]): Promise<Map<string, any>> {
   return out;
 }
 
+// ✅ FIX: batch-fetch like and save flags for the current user
+async function fetchLikeSaveFlags(
+  uid: string,
+  postIds: string[],
+): Promise<{ liked: Set<string>; saved: Set<string> }> {
+  const liked = new Set<string>();
+  const saved = new Set<string>();
+  if (!uid || !postIds.length) return { liked, saved };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < postIds.length; i += 10) {
+    chunks.push(postIds.slice(i, i + 10));
+  }
+
+  await Promise.all([
+    (async () => {
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("likes")
+          .where("user_id", "==", uid)
+          .where("post_id", "in", chunk)
+          .get();
+        snap.docs.forEach((d) => liked.add((d.data() as any).post_id));
+      }
+    })(),
+    (async () => {
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("saves")
+          .where("user_id", "==", uid)
+          .where("post_id", "in", chunk)
+          .get();
+        snap.docs.forEach((d) => saved.add((d.data() as any).post_id));
+      }
+    })(),
+  ]);
+
+  return { liked, saved };
+}
+
 export function useFeedPreferences(): FeedPreferences {
   const uid = auth().currentUser?.uid;
-
   const { data } = useQuery({
     queryKey: ["feed-preferences", uid],
     enabled: !!uid,
@@ -148,7 +181,6 @@ export function useFeedPreferences(): FeedPreferences {
       }
     },
   });
-
   return data ?? DEFAULT_PREFS;
 }
 
@@ -157,7 +189,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
   const prefs = useFeedPreferences();
   const PAGE_SIZE = 10;
 
-  // Determine effective sort: explicit filter overrides, then pref, then "newest"
   const effectiveSort = filters.sort
     ? filters.sort
     : prefs.default_sort === "new"
@@ -171,7 +202,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
 
     let postIds: string[] | null = null;
 
-    // Home feed: get posts from followed users + joined communities
     if (filters.type === "home" && user) {
       const [followSnap, memberSnap] = await Promise.all([
         firestore()
@@ -190,12 +220,10 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       const communityIds = memberSnap.docs.map(
         (d) => (d.data() as any).community_id as string,
       );
-      // Include own posts
       followedIds.push(user.uid);
       postIds = [...followedIds, ...communityIds];
     }
 
-    // Community filter by slug
     let communityId: string | null = null;
     if (filters.type === "community" && filters.communitySlug) {
       const snap = await firestore()
@@ -206,7 +234,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       communityId = snap.empty ? null : snap.docs[0].id;
     }
 
-    // User filter by username
     let filterUserId: string | null = null;
     if (filters.type === "user" && filters.username) {
       const snap = await firestore()
@@ -217,13 +244,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       filterUserId = snap.empty ? null : snap.docs[0].id;
     }
 
-    // Determine sort field
     const sortField =
       effectiveSort === "popular" || effectiveSort === "trending"
         ? "like_count"
         : "created_at_ts";
 
-    // Build query
     let ref = firestore().collection("posts");
     let q;
 
@@ -249,7 +274,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
     const snap = await q.get();
     let docs = snap.docs;
 
-    // Filter to home feed relevant posts
     if (filters.type === "home" && postIds) {
       docs = docs.filter((d) => {
         const data = d.data() as any;
@@ -260,7 +284,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       });
     }
 
-    // Trending: last 7 days only
     if (effectiveSort === "trending") {
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       docs = docs.filter((d) => {
@@ -270,19 +293,24 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
       });
     }
 
-    // NSFW filter — apply from preferences
     if (!prefs.show_nsfw) {
       docs = docs.filter((d) => !(d.data() as any).is_nsfw);
     }
 
-    // Slice for pagination
     const page = docs.slice(pageParam * PAGE_SIZE, (pageParam + 1) * PAGE_SIZE);
 
-    // Batch-fetch profiles for authors
     const authorIds = Array.from(
       new Set(page.map((d) => (d.data() as any).user_id as string)),
     );
     await getProfilesBatch(authorIds);
+
+    const postIdsList = page.map((d) => d.id);
+
+    // ✅ FIX: fetch actual like/save status for the current user
+    const uid = user?.uid ?? "";
+    const { liked, saved } = uid
+      ? await fetchLikeSaveFlags(uid, postIdsList)
+      : { liked: new Set<string>(), saved: new Set<string>() };
 
     const posts: Post[] = page.map((d) => {
       const data = d.data() as any;
@@ -300,13 +328,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         comment_count: data.comment_count ?? 0,
         share_count: data.share_count ?? 0,
         media_urls: data.media_urls ?? [],
-        user: profile ?? {
-          id: data.user_id,
-          username: "unknown",
-        },
+        user: profile ?? { id: data.user_id, username: "unknown" },
         community: null,
-        is_liked: false,
-        is_saved: false,
+        // ✅ FIX: actual like/save status instead of hardcoded false
+        is_liked: liked.has(d.id),
+        is_saved: saved.has(d.id),
         is_nsfw: !!data.is_nsfw,
         post_type: data.post_type ?? null,
       };
@@ -329,7 +355,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
     mutationFn: async (postData: CreatePostData) => {
       const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-
       const ref = await firestore()
         .collection("posts")
         .add({
@@ -358,13 +383,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
     mutationFn: async (postId: string) => {
       const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-
       const snap = await firestore()
         .collection("likes")
         .where("user_id", "==", user.uid)
         .where("post_id", "==", postId)
         .get();
-
       if (!snap.empty) {
         await Promise.all(snap.docs.map((d) => d.ref.delete()));
         return "unliked";
@@ -387,13 +410,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
     mutationFn: async (postId: string) => {
       const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-
       const snap = await firestore()
         .collection("saves")
         .where("user_id", "==", user.uid)
         .where("post_id", "==", postId)
         .get();
-
       if (!snap.empty) {
         await Promise.all(snap.docs.map((d) => d.ref.delete()));
         return "unsaved";

@@ -1,7 +1,8 @@
-// app/create/story.tsx — UPDATED ✅ GIF picker wired in
+// app/create/story.tsx — UPDATED ✅ GIF picker wired in + immediate story refresh
 import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
-import { createStory, uploadStoryMedia } from "@/lib/queries/stories";
+import { useCreateStory } from "@/hooks/useStories"; // ✅ FIX: use hook not direct call
+import { uploadStoryMedia } from "@/lib/queries/stories";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -37,6 +38,9 @@ export default function CreateStoryScreen() {
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+
+  // ✅ FIX: use the hook so onSuccess invalidates storyKeys.active()
+  const createStoryMutation = useCreateStory();
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
   const canPost = useMemo(
@@ -74,7 +78,6 @@ export default function CreateStoryScreen() {
     setMediaType(isGif ? "gif" : asset.type === "video" ? "video" : "image");
   };
 
-  // ✅ GIF selected from Klipy
   const handleGifSelect = (url: string) => {
     setMediaUri(url);
     setMediaType("gif");
@@ -92,12 +95,16 @@ export default function CreateStoryScreen() {
         mediaUri,
         mediaType === "gif" ? "image" : mediaType,
       );
-      await createStory({
+
+      // ✅ FIX: use mutation hook — invalidates storyKeys.active() on success
+      // so the story row on the home screen updates immediately
+      await createStoryMutation.mutateAsync({
         media_url: uploaded.publicUrl,
-        media_type: mediaType,
-        caption: caption.trim() || null,
-        expires_in_hours: 24,
+        media_type: mediaType === "gif" ? "image" : mediaType,
+        caption: caption.trim() || undefined,
+        duration: mediaType === "video" ? 15 : 5,
       });
+
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to post story.");
@@ -336,7 +343,6 @@ export default function CreateStoryScreen() {
                     </Text>
                   </TouchableOpacity>
 
-                  {/* ✅ GIF button now opens GifPicker instead of image picker */}
                   <TouchableOpacity
                     style={[
                       styles.pickBtn,
@@ -380,7 +386,6 @@ export default function CreateStoryScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ✅ GIF Picker modal */}
       <GifPicker
         visible={showGifPicker}
         onSelect={handleGifSelect}

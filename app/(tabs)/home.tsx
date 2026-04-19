@@ -10,11 +10,11 @@ import StoryAvatar from "@/components/StoryAvatar";
 import { BANNER_AD_UNIT_ID, useInterstitialAd } from "@/hooks/useAdMob";
 import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
+import type { Post } from "@/hooks/useFeed";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useFeedDensity, useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useActiveStories } from "@/hooks/useStories";
 import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
-import type { Post } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
@@ -109,10 +109,10 @@ function SkeletonBox({ style }: { style: any }) {
     opacity.value = withRepeat(
       withSequence(
         withTiming(0.7, { duration: 800 }),
-        withTiming(0.3, { duration: 800 })
+        withTiming(0.3, { duration: 800 }),
       ),
       -1,
-      false
+      false,
     );
   }, []);
 
@@ -153,7 +153,9 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
         <View style={styles.authorRow}>
           <SkeletonBox style={{ width: 40, height: 40, borderRadius: 20 }} />
           <View style={{ flex: 1 }}>
-            <SkeletonBox style={{ width: "40%", height: 12, marginBottom: 6 }} />
+            <SkeletonBox
+              style={{ width: "40%", height: 12, marginBottom: 6 }}
+            />
             <SkeletonBox style={{ width: "25%", height: 10 }} />
           </View>
         </View>
