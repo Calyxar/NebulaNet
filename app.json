@@ -69,11 +69,6 @@
               "scheme": "https",
               "host": "nebulanet.space",
               "pathPrefix": "/invite"
-            },
-            {
-              "scheme": "https",
-              "host": "nebulanet.space",
-              "pathPrefix": "/auth"
             }
           ]
         }

@@ -1,6 +1,6 @@
+// components/post/PostCard.tsx — ✅ FIXED: media now renders reliably with Image directly
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
-import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -14,13 +14,17 @@ import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
+  Image,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  type AlertButton,
+  type AlertButton
 } from "react-native";
+
+const SCREEN_W = Dimensions.get("window").width;
 
 interface PostCardProps {
   id: string;
@@ -47,6 +51,14 @@ interface PostCardProps {
   getMoreActions?: () => AlertButton[];
   onVisible?: () => void;
 }
+
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
+  );
+};
 
 export default function PostCard(props: PostCardProps) {
   const {
@@ -82,7 +94,6 @@ export default function PostCard(props: PostCardProps) {
   const [isReposting, setIsReposting] = useState(false);
   const hasTrackedView = useRef(false);
 
-  // Custom sheet refs
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
 
@@ -149,17 +160,10 @@ export default function PostCard(props: PostCardProps) {
           Alert.alert("Report", "Reporting will be available soon."),
       },
     ];
-
     const extraButtons = getMoreActions?.() ?? [];
-    const allButtons = [...baseButtons, ...extraButtons];
-    const options = [...allButtons.map((b) => b.text ?? "Option"), "Cancel"];
-    const cancelButtonIndex = options.length - 1;
-    const destructiveIndex = allButtons.findIndex(
-      (b) => b.style === "destructive",
-    );
-
     Alert.alert("Post Options", undefined, [
-      ...allButtons,
+      ...baseButtons,
+      ...extraButtons,
       { text: "Cancel", style: "cancel" },
     ]);
   };
@@ -168,10 +172,59 @@ export default function PostCard(props: PostCardProps) {
   const displayContent =
     expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
-  const isVideoUrl = (url: string) => {
-    const clean = url.split("?")[0].toLowerCase();
-    return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
-      clean.endsWith(`.${e}`),
+  // ✅ FIX: Split media into images and videos up front
+  const safeMedia = media ?? [];
+  const imageUrls = safeMedia.filter((url) => !isVideoUrl(url));
+  const videoUrls = safeMedia.filter((url) => isVideoUrl(url));
+  const hasMedia = safeMedia.length > 0;
+
+  // ✅ FIX: Render image grid directly with Image — no dependency on MediaGallery
+  const renderImageGrid = () => {
+    if (imageUrls.length === 0) return null;
+    if (imageUrls.length === 1) {
+      return (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={openPost}
+          style={styles.singleImageWrap}
+        >
+          <Image
+            source={{ uri: imageUrls[0] }}
+            style={styles.singleImage}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+      );
+    }
+    // 2–4 images: grid
+    return (
+      <View style={styles.imageGrid}>
+        {imageUrls.slice(0, 4).map((url, idx) => (
+          <TouchableOpacity
+            key={url + idx}
+            activeOpacity={0.9}
+            onPress={openPost}
+            style={[
+              styles.gridCell,
+              imageUrls.length === 2 && { width: "49%" },
+              imageUrls.length >= 3 && { width: "32%" },
+            ]}
+          >
+            <Image
+              source={{ uri: url }}
+              style={styles.gridImage}
+              resizeMode="cover"
+            />
+            {idx === 3 && imageUrls.length > 4 && (
+              <View style={styles.moreOverlay}>
+                <Text style={styles.moreOverlayText}>
+                  +{imageUrls.length - 4}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
     );
   };
 
@@ -262,7 +315,7 @@ export default function PostCard(props: PostCardProps) {
             </>
           ) : (
             <>
-              {title && (
+              {!!title && (
                 <Text style={[styles.title, { color: colors.text }]}>
                   {title}
                 </Text>
@@ -286,28 +339,23 @@ export default function PostCard(props: PostCardProps) {
                   {expanded ? " Show less" : " Read more"}
                 </Text>
               )}
-              {media && media.length > 0 && (
-                <View style={{ marginTop: 12 }}>
-                  {media.map((url, index) => {
-                    if (isVideoUrl(url)) {
-                      return (
-                        <VideoPlayer
-                          key={index}
-                          uri={url}
-                          style={{
-                            height: 300,
-                            marginBottom: index < media.length - 1 ? 8 : 0,
-                          }}
-                        />
-                      );
-                    }
-                    return null;
-                  })}
-                  <MediaGallery
-                    media={media.filter((url) => !isVideoUrl(url))}
-                    onMediaPress={(index) => {}}
-                  />
+
+              {/* ✅ FIX: Videos */}
+              {videoUrls.length > 0 && (
+                <View style={{ marginTop: 12, gap: 8 }}>
+                  {videoUrls.map((url, idx) => (
+                    <VideoPlayer
+                      key={url + idx}
+                      uri={url}
+                      style={{ height: 260, borderRadius: 14 }}
+                    />
+                  ))}
                 </View>
+              )}
+
+              {/* ✅ FIX: Images rendered directly — no MediaGallery dependency */}
+              {imageUrls.length > 0 && (
+                <View style={{ marginTop: 10 }}>{renderImageGrid()}</View>
               )}
             </>
           )}
@@ -383,7 +431,6 @@ export default function PostCard(props: PostCardProps) {
         </View>
       </Pressable>
 
-      {/* Custom Repost Sheet */}
       <RepostSheet
         ref={repostSheetRef}
         isReposted={isReposted}
@@ -392,7 +439,6 @@ export default function PostCard(props: PostCardProps) {
         onUndoRepost={handleRepost}
       />
 
-      {/* Custom Share Sheet */}
       <ShareSheet
         ref={shareSheetRef}
         title="Share Post"
@@ -486,6 +532,36 @@ const styles = StyleSheet.create({
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
+
+  // ✅ Image grid styles
+  singleImageWrap: {
+    width: "100%",
+    height: 220,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  singleImage: { width: "100%", height: "100%" },
+  imageGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  gridCell: {
+    width: "49%",
+    height: 140,
+    borderRadius: 10,
+    overflow: "hidden",
+    position: "relative",
+  },
+  gridImage: { width: "100%", height: "100%" },
+  moreOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreOverlayText: { color: "#fff", fontSize: 22, fontWeight: "900" },
+
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",

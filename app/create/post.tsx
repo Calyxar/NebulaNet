@@ -1,6 +1,7 @@
+// app/create/post.tsx — ✅ FIXED: uses useCreatePost hook so new posts appear on home feed immediately
 import GifPicker from "@/components/post/GifPicker";
+import { useCreatePost } from "@/hooks/usePosts";
 import { extractHashtags } from "@/lib/firestore/hashtags";
-import { createPost } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import auth from "@react-native-firebase/auth";
@@ -266,11 +267,14 @@ export default function CreatePostScreen() {
   const { colors, isDark } = useTheme();
   const inputRef = useRef<TextInput>(null);
 
+  // ✅ FIX: replaced direct createPost import with useCreatePost hook
+  // This triggers optimistic insert so the post appears on home feed immediately
+  const createPostMutation = useCreatePost();
+
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [mediaItems, setMediaItems] = useState<LocalMediaItem[]>([]);
-  const [isPosting, setIsPosting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
@@ -278,6 +282,8 @@ export default function CreatePostScreen() {
     name: string;
     place_id: string;
   } | null>(null);
+
+  const isPosting = createPostMutation.isPending;
 
   const canPost = useMemo(
     () =>
@@ -378,7 +384,7 @@ export default function CreatePostScreen() {
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
 
-    // ✅ CRITICAL FIX: Check auth before posting
+    // ✅ Check auth before posting
     const currentUser = auth().currentUser;
     if (!currentUser) {
       Alert.alert("Session Expired", "Please sign in again.");
@@ -386,13 +392,15 @@ export default function CreatePostScreen() {
       return;
     }
 
-    setIsPosting(true);
     try {
       if (mediaItems.length > 0)
         setUploadProgress(
           `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}...`,
         );
-      await createPost({
+
+      // ✅ FIX: mutateAsync triggers optimistic insert in useCreatePost
+      // The post appears at the top of the home feed instantly
+      await createPostMutation.mutateAsync({
         title: title.trim() || undefined,
         content: bodyText.trim(),
         media: mediaItems.map((m, i) => ({
@@ -403,11 +411,11 @@ export default function CreatePostScreen() {
         visibility,
         location: location ?? undefined,
       });
+
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to create post.");
     } finally {
-      setIsPosting(false);
       setUploadProgress("");
     }
   };

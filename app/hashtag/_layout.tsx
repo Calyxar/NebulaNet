@@ -2,5 +2,9 @@
 import { Stack } from "expo-router";
 
 export default function HashtagLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="[tag]" />
+    </Stack>
+  );
 }

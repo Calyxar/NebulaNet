@@ -1,10 +1,10 @@
-// app/(tabs)/profile.tsx — REACT NATIVE FIREBASE ✅ with unlike support
+// app/(tabs)/profile.tsx — ✅ FIXED: share profile now uses ShareSheet
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useToggleLike } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
-import { shareProfileLink } from "@/lib/shareProfile";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
@@ -12,14 +12,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   Pressable,
   ScrollView,
-  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -78,9 +77,11 @@ export default function ProfileTabScreen() {
 
   const uid = user?.uid ?? null;
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
-  // ✅ FIX: track liked posts locally for immediate UI feedback
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
   const toggleLikeMutation = useToggleLike();
+
+  // ✅ FIX: ShareSheet ref — wires the share icon to the native share sheet
+  const shareSheetRef = useRef<ShareSheetRef>(null);
 
   const profileTabs: ProfileTab[] = useMemo(
     () => ["Activity", "Post", "Tagged", "Media"],
@@ -123,7 +124,6 @@ export default function ProfileTabScreen() {
     },
   });
 
-  // ✅ Media posts — filter from userPosts
   const mediaPosts = useMemo(
     () => userPosts.filter((p) => p.media_urls && p.media_urls.length > 0),
     [userPosts],
@@ -178,21 +178,11 @@ export default function ProfileTabScreen() {
     }
   };
 
-  const handleShareProfile = async () => {
-    try {
-      await shareProfileLink({
-        username: profile?.username,
-        userId: profile?.id ?? uid ?? "",
-        fullName: profile?.full_name,
-      });
-    } catch {
-      await Share.share({
-        message: `Check out my NebulaNet profile: @${profile?.username || "user"}`,
-      });
-    }
+  // ✅ FIX: opens ShareSheet instead of calling shareProfileLink which may fail silently
+  const handleShareProfile = () => {
+    shareSheetRef.current?.snapToIndex(0);
   };
 
-  // ✅ FIX: like/unlike handler with optimistic local state
   const handleLike = (postId: string, currentIsLiked: boolean) => {
     setLikedPosts((prev) => {
       const next = new Set(prev);
@@ -257,7 +247,6 @@ export default function ProfileTabScreen() {
   const renderPostCard = (post: UserPost) => {
     const img = post.media_urls?.[0];
     const isVideo = isVideoUrl(img);
-    // ✅ FIX: check local liked state first, fall back to post data
     const isLiked = likedPosts.has(post.id) ?? post.is_liked ?? false;
 
     return (
@@ -362,7 +351,6 @@ export default function ProfileTabScreen() {
         ) : null}
 
         <View style={[styles.postFooterRow, { borderTopColor: colors.border }]}>
-          {/* ✅ FIX: tappable like button with red heart when liked */}
           <TouchableOpacity
             style={styles.postFooterItem}
             onPress={(e) => {
@@ -416,7 +404,6 @@ export default function ProfileTabScreen() {
     );
   };
 
-  // ✅ Media tab — 3-column grid
   const renderMediaGrid = () => {
     if (isLoadingPosts)
       return (
@@ -695,6 +682,7 @@ export default function ProfileTabScreen() {
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
+                {/* ✅ FIX: now opens ShareSheet */}
                 <TouchableOpacity
                   style={[
                     styles.actionBtn,
@@ -804,6 +792,15 @@ export default function ProfileTabScreen() {
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
+
+      {/* ✅ FIX: ShareSheet renders here, opened by handleShareProfile */}
+      <ShareSheet
+        ref={shareSheetRef}
+        title="Share Profile"
+        url={`https://nebulanet.space/user/${profile.username}`}
+        text={`Check out my profile on NebulaNet!${profile.full_name ? ` (${profile.full_name})` : ""}`}
+        shareMessage={`Check out @${profile.username} on NebulaNet!`}
+      />
     </>
   );
 }
