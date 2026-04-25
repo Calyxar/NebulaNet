@@ -1,7 +1,13 @@
 // lib/firestore/posts.ts — React Native Firebase ✅
-// ✅ FIXED: deletePost now decrements hashtag counts when a post is deleted
+// ✅ FIXED: decrementHashtagCounts now imported from hashtags.ts (uses "hashtags" collection)
+// ✅ FIXED: local decrementHashtagCounts removed — it was writing to wrong "hashtag_counts" collection
+
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
-import { extractHashtags, indexHashtags } from "@/lib/firestore/hashtags";
+import {
+  decrementHashtagCounts,
+  extractHashtags,
+  indexHashtags,
+} from "@/lib/firestore/hashtags";
 import { detectLanguage } from "@/utils/detectLanguage";
 import auth from "@react-native-firebase/auth";
 import firestore, {
@@ -324,38 +330,6 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
 }
 
 /* =========================================================
-   ✅ HASHTAG DECREMENT — called when a post is deleted
-   Decrements post_count on each hashtag_counts doc.
-   Clamps to 0 so counts never go negative.
-========================================================= */
-
-async function decrementHashtagCounts(hashtags: string[]): Promise<void> {
-  if (!hashtags.length) return;
-  const clean = hashtags
-    .map((t) => t.toLowerCase().replace(/^#/, "").trim())
-    .filter(Boolean);
-  if (!clean.length) return;
-
-  const batch = firestore().batch();
-  for (const tag of clean) {
-    const ref = firestore().collection("hashtag_counts").doc(tag);
-    const snap = await ref.get();
-    if (!snap.exists()) continue;
-    const current = (snap.data() as any)?.post_count ?? 0;
-    if (current <= 1) {
-      // remove the document entirely if count would hit 0
-      batch.delete(ref);
-    } else {
-      batch.update(ref, {
-        post_count: firestore.FieldValue.increment(-1),
-        updated_at: firestore.FieldValue.serverTimestamp(),
-      });
-    }
-  }
-  await batch.commit();
-}
-
-/* =========================================================
    GET POSTS
 ========================================================= */
 
@@ -608,8 +582,8 @@ export async function updatePost(
 
 /* =========================================================
    DELETE POST
-   ✅ FIXED: now decrements hashtag counts and removes from
-   trending so deleted posts no longer appear in explore
+   ✅ FIXED: now uses decrementHashtagCounts from hashtags.ts
+   which correctly targets the "hashtags" collection
 ========================================================= */
 
 export async function deletePost(postId: string): Promise<boolean> {
@@ -622,13 +596,11 @@ export async function deletePost(postId: string): Promise<boolean> {
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
 
-  // ✅ grab hashtags before deleting so we can decrement counts
   const hashtags: string[] = Array.isArray(d.hashtags) ? d.hashtags : [];
 
-  // delete the post document
   await refDoc.delete();
 
-  // ✅ decrement hashtag counts — fire and forget, don't block on it
+  // ✅ uses imported decrementHashtagCounts from hashtags.ts ("hashtags" collection)
   if (hashtags.length) {
     decrementHashtagCounts(hashtags).catch((e) =>
       console.warn("decrementHashtagCounts failed:", e),

@@ -1,13 +1,13 @@
 // scripts/inject-firebase-config.js
-// Replaces __FIREBASE_*__ placeholders in public/auth.html and public/auth/verify.html
-// with values from environment variables at build time.
-//
-// Run as part of Vercel build step (see vercel.json or package.json).
+// ✅ FIXED: correct path — file is at public/verify.html not public/auth/verify.html
 
 const fs = require("fs");
 const path = require("path");
 
 const FILES = [
+  path.join(__dirname, "..", "public", "verify.html"),
+  path.join(__dirname, "..", "public", "reset.html"),
+  // Keep old paths as fallbacks in case they exist
   path.join(__dirname, "..", "public", "auth.html"),
   path.join(__dirname, "..", "public", "auth", "verify.html"),
 ];

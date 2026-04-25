@@ -1,3 +1,5 @@
+// app/user/[username]/index.tsx
+// ✅ FIXED: ShareSheet moved outside SafeAreaView so it overlays the full screen
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -274,12 +276,14 @@ export default function UserProfileScreen() {
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
-      await firestore().collection("follows").add({
-        follower_id: user.uid,
-        following_id: target.id,
-        status,
-        created_at: new Date().toISOString(),
-      });
+      await firestore()
+        .collection("follows")
+        .add({
+          follower_id: user.uid,
+          following_id: target.id,
+          status,
+          created_at: new Date().toISOString(),
+        });
       if (status === "accepted" && user.uid !== target.id) {
         createNotification({
           type: "follow",
@@ -354,11 +358,13 @@ export default function UserProfileScreen() {
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-      await firestore().collection("user_blocks").add({
-        blocker_id: user.uid,
-        blocked_id: target.id,
-        created_at: new Date().toISOString(),
-      });
+      await firestore()
+        .collection("user_blocks")
+        .add({
+          blocker_id: user.uid,
+          blocked_id: target.id,
+          created_at: new Date().toISOString(),
+        });
       return target.id;
     },
     onSuccess: (targetId) => {
@@ -368,9 +374,7 @@ export default function UserProfileScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
-  const handleShareProfile = () => {
-    shareSheetRef.current?.snapToIndex(0);
-  };
+  const handleShareProfile = () => shareSheetRef.current?.snapToIndex(0);
 
   const handleCopyProfileLink = async () => {
     const link = `https://nebulanet.space/user/${target?.username ?? username}`;
@@ -383,41 +387,20 @@ export default function UserProfileScreen() {
   const canMessage = !isBlocked && (!isPrivate || isFollowing);
 
   const handleMessage = async () => {
-    console.log("=== HANDLE MESSAGE START ===");
-    console.log("User UID:", user?.uid);
-    console.log("Target ID:", target?.id);
-    console.log("Is blocked:", isBlocked);
-    console.log("Is private:", isPrivate);
-    console.log("Is following:", isFollowing);
-
-    if (!user?.uid || !target?.id) {
-      console.error("Missing user or target ID");
-      return;
-    }
+    if (!user?.uid || !target?.id) return;
     if (isBlocked) {
-      console.log("User is blocked, showing alert");
       Alert.alert("Message unavailable", "You can't message this user.");
       return;
     }
     if (isPrivate && !isFollowing) {
-      console.log("Private account, not following, showing alert");
       Alert.alert("Private account", "Follow this user to message them.");
       return;
     }
     try {
-      console.log("Creating/opening chat...");
       const conversationId = await createOrOpenChat(user.uid, target.id);
-      console.log("Got conversation ID:", conversationId);
-
       sheetRef.current?.close();
-      console.log("Navigating to chat:", `/chat/${conversationId}`);
       router.push(`/chat/${conversationId}`);
-      console.log("=== HANDLE MESSAGE COMPLETE ===");
     } catch (error: any) {
-      console.error("=== HANDLE MESSAGE ERROR ===");
-      console.error("Error:", error);
-      console.error("Error message:", error?.message);
-      console.error("Error code:", error?.code);
       Alert.alert("Error", error?.message || "Could not start conversation.");
     }
   };
@@ -649,13 +632,11 @@ export default function UserProfileScreen() {
               </Text>
               {!!target.is_founder && <FounderBadge />}
             </View>
-
             {!!target.bio && (
               <Text style={[styles.bio, { color: colors.textTertiary }]}>
                 {target.bio}
               </Text>
             )}
-
             {target.is_private && (
               <View
                 style={[
@@ -1211,15 +1192,16 @@ export default function UserProfileScreen() {
             }}
           />
         )}
-
-        <ShareSheet
-          ref={shareSheetRef}
-          title="Share Profile"
-          url={`https://nebulanet.space/user/${target.username}`}
-          text={`Check out @${target.username} on NebulaNet!${target.full_name ? ` (${target.full_name})` : ""}`}
-          shareMessage={`Check out @${target.username} on NebulaNet!`}
-        />
       </SafeAreaView>
+
+      {/* ✅ FIX: ShareSheet outside SafeAreaView so it overlays the full screen */}
+      <ShareSheet
+        ref={shareSheetRef}
+        title="Share Profile"
+        url={`https://nebulanet.space/user/${target.username}`}
+        text={`Check out @${target.username} on NebulaNet!${target.full_name ? ` (${target.full_name})` : ""}`}
+        shareMessage={`Check out @${target.username} on NebulaNet!`}
+      />
     </LinearGradient>
   );
 }
@@ -1385,6 +1367,4 @@ const styles = StyleSheet.create({
   skel: { backgroundColor: "#E5E7EB" },
 });
 
-export const options = {
-  headerShown: false,
-};
+export const options = { headerShown: false };

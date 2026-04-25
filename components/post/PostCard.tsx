@@ -1,10 +1,12 @@
-// components/post/PostCard.tsx — ✅ FIXED: media now renders reliably with Image directly
+// components/post/PostCard.tsx — ✅ FIXED: three-dot menu shows delete/repost/share options
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
+import { useAuth } from "@/hooks/useAuth";
+import { useDeletePost } from "@/hooks/usePosts";
 import { type PollData } from "@/lib/firestore/polls";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { generatePostLink } from "@/lib/share";
@@ -21,7 +23,7 @@ import {
   Text,
   TouchableOpacity,
   View,
-  type AlertButton
+  type AlertButton,
 } from "react-native";
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -87,6 +89,9 @@ export default function PostCard(props: PostCardProps) {
   } = props;
 
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const deletePostMutation = useDeletePost();
+
   const [expanded, setExpanded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
@@ -96,6 +101,9 @@ export default function PostCard(props: PostCardProps) {
 
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
+
+  // Is this the current user's post?
+  const isOwned = !!user?.uid && user.uid === author.id;
 
   useEffect(() => {
     if (!hasTrackedView.current && onVisible) {
@@ -138,31 +146,50 @@ export default function PostCard(props: PostCardProps) {
     } as any);
   };
 
-  const handleShare = async () => {
-    if (isSharing) return;
-    setIsSharing(true);
-    try {
-      await onSharePress?.();
-    } catch (e) {
-      console.warn("Share failed:", e);
-    } finally {
-      setIsSharing(false);
-    }
+  const handleDelete = () => {
+    Alert.alert("Delete post?", "This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => deletePostMutation.mutate(id),
+      },
+    ]);
   };
 
+  // ✅ FIX: three-dot menu now shows contextual options
   const handleMoreOptions = () => {
-    const baseButtons: AlertButton[] = [
+    const buttons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
       {
+        text: isReposted ? "Undo Repost" : "Repost",
+        onPress: () => repostSheetRef.current?.snapToIndex(0),
+      },
+      {
+        text: "Share Post",
+        onPress: () => shareSheetRef.current?.snapToIndex(0),
+      },
+    ];
+
+    // Only show delete if it's the user's own post
+    if (isOwned) {
+      buttons.push({
+        text: "Delete Post",
+        style: "destructive",
+        onPress: handleDelete,
+      });
+    } else {
+      buttons.push({
         text: "Report Post",
         style: "destructive",
         onPress: () =>
           Alert.alert("Report", "Reporting will be available soon."),
-      },
-    ];
+      });
+    }
+
     const extraButtons = getMoreActions?.() ?? [];
     Alert.alert("Post Options", undefined, [
-      ...baseButtons,
+      ...buttons,
       ...extraButtons,
       { text: "Cancel", style: "cancel" },
     ]);
@@ -172,13 +199,10 @@ export default function PostCard(props: PostCardProps) {
   const displayContent =
     expanded || !isTruncated ? content : `${content.slice(0, 150)}…`;
 
-  // ✅ FIX: Split media into images and videos up front
   const safeMedia = media ?? [];
   const imageUrls = safeMedia.filter((url) => !isVideoUrl(url));
   const videoUrls = safeMedia.filter((url) => isVideoUrl(url));
-  const hasMedia = safeMedia.length > 0;
 
-  // ✅ FIX: Render image grid directly with Image — no dependency on MediaGallery
   const renderImageGrid = () => {
     if (imageUrls.length === 0) return null;
     if (imageUrls.length === 1) {
@@ -196,7 +220,6 @@ export default function PostCard(props: PostCardProps) {
         </TouchableOpacity>
       );
     }
-    // 2–4 images: grid
     return (
       <View style={styles.imageGrid}>
         {imageUrls.slice(0, 4).map((url, idx) => (
@@ -339,8 +362,6 @@ export default function PostCard(props: PostCardProps) {
                   {expanded ? " Show less" : " Read more"}
                 </Text>
               )}
-
-              {/* ✅ FIX: Videos */}
               {videoUrls.length > 0 && (
                 <View style={{ marginTop: 12, gap: 8 }}>
                   {videoUrls.map((url, idx) => (
@@ -352,8 +373,6 @@ export default function PostCard(props: PostCardProps) {
                   ))}
                 </View>
               )}
-
-              {/* ✅ FIX: Images rendered directly — no MediaGallery dependency */}
               {imageUrls.length > 0 && (
                 <View style={{ marginTop: 10 }}>{renderImageGrid()}</View>
               )}
@@ -413,10 +432,9 @@ export default function PostCard(props: PostCardProps) {
             }}
           />
           <Action
-            icon={isSharing ? "sync" : "share-outline"}
+            icon="share-outline"
             label="Share"
             color={colors.textSecondary}
-            disabled={isSharing}
             onPress={(e) => {
               e.stopPropagation?.();
               shareSheetRef.current?.snapToIndex(0);
@@ -532,8 +550,6 @@ const styles = StyleSheet.create({
   text: { fontSize: 16, lineHeight: 22 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
-
-  // ✅ Image grid styles
   singleImageWrap: {
     width: "100%",
     height: 220,
@@ -541,11 +557,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   singleImage: { width: "100%", height: "100%" },
-  imageGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
-  },
+  imageGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   gridCell: {
     width: "49%",
     height: 140,
@@ -561,7 +573,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   moreOverlayText: { color: "#fff", fontSize: 22, fontWeight: "900" },
-
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",
