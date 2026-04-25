@@ -1,5 +1,5 @@
 // lib/firestore/hashtags.ts
-// Hashtag indexing, trending queries, and extraction
+// ✅ FIXED: decrementHashtagCounts now uses "hashtags" collection (same as indexHashtags)
 
 import { db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
@@ -50,6 +50,44 @@ export async function indexHashtags(tags: string[]): Promise<void> {
       },
       { merge: true },
     );
+  }
+
+  await batch.commit();
+}
+
+/* =====================================================
+   ✅ DECREMENT HASHTAG COUNTS (call on post delete)
+   Uses "hashtags" collection — same as indexHashtags
+   and getTrendingHashtags so counts stay consistent.
+===================================================== */
+
+export async function decrementHashtagCounts(tags: string[]): Promise<void> {
+  if (!tags.length) return;
+
+  const unique = [
+    ...new Set(tags.map((t) => t.toLowerCase().replace(/^#/, ""))),
+  ].filter(Boolean);
+
+  const batch = db.batch();
+
+  for (const tag of unique) {
+    const ref = db.collection("hashtags").doc(tag);
+    const snap = await ref.get();
+    if (!snap.exists()) continue;
+
+    const data = snap.data() as any;
+    const currentCount = typeof data.post_count === "number" ? data.post_count : 0;
+
+    if (currentCount <= 1) {
+      // Remove doc entirely when count hits 0
+      batch.delete(ref);
+    } else {
+      batch.update(ref, {
+        post_count: firestore.FieldValue.increment(-1),
+        week_count: firestore.FieldValue.increment(-1),
+        updated_at: firestore.FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   await batch.commit();

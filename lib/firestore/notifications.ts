@@ -1,4 +1,5 @@
-// lib/firestore/notifications.ts — FIREBASE ✅ (NEW + COMPLETED)
+// lib/firestore/notifications.ts — FIREBASE ✅
+// ✅ FIXED: added deleteNotification function
 
 import { auth, db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
@@ -121,9 +122,7 @@ export async function getMyNotifications(params?: {
 
   const snap = await q.limit(lim).get();
 
-  const notifications = snap.docs.map((d) =>
-    docToNotification(d.id, d.data()),
-  );
+  const notifications = snap.docs.map((d) => docToNotification(d.id, d.data()));
 
   const last = snap.docs[snap.docs.length - 1];
   const nextCursor: NotificationsCursor = last ? { lastDocId: last.id } : null;
@@ -143,7 +142,6 @@ export async function getUnreadCount(): Promise<number> {
   const viewer = auth.currentUser;
   if (!viewer) return 0;
 
-  // RN Firebase uses .count().get() instead of getCountFromServer()
   const res = await db
     .collection("notifications")
     .where("receiver_id", "==", viewer.uid)
@@ -189,6 +187,28 @@ export async function markAllNotificationsRead() {
   const batch = db.batch();
   snap.docs.forEach((d) => batch.update(d.ref, { is_read: true }));
   await batch.commit();
+}
+
+/* =============================================================================
+   ✅ DELETE NOTIFICATION
+   Only the receiver can delete their own notifications.
+============================================================================= */
+
+export async function deleteNotification(
+  notificationId: string,
+): Promise<void> {
+  const viewer = auth.currentUser;
+  if (!viewer) throw new Error("Not authenticated");
+
+  const refDoc = db.collection("notifications").doc(notificationId);
+  const snap = await refDoc.get();
+  if (!snap.exists) return;
+
+  const d = snap.data() as any;
+  // Only allow deleting own notifications
+  if (d.receiver_id !== viewer.uid) return;
+
+  await refDoc.delete();
 }
 
 /* =============================================================================

@@ -1,4 +1,8 @@
 // hooks/useChat.ts — React Native Firebase ✅
+// lib/firestore/chat.ts subscriptions deliver Firebase-compatible payloads:
+//   subscribeToMessages   → callback({ new: ChatMessage })
+//   subscribeToUserConversations → callback({ docs: [...] })
+//   subscribeToTypingStatus → callback({ new: { typing: Record<string,bool> } })
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,17 +18,9 @@ import { Alert } from "react-native";
 function toIsoMaybe(v: any): string | undefined {
   if (!v) return undefined;
   if (typeof v === "object" && typeof v.toDate === "function") {
-    try {
-      return v.toDate().toISOString();
-    } catch {
-      return undefined;
-    }
+    try { return v.toDate().toISOString(); } catch { return undefined; }
   }
-  try {
-    return new Date(v).toISOString();
-  } catch {
-    return undefined;
-  }
+  try { return new Date(v).toISOString(); } catch { return undefined; }
 }
 
 export const useChat = () => {
@@ -32,12 +28,8 @@ export const useChat = () => {
 
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [activeConversation, setActiveConversation] = useState<string | null>(
-    null,
-  );
-
+  const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
-
   const [loading, setLoading] = useState({
     conversations: false,
     messages: false,
@@ -47,33 +39,21 @@ export const useChat = () => {
   const activeConversationRef = useRef<string | null>(null);
   const conversationsRef = useRef<ChatConversation[]>([]);
 
-  useEffect(() => {
-    activeConversationRef.current = activeConversation;
-  }, [activeConversation]);
+  useEffect(() => { activeConversationRef.current = activeConversation; }, [activeConversation]);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
-  useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
-
-  const patchConversation = useCallback(
-    (id: string, patch: Partial<ChatConversation>) => {
-      setConversations((prev) => {
-        const idx = prev.findIndex((c) => c.id === id);
-        if (idx === -1) return prev;
-
-        const next = [...prev];
-        next[idx] = { ...next[idx], ...patch };
-
-        next.sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-        );
-
-        return next;
-      });
-    },
-    [],
-  );
+  const patchConversation = useCallback((id: string, patch: Partial<ChatConversation>) => {
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      next.sort((a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+      );
+      return next;
+    });
+  }, []);
 
   const getConversation = useCallback(
     (id: string) => conversationsRef.current.find((c) => c.id === id),
@@ -82,7 +62,6 @@ export const useChat = () => {
 
   const loadConversations = useCallback(async () => {
     if (!user?.uid) return;
-
     setLoading((prev) => ({ ...prev, conversations: true }));
     try {
       const result = await chatQueries.getConversations(user.uid);
@@ -96,151 +75,127 @@ export const useChat = () => {
     }
   }, [user?.uid]);
 
-  const loadMessages = useCallback(
-    async (conversationId: string) => {
-      if (!conversationId) return;
-
-      setLoading((prev) => ({ ...prev, messages: true }));
-      try {
-        const result = await chatQueries.getMessages(conversationId);
-        if (result.error) throw result.error;
-
-        setMessages(result.data ?? []);
-
-        if (user?.uid) {
-          await chatQueries.markAsRead(conversationId, user.uid);
-          patchConversation(conversationId, { unread_count: 0 });
-        }
-      } catch (error) {
-        console.error("Error loading messages:", error);
-        Alert.alert("Error", "Failed to load messages");
-      } finally {
-        setLoading((prev) => ({ ...prev, messages: false }));
+  const loadMessages = useCallback(async (conversationId: string) => {
+    if (!conversationId) return;
+    setLoading((prev) => ({ ...prev, messages: true }));
+    try {
+      const result = await chatQueries.getMessages(conversationId);
+      if (result.error) throw result.error;
+      setMessages(result.data ?? []);
+      if (user?.uid) {
+        await chatQueries.markAsRead(conversationId, user.uid);
+        patchConversation(conversationId, { unread_count: 0 });
       }
-    },
-    [user?.uid, patchConversation],
-  );
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      Alert.alert("Error", "Failed to load messages");
+    } finally {
+      setLoading((prev) => ({ ...prev, messages: false }));
+    }
+  }, [user?.uid, patchConversation]);
 
-  const sendMessage = useCallback(
-    async (
-      content: string,
-      conversationId: string,
-      attachments?: ChatAttachment[],
-      mediaUrl?: string,
-      mediaType?: "image" | "video" | "audio" | "file",
-    ) => {
-      if (!user?.uid) return null;
+  const sendMessage = useCallback(async (
+    content: string,
+    conversationId: string,
+    attachments?: ChatAttachment[],
+    mediaUrl?: string,
+    mediaType?: "image" | "video" | "audio" | "file",
+  ) => {
+    if (!user?.uid) return null;
 
-      const hasText = !!content?.trim();
-      const hasAtts = !!attachments?.length;
-      const hasLegacyMedia = !!mediaUrl && !!mediaType;
+    const hasText = !!content?.trim();
+    const hasAtts = !!attachments?.length;
+    const hasLegacyMedia = !!mediaUrl && !!mediaType;
+    if (!hasText && !hasAtts && !hasLegacyMedia) return null;
 
-      if (!hasText && !hasAtts && !hasLegacyMedia) return null;
+    setLoading((prev) => ({ ...prev, sending: true }));
+    try {
+      const result = await chatQueries.sendMessage(
+        conversationId,
+        user.uid,
+        content,
+        attachments as any,
+        mediaUrl,
+        mediaType,
+      );
+      if (result.error) throw result.error;
 
-      setLoading((prev) => ({ ...prev, sending: true }));
-      try {
-        const result = await chatQueries.sendMessage(
-          conversationId,
-          user.uid,
-          content,
-          attachments as any,
-          mediaUrl,
-          mediaType,
-        );
-        if (result.error) throw result.error;
-
-        if (result.data) {
-          setMessages((prev) => {
-            const exists = prev.some((m) => m.id === result.data!.id);
-            return exists ? prev : [result.data!, ...prev];
-          });
-
-          patchConversation(conversationId, {
-            updated_at: result.data.created_at,
-            last_message: result.data,
-            last_message_id: result.data.id,
-          });
-        }
-
-        return result.data ?? null;
-      } catch (error) {
-        console.error("Error sending message:", error);
-        Alert.alert("Error", "Failed to send message");
-        return null;
-      } finally {
-        setLoading((prev) => ({ ...prev, sending: false }));
+      if (result.data) {
+        // Optimistically add to local state; subscription will dedup
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === result.data!.id);
+          return exists ? prev : [result.data!, ...prev];
+        });
+        patchConversation(conversationId, {
+          updated_at: result.data.created_at,
+          last_message: result.data,
+          last_message_id: result.data.id,
+        });
       }
-    },
-    [user?.uid, patchConversation],
-  );
+      return result.data ?? null;
+    } catch (error) {
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message");
+      return null;
+    } finally {
+      setLoading((prev) => ({ ...prev, sending: false }));
+    }
+  }, [user?.uid, patchConversation]);
 
-  const updateTypingStatus = useCallback(
-    async (conversationId: string, isTyping: boolean) => {
-      if (!conversationId || !user?.uid) return;
-      try {
-        await chatQueries.updateTypingStatus(conversationId, isTyping);
-      } catch (error) {
-        console.error("Error updating typing status:", error);
+  const updateTypingStatus = useCallback(async (conversationId: string, isTyping: boolean) => {
+    if (!conversationId || !user?.uid) return;
+    try {
+      await chatQueries.updateTypingStatus(conversationId, isTyping);
+    } catch (error) {
+      console.error("Error updating typing status:", error);
+    }
+  }, [user?.uid]);
+
+  const createConversation = useCallback(async (
+    participantIds: string[],
+    name?: string,
+    isGroup = false,
+  ) => {
+    if (!participantIds.length) return null;
+    try {
+      const result = await chatQueries.createConversation(participantIds, name, isGroup);
+      if (result.error) throw result.error;
+      if (result.data) {
+        await loadConversations();
+        return result.data;
       }
-    },
-    [user?.uid],
-  );
+      return null;
+    } catch (error) {
+      console.error("Error creating conversation:", error);
+      Alert.alert("Error", "Failed to create conversation");
+      return null;
+    }
+  }, [loadConversations]);
 
-  const createConversation = useCallback(
-    async (participantIds: string[], name?: string, isGroup = false) => {
-      if (!participantIds.length) return null;
+  const selectConversation = useCallback((conversationId: string | null) => {
+    setActiveConversation(conversationId);
+    if (conversationId) {
+      if (!conversationsRef.current.length) loadConversations();
+      loadMessages(conversationId);
+    } else {
+      setMessages([]);
+      setTypingUsers(new Set());
+    }
+  }, [loadConversations, loadMessages]);
 
-      try {
-        const result = await chatQueries.createConversation(
-          participantIds,
-          name,
-          isGroup,
-        );
-        if (result.error) throw result.error;
-
-        if (result.data) {
-          await loadConversations();
-          return result.data;
-        }
-
-        return null;
-      } catch (error) {
-        console.error("Error creating conversation:", error);
-        Alert.alert("Error", "Failed to create conversation");
-        return null;
-      }
-    },
-    [loadConversations],
-  );
-
-  const selectConversation = useCallback(
-    (conversationId: string | null) => {
-      setActiveConversation(conversationId);
-
-      if (conversationId) {
-        if (!conversationsRef.current.length) loadConversations();
-        loadMessages(conversationId);
-      } else {
-        setMessages([]);
-        setTypingUsers(new Set());
-      }
-    },
-    [loadConversations, loadMessages],
-  );
-
+  // ─── Real-time: conversation list updates ─────────────────────────────────
   useEffect(() => {
     if (!user?.uid) return;
 
     const unsub = chatSubscriptions.subscribeToUserConversations(
       user.uid,
       async (payload) => {
+        // payload.docs = all matching conversation docs (full re-delivery from Firebase)
         const docs: any[] = payload?.docs ?? [];
         for (const changed of docs) {
-          const known = conversationsRef.current.some(
-            (c) => c.id === changed.id,
-          );
-
+          const known = conversationsRef.current.some((c) => c.id === changed.id);
           if (!known) {
+            // New conversation appeared — reload full list to get participants/profile data
             await loadConversations();
             return;
           }
@@ -264,9 +219,11 @@ export const useChat = () => {
     return unsub;
   }, [user?.uid, loadConversations, patchConversation]);
 
+  // ─── Real-time: messages + typing for active conversation ─────────────────
   useEffect(() => {
     if (!activeConversation || !user?.uid) return;
 
+    // subscribeToMessages delivers { new: ChatMessage } for each "added" docChange
     const unsubMessages = chatSubscriptions.subscribeToMessages(
       activeConversation,
       user.uid,
@@ -274,6 +231,7 @@ export const useChat = () => {
         const newMessage = payload?.new as ChatMessage | undefined;
         if (!newMessage) return;
 
+        // Guard: only update if this conversation is still active
         if (activeConversationRef.current !== activeConversation) return;
 
         setMessages((prev) => {
@@ -287,6 +245,7 @@ export const useChat = () => {
           last_message_id: newMessage.id,
         });
 
+        // Auto-mark read since the user is looking at this conversation
         if (user.uid) {
           await chatQueries.markAsRead(activeConversation, user.uid);
           patchConversation(activeConversation, { unread_count: 0 });
@@ -294,14 +253,11 @@ export const useChat = () => {
       },
     );
 
+    // subscribeToTypingStatus delivers { new: { typing: Record<userId, bool> } }
     const unsubTyping = chatSubscriptions.subscribeToTypingStatus(
       activeConversation,
       (payload) => {
-        const d = payload?.new;
-        const typingMap = (d?.typing ?? undefined) as
-          | Record<string, boolean>
-          | undefined;
-
+        const typingMap = payload?.new?.typing as Record<string, boolean> | undefined;
         if (typingMap && user?.uid) {
           const next = new Set<string>();
           for (const [uid, val] of Object.entries(typingMap)) {
@@ -320,6 +276,7 @@ export const useChat = () => {
     };
   }, [activeConversation, user?.uid, patchConversation]);
 
+  // ─── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (user?.uid) loadConversations();
   }, [user?.uid, loadConversations]);
@@ -330,14 +287,11 @@ export const useChat = () => {
     activeConversation,
     typingUsers,
     loading,
-
     loadConversations,
     loadMessages,
-
     sendMessage,
     updateTypingStatus,
     createConversation,
-
     selectConversation,
     getConversation,
   };

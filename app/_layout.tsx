@@ -51,28 +51,20 @@ function PushNotificationSetup() {
         const data = response.notification.request.content.data;
 
         if (data?.type === "follow") {
-          if (data.senderId) {
-            router.push(`/user/${data.senderId}` as any);
-          }
+          if (data.senderId) router.push(`/user/${data.senderId}` as any);
         } else if (data?.type === "message") {
-          if (data.entityId) {
-            router.push(`/chat/${data.entityId}` as any);
-          }
+          if (data.entityId) router.push(`/chat/${data.entityId}` as any);
         } else if (
           data?.type === "like" ||
           data?.type === "comment" ||
           data?.type === "repost"
         ) {
-          if (data.entityId) {
-            router.push(`/post/${data.entityId}` as any);
-          }
+          if (data.entityId) router.push(`/post/${data.entityId}` as any);
         } else if (
           data?.type === "story_like" ||
           data?.type === "story_comment"
         ) {
-          if (data.entityId) {
-            router.push(`/story/${data.entityId}` as any);
-          }
+          if (data.entityId) router.push(`/story/${data.entityId}` as any);
         } else {
           router.push("/notifications");
         }
@@ -93,12 +85,10 @@ function RootLayout() {
 
   useEffect(() => {
     if (!isReady) return;
-
     if (!user) {
       router.replace("/(auth)/login");
       return;
     }
-
     if (!hasCompletedOnboarding) {
       router.replace("/(auth)/onboarding");
       return;
@@ -115,25 +105,12 @@ function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="user" options={{ headerShown: false }} />
-        {/* ✅ FIX: treat post as a group, not individual screens */}
         <Stack.Screen name="post" options={{ headerShown: false }} />
         <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="community/[slug]"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="community/create"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen name="hashtag/[tag]" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="notifications/index"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="chat/new" options={{ headerShown: false }} />
-        <Stack.Screen name="chat/search" options={{ headerShown: false }} />
+        <Stack.Screen name="community" options={{ headerShown: false }} />
+        <Stack.Screen name="hashtag" options={{ headerShown: false }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="chat" options={{ headerShown: false }} />
         <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false }} />

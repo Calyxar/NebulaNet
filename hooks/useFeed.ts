@@ -1,4 +1,4 @@
-// hooks/useFeed.ts — REACT NATIVE FIREBASE ✅
+// hooks/useFeed.ts — ✅ FIXED: createPost now invalidates postKeys so home feed updates
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import {
@@ -7,6 +7,9 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+
+// ✅ FIX: import postKeys so createPost invalidates the same cache home.tsx uses
+import { postKeys } from "@/hooks/usePosts";
 
 export type PostVisibility = "public" | "followers" | "private";
 
@@ -111,7 +114,6 @@ async function getProfilesBatch(userIds: string[]): Promise<Map<string, any>> {
   return out;
 }
 
-// ✅ FIX: batch-fetch like and save flags for the current user
 async function fetchLikeSaveFlags(
   uid: string,
   postIds: string[],
@@ -306,7 +308,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
 
     const postIdsList = page.map((d) => d.id);
 
-    // ✅ FIX: fetch actual like/save status for the current user
     const uid = user?.uid ?? "";
     const { liked, saved } = uid
       ? await fetchLikeSaveFlags(uid, postIdsList)
@@ -330,7 +331,6 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         media_urls: data.media_urls ?? [],
         user: profile ?? { id: data.user_id, username: "unknown" },
         community: null,
-        // ✅ FIX: actual like/save status instead of hardcoded false
         is_liked: liked.has(d.id),
         is_saved: saved.has(d.id),
         is_nsfw: !!data.is_nsfw,
@@ -376,7 +376,11 @@ export function useFeed(filters: FeedFilters = { type: "home" }) {
         });
       return { id: ref.id };
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["feed"] }),
+    onSuccess: () => {
+      // ✅ FIX: invalidate both cache keys — feed (useFeed) and posts/list (usePosts/home)
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
+      queryClient.invalidateQueries({ queryKey: postKeys.lists() });
+    },
   });
 
   const toggleLike = useMutation({

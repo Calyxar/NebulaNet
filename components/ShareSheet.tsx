@@ -1,4 +1,4 @@
-// components/ShareSheet.tsx — Custom themed share sheet (NebulaNet only)
+// components/ShareSheet.tsx — ✅ FIXED: added explicit "Send via text" option
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import React, { forwardRef, useCallback, useMemo } from "react";
 import {
   Alert,
+  Linking,
   Platform,
   Share,
   StyleSheet,
@@ -26,28 +27,41 @@ type ShareOption = {
 };
 
 type Props = {
-  /** Title shown at top */
   title?: string;
-
-  /** Link to share */
   url: string;
-
-  /** Text content to share */
   text?: string;
-
-  /** Custom share message */
   shareMessage?: string;
 };
 
 const ShareSheet = forwardRef<ShareSheetRef, Props>(
   ({ title = "Share", url, text, shareMessage }, ref) => {
     const { colors } = useTheme();
-    const snapPoints = useMemo(() => ["35%"], []);
+    const snapPoints = useMemo(() => ["42%"], []);
 
     const handleCopyLink = async () => {
       await Clipboard.setStringAsync(url);
       (ref as any)?.current?.close();
       Alert.alert("Copied", "Link copied to clipboard");
+    };
+
+    const handleSendText = async () => {
+      // sms: URI opens the native Messages app with the link pre-filled
+      const message = shareMessage || text || url;
+      const smsBody = encodeURIComponent(`${message}\n${url}`);
+      const smsUrl =
+        Platform.OS === "ios" ? `sms:&body=${smsBody}` : `sms:?body=${smsBody}`;
+
+      const canOpen = await Linking.canOpenURL(smsUrl);
+      if (canOpen) {
+        await Linking.openURL(smsUrl);
+      } else {
+        // Fallback to native share sheet which includes Messages
+        await Share.share({
+          message: Platform.OS === "ios" ? message : `${message}\n\n${url}`,
+          url: Platform.OS === "ios" ? url : undefined,
+        });
+      }
+      (ref as any)?.current?.close();
     };
 
     const handleShare = async () => {
@@ -71,8 +85,15 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
         onPress: handleCopyLink,
       },
       {
+        id: "text",
+        label: "Send via text message",
+        icon: "chatbubble-ellipses-outline",
+        color: "#34C759",
+        onPress: handleSendText,
+      },
+      {
         id: "share",
-        label: "Share via...",
+        label: "More sharing options...",
         icon: "share-social-outline",
         color: colors.primary,
         onPress: handleShare,
@@ -152,7 +173,6 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
 );
 
 ShareSheet.displayName = "ShareSheet";
-
 export default ShareSheet;
 
 const styles = StyleSheet.create({
@@ -171,7 +191,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
     paddingHorizontal: 12,
     borderRadius: 14,
   },
@@ -189,10 +209,10 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    marginVertical: 12,
+    marginVertical: 10,
   },
   cancel: {
-    paddingVertical: 14,
+    paddingVertical: 13,
     alignItems: "center",
   },
   cancelText: {
