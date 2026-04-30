@@ -32,11 +32,11 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
-        "source": "/auth/verify",
+        "source": "/auth/verify**",
         "destination": "/auth/verify.html"
       },
       {
-        "source": "/auth/reset",
+        "source": "/auth/reset**",
         "destination": "/auth/reset.html"
       }
     ]
