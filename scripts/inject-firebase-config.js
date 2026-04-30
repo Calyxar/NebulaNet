@@ -1,15 +1,28 @@
 // scripts/inject-firebase-config.js
-// ✅ FIXED: correct path — file is at public/verify.html not public/auth/verify.html
+// ✅ FIXED: loads .env automatically so it works locally and on Vercel
+
+require("dotenv").config({
+  path: require("path").join(__dirname, "..", ".env"),
+});
+// Also try .env.production and .env.local as fallbacks
+require("dotenv").config({
+  path: require("path").join(__dirname, "..", ".env.production"),
+  override: false,
+});
+require("dotenv").config({
+  path: require("path").join(__dirname, "..", ".env.local"),
+  override: false,
+});
 
 const fs = require("fs");
 const path = require("path");
 
 const FILES = [
+  path.join(__dirname, "..", "public", "auth", "verify.html"),
+  path.join(__dirname, "..", "public", "auth", "reset.html"),
+  path.join(__dirname, "..", "public", "auth.html"),
   path.join(__dirname, "..", "public", "verify.html"),
   path.join(__dirname, "..", "public", "reset.html"),
-  // Keep old paths as fallbacks in case they exist
-  path.join(__dirname, "..", "public", "auth.html"),
-  path.join(__dirname, "..", "public", "auth", "verify.html"),
 ];
 
 const REQUIRED_VARS = [
