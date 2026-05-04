@@ -180,7 +180,7 @@ export default function ProfileTabScreen() {
 
   // ✅ FIX: opens ShareSheet instead of calling shareProfileLink which may fail silently
   const handleShareProfile = () => {
-    shareSheetRef.current?.snapToIndex(0);
+    shareSheetRef.current?.present();
   };
 
   const handleLike = (postId: string, currentIsLiked: boolean) => {

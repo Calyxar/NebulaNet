@@ -1,8 +1,14 @@
-// components/ShareSheet.tsx — ✅ FIXED: added explicit "Send via text" option
+// components/ShareSheet.tsx — ✅ FIXED: uses BottomSheetModal so it renders in portal
+// BottomSheetModal renders above everything via BottomSheetModalProvider
+// Call .present() to open, .dismiss() to close
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import BottomSheet, { BottomSheetBackdrop } from "@gorhom/bottom-sheet";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
 import * as Clipboard from "expo-clipboard";
 import React, { forwardRef, useCallback, useMemo } from "react";
 import {
@@ -16,15 +22,8 @@ import {
   View,
 } from "react-native";
 
-export type ShareSheetRef = BottomSheet;
-
-type ShareOption = {
-  id: string;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color?: string;
-  onPress: () => void;
-};
+// ✅ Ref type is now BottomSheetModal — call .present() and .dismiss()
+export type ShareSheetRef = BottomSheetModal;
 
 type Props = {
   title?: string;
@@ -38,30 +37,29 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
     const { colors } = useTheme();
     const snapPoints = useMemo(() => ["42%"], []);
 
+    const dismiss = () => (ref as any)?.current?.dismiss();
+
     const handleCopyLink = async () => {
       await Clipboard.setStringAsync(url);
-      (ref as any)?.current?.close();
+      dismiss();
       Alert.alert("Copied", "Link copied to clipboard");
     };
 
     const handleSendText = async () => {
-      // sms: URI opens the native Messages app with the link pre-filled
       const message = shareMessage || text || url;
       const smsBody = encodeURIComponent(`${message}\n${url}`);
       const smsUrl =
         Platform.OS === "ios" ? `sms:&body=${smsBody}` : `sms:?body=${smsBody}`;
-
       const canOpen = await Linking.canOpenURL(smsUrl);
       if (canOpen) {
         await Linking.openURL(smsUrl);
       } else {
-        // Fallback to native share sheet which includes Messages
         await Share.share({
           message: Platform.OS === "ios" ? message : `${message}\n\n${url}`,
           url: Platform.OS === "ios" ? url : undefined,
         });
       }
-      (ref as any)?.current?.close();
+      dismiss();
     };
 
     const handleShare = async () => {
@@ -76,25 +74,25 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
       }
     };
 
-    const options: ShareOption[] = [
+    const options = [
       {
         id: "copy",
         label: "Copy link",
-        icon: "link-outline",
+        icon: "link-outline" as const,
         color: colors.primary,
         onPress: handleCopyLink,
       },
       {
         id: "text",
         label: "Send via text message",
-        icon: "chatbubble-ellipses-outline",
+        icon: "chatbubble-ellipses-outline" as const,
         color: "#34C759",
         onPress: handleSendText,
       },
       {
         id: "share",
         label: "More sharing options...",
-        icon: "share-social-outline",
+        icon: "share-social-outline" as const,
         color: colors.primary,
         onPress: handleShare,
       },
@@ -113,16 +111,17 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
     );
 
     return (
-      <BottomSheet
+      <BottomSheetModal
         ref={ref}
-        index={-1}
         snapPoints={snapPoints}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         handleIndicatorStyle={{ backgroundColor: colors.border }}
         backgroundStyle={{ backgroundColor: colors.card }}
       >
-        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
+        <BottomSheetView
+          style={[styles.sheet, { backgroundColor: colors.card }]}
+        >
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
 
           {options.map((option) => (
@@ -138,11 +137,7 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
                   { backgroundColor: `${option.color}18` },
                 ]}
               >
-                <Ionicons
-                  name={option.icon}
-                  size={20}
-                  color={option.color || colors.primary}
-                />
+                <Ionicons name={option.icon} size={20} color={option.color} />
               </View>
               <Text style={[styles.itemText, { color: colors.text }]}>
                 {option.label}
@@ -160,14 +155,14 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
           <TouchableOpacity
             style={styles.cancel}
             activeOpacity={0.85}
-            onPress={() => (ref as any)?.current?.close()}
+            onPress={dismiss}
           >
             <Text style={[styles.cancelText, { color: colors.textSecondary }]}>
               Cancel
             </Text>
           </TouchableOpacity>
-        </View>
-      </BottomSheet>
+        </BottomSheetView>
+      </BottomSheetModal>
     );
   },
 );
@@ -176,11 +171,7 @@ ShareSheet.displayName = "ShareSheet";
 export default ShareSheet;
 
 const styles = StyleSheet.create({
-  sheet: {
-    paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
+  sheet: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 32 },
   title: {
     fontSize: 16,
     fontWeight: "900",
@@ -202,21 +193,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  itemText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  divider: {
-    height: 1,
-    marginVertical: 10,
-  },
-  cancel: {
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  cancelText: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
+  itemText: { flex: 1, fontSize: 15, fontWeight: "700" },
+  divider: { height: 1, marginVertical: 10 },
+  cancel: { paddingVertical: 13, alignItems: "center" },
+  cancelText: { fontSize: 15, fontWeight: "800" },
 });

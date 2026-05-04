@@ -276,14 +276,12 @@ export default function UserProfileScreen() {
       const status: FollowEdge["status"] = target.is_private
         ? "pending"
         : "accepted";
-      await firestore()
-        .collection("follows")
-        .add({
-          follower_id: user.uid,
-          following_id: target.id,
-          status,
-          created_at: new Date().toISOString(),
-        });
+      await firestore().collection("follows").add({
+        follower_id: user.uid,
+        following_id: target.id,
+        status,
+        created_at: new Date().toISOString(),
+      });
       if (status === "accepted" && user.uid !== target.id) {
         createNotification({
           type: "follow",
@@ -358,13 +356,11 @@ export default function UserProfileScreen() {
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-      await firestore()
-        .collection("user_blocks")
-        .add({
-          blocker_id: user.uid,
-          blocked_id: target.id,
-          created_at: new Date().toISOString(),
-        });
+      await firestore().collection("user_blocks").add({
+        blocker_id: user.uid,
+        blocked_id: target.id,
+        created_at: new Date().toISOString(),
+      });
       return target.id;
     },
     onSuccess: (targetId) => {
@@ -374,7 +370,7 @@ export default function UserProfileScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
-  const handleShareProfile = () => shareSheetRef.current?.snapToIndex(0);
+  const handleShareProfile = () => shareSheetRef.current?.present();
 
   const handleCopyProfileLink = async () => {
     const link = `https://nebulanet.space/user/${target?.username ?? username}`;
