@@ -1,4 +1,4 @@
-// components/post/PostCard.tsx — ✅ FIXED: three-dot menu shows delete/repost/share options
+// components/post/PostCard.tsx — ✅ FIXED: uses present()/dismiss() for BottomSheetModal
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
@@ -82,7 +82,6 @@ export default function PostCard(props: PostCardProps) {
     media,
     viewCount,
     onLikePress,
-    onSharePress,
     onSavePress,
     getMoreActions,
     onVisible,
@@ -93,16 +92,15 @@ export default function PostCard(props: PostCardProps) {
   const deletePostMutation = useDeletePost();
 
   const [expanded, setExpanded] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [repostCount, setRepostCount] = useState(reposts);
   const [isReposting, setIsReposting] = useState(false);
   const hasTrackedView = useRef(false);
 
+  // ✅ FIXED: ref types are now BottomSheetModal
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
 
-  // Is this the current user's post?
   const isOwned = !!user?.uid && user.uid === author.id;
 
   useEffect(() => {
@@ -157,21 +155,21 @@ export default function PostCard(props: PostCardProps) {
     ]);
   };
 
-  // ✅ FIX: three-dot menu now shows contextual options
   const handleMoreOptions = () => {
     const buttons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
       {
         text: isReposted ? "Undo Repost" : "Repost",
-        onPress: () => repostSheetRef.current?.snapToIndex(0),
+        // ✅ FIXED: present() instead of snapToIndex(0)
+        onPress: () => (repostSheetRef.current as any)?.present(),
       },
       {
         text: "Share Post",
-        onPress: () => shareSheetRef.current?.snapToIndex(0),
+        // ✅ FIXED: present() instead of snapToIndex(0)
+        onPress: () => (shareSheetRef.current as any)?.present(),
       },
     ];
 
-    // Only show delete if it's the user's own post
     if (isOwned) {
       buttons.push({
         text: "Delete Post",
@@ -426,18 +424,20 @@ export default function PostCard(props: PostCardProps) {
             label={isReposted ? "Reposted" : "Repost"}
             color={isReposted ? colors.primary : colors.textSecondary}
             disabled={isReposting}
+            // ✅ FIXED: present() instead of snapToIndex(0)
             onPress={(e) => {
               e.stopPropagation?.();
-              repostSheetRef.current?.snapToIndex(0);
+              (repostSheetRef.current as any)?.present();
             }}
           />
           <Action
             icon="share-outline"
             label="Share"
             color={colors.textSecondary}
+            // ✅ FIXED: present() instead of snapToIndex(0)
             onPress={(e) => {
               e.stopPropagation?.();
-              shareSheetRef.current?.snapToIndex(0);
+              (shareSheetRef.current as any)?.present();
             }}
           />
           <Action
@@ -456,7 +456,6 @@ export default function PostCard(props: PostCardProps) {
         onQuoteRepost={handleQuoteRepost}
         onUndoRepost={handleRepost}
       />
-
       <ShareSheet
         ref={shareSheetRef}
         title="Share Post"
