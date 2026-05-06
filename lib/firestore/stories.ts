@@ -1,4 +1,4 @@
-// lib/firestore/stories.ts — React Native Firebase ✅
+// lib/firestore/stories.ts — React Native Firebase ✅ FIXED
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
@@ -93,7 +93,6 @@ async function getProfilesMap(userIds: string[]) {
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   for (const batch of chunk(ids, 10)) {
-    // RN Firebase uses firestore.FieldPath.documentId() for __name__ queries
     const snap = await firestore()
       .collection("profiles")
       .where(firestore.FieldPath.documentId(), "in", batch)
@@ -122,36 +121,51 @@ export async function fetchStoryById(
 ): Promise<StoryRow | null> {
   const id = storyId.trim();
   if (!id) return null;
-
-  const snap = await firestore().collection("stories").doc(id).get();
-  if (!snap.exists()) return null;
-
-  const d = snap.data() as any;
-  const pSnap = await firestore().collection("profiles").doc(d.user_id).get();
-  const profile = pSnap.exists()
-    ? ({
-        username: ((pSnap.data() as any).username as string) ?? null,
-        full_name: ((pSnap.data() as any).full_name as string) ?? null,
-        avatar_url: ((pSnap.data() as any).avatar_url as string) ?? null,
-      } satisfies StoryProfile)
-    : null;
-
-  return normalizeStory(snap.id, d, profile);
+  try {
+    const snap = await firestore().collection("stories").doc(id).get();
+    if (!snap.exists()) return null;
+    const d = snap.data() as any;
+    const pSnap = await firestore().collection("profiles").doc(d.user_id).get();
+    const pd = pSnap.exists() ? (pSnap.data() as any) : null;
+    const profile: StoryProfile | null = pd
+      ? {
+          username: pd.username ?? null,
+          full_name: pd.full_name ?? null,
+          avatar_url: pd.avatar_url ?? null,
+        }
+      : null;
+    return normalizeStory(snap.id, d, profile);
+  } catch (e: any) {
+    console.error("[fetchStoryById] ERROR:", e?.code, e?.message);
+    return null;
+  }
 }
 
 export async function fetchActiveStories(): Promise<StoryRow[]> {
-  const now = firestore.Timestamp.fromDate(new Date());
-  const snap = await firestore()
-    .collection("stories")
-    .where("expires_at_ts", ">", now)
-    .limit(200)
-    .get();
-  const base = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-  const profiles = await getProfilesMap(base.map((s) => s.user_id));
-  const rows = base.map((s) =>
-    normalizeStory(s.id, s, profiles.get(s.user_id) ?? null),
-  );
-  return sortByCreatedAt(rows);
+  try {
+    const now = firestore.Timestamp.fromDate(new Date());
+    console.log(
+      "[fetchActiveStories] querying, now =",
+      now.toDate().toISOString(),
+    );
+    const snap = await firestore()
+      .collection("stories")
+      .where("expires_at_ts", ">", now)
+      // ✅ FIX: orderBy required for range queries
+      .orderBy("expires_at_ts", "asc")
+      .limit(200)
+      .get();
+    console.log("[fetchActiveStories] got", snap.size, "docs");
+    if (snap.empty) return [];
+    const base = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    const profiles = await getProfilesMap(base.map((s) => s.user_id));
+    return sortByCreatedAt(
+      base.map((s) => normalizeStory(s.id, s, profiles.get(s.user_id) ?? null)),
+    );
+  } catch (e: any) {
+    console.error("[fetchActiveStories] ERROR:", e?.code, e?.message);
+    return [];
+  }
 }
 
 export async function fetchActiveStoriesByUser(
@@ -159,26 +173,32 @@ export async function fetchActiveStoriesByUser(
 ): Promise<StoryRow[]> {
   const uid = userId.trim();
   if (!uid) return [];
-
-  const now = firestore.Timestamp.fromDate(new Date());
-  const snap = await firestore()
-    .collection("stories")
-    .where("user_id", "==", uid)
-    .where("expires_at_ts", ">", now)
-    .limit(100)
-    .get();
-
-  const pSnap = await firestore().collection("profiles").doc(uid).get();
-  const profile = pSnap.exists()
-    ? ({
-        username: ((pSnap.data() as any).username as string) ?? null,
-        full_name: ((pSnap.data() as any).full_name as string) ?? null,
-        avatar_url: ((pSnap.data() as any).avatar_url as string) ?? null,
-      } satisfies StoryProfile)
-    : null;
-
-  const rows = snap.docs.map((d) => normalizeStory(d.id, d.data(), profile));
-  return sortByCreatedAt(rows);
+  try {
+    const now = firestore.Timestamp.fromDate(new Date());
+    const snap = await firestore()
+      .collection("stories")
+      .where("user_id", "==", uid)
+      .where("expires_at_ts", ">", now)
+      // ✅ FIX: orderBy required for range queries
+      .orderBy("expires_at_ts", "asc")
+      .limit(100)
+      .get();
+    const pSnap = await firestore().collection("profiles").doc(uid).get();
+    const pd = pSnap.exists() ? (pSnap.data() as any) : null;
+    const profile: StoryProfile | null = pd
+      ? {
+          username: pd.username ?? null,
+          full_name: pd.full_name ?? null,
+          avatar_url: pd.avatar_url ?? null,
+        }
+      : null;
+    return sortByCreatedAt(
+      snap.docs.map((d) => normalizeStory(d.id, d.data(), profile)),
+    );
+  } catch (e: any) {
+    console.error("[fetchActiveStoriesByUser] ERROR:", e?.code, e?.message);
+    return [];
+  }
 }
 
 export async function markStorySeen(storyId: string) {
@@ -187,14 +207,17 @@ export async function markStorySeen(storyId: string) {
   const sid = storyId.trim();
   if (!sid) return;
   const key = `${sid}_${viewer.uid}`;
-  await firestore().collection("story_seen").doc(key).set(
-    {
-      story_id: sid,
-      viewer_id: viewer.uid,
-      seen_at_ts: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
+  await firestore()
+    .collection("story_seen")
+    .doc(key)
+    .set(
+      {
+        story_id: sid,
+        viewer_id: viewer.uid,
+        seen_at_ts: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
 }
 
 export async function uploadStoryMedia(
@@ -205,7 +228,6 @@ export async function uploadStoryMedia(
     typeof arg1 === "string" ? { uri: arg1, mediaType: arg2 } : arg1;
   const viewer = auth().currentUser;
   if (!viewer) throw new Error("Not authenticated");
-
   const { uri, mediaType } = params as {
     uri: string;
     mediaType: "image" | "video" | "gif";
@@ -213,9 +235,7 @@ export async function uploadStoryMedia(
   const ext = guessExt(uri, mediaType);
   const contentType = guessContentType(ext, mediaType);
   const path = `stories/${viewer.uid}/${Date.now()}.${ext}`;
-
   const fileRef = storage().ref(path);
-  // putFile handles content:// URIs natively — no FileSystem copy required.
   await fileRef.putFile(uri, { contentType });
   const publicUrl = await fileRef.getDownloadURL();
   return { publicUrl, path };
@@ -229,24 +249,22 @@ export async function createStory(params: {
 }): Promise<StoryRow> {
   const viewer = auth().currentUser;
   if (!viewer) throw new Error("Not authenticated");
-
   const expiresAt = new Date(
     Date.now() + (params.expires_in_hours ?? 24) * 60 * 60 * 1000,
   );
   const nowIso = new Date().toISOString();
-
   const profileSnap = await firestore()
     .collection("profiles")
     .doc(viewer.uid)
     .get();
-  const profile: StoryProfile | null = profileSnap.exists()
-    ? ({
-        username: ((profileSnap.data() as any).username as string) ?? null,
-        full_name: ((profileSnap.data() as any).full_name as string) ?? null,
-        avatar_url: ((profileSnap.data() as any).avatar_url as string) ?? null,
-      } satisfies StoryProfile)
+  const pd = profileSnap.exists() ? (profileSnap.data() as any) : null;
+  const profile: StoryProfile | null = pd
+    ? {
+        username: pd.username ?? null,
+        full_name: pd.full_name ?? null,
+        avatar_url: pd.avatar_url ?? null,
+      }
     : null;
-
   const created = await firestore()
     .collection("stories")
     .add({
@@ -260,7 +278,6 @@ export async function createStory(params: {
       expires_at_ts: firestore.Timestamp.fromDate(expiresAt),
       profile,
     });
-
   const snap = await created.get();
   return normalizeStory(snap.id, snap.data(), profile);
 }
@@ -287,13 +304,11 @@ export async function fetchStorySeenViewers(
 ): Promise<StorySeenViewer[]> {
   const sid = storyId.trim();
   if (!sid) return [];
-
   const snap = await firestore()
     .collection("story_seen")
     .where("story_id", "==", sid)
     .limit(200)
     .get();
-
   const rows = snap.docs
     .map((d) => {
       const x = d.data() as any;
@@ -305,7 +320,6 @@ export async function fetchStorySeenViewers(
     .sort(
       (a, b) => new Date(b.seen_at).getTime() - new Date(a.seen_at).getTime(),
     );
-
   const profiles = await getProfilesMap(rows.map((r) => r.viewer_id));
   return rows.map((r) => ({
     viewer_id: r.viewer_id,
@@ -321,13 +335,21 @@ export function subscribeActiveStories(
   return firestore()
     .collection("stories")
     .where("expires_at_ts", ">", now)
+    .orderBy("expires_at_ts", "asc")
     .limit(200)
     .onSnapshot(async (snap) => {
-      const base = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-      const profiles = await getProfilesMap(base.map((s) => s.user_id));
-      const rows = base.map((s) =>
-        normalizeStory(s.id, s, profiles.get(s.user_id) ?? null),
-      );
-      callback(sortByCreatedAt(rows));
+      try {
+        const base = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        const profiles = await getProfilesMap(base.map((s) => s.user_id));
+        callback(
+          sortByCreatedAt(
+            base.map((s) =>
+              normalizeStory(s.id, s, profiles.get(s.user_id) ?? null),
+            ),
+          ),
+        );
+      } catch (e) {
+        console.error("[subscribeActiveStories] ERROR:", e);
+      }
     });
 }
