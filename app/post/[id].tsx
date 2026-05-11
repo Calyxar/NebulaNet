@@ -209,7 +209,7 @@ export default function PostDetailScreen() {
   };
 
   const handleShare = () => {
-    shareSheetRef.current?.snapToIndex(0);
+    (shareSheetRef.current as any)?.present();
   };
 
   const handlePostComment = async () => {
@@ -663,7 +663,7 @@ export default function PostDetailScreen() {
 
                 <TouchableOpacity
                   style={styles.actionBtn}
-                  onPress={() => repostSheetRef.current?.snapToIndex(0)}
+                  onPress={() => (repostSheetRef.current as any)?.present()}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -1001,6 +1001,21 @@ export default function PostDetailScreen() {
           options={postOptions}
         />
       </SafeAreaView>
+
+      <RepostSheet
+        ref={repostSheetRef}
+        isReposted={isReposted}
+        onRepost={handleRepost}
+        onQuoteRepost={handleQuoteRepost}
+        onUndoRepost={handleRepost}
+      />
+      <ShareSheet
+        ref={shareSheetRef}
+        title="Share Post"
+        url={"https://nebulanet.space/post/${post?.id}"}
+        text={post?.content ?? ""}
+        shareMessage="Check out this post on NebulaNet!"
+      />
     </LinearGradient>
   );
 }

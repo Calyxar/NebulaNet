@@ -54,6 +54,7 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.receiver_id == uid();
     }
 
+    // ✅ FIXED: poll_votes subcollection added
     match /posts/{postId} {
       allow read, get, list: if signedIn();
       allow create: if signedIn();
@@ -63,6 +64,13 @@ service cloud.firestore {
         isCounterUpdate()
       );
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+
+      match /poll_votes/{voteId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && voteId == uid();
+        allow update: if false;
+        allow delete: if false;
+      }
     }
 
     match /likes/{likeId} {
@@ -142,11 +150,8 @@ service cloud.firestore {
       allow create: if signedIn();
     }
 
-    // ✅ FIXED: split read into get/list so list queries work without participant check
     match /conversations/{convoId} {
-      // get (single doc fetch) — must be a participant
       allow get: if signedIn() && uid() in resource.data.participant_ids;
-      // list (queries) — allow signed-in users; query constraints provide security
       allow list: if signedIn();
       allow create: if signedIn() && uid() in request.resource.data.participant_ids;
       allow update: if signedIn() && uid() in resource.data.participant_ids;

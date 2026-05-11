@@ -102,7 +102,7 @@ export async function createPoll(input: CreatePollInput): Promise<string> {
   let userSnap: any = null;
   try {
     const profileDoc = await db.collection("profiles").doc(uid).get();
-  if (profileDoc.exists()) {
+    if (profileDoc.exists()) {
       const d = profileDoc.data() as any;
       userSnap = {
         id: uid,
@@ -243,6 +243,6 @@ export async function getUserVote(postId: string): Promise<string[] | null> {
     .doc(viewer.uid)
     .get();
 
-  if (!snap.exists) return null;
+  if (!snap.exists()) return null;
   return (snap.data() as PollVoteRecord).option_ids ?? null;
 }
