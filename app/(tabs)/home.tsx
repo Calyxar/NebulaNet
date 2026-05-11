@@ -31,6 +31,7 @@ import {
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   RefreshControl,
@@ -657,7 +658,13 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => openPost(post.id)}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                Alert.alert("Post Options", undefined, [
+                  { text: "View Post", onPress: () => openPost(post.id) },
+                  { text: "Cancel", style: "cancel" },
+                ]);
+              }}
             >
               <MoreVertical size={20} color={colors.textTertiary} />
             </TouchableOpacity>
