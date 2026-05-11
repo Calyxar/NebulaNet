@@ -1,4 +1,4 @@
-// app/(tabs)/profile.tsx — ✅ FIXED: share profile now uses ShareSheet
+// app/(tabs)/profile.tsx — ✅ FIXED: likes show in color, share uses ShareSheet
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -79,8 +79,6 @@ export default function ProfileTabScreen() {
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
   const toggleLikeMutation = useToggleLike();
-
-  // ✅ FIX: ShareSheet ref — wires the share icon to the native share sheet
   const shareSheetRef = useRef<ShareSheetRef>(null);
 
   const profileTabs: ProfileTab[] = useMemo(
@@ -121,6 +119,29 @@ export default function ProfileTabScreen() {
           (a, b) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         );
+    },
+  });
+
+  // ✅ FIX: fetch which posts the current user has liked
+  const { data: likedPostIds } = useQuery({
+    queryKey: ["user-liked-posts", uid],
+    enabled: !!uid && userPosts.length > 0,
+    queryFn: async () => {
+      if (!uid || userPosts.length === 0) return new Set<string>();
+      const postIds = userPosts.map((p) => p.id);
+      const chunks: string[][] = [];
+      for (let i = 0; i < postIds.length; i += 30)
+        chunks.push(postIds.slice(i, i + 30));
+      const likedIds = new Set<string>();
+      for (const chunk of chunks) {
+        const snap = await db
+          .collection("likes")
+          .where("user_id", "==", uid)
+          .where("post_id", "in", chunk)
+          .get();
+        snap.docs.forEach((d) => likedIds.add((d.data() as any).post_id));
+      }
+      return likedIds;
     },
   });
 
@@ -178,9 +199,8 @@ export default function ProfileTabScreen() {
     }
   };
 
-  // ✅ FIX: opens ShareSheet instead of calling shareProfileLink which may fail silently
   const handleShareProfile = () => {
-    shareSheetRef.current?.present();
+    (shareSheetRef.current as any)?.present();
   };
 
   const handleLike = (postId: string, currentIsLiked: boolean) => {
@@ -247,7 +267,10 @@ export default function ProfileTabScreen() {
   const renderPostCard = (post: UserPost) => {
     const img = post.media_urls?.[0];
     const isVideo = isVideoUrl(img);
-    const isLiked = likedPosts.has(post.id) ?? post.is_liked ?? false;
+    // ✅ FIX: check likedPostIds from Firestore + local optimistic state
+    const isLiked =
+      likedPosts.has(post.id) || likedPostIds?.has(post.id) || false;
+    const likeColor = isLiked ? "#FF375F" : colors.textTertiary;
 
     return (
       <Pressable
@@ -359,17 +382,13 @@ export default function ProfileTabScreen() {
             }}
             activeOpacity={0.7}
           >
+            {/* ✅ FIX: heart filled and red when liked */}
             <Ionicons
               name={isLiked ? "heart" : "heart-outline"}
               size={18}
-              color={isLiked ? "#FF375F" : colors.textTertiary}
+              color={likeColor}
             />
-            <Text
-              style={[
-                styles.postFooterText,
-                { color: isLiked ? "#FF375F" : colors.textTertiary },
-              ]}
-            >
+            <Text style={[styles.postFooterText, { color: likeColor }]}>
               {post.like_count}
             </Text>
           </TouchableOpacity>
@@ -682,7 +701,6 @@ export default function ProfileTabScreen() {
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
-                {/* ✅ FIX: now opens ShareSheet */}
                 <TouchableOpacity
                   style={[
                     styles.actionBtn,
@@ -793,7 +811,7 @@ export default function ProfileTabScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      {/* ✅ FIX: ShareSheet renders here, opened by handleShareProfile */}
+      {/* ✅ ShareSheet outside LinearGradient so it overlays everything */}
       <ShareSheet
         ref={shareSheetRef}
         title="Share Profile"

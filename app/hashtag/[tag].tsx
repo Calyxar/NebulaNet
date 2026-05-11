@@ -1,25 +1,41 @@
-// app/hashtag/[tag].tsx
-// Shows all posts containing a specific hashtag, with skeleton loading
-
+// app/hashtag/[tag].tsx — ✅ FIXED: simpler post cards, less confusing UI
 import { PostCardSkeleton } from "@/components/Skeleton";
-import PostCard from "@/components/post/PostCard";
 import { getPosts, type Post } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const PAGE_SIZE = 15;
+
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
+  );
+};
+
+const timeAgo = (iso: string) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
 
 export default function HashtagScreen() {
   const { tag } = useLocalSearchParams<{ tag: string }>();
@@ -36,10 +52,8 @@ export default function HashtagScreen() {
   const fetchPage = useCallback(
     async (existingCursor: typeof cursor, append: boolean) => {
       if (!cleanTag) return;
-
       if (append) setLoadingMore(true);
       else setLoading(true);
-
       try {
         const result = await getPosts({
           limit: PAGE_SIZE,
@@ -47,7 +61,6 @@ export default function HashtagScreen() {
           sortBy: "newest",
           cursor: existingCursor,
         });
-
         setPosts((prev) =>
           append ? [...prev, ...result.posts] : result.posts,
         );
@@ -71,9 +84,7 @@ export default function HashtagScreen() {
   }, [fetchPage]);
 
   const loadMore = () => {
-    if (!loadingMore && hasMore && cursor) {
-      fetchPage(cursor, true);
-    }
+    if (!loadingMore && hasMore && cursor) fetchPage(cursor, true);
   };
 
   const onBack = () => {
@@ -81,36 +92,126 @@ export default function HashtagScreen() {
     else router.replace("/(tabs)/explore" as any);
   };
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <PostCard
-      id={item.id}
-      title={item.title ?? undefined}
-      content={item.content}
-      author={{
-        id: item.user_id,
-        name: item.user?.full_name ?? item.user?.username ?? "User",
-        username: item.user?.username ?? "",
-        avatar: item.user?.avatar_url ?? undefined,
-      }}
-      community={
-        item.community
-          ? {
-              id: item.community.id,
-              name: item.community.name,
-              slug: item.community.slug,
-            }
-          : undefined
-      }
-      timestamp={new Date(item.created_at).toLocaleDateString()}
-      likes={item.like_count}
-      comments={item.comment_count}
-      shares={item.share_count}
-      saves={0}
-      isLiked={item.is_liked ?? false}
-      isSaved={item.is_saved ?? false}
-      media={item.media_urls}
-    />
-  );
+  const renderPost = ({ item }: { item: Post }) => {
+    const avatar = item.user?.avatar_url;
+    const name = item.user?.full_name || item.user?.username || "User";
+    const username = item.user?.username || "";
+    const media = item.media_urls?.[0];
+    const isVideo = isVideoUrl(media);
+
+    return (
+      <TouchableOpacity
+        style={[styles.postCard, { backgroundColor: colors.card }]}
+        onPress={() => router.push(`/post/${item.id}` as any)}
+        activeOpacity={0.88}
+      >
+        {/* Author row */}
+        <View style={styles.authorRow}>
+          <TouchableOpacity
+            onPress={() => username && router.push(`/user/${username}` as any)}
+            activeOpacity={0.85}
+            style={styles.authorInner}
+          >
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={styles.avatar} />
+            ) : (
+              <View
+                style={[
+                  styles.avatarFallback,
+                  { backgroundColor: colors.surface },
+                ]}
+              >
+                <Text style={[styles.avatarLetter, { color: colors.primary }]}>
+                  {name[0]?.toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View>
+              <Text style={[styles.authorName, { color: colors.text }]}>
+                {name}
+              </Text>
+              <Text style={[styles.authorTime, { color: colors.textTertiary }]}>
+                {timeAgo(item.created_at)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={colors.textTertiary}
+          />
+        </View>
+
+        {/* Content */}
+        {!!item.content && (
+          <Text
+            style={[styles.content, { color: colors.text }]}
+            numberOfLines={4}
+          >
+            {item.content}
+          </Text>
+        )}
+
+        {/* Media */}
+        {!!media && (
+          <View style={[styles.mediaWrap, { backgroundColor: colors.surface }]}>
+            <Image
+              source={{ uri: media }}
+              style={styles.media}
+              resizeMode="cover"
+            />
+            {isVideo && (
+              <View style={styles.videoOverlay}>
+                <Ionicons name="play-circle" size={36} color="#fff" />
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Stats — clean and simple */}
+        <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
+          <View style={styles.stat}>
+            <Ionicons
+              name={item.is_liked ? "heart" : "heart-outline"}
+              size={16}
+              color={item.is_liked ? "#FF375F" : colors.textTertiary}
+            />
+            <Text
+              style={[
+                styles.statText,
+                { color: item.is_liked ? "#FF375F" : colors.textTertiary },
+              ]}
+            >
+              {item.like_count ?? 0}
+            </Text>
+          </View>
+          <View style={styles.stat}>
+            <Ionicons
+              name="chatbubble-outline"
+              size={16}
+              color={colors.textTertiary}
+            />
+            <Text style={[styles.statText, { color: colors.textTertiary }]}>
+              {item.comment_count ?? 0}
+            </Text>
+          </View>
+          <View style={styles.stat}>
+            <Ionicons
+              name="repeat-outline"
+              size={16}
+              color={colors.textTertiary}
+            />
+            <Text style={[styles.statText, { color: colors.textTertiary }]}>
+              {item.share_count ?? 0}
+            </Text>
+          </View>
+          <Text style={[styles.tapHint, { color: colors.textTertiary }]}>
+            Tap to interact →
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const ListHeader = () => (
     <View style={[styles.hashtagHeader, { backgroundColor: colors.card }]}>
@@ -153,15 +254,6 @@ export default function HashtagScreen() {
     );
   };
 
-  const ListFooter = () => {
-    if (!loadingMore) return null;
-    return (
-      <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color={colors.primary} />
-      </View>
-    );
-  };
-
   return (
     <>
       <StatusBar
@@ -173,7 +265,6 @@ export default function HashtagScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["top", "left", "right"]}
       >
-        {/* Top bar */}
         <View style={[styles.topBar, { backgroundColor: colors.background }]}>
           <TouchableOpacity
             onPress={onBack}
@@ -188,7 +279,6 @@ export default function HashtagScreen() {
           <View style={styles.topBarRight} />
         </View>
 
-        {/* Skeleton while loading first page */}
         {loading ? (
           <FlatList
             data={Array(5).fill(null)}
@@ -209,7 +299,13 @@ export default function HashtagScreen() {
             onEndReachedThreshold={0.5}
             ListHeaderComponent={<ListHeader />}
             ListEmptyComponent={<ListEmpty />}
-            ListFooterComponent={<ListFooter />}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.footerLoader}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : null
+            }
           />
         )}
       </SafeAreaView>
@@ -219,7 +315,6 @@ export default function HashtagScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -241,9 +336,7 @@ const styles = StyleSheet.create({
   },
   topBarTitle: { fontSize: 18, fontWeight: "800", flex: 1 },
   topBarRight: { width: 42 },
-
   listContent: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
-
   hashtagHeader: {
     borderRadius: 18,
     padding: 18,
@@ -266,7 +359,60 @@ const styles = StyleSheet.create({
   hashtagSymbol: { fontSize: 28, fontWeight: "900" },
   hashtagTitle: { fontSize: 22, fontWeight: "900", marginBottom: 4 },
   hashtagCount: { fontSize: 13, fontWeight: "600" },
-
+  postCard: {
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  authorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  authorInner: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  avatar: { width: 38, height: 38, borderRadius: 19 },
+  avatarFallback: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarLetter: { fontSize: 15, fontWeight: "900" },
+  authorName: { fontSize: 14, fontWeight: "800" },
+  authorTime: { fontSize: 12, marginTop: 1 },
+  content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
+  mediaWrap: {
+    width: "100%",
+    height: 200,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 10,
+    position: "relative",
+  },
+  media: { width: "100%", height: "100%" },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 10,
+    borderTopWidth: 1,
+    gap: 14,
+  },
+  stat: { flexDirection: "row", alignItems: "center", gap: 5 },
+  statText: { fontSize: 13, fontWeight: "700" },
+  tapHint: { marginLeft: "auto", fontSize: 11, fontWeight: "600" },
   emptyWrap: {
     borderRadius: 22,
     paddingVertical: 32,
@@ -283,6 +429,5 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontWeight: "800", marginBottom: 6 },
   emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
-
   footerLoader: { paddingVertical: 20, alignItems: "center" },
 });
