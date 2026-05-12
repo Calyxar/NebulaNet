@@ -33,6 +33,12 @@ service cloud.firestore {
         .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count', 'view_count']);
     }
 
+    // ✅ FIXED: allows poll transaction to update poll.options and poll.total_votes
+    function isPollVoteUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['poll', 'updated_at', 'updated_at_ts']);
+    }
+
     match /profiles/{userId} {
       allow read, get, list: if signedIn();
       allow create: if isSelf(userId);
@@ -54,17 +60,19 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.receiver_id == uid();
     }
 
-    // ✅ FIXED: poll_votes subcollection added
     match /posts/{postId} {
       allow read, get, list: if signedIn();
       allow create: if signedIn();
+      // ✅ FIXED: || added before isPollVoteUpdate()
       allow update: if signedIn() && (
         resource.data.user_id == uid() ||
         isAdmin() ||
-        isCounterUpdate()
+        isCounterUpdate() ||
+        isPollVoteUpdate()
       );
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
 
+      // ✅ poll votes subcollection
       match /poll_votes/{voteId} {
         allow read: if signedIn();
         allow create: if signedIn() && voteId == uid();

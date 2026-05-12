@@ -22,7 +22,8 @@ export function useActiveStories() {
     queryKey: storyKeys.active(),
     queryFn: fetchActiveStories,
     refetchInterval: 30_000,
-    staleTime: 10_000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 }
 
@@ -107,8 +108,8 @@ export function useCreateStory() {
       return { id: ref.id };
     },
     onSuccess: () => {
-      // ✅ FIX: invalidate so story row on home screen updates immediately
-      qc.invalidateQueries({ queryKey: storyKeys.active() });
+      // refetchQueries triggers immediate refetch regardless of active users
+      qc.refetchQueries({ queryKey: storyKeys.active() });
       qc.invalidateQueries({ queryKey: storyKeys.all });
     },
   });
