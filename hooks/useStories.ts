@@ -1,5 +1,4 @@
-// hooks/useStories.ts — ✅ FIXED: expires_at_ts field name, profile format, cache invalidation
-import { auth, db } from "@/lib/firebase";
+// hooks/useStories.ts — ✅ FIXED: uses native Firebase SDK consistently for create
 import {
   fetchActiveStories,
   fetchActiveStoriesByUser,
@@ -7,6 +6,7 @@ import {
   markStorySeen,
   type StoryRow,
 } from "@/lib/queries/stories";
+import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -59,7 +59,8 @@ export function useMarkStorySeen() {
   });
 }
 
-// ✅ FIXED: Create story with correct field names so fetchActiveStories picks it up
+// ✅ FIXED: uses @react-native-firebase (native SDK) consistently —
+// same SDK as fetchActiveStories so writes are immediately visible to reads
 export function useCreateStory() {
   const qc = useQueryClient();
   return useMutation({
@@ -69,60 +70,62 @@ export function useCreateStory() {
       caption?: string;
       duration?: number;
     }) => {
-      const user = auth.currentUser;
+      // ✅ native SDK auth
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
 
-      const profileSnap = await db.collection("profiles").doc(user.uid).get();
+      // ✅ native SDK Firestore profile fetch
+      const profileSnap = await firestore()
+        .collection("profiles")
+        .doc(user.uid)
+        .get();
       const profile = profileSnap.exists() ? (profileSnap.data() as any) : null;
 
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const now = new Date().toISOString();
 
-      // ✅ FIX: use expires_at_ts (Timestamp) so fetchActiveStories query works
-      // fetchActiveStories queries: .where("expires_at_ts", ">", now)
-      const ref = await db.collection("stories").add({
-        user_id: user.uid,
-        media_url: data.media_url,
-        media_type: data.media_type,
-        caption: data.caption ?? null,
-        duration: data.duration ?? 5,
-        // ✅ FIX: expires_at_ts is what fetchActiveStories filters on
-        expires_at_ts: firestore.Timestamp.fromDate(expiresAt),
-        // ✅ FIX: created_at_ts is what fetchActiveStories sorts on
-        created_at_ts: firestore.FieldValue.serverTimestamp(),
-        created_at: now,
-        seen_by: [],
-        like_count: 0,
-        comment_count: 0,
-        is_visible: true,
-        // ✅ FIX: profiles shape matches StoryProfile type used by fetchActiveStories
-        profiles: profile
-          ? {
-              username: profile.username ?? null,
-              full_name: profile.full_name ?? null,
-              avatar_url: profile.avatar_url ?? null,
-            }
-          : null,
-      });
+      // ✅ native SDK Firestore write — same SDK as fetchActiveStories
+      const ref = await firestore()
+        .collection("stories")
+        .add({
+          user_id: user.uid,
+          media_url: data.media_url,
+          media_type: data.media_type,
+          caption: data.caption ?? null,
+          duration: data.duration ?? 5,
+          expires_at_ts: firestore.Timestamp.fromDate(expiresAt),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+          created_at: now,
+          seen_by: [],
+          like_count: 0,
+          comment_count: 0,
+          is_visible: true,
+          profiles: profile
+            ? {
+                username: profile.username ?? null,
+                full_name: profile.full_name ?? null,
+                avatar_url: profile.avatar_url ?? null,
+              }
+            : null,
+        });
 
       return { id: ref.id };
     },
     onSuccess: () => {
-      // refetchQueries triggers immediate refetch regardless of active users
+      // ✅ force immediate refetch so home screen story row updates
       qc.refetchQueries({ queryKey: storyKeys.active() });
       qc.invalidateQueries({ queryKey: storyKeys.all });
     },
   });
 }
 
-// Delete story — only works if current user owns it
 export function useDeleteStory() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (storyId: string) => {
-      const user = auth.currentUser;
+      const user = auth().currentUser;
       if (!user) throw new Error("Not authenticated");
-      await db.collection("stories").doc(storyId).delete();
+      await firestore().collection("stories").doc(storyId).delete();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: storyKeys.all });

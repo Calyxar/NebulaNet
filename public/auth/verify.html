@@ -58,15 +58,6 @@
         pointer-events: none;
       }
 
-      body::after {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-        pointer-events: none;
-        opacity: 0.3;
-      }
-
       .card {
         position: relative;
         z-index: 1;
@@ -140,7 +131,6 @@
         min-height: 44px;
       }
 
-      /* spinner */
       .spinner {
         width: 28px;
         height: 28px;
@@ -180,8 +170,14 @@
         box-shadow: 0 12px 32px rgba(124, 58, 237, 0.4);
       }
 
+      .countdown {
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--m2);
+      }
+
       .note {
-        margin-top: 20px;
+        margin-top: 16px;
         font-size: 12px;
         color: var(--m2);
         line-height: 1.6;
@@ -200,17 +196,13 @@
         Hang tight while we confirm your email address.
       </p>
 
-      <a
-        id="openApp"
-        class="btn"
-        href="nebulanet://auth/login"
-        style="display: none"
-      >
+      <a id="openApp" class="btn" href="nebulanet://" style="display: none">
         Open NebulaNet →
       </a>
 
+      <p class="countdown" id="countdown" style="display: none"></p>
       <p class="note" id="note" style="display: none">
-        If the app doesn't open, return to NebulaNet and log in again.
+        If the app doesn't open automatically, tap the button above.
       </p>
     </div>
 
@@ -236,7 +228,25 @@
       const heading = document.getElementById("heading");
       const subtitle = document.getElementById("subtitle");
       const openApp = document.getElementById("openApp");
+      const countdown = document.getElementById("countdown");
       const note = document.getElementById("note");
+
+      function startCountdown(seconds) {
+        countdown.style.display = "block";
+        note.style.display = "block";
+        let remaining = seconds;
+        countdown.textContent = `Opening app in ${remaining}s…`;
+        const iv = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            clearInterval(iv);
+            countdown.textContent = "Opening…";
+            window.location.href = "nebulanet://";
+          } else {
+            countdown.textContent = `Opening app in ${remaining}s…`;
+          }
+        }, 1000);
+      }
 
       function setOk(msg) {
         spinner.classList.remove("active");
@@ -245,7 +255,7 @@
         heading.textContent = "Email verified!";
         subtitle.textContent = msg;
         openApp.style.display = "inline-flex";
-        note.style.display = "block";
+        startCountdown(3);
       }
 
       function setErr(msg) {
@@ -269,23 +279,14 @@
             setErr("This link is invalid or has already been used.");
             return;
           }
-
           await checkActionCode(auth, oobCode);
           await applyActionCode(auth, oobCode);
-
-          setOk(
-            "Your email address has been confirmed. You can now log in to NebulaNet.",
-          );
-
-          // Auto-open app after 1.5s
-          setTimeout(() => {
-            window.location.href = "nebulanet://auth/login";
-          }, 1500);
+          setOk("Your email has been confirmed. Taking you to NebulaNet now…");
         } catch (err) {
           console.error(err);
           if (err.code === "auth/invalid-action-code") {
             setErr(
-              "This verification link has expired or already been used. Request a new one from the app.",
+              "This link has expired or already been used. Request a new one from the app.",
             );
           } else {
             setErr(
