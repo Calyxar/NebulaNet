@@ -23,7 +23,8 @@ expo-env.d.ts
 
 # Account Service Key
 serviceAccountKey.json
-credintials.json
+credentials.json
+google-services.json
 
 
 # debug
