@@ -1,14 +1,16 @@
-// app/(tabs)/profile.tsx — ✅ FIXED: likes show in color, share uses ShareSheet
+// app/(tabs)/profile.tsx — ✅ FIXED: Activity tab shows reposts, likes in color
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useToggleLike } from "@/hooks/usePosts";
 import { db } from "@/lib/firebase";
+import { getUserReposts } from "@/lib/firestore/reposts";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -38,8 +40,10 @@ interface UserPost {
   like_count: number;
   comment_count: number;
   share_count: number;
+  repost_count: number;
   created_at: string;
   is_liked?: boolean;
+  user?: { username?: string; full_name?: string; avatar_url?: string } | null;
 }
 
 interface UserStats {
@@ -47,7 +51,6 @@ interface UserStats {
   followers: number;
   following: number;
 }
-
 type ProfileTab = "Activity" | "Post" | "Tagged" | "Media";
 
 function tsToIso(v: any): string {
@@ -85,7 +88,6 @@ export default function ProfileTabScreen() {
     () => ["Activity", "Post", "Tagged", "Media"],
     [],
   );
-
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
@@ -111,6 +113,7 @@ export default function ProfileTabScreen() {
             like_count: Number(x.like_count ?? 0),
             comment_count: Number(x.comment_count ?? 0),
             share_count: Number(x.share_count ?? 0),
+            repost_count: Number(x.repost_count ?? 0),
             created_at: tsToIso(x.created_at_ts ?? x.created_at),
             is_liked: false,
           } as UserPost;
@@ -122,7 +125,6 @@ export default function ProfileTabScreen() {
     },
   });
 
-  // ✅ FIX: fetch which posts the current user has liked
   const { data: likedPostIds } = useQuery({
     queryKey: ["user-liked-posts", uid],
     enabled: !!uid && userPosts.length > 0,
@@ -142,6 +144,51 @@ export default function ProfileTabScreen() {
         snap.docs.forEach((d) => likedIds.add((d.data() as any).post_id));
       }
       return likedIds;
+    },
+  });
+
+  // ✅ NEW: fetch user's reposts and the original posts
+  const { data: repostedPosts = [], isLoading: isLoadingReposts } = useQuery({
+    queryKey: ["user-reposts", uid],
+    enabled: !!uid && activeTab === "Activity",
+    queryFn: async () => {
+      if (!uid) return [];
+      const reposts = await getUserReposts(uid);
+      if (!reposts.length) return [];
+      const postIds = reposts.map((r) => r.postId);
+      const chunks: string[][] = [];
+      for (let i = 0; i < postIds.length; i += 10)
+        chunks.push(postIds.slice(i, i + 10));
+      const posts: UserPost[] = [];
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("posts")
+          .where(firestore.FieldPath.documentId(), "in", chunk)
+          .get();
+        snap.docs.forEach((d) => {
+          const x = d.data() as any;
+          posts.push({
+            id: d.id,
+            title: x.title ?? null,
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            like_count: Number(x.like_count ?? 0),
+            comment_count: Number(x.comment_count ?? 0),
+            share_count: Number(x.share_count ?? 0),
+            repost_count: Number(x.repost_count ?? 0),
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            user: x.user ?? null,
+          });
+        });
+      }
+      // Sort by repost time
+      return posts.sort((a, b) => {
+        const ra =
+          reposts.find((r) => r.postId === a.id)?.created_at ?? a.created_at;
+        const rb =
+          reposts.find((r) => r.postId === b.id)?.created_at ?? b.created_at;
+        return new Date(rb).getTime() - new Date(ra).getTime();
+      });
     },
   });
 
@@ -187,13 +234,10 @@ export default function ProfileTabScreen() {
   const formatPostTime = (iso: string) => {
     try {
       const d = new Date(iso);
-      const now = new Date();
-      const diffMs = now.getTime() - d.getTime();
-      const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffH = Math.floor((Date.now() - d.getTime()) / 3600000);
       if (diffH < 1) return "Just now";
       if (diffH < 24) return `${diffH}h ago`;
-      const diffD = Math.floor(diffH / 24);
-      return `${diffD}d ago`;
+      return `${Math.floor(diffH / 24)}d ago`;
     } catch {
       return "Recently";
     }
@@ -264,30 +308,47 @@ export default function ProfileTabScreen() {
     );
   };
 
-  const renderPostCard = (post: UserPost) => {
+  const renderPostCard = (post: UserPost, showRepostBadge = false) => {
     const img = post.media_urls?.[0];
     const isVideo = isVideoUrl(img);
-    // ✅ FIX: check likedPostIds from Firestore + local optimistic state
     const isLiked =
       likedPosts.has(post.id) || likedPostIds?.has(post.id) || false;
     const likeColor = isLiked ? "#FF375F" : colors.textTertiary;
+    const authorName = showRepostBadge
+      ? post.user?.full_name || post.user?.username || "User"
+      : profile?.full_name || profile?.username || "User";
+    const authorAvatar = showRepostBadge
+      ? post.user?.avatar_url
+      : profile?.avatar_url;
 
     return (
       <Pressable
-        key={post.id}
+        key={post.id + (showRepostBadge ? "_repost" : "")}
         onPress={() => router.push(`/post/${post.id}` as any)}
         style={[
           styles.postCard,
           { backgroundColor: colors.card, shadowOpacity: isDark ? 0.22 : 0.05 },
         ]}
       >
+        {/* Repost badge */}
+        {showRepostBadge && (
+          <View
+            style={[
+              styles.repostBadge,
+              { backgroundColor: colors.primary + "15" },
+            ]}
+          >
+            <Ionicons name="repeat" size={13} color={colors.primary} />
+            <Text style={[styles.repostBadgeText, { color: colors.primary }]}>
+              You reposted
+            </Text>
+          </View>
+        )}
+
         <View style={styles.postHeader}>
           <View style={styles.postHeaderLeft}>
-            {profile?.avatar_url ? (
-              <Image
-                source={{ uri: profile.avatar_url }}
-                style={styles.postAvatar}
-              />
+            {authorAvatar ? (
+              <Image source={{ uri: authorAvatar }} style={styles.postAvatar} />
             ) : (
               <View
                 style={[
@@ -298,33 +359,35 @@ export default function ProfileTabScreen() {
                 <Text
                   style={[styles.postAvatarText, { color: colors.primary }]}
                 >
-                  {getInitial()}
+                  {authorName[0]?.toUpperCase()}
                 </Text>
               </View>
             )}
             <View>
               <Text style={[styles.postUserName, { color: colors.text }]}>
-                {profile?.full_name || profile?.username || "User"}
+                {authorName}
               </Text>
               <Text style={[styles.postTime, { color: colors.textTertiary }]}>
                 {formatPostTime(post.created_at)}
               </Text>
             </View>
           </View>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              openPostMenu(post.id);
-            }}
-            hitSlop={12}
-          >
-            <Ionicons
-              name="ellipsis-vertical"
-              size={18}
-              color={colors.textTertiary}
-            />
-          </TouchableOpacity>
+          {!showRepostBadge && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                openPostMenu(post.id);
+              }}
+              hitSlop={12}
+            >
+              <Ionicons
+                name="ellipsis-vertical"
+                size={18}
+                color={colors.textTertiary}
+              />
+            </TouchableOpacity>
+          )}
         </View>
 
         {post.title ? (
@@ -335,7 +398,6 @@ export default function ProfileTabScreen() {
             {post.title}
           </Text>
         ) : null}
-
         {post.content ? (
           <Text
             style={[styles.postBodyText, { color: colors.text }]}
@@ -382,7 +444,6 @@ export default function ProfileTabScreen() {
             }}
             activeOpacity={0.7}
           >
-            {/* ✅ FIX: heart filled and red when liked */}
             <Ionicons
               name={isLiked ? "heart" : "heart-outline"}
               size={18}
@@ -392,7 +453,6 @@ export default function ProfileTabScreen() {
               {post.like_count}
             </Text>
           </TouchableOpacity>
-
           <View style={styles.postFooterItem}>
             <Ionicons
               name="chatbubble-outline"
@@ -405,17 +465,27 @@ export default function ProfileTabScreen() {
               {post.comment_count}
             </Text>
           </View>
-
+          {/* ✅ repost count shown and colored when > 0 */}
           <View style={styles.postFooterItem}>
             <Ionicons
-              name="arrow-redo-outline"
+              name="repeat-outline"
               size={18}
-              color={colors.textTertiary}
+              color={
+                post.repost_count > 0 ? colors.primary : colors.textTertiary
+              }
             />
             <Text
-              style={[styles.postFooterText, { color: colors.textTertiary }]}
+              style={[
+                styles.postFooterText,
+                {
+                  color:
+                    post.repost_count > 0
+                      ? colors.primary
+                      : colors.textTertiary,
+                },
+              ]}
             >
-              {post.share_count}
+              {post.repost_count}
             </Text>
           </View>
         </View>
@@ -430,7 +500,7 @@ export default function ProfileTabScreen() {
           <ActivityIndicator size="small" color={colors.primary} />
         </View>
       );
-    if (mediaPosts.length === 0) {
+    if (mediaPosts.length === 0)
       return (
         <EmptyPanel
           colors={colors}
@@ -439,7 +509,6 @@ export default function ProfileTabScreen() {
           subtitle="Photos and videos from your posts will appear here."
         />
       );
-    }
     const rows: UserPost[][] = [];
     for (let i = 0; i < mediaPosts.length; i += 3)
       rows.push(mediaPosts.slice(i, i + 3));
@@ -593,7 +662,6 @@ export default function ProfileTabScreen() {
                     </Text>
                   </View>
                 )}
-
                 <View style={styles.statsRow}>
                   {[
                     {
@@ -615,31 +683,28 @@ export default function ProfileTabScreen() {
                         ? `/user/${profile.username}/following`
                         : null,
                     },
-                  ].map((s) => {
-                    if (s.route) {
-                      return (
-                        <Pressable
-                          key={s.label}
-                          style={styles.statItem}
-                          onPress={() => router.push(s.route as any)}
+                  ].map((s) =>
+                    s.route ? (
+                      <Pressable
+                        key={s.label}
+                        style={styles.statItem}
+                        onPress={() => router.push(s.route as any)}
+                      >
+                        <Text
+                          style={[styles.statValue, { color: colors.text }]}
                         >
-                          <Text
-                            style={[styles.statValue, { color: colors.text }]}
-                          >
-                            {formatNumber(s.value)}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.statLabel,
-                              { color: colors.textTertiary },
-                            ]}
-                          >
-                            {s.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    }
-                    return (
+                          {formatNumber(s.value)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.statLabel,
+                            { color: colors.textTertiary },
+                          ]}
+                        >
+                          {s.label}
+                        </Text>
+                      </Pressable>
+                    ) : (
                       <View key={s.label} style={styles.statItem}>
                         <Text
                           style={[styles.statValue, { color: colors.text }]}
@@ -655,8 +720,8 @@ export default function ProfileTabScreen() {
                           {s.label}
                         </Text>
                       </View>
-                    );
-                  })}
+                    ),
+                  )}
                 </View>
               </View>
 
@@ -772,12 +837,32 @@ export default function ProfileTabScreen() {
 
             <View style={styles.contentArea}>
               {activeTab === "Activity" && (
-                <EmptyPanel
-                  colors={colors}
-                  icon="pulse-outline"
-                  title="No Activity Yet"
-                  subtitle="Your recent activity will appear here."
-                />
+                <>
+                  {isLoadingReposts ? (
+                    <View style={styles.loadingInline}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    </View>
+                  ) : repostedPosts.length > 0 ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.sectionLabel,
+                          { color: colors.textTertiary },
+                        ]}
+                      >
+                        REPOSTED
+                      </Text>
+                      {repostedPosts.map((post) => renderPostCard(post, true))}
+                    </>
+                  ) : (
+                    <EmptyPanel
+                      colors={colors}
+                      icon="repeat-outline"
+                      title="No Reposts Yet"
+                      subtitle="Posts you repost will appear here."
+                    />
+                  )}
+                </>
               )}
               {activeTab === "Post" && (
                 <>
@@ -786,7 +871,7 @@ export default function ProfileTabScreen() {
                       <ActivityIndicator size="small" color={colors.primary} />
                     </View>
                   ) : userPosts.length > 0 ? (
-                    userPosts.map(renderPostCard)
+                    userPosts.map((p) => renderPostCard(p, false))
                   ) : (
                     <EmptyPanel
                       colors={colors}
@@ -811,7 +896,6 @@ export default function ProfileTabScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      {/* ✅ ShareSheet outside LinearGradient so it overlays everything */}
       <ShareSheet
         ref={shareSheetRef}
         title="Share Profile"
@@ -951,6 +1035,23 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 13, fontWeight: "800" },
   contentArea: { gap: 12 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    paddingHorizontal: 4,
+  },
+  repostBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+    marginBottom: 10,
+  },
+  repostBadgeText: { fontSize: 12, fontWeight: "700" },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 24,

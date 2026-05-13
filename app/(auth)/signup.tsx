@@ -151,7 +151,11 @@ export default function SignUpScreen() {
         }
       }
       if (createdUser && !createdUser.emailVerified) {
-        await createdUser.sendEmailVerification();
+        try {
+          await createdUser.sendEmailVerification();
+        } catch (emailErr: any) {
+          console.warn("Verification email failed to send:", emailErr?.message);
+        }
         await signOut();
         Alert.alert(
           "Check your email",

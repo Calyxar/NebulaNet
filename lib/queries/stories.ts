@@ -118,7 +118,7 @@ export async function fetchActiveStories(): Promise<StoryRow[]> {
       .where("expires_at_ts", ">", now)
       .orderBy("expires_at_ts", "asc")
       .limit(200)
-      .get();
+      .get({ source: "server" });
 
     console.log(
       "[fetchActiveStories] got",

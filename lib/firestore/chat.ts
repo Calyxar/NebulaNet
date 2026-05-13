@@ -266,7 +266,7 @@ export const chatQueries = {
         .where("participant_ids", "array-contains", userId)
         .orderBy("updated_at_ts", "desc")
         .limit(50)
-        .get();
+        .get({ source: "server" });
 
       if (convSnap.empty) return { data: [], error: null };
 
@@ -527,7 +527,7 @@ export const chatQueries = {
         .collection("messages")
         .orderBy("created_at_ts", "desc")
         .limit(50)
-        .get();
+        .get({ source: "server" });
 
       const batch = firestore().batch();
       let updates = 0;
