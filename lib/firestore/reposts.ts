@@ -53,7 +53,7 @@ export async function getUserReposts(
     const snap = await firestore()
       .collection("reposts")
       .where("user_id", "==", userId)
-      .orderBy("created_at_ts", "desc")
+      .orderBy("created_at", "desc")
       .limit(50)
       .get({ source: "server" });
 

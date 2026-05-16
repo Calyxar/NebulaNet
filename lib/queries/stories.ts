@@ -1,4 +1,4 @@
-// lib/queries/stories.ts — React Native Firebase ✅ + debug logging
+// lib/queries/stories.ts — ✅ FIXED: batchGetProfiles uses individual doc gets instead of FieldPath
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
@@ -33,26 +33,29 @@ function chunk<T>(arr: T[], size: number) {
   return out;
 }
 
+// ✅ FIXED: use individual doc gets instead of FieldPath.documentId()
+// FieldPath.documentId() throws "undefined is not a function" in this SDK version
 async function batchGetProfiles(
   userIds: string[],
 ): Promise<Map<string, StoryProfile>> {
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   if (!ids.length) return map;
-  for (const group of chunk(ids, 10)) {
-    const snap = await firestore()
-      .collection("profiles")
-      .where(firestore.FieldPath.documentId(), "in", group)
-      .get();
-    snap.docs.forEach((d) => {
-      const data = d.data() as any;
-      map.set(d.id, {
-        username: data.username ?? null,
-        full_name: data.full_name ?? null,
-        avatar_url: data.avatar_url ?? null,
-      });
-    });
-  }
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const snap = await firestore().collection("profiles").doc(id).get();
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          map.set(id, {
+            username: data.username ?? null,
+            full_name: data.full_name ?? null,
+            avatar_url: data.avatar_url ?? null,
+          });
+        }
+      } catch {}
+    }),
+  );
   return map;
 }
 
@@ -79,7 +82,6 @@ export async function fetchStoryById(
   storyId: string,
 ): Promise<StoryRow | null> {
   const snap = await firestore().collection("stories").doc(storyId).get();
-  // ✅ FIX: .exists is a property in RN Firebase, not a method
   if (!snap.exists()) return null;
   const d = snap.data() as any;
   const profileSnap = await firestore()
@@ -209,14 +211,17 @@ export async function markStorySeen(storyId: string) {
   const user = auth().currentUser;
   if (!user) return;
   const key = `${storyId}_${user.uid}`;
-  await firestore().collection("story_seen").doc(key).set(
-    {
-      story_id: storyId,
-      viewer_id: user.uid,
-      seen_at_ts: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
+  await firestore()
+    .collection("story_seen")
+    .doc(key)
+    .set(
+      {
+        story_id: storyId,
+        viewer_id: user.uid,
+        seen_at_ts: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
 }
 
 export async function uploadStoryMedia(
