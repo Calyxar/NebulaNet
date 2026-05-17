@@ -1,7 +1,7 @@
 // app/(auth)/forgot-password.tsx — COMPLETED + UPDATED ✅
-import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import auth from "@react-native-firebase/auth";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -39,7 +39,7 @@ export default function ForgotPasswordScreen() {
 
     setIsLoading(true);
     try {
-      await auth.sendPasswordResetEmail(trimmed);
+      await auth().sendPasswordResetEmail(trimmed);
       setEmailSent(true);
       Alert.alert(
         "Check Your Email",
