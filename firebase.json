@@ -29,16 +29,16 @@
   },
   "hosting": {
     "public": "public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [
+    "ignore": ["firebase.json", "**/node_modules/**"],
+    "headers": [
       {
-        "source": "/auth/verify**",
-        "destination": "/auth/verify.html"
-      },
-      {
-        "source": "/auth/reset**",
-        "destination": "/auth/reset.html"
+        "source": "/.well-known/assetlinks.json",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
       }
+    ],
+    "rewrites": [
+      { "source": "/auth/verify**", "destination": "/auth/verify.html" },
+      { "source": "/auth/reset**", "destination": "/auth/reset.html" }
     ]
   }
 }
