@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NebulaNet</title>
+  </head>
+  <body>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode");
+      const rest = window.location.search;
+
+      if (mode === "resetPassword") {
+        window.location.replace("/auth/reset.html" + rest);
+      } else if (mode === "verifyEmail") {
+        window.location.replace("/auth/verify.html" + rest);
+      } else if (mode === "recoverEmail") {
+        window.location.replace("/auth/verify.html" + rest);
+      } else {
+        window.location.replace("/auth/verify.html" + rest);
+      }
+    </script>
+  </body>
+</html>

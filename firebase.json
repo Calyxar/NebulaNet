@@ -37,6 +37,7 @@
       }
     ],
     "rewrites": [
+      { "source": "/auth/action**", "destination": "/auth/action.html" },
       { "source": "/auth/verify**", "destination": "/auth/verify.html" },
       { "source": "/auth/reset**", "destination": "/auth/reset.html" }
     ]
