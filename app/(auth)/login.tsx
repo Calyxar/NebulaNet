@@ -1,10 +1,10 @@
 // app/(auth)/login.tsx — UPDATED ✅ expo-firebase-recaptcha removed
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { checkTwoFactorEnabled } from "@/hooks/useTwoFactorAuth";
-import { auth } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import authNative from "@react-native-firebase/auth";
 import {
   GoogleSignin,
   statusCodes,
@@ -108,7 +108,7 @@ export default function LoginScreen() {
           res.user.uid,
         );
         if (enabled && phoneNumber) {
-          await auth.signOut();
+          await authNative().signOut();
           const ok = await sendOTP(phoneNumber);
           if (ok) {
             router.push({
