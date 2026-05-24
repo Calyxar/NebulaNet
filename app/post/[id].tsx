@@ -1,4 +1,5 @@
 // app/post/[id].tsx
+import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
@@ -560,10 +561,10 @@ export default function PostDetailScreen() {
               {hasMedia &&
                 !isPoll &&
                 (isVideo ? (
-                  <View style={styles.videoBadgeWrap}>
-                    <Ionicons name="videocam" size={20} color="#fff" />
-                    <Text style={styles.videoBadgeText}>Video attachment</Text>
-                  </View>
+                  <VideoPlayer
+                    uri={post.media_urls![0]}
+                    style={{ height: 280, borderRadius: 14, marginTop: 12 }}
+                  />
                 ) : (
                   <MediaGallery media={post.media_urls} />
                 ))}

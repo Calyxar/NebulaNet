@@ -3,6 +3,7 @@
 // ✅ FIXED: Added NSFW/spoiler content filtering based on user preferences
 // ✅ FIXED: Heart turns red when liked, Bookmark turns colored when saved
 
+import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
@@ -700,50 +701,30 @@ export default function HomeScreen() {
                   {post.content}
                 </Text>
               )}
-              {!!media && (
-                <View
-                  style={[
-                    styles.mediaWrap,
-                    { height: mediaHeight, backgroundColor: colors.surface },
-                  ]}
-                >
-                  <Image
-                    source={{ uri: media }}
-                    style={styles.media}
-                    resizeMode="cover"
+              {!!media &&
+                (video ? (
+                  <VideoPlayer
+                    uri={media}
+                    style={{
+                      height: mediaHeight,
+                      borderRadius: 18,
+                      marginBottom: 12,
+                    }}
                   />
-                  {video && (
-                    <>
-                      <View
-                        style={[
-                          styles.videoBadge,
-                          {
-                            backgroundColor: isDark
-                              ? "rgba(0,0,0,0.55)"
-                              : "rgba(0,0,0,0.45)",
-                          },
-                        ]}
-                      >
-                        <Ionicons name="videocam" size={14} color="#fff" />
-                        <Text style={styles.videoBadgeText}>Video</Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.playOverlay,
-                          {
-                            backgroundColor: isDark
-                              ? "rgba(0,0,0,0.45)"
-                              : "rgba(0,0,0,0.35)",
-                            borderColor: "rgba(255,255,255,0.35)",
-                          },
-                        ]}
-                      >
-                        <Ionicons name="play" size={28} color="#fff" />
-                      </View>
-                    </>
-                  )}
-                </View>
-              )}
+                ) : (
+                  <View
+                    style={[
+                      styles.mediaWrap,
+                      { height: mediaHeight, backgroundColor: colors.surface },
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: media }}
+                      style={styles.media}
+                      resizeMode="cover"
+                    />
+                  </View>
+                ))}
             </>
           )}
 
