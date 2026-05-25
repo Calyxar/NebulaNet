@@ -1,4 +1,3 @@
-// app/create/post.tsx — ✅ FIXED: uses useCreatePost hook so new posts appear on home feed immediately
 import GifPicker from "@/components/post/GifPicker";
 import { useCreatePost } from "@/hooks/usePosts";
 import { extractHashtags } from "@/lib/firestore/hashtags";
@@ -112,7 +111,6 @@ function LocationPicker({
         <Text style={[lpStyles.title, { color: colors.text }]}>
           Add Location
         </Text>
-
         <View
           style={[
             lpStyles.searchRow,
@@ -145,19 +143,16 @@ function LocationPicker({
             </TouchableOpacity>
           )}
         </View>
-
         {loading && (
           <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
             Searching...
           </Text>
         )}
-
         {!loading && query.length >= 2 && results.length === 0 && (
           <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
             No results found.
           </Text>
         )}
-
         <FlatList
           data={results}
           keyExtractor={(item) => item.place_id}
@@ -266,9 +261,6 @@ const lpStyles = StyleSheet.create({
 export default function CreatePostScreen() {
   const { colors, isDark } = useTheme();
   const inputRef = useRef<TextInput>(null);
-
-  // ✅ FIX: replaced direct createPost import with useCreatePost hook
-  // This triggers optimistic insert so the post appears on home feed immediately
   const createPostMutation = useCreatePost();
 
   const [title, setTitle] = useState("");
@@ -317,7 +309,7 @@ export default function CreatePostScreen() {
       mediaTypes: PickerMedia.Images,
       allowsMultipleSelection: true,
       selectionLimit: 4,
-      quality: 0.9,
+      quality: 0.85,
     });
     if (result.canceled || !result.assets?.length) return;
     const picked: LocalMediaItem[] = result.assets.map((a) => ({
@@ -332,7 +324,8 @@ export default function CreatePostScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: PickerMedia.Videos,
       selectionLimit: 1,
-      quality: 1,
+      // ✅ FIXED: quality: 1 caused very large files crashing the app — lowered to 0.7
+      quality: 0.7,
       videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.length) return;
@@ -346,7 +339,7 @@ export default function CreatePostScreen() {
       });
       thumbnailUri = uri;
     } catch (e) {
-      console.error("Failed to generate thumbnail:", e);
+      console.warn("Thumbnail generation failed:", e);
     }
 
     setMediaItems([{ uri: videoUri, type: "video" as const, thumbnailUri }]);
@@ -360,7 +353,7 @@ export default function CreatePostScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: PickerMedia.Images,
-      quality: 0.9,
+      quality: 0.85,
     });
     if (result.canceled || !result.assets?.length) return;
     setMediaItems((prev) =>
@@ -384,7 +377,6 @@ export default function CreatePostScreen() {
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
 
-    // ✅ Check auth before posting
     const currentUser = auth().currentUser;
     if (!currentUser) {
       Alert.alert("Session Expired", "Please sign in again.");
@@ -393,13 +385,15 @@ export default function CreatePostScreen() {
     }
 
     try {
-      if (mediaItems.length > 0)
+      if (mediaItems.length > 0) {
+        const hasVideo = mediaItems.some((m) => m.type === "video");
         setUploadProgress(
-          `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}...`,
+          hasVideo
+            ? "Uploading video… this may take a moment"
+            : `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}…`,
         );
+      }
 
-      // ✅ FIX: mutateAsync triggers optimistic insert in useCreatePost
-      // The post appears at the top of the home feed instantly
       await createPostMutation.mutateAsync({
         title: title.trim() || undefined,
         content: bodyText.trim(),
@@ -414,7 +408,10 @@ export default function CreatePostScreen() {
 
       router.back();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to create post.");
+      Alert.alert(
+        "Error",
+        e?.message || "Failed to create post. Please try again.",
+      );
     } finally {
       setUploadProgress("");
     }
@@ -439,6 +436,7 @@ export default function CreatePostScreen() {
             <TouchableOpacity
               onPress={() => router.back()}
               style={styles.backBtn}
+              disabled={isPosting}
             >
               <Ionicons name="arrow-back" size={22} color={colors.text} />
             </TouchableOpacity>
@@ -462,6 +460,7 @@ export default function CreatePostScreen() {
                 onChangeText={setTitle}
                 returnKeyType="next"
                 onSubmitEditing={() => inputRef.current?.focus()}
+                editable={!isPosting}
               />
               <TextInput
                 ref={inputRef}
@@ -472,6 +471,7 @@ export default function CreatePostScreen() {
                 onChangeText={setBodyText}
                 multiline
                 maxLength={charLimit + 50}
+                editable={!isPosting}
               />
 
               {detectedHashtags.length > 0 && (
@@ -511,12 +511,18 @@ export default function CreatePostScreen() {
                           <Text style={styles.gifBadgeText}>GIF</Text>
                         </View>
                       )}
-                      <TouchableOpacity
-                        style={styles.removeBtn}
-                        onPress={() => removeMedia(idx)}
-                      >
-                        <Ionicons name="close-circle" size={22} color="#fff" />
-                      </TouchableOpacity>
+                      {!isPosting && (
+                        <TouchableOpacity
+                          style={styles.removeBtn}
+                          onPress={() => removeMedia(idx)}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={22}
+                            color="#fff"
+                          />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -524,25 +530,37 @@ export default function CreatePostScreen() {
 
               <View style={[styles.toolbar, { borderTopColor: colors.border }]}>
                 <View style={styles.toolbarLeft}>
-                  <TouchableOpacity style={styles.toolBtn} onPress={pickImages}>
+                  <TouchableOpacity
+                    style={styles.toolBtn}
+                    onPress={pickImages}
+                    disabled={isPosting}
+                  >
                     <Ionicons
                       name="image-outline"
                       size={22}
-                      color={colors.textSecondary}
+                      color={isPosting ? colors.border : colors.textSecondary}
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.toolBtn} onPress={takePhoto}>
+                  <TouchableOpacity
+                    style={styles.toolBtn}
+                    onPress={takePhoto}
+                    disabled={isPosting}
+                  >
                     <Ionicons
                       name="camera-outline"
                       size={22}
-                      color={colors.textSecondary}
+                      color={isPosting ? colors.border : colors.textSecondary}
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.toolBtn} onPress={pickVideos}>
+                  <TouchableOpacity
+                    style={styles.toolBtn}
+                    onPress={pickVideos}
+                    disabled={isPosting}
+                  >
                     <Ionicons
                       name="videocam-outline"
                       size={22}
-                      color={colors.textSecondary}
+                      color={isPosting ? colors.border : colors.textSecondary}
                     />
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -552,9 +570,13 @@ export default function CreatePostScreen() {
                       { borderColor: colors.primary + "50" },
                     ]}
                     onPress={() => setShowGifPicker(true)}
+                    disabled={isPosting}
                   >
                     <Text
-                      style={[styles.gifBtnText, { color: colors.primary }]}
+                      style={[
+                        styles.gifBtnText,
+                        { color: isPosting ? colors.border : colors.primary },
+                      ]}
                     >
                       GIF
                     </Text>
@@ -568,6 +590,7 @@ export default function CreatePostScreen() {
                       "Community selection coming soon.",
                     )
                   }
+                  disabled={isPosting}
                 >
                   <Text
                     style={[
@@ -587,6 +610,7 @@ export default function CreatePostScreen() {
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
                 onPress={() => setShowLocationPicker(true)}
+                disabled={isPosting}
               >
                 <View
                   style={[
@@ -642,6 +666,7 @@ export default function CreatePostScreen() {
                         : "public",
                   )
                 }
+                disabled={isPosting}
               >
                 <View
                   style={[
@@ -671,11 +696,20 @@ export default function CreatePostScreen() {
             </View>
 
             {uploadProgress !== "" && (
-              <Text
-                style={[styles.uploadProgress, { color: colors.textSecondary }]}
+              <View
+                style={[styles.uploadBox, { backgroundColor: colors.card }]}
               >
-                {uploadProgress}
-              </Text>
+                <Ionicons
+                  name="cloud-upload-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[styles.uploadProgress, { color: colors.primary }]}
+                >
+                  {uploadProgress}
+                </Text>
+              </View>
             )}
 
             <View style={{ height: 120 }} />
@@ -713,7 +747,7 @@ export default function CreatePostScreen() {
               disabled={!canPost || isOverLimit || isPosting}
             >
               <Text style={styles.postBtnText}>
-                {isPosting ? "Posting..." : "Post"}
+                {isPosting ? "Posting…" : "Post"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -725,7 +759,6 @@ export default function CreatePostScreen() {
         onSelect={handleGifSelect}
         onClose={() => setShowGifPicker(false)}
       />
-
       <LocationPicker
         visible={showLocationPicker}
         onSelect={(place) => setLocation(place)}
@@ -852,12 +885,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  uploadProgress: {
-    textAlign: "center",
-    fontSize: 13,
+  uploadBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
+    padding: 12,
     marginBottom: 8,
-    fontWeight: "500",
   },
+  uploadProgress: { fontSize: 13, fontWeight: "600" },
   bottomBar: {
     flexDirection: "row",
     gap: 12,

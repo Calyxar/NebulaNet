@@ -25,6 +25,151 @@ interface VideoPlayerProps {
 
 const SPEEDS = [0.5, 1, 1.5, 2];
 
+interface ControlsProps {
+  playing: boolean;
+  pos: number;
+  dur: number;
+  isMuted: boolean;
+  speed: number;
+  showSpeedMenu: boolean;
+  isZoom: boolean;
+  bottomPad: number;
+  primaryColor: string;
+
+  onToggle: () => void;
+  onSeekComplete: (v: number) => void;
+  onSlidingStart: () => void;
+  onMute: () => void;
+  onSpeedMenuToggle: () => void;
+  onSpeedSelect: (s: number) => void;
+  onZoomToggle: () => void;
+}
+
+function Controls({
+  playing,
+  pos,
+  dur,
+  isMuted,
+  speed,
+  showSpeedMenu,
+  isZoom,
+  bottomPad,
+  primaryColor,
+  onToggle,
+  onSeekComplete,
+  onSlidingStart,
+  onMute,
+  onSpeedMenuToggle,
+  onSpeedSelect,
+  onZoomToggle,
+}: ControlsProps) {
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <View style={styles.controlsOverlay}>
+      <TouchableOpacity
+        style={styles.playButton}
+        onPress={onToggle}
+        activeOpacity={0.85}
+      >
+        <Ionicons name={playing ? "pause" : "play"} size={36} color="#fff" />
+      </TouchableOpacity>
+
+      <View style={[styles.bottomControls, { paddingBottom: bottomPad }]}>
+        <View style={styles.progressRow}>
+          <Text style={styles.timeText}>{formatTime(pos)}</Text>
+
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={1}
+            value={dur > 0 ? pos / dur : 0}
+            onSlidingStart={onSlidingStart}
+            onSlidingComplete={onSeekComplete}
+            minimumTrackTintColor={primaryColor}
+            maximumTrackTintColor="rgba(255,255,255,0.3)"
+            thumbTintColor={primaryColor}
+          />
+
+          <Text style={styles.timeText}>{formatTime(dur)}</Text>
+        </View>
+
+        <View style={styles.buttonsRow}>
+          <TouchableOpacity
+            onPress={onMute}
+            style={styles.iconBtn}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={isMuted ? "volume-mute" : "volume-high"}
+              size={22}
+              color="#fff"
+            />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1 }} />
+
+          <TouchableOpacity
+            onPress={onSpeedMenuToggle}
+            style={[styles.speedBtn, { borderColor: primaryColor }]}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.speedText, { color: primaryColor }]}>
+              {speed}x
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={onZoomToggle}
+            style={styles.iconBtn}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={isZoom ? "contract-outline" : "expand-outline"}
+              size={22}
+              color="#fff"
+            />
+          </TouchableOpacity>
+        </View>
+
+        {showSpeedMenu && (
+          <View style={styles.speedMenu}>
+            {SPEEDS.map((s) => (
+              <TouchableOpacity
+                key={s}
+                style={[
+                  styles.speedOption,
+                  speed === s && {
+                    backgroundColor: primaryColor + "44",
+                  },
+                ]}
+                onPress={() => onSpeedSelect(s)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.speedOptionText,
+                    speed === s && {
+                      color: primaryColor,
+                      fontWeight: "800",
+                    },
+                  ]}
+                >
+                  {s}x
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function VideoPlayer({
   uri,
   style,
@@ -36,8 +181,10 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+
   const videoRef = useRef<Video>(null);
   const zoomVideoRef = useRef<Video>(null);
+
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSlidingRef = useRef(false);
   const lastPositionUpdate = useRef(0);
@@ -45,32 +192,46 @@ export default function VideoPlayer({
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
   const [showControls, setShowControls] = useState(true);
+
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
+
   const [isMuted, setIsMuted] = useState(false);
+
   const [speed, setSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
   const [isZoomed, setIsZoomed] = useState(false);
   const [zoomPosition, setZoomPosition] = useState(0);
   const [isZoomPlaying, setIsZoomPlaying] = useState(false);
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShowControls(false), 3000);
+
+    hideTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
   }, []);
 
   const onPlaybackStatusUpdate = useCallback(
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
-      if (status.durationMillis) setDuration(status.durationMillis / 1000);
+
+      if (status.durationMillis) {
+        setDuration(status.durationMillis / 1000);
+      }
+
       if (!isSlidingRef.current && status.positionMillis !== undefined) {
         const now = Date.now();
-        if (now - lastPositionUpdate.current > 500) {
+
+        if (now - lastPositionUpdate.current > 250) {
           lastPositionUpdate.current = now;
           setPosition(status.positionMillis / 1000);
         }
       }
+
       setIsPlaying(status.isPlaying);
+
       if (status.didJustFinish && !status.isLooping) {
         onEnd?.();
         setShowControls(true);
@@ -81,10 +242,13 @@ export default function VideoPlayer({
 
   const onZoomStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
+
     setIsZoomPlaying(status.isPlaying);
+
     if (!isSlidingRef.current && status.positionMillis !== undefined) {
       const now = Date.now();
-      if (now - lastPositionUpdate.current > 500) {
+
+      if (now - lastPositionUpdate.current > 250) {
         lastPositionUpdate.current = now;
         setZoomPosition(status.positionMillis / 1000);
       }
@@ -93,6 +257,7 @@ export default function VideoPlayer({
 
   const togglePlayPause = async () => {
     if (!videoRef.current) return;
+
     if (isPlaying) {
       await videoRef.current.pauseAsync();
       onPause?.();
@@ -106,8 +271,10 @@ export default function VideoPlayer({
 
   const toggleZoomPlayPause = async () => {
     if (!zoomVideoRef.current) return;
-    if (isZoomPlaying) await zoomVideoRef.current.pauseAsync();
-    else {
+
+    if (isZoomPlaying) {
+      await zoomVideoRef.current.pauseAsync();
+    } else {
       await zoomVideoRef.current.playAsync();
       scheduleHide();
     }
@@ -115,43 +282,61 @@ export default function VideoPlayer({
 
   const toggleMute = async () => {
     const newMuted = !isMuted;
+
     await videoRef.current?.setIsMutedAsync(newMuted);
     await zoomVideoRef.current?.setIsMutedAsync(newMuted);
+
     setIsMuted(newMuted);
   };
 
   const handleSeek = async (value: number) => {
     isSlidingRef.current = false;
+
     const ms = value * duration * 1000;
+
     await videoRef.current?.setPositionAsync(ms);
+
     setPosition(value * duration);
   };
 
   const handleZoomSeek = async (value: number) => {
     isSlidingRef.current = false;
+
     const ms = value * duration * 1000;
+
     await zoomVideoRef.current?.setPositionAsync(ms);
+
     setZoomPosition(value * duration);
   };
 
   const setPlaybackSpeed = async (s: number) => {
     await videoRef.current?.setRateAsync(s, true);
     await zoomVideoRef.current?.setRateAsync(s, true);
+
     setSpeed(s);
     setShowSpeedMenu(false);
+
     scheduleHide();
   };
 
   const openZoom = async () => {
     setIsZoomed(true);
     setZoomPosition(position);
-    if (isPlaying) await videoRef.current?.pauseAsync();
+
+    if (isPlaying) {
+      await videoRef.current?.pauseAsync();
+    }
   };
 
   const closeZoom = async () => {
     const pos = zoomPosition * 1000;
-    if (isZoomPlaying) await zoomVideoRef.current?.pauseAsync();
+
+    if (isZoomPlaying) {
+      await zoomVideoRef.current?.pauseAsync();
+    }
+
     setIsZoomed(false);
+
     await videoRef.current?.setPositionAsync(pos);
   };
 
@@ -160,137 +345,15 @@ export default function VideoPlayer({
       setShowSpeedMenu(false);
       return;
     }
+
     setShowControls((v) => {
       if (!v) {
         scheduleHide();
         return true;
       }
+
       return false;
     });
-  };
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, "0")}`;
-  };
-
-  const Controls = ({
-    playing,
-    pos,
-    dur,
-    onToggle,
-    onSeekComplete,
-    onSlideStart,
-    isZoom = false,
-  }: {
-    playing: boolean;
-    pos: number;
-    dur: number;
-    onToggle: () => void;
-    onSeekComplete: (v: number) => void;
-    onSlideStart?: () => void;
-    isZoom?: boolean;
-  }) => {
-    const bottomPad = isZoom ? insets.bottom + 16 : 12;
-    return (
-      <View style={styles.controlsOverlay}>
-        <TouchableOpacity
-          style={styles.playButton}
-          onPress={onToggle}
-          activeOpacity={0.85}
-        >
-          <Ionicons name={playing ? "pause" : "play"} size={36} color="#fff" />
-        </TouchableOpacity>
-
-        <View style={[styles.bottomControls, { paddingBottom: bottomPad }]}>
-          <View style={styles.progressRow}>
-            <Text style={styles.timeText}>{formatTime(pos)}</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={1}
-              value={dur > 0 ? pos / dur : 0}
-              onSlidingStart={() => {
-                isSlidingRef.current = true;
-                onSlideStart?.();
-              }}
-              onSlidingComplete={onSeekComplete}
-              minimumTrackTintColor={colors.primary}
-              maximumTrackTintColor="rgba(255,255,255,0.3)"
-              thumbTintColor={colors.primary}
-            />
-            <Text style={styles.timeText}>{formatTime(dur)}</Text>
-          </View>
-
-          <View style={styles.buttonsRow}>
-            <TouchableOpacity
-              onPress={toggleMute}
-              style={styles.iconBtn}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={isMuted ? "volume-mute" : "volume-high"}
-                size={22}
-                color="#fff"
-              />
-            </TouchableOpacity>
-
-            <View style={{ flex: 1 }} />
-
-            <TouchableOpacity
-              onPress={() => setShowSpeedMenu((v) => !v)}
-              style={[styles.speedBtn, { borderColor: colors.primary }]}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.speedText, { color: colors.primary }]}>
-                {speed}x
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={isZoom ? closeZoom : openZoom}
-              style={styles.iconBtn}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={isZoom ? "contract-outline" : "expand-outline"}
-                size={22}
-                color="#fff"
-              />
-            </TouchableOpacity>
-          </View>
-
-          {showSpeedMenu && (
-            <View style={styles.speedMenu}>
-              {SPEEDS.map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  style={[
-                    styles.speedOption,
-                    speed === s && { backgroundColor: colors.primary + "44" },
-                  ]}
-                  onPress={() => setPlaybackSpeed(s)}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.speedOptionText,
-                      speed === s && {
-                        color: colors.primary,
-                        fontWeight: "800",
-                      },
-                    ]}
-                  >
-                    {s}x
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
-    );
   };
 
   return (
@@ -329,8 +392,21 @@ export default function VideoPlayer({
               playing={isPlaying}
               pos={position}
               dur={duration}
+              isMuted={isMuted}
+              speed={speed}
+              showSpeedMenu={showSpeedMenu}
+              isZoom={false}
+              bottomPad={12}
+              primaryColor={colors.primary}
               onToggle={togglePlayPause}
               onSeekComplete={handleSeek}
+              onSlidingStart={() => {
+                isSlidingRef.current = true;
+              }}
+              onMute={toggleMute}
+              onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
+              onSpeedSelect={setPlaybackSpeed}
+              onZoomToggle={openZoom}
             />
           )}
         </TouchableOpacity>
@@ -374,9 +450,21 @@ export default function VideoPlayer({
                 playing={isZoomPlaying}
                 pos={zoomPosition}
                 dur={duration}
+                isMuted={isMuted}
+                speed={speed}
+                showSpeedMenu={showSpeedMenu}
+                isZoom
+                bottomPad={insets.bottom + 16}
+                primaryColor={colors.primary}
                 onToggle={toggleZoomPlayPause}
                 onSeekComplete={handleZoomSeek}
-                isZoom
+                onSlidingStart={() => {
+                  isSlidingRef.current = true;
+                }}
+                onMute={toggleMute}
+                onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
+                onSpeedSelect={setPlaybackSpeed}
+                onZoomToggle={closeZoom}
               />
             )}
           </TouchableOpacity>
@@ -394,19 +482,26 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
-  video: { width: "100%", height: "100%" },
+
+  video: {
+    width: "100%",
+    height: "100%",
+  },
+
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
+
   controlsOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.3)",
     alignItems: "center",
     justifyContent: "center",
   },
+
   playButton: {
     width: 72,
     height: 72,
@@ -417,6 +512,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.4)",
   },
+
   bottomControls: {
     position: "absolute",
     bottom: 0,
@@ -426,11 +522,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     backgroundColor: "rgba(0,0,0,0.6)",
   },
+
   progressRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 12,
   },
+
   timeText: {
     fontSize: 11,
     color: "#fff",
@@ -438,26 +536,39 @@ const styles = StyleSheet.create({
     minWidth: 36,
     textAlign: "center",
   },
-  slider: { flex: 1, marginHorizontal: 6, height: 36 },
+
+  slider: {
+    flex: 1,
+    marginHorizontal: 6,
+    height: 36,
+  },
+
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     marginBottom: 4,
   },
+
   iconBtn: {
     width: 38,
     height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
+
   speedBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
   },
-  speedText: { fontSize: 13, fontWeight: "700" },
+
+  speedText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
   speedMenu: {
     position: "absolute",
     bottom: 52,
@@ -467,18 +578,30 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     minWidth: 80,
   },
+
   speedOption: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     alignItems: "center",
   },
-  speedOptionText: { fontSize: 14, color: "#fff", fontWeight: "600" },
+
+  speedOptionText: {
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "600",
+  },
+
   modalContainer: {
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
   },
-  zoomVideo: { width: "100%", height: "100%" },
+
+  zoomVideo: {
+    width: "100%",
+    height: "100%",
+  },
+
   closeBtn: {
     position: "absolute",
     right: 16,

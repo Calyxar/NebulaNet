@@ -1,4 +1,3 @@
-// app/create/media.tsx — React Native Firebase ✅ (delegates to createPost)
 import { useAuth } from "@/hooks/useAuth";
 import { createPost } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -40,8 +39,11 @@ export default function CreateMediaScreen() {
   const [caption, setCaption] = useState("");
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const [selectedTab, setSelectedTab] = useState<"photos" | "videos">("photos");
-  const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
+  const [visibility, setVisibility] = useState<
+    "public" | "followers" | "private"
+  >("public");
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
   const canPost = mediaItems.length > 0 && !isLoading;
@@ -67,7 +69,7 @@ export default function CreateMediaScreen() {
   const vis = visibilityConfig[visibility];
 
   const cycleVisibility = () =>
-    setVisibility((v: "public" | "followers" | "private") =>
+    setVisibility((v) =>
       v === "public" ? "followers" : v === "followers" ? "private" : "public",
     );
 
@@ -77,23 +79,20 @@ export default function CreateMediaScreen() {
       Alert.alert("Permission required", "We need photo library access.");
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes:
         selectedTab === "photos" ? PickerMedia.Images : PickerMedia.Videos,
       allowsMultipleSelection: true,
       selectionLimit: selectedTab === "photos" ? 10 : 1,
-      quality: 0.9,
+      // ✅ FIXED: quality: 1 for video caused large files crashing the app
+      quality: selectedTab === "videos" ? 0.7 : 0.85,
       videoMaxDuration: 60,
     });
-
     if (result.canceled || !result.assets?.length) return;
-
     const newItems: MediaItem[] = result.assets.map((asset) => ({
       uri: asset.uri,
       type: (asset.type === "video" ? "video" : "image") as MediaType,
     }));
-
     setMediaItems((prev) => [...prev, ...newItems].slice(0, 10));
   };
 
@@ -107,9 +106,14 @@ export default function CreateMediaScreen() {
       router.replace("/(auth)/login");
       return;
     }
-
     setIsLoading(true);
     try {
+      const hasVideo = mediaItems.some((m) => m.type === "video");
+      setUploadProgress(
+        hasVideo
+          ? "Uploading video… this may take a moment"
+          : "Uploading media…",
+      );
       await createPost({
         content: caption.trim(),
         visibility,
@@ -121,9 +125,13 @@ export default function CreateMediaScreen() {
       });
       router.back();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to share media.");
+      Alert.alert(
+        "Error",
+        e?.message || "Failed to share media. Please try again.",
+      );
     } finally {
       setIsLoading(false);
+      setUploadProgress("");
     }
   };
 
@@ -137,7 +145,6 @@ export default function CreateMediaScreen() {
         backgroundColor="transparent"
         translucent
       />
-
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -176,7 +183,7 @@ export default function CreateMediaScreen() {
             disabled={!canPost}
           >
             <Text style={styles.postBtnText}>
-              {isLoading ? "Sharing..." : "Share"}
+              {isLoading ? "Sharing…" : "Share"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -217,19 +224,16 @@ export default function CreateMediaScreen() {
               <TouchableOpacity
                 style={[
                   styles.visPill,
-                  {
-                    borderColor: vis.color,
-                    backgroundColor: vis.color + "12",
-                  },
+                  { borderColor: vis.color, backgroundColor: vis.color + "12" },
                 ]}
                 onPress={cycleVisibility}
+                disabled={isLoading}
               >
                 <Ionicons name={vis.icon} size={12} color={vis.color} />
                 <Text style={[styles.visText, { color: vis.color }]}>
                   {vis.label}
                 </Text>
               </TouchableOpacity>
-
               <TextInput
                 style={[styles.captionInput, { color: colors.text }]}
                 placeholder="Add a caption..."
@@ -238,8 +242,8 @@ export default function CreateMediaScreen() {
                 onChangeText={setCaption}
                 multiline
                 maxLength={charLimit + 20}
+                editable={!isLoading}
               />
-
               {caption.length > 0 && (
                 <Text
                   style={[
@@ -257,6 +261,19 @@ export default function CreateMediaScreen() {
               )}
             </View>
           </View>
+
+          {uploadProgress !== "" && (
+            <View style={[styles.uploadBox, { backgroundColor: colors.card }]}>
+              <Ionicons
+                name="cloud-upload-outline"
+                size={18}
+                color={colors.primary}
+              />
+              <Text style={[styles.uploadText, { color: colors.primary }]}>
+                {uploadProgress}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.mediaSection}>
             <View style={styles.avatarColSpacer} />
@@ -277,6 +294,7 @@ export default function CreateMediaScreen() {
                       },
                     ]}
                     onPress={() => setSelectedTab(tab)}
+                    disabled={isLoading}
                   >
                     <Ionicons
                       name={
@@ -329,12 +347,18 @@ export default function CreateMediaScreen() {
                           <Ionicons name="play-circle" size={28} color="#fff" />
                         </View>
                       )}
-                      <TouchableOpacity
-                        style={styles.removeBtn}
-                        onPress={() => removeMedia(idx)}
-                      >
-                        <Ionicons name="close-circle" size={22} color="#fff" />
-                      </TouchableOpacity>
+                      {!isLoading && (
+                        <TouchableOpacity
+                          style={styles.removeBtn}
+                          onPress={() => removeMedia(idx)}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={22}
+                            color="#fff"
+                          />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -353,6 +377,7 @@ export default function CreateMediaScreen() {
                     },
                   ]}
                   onPress={pickMedia}
+                  disabled={isLoading}
                 >
                   <Ionicons
                     name={
@@ -459,13 +484,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   visText: { fontSize: 12, fontWeight: "600" },
-  captionInput: {
-    fontSize: 17,
-    lineHeight: 24,
-    minHeight: 60,
-    paddingTop: 0,
-  },
+  captionInput: { fontSize: 17, lineHeight: 24, minHeight: 60, paddingTop: 0 },
   charCount: { fontSize: 13, fontWeight: "600", marginTop: 4 },
+  uploadBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  uploadText: { fontSize: 13, fontWeight: "600" },
   mediaSection: {
     flexDirection: "row",
     paddingHorizontal: 16,
