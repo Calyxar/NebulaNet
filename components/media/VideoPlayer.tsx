@@ -1,4 +1,3 @@
-// components/media/VideoPlayer.tsx — ✅ FIXED: bottom padding, zoom close button, slider stability
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
@@ -41,6 +40,7 @@ export default function VideoPlayer({
   const zoomVideoRef = useRef<Video>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSlidingRef = useRef(false);
+  const lastPositionUpdate = useRef(0);
 
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,9 +63,12 @@ export default function VideoPlayer({
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
       if (status.durationMillis) setDuration(status.durationMillis / 1000);
-      // ✅ Don't update position while user is dragging slider
       if (!isSlidingRef.current && status.positionMillis !== undefined) {
-        setPosition(status.positionMillis / 1000);
+        const now = Date.now();
+        if (now - lastPositionUpdate.current > 500) {
+          lastPositionUpdate.current = now;
+          setPosition(status.positionMillis / 1000);
+        }
       }
       setIsPlaying(status.isPlaying);
       if (status.didJustFinish && !status.isLooping) {
@@ -80,7 +83,11 @@ export default function VideoPlayer({
     if (!status.isLoaded) return;
     setIsZoomPlaying(status.isPlaying);
     if (!isSlidingRef.current && status.positionMillis !== undefined) {
-      setZoomPosition(status.positionMillis / 1000);
+      const now = Date.now();
+      if (now - lastPositionUpdate.current > 500) {
+        lastPositionUpdate.current = now;
+        setZoomPosition(status.positionMillis / 1000);
+      }
     }
   }, []);
 
@@ -141,7 +148,6 @@ export default function VideoPlayer({
     if (isPlaying) await videoRef.current?.pauseAsync();
   };
 
-  // ✅ FIXED: closeZoom actually closes and syncs position
   const closeZoom = async () => {
     const pos = zoomPosition * 1000;
     if (isZoomPlaying) await zoomVideoRef.current?.pauseAsync();
@@ -169,7 +175,6 @@ export default function VideoPlayer({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  // ✅ FIXED: bottomPad uses safe area insets so controls stay above nav bar
   const Controls = ({
     playing,
     pos,
@@ -190,7 +195,6 @@ export default function VideoPlayer({
     const bottomPad = isZoom ? insets.bottom + 16 : 12;
     return (
       <View style={styles.controlsOverlay}>
-        {/* Centered play/pause */}
         <TouchableOpacity
           style={styles.playButton}
           onPress={onToggle}
@@ -200,7 +204,6 @@ export default function VideoPlayer({
         </TouchableOpacity>
 
         <View style={[styles.bottomControls, { paddingBottom: bottomPad }]}>
-          {/* Progress row */}
           <View style={styles.progressRow}>
             <Text style={styles.timeText}>{formatTime(pos)}</Text>
             <Slider
@@ -220,7 +223,6 @@ export default function VideoPlayer({
             <Text style={styles.timeText}>{formatTime(dur)}</Text>
           </View>
 
-          {/* Button row */}
           <View style={styles.buttonsRow}>
             <TouchableOpacity
               onPress={toggleMute}
@@ -236,7 +238,6 @@ export default function VideoPlayer({
 
             <View style={{ flex: 1 }} />
 
-            {/* Speed */}
             <TouchableOpacity
               onPress={() => setShowSpeedMenu((v) => !v)}
               style={[styles.speedBtn, { borderColor: colors.primary }]}
@@ -247,7 +248,6 @@ export default function VideoPlayer({
               </Text>
             </TouchableOpacity>
 
-            {/* ✅ Zoom/close — with label so users know what it does */}
             <TouchableOpacity
               onPress={isZoom ? closeZoom : openZoom}
               style={styles.iconBtn}
@@ -261,7 +261,6 @@ export default function VideoPlayer({
             </TouchableOpacity>
           </View>
 
-          {/* Speed menu — pops UP above buttons */}
           {showSpeedMenu && (
             <View style={styles.speedMenu}>
               {SPEEDS.map((s) => (
@@ -337,7 +336,6 @@ export default function VideoPlayer({
         </TouchableOpacity>
       </View>
 
-      {/* ✅ Zoom modal with X close button at top */}
       <Modal
         visible={isZoomed}
         animationType="fade"
@@ -358,7 +356,6 @@ export default function VideoPlayer({
             useNativeControls={false}
           />
 
-          {/* ✅ X close button at top-right — easy to find, away from nav bar */}
           <TouchableOpacity
             style={[styles.closeBtn, { top: insets.top + 12 }]}
             onPress={closeZoom}
@@ -426,13 +423,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingTop: 12,
     backgroundColor: "rgba(0,0,0,0.6)",
   },
   progressRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 12,
   },
   timeText: {
     fontSize: 11,
@@ -445,7 +442,7 @@ const styles = StyleSheet.create({
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 14,
     marginBottom: 4,
   },
   iconBtn: {
@@ -482,7 +479,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   zoomVideo: { width: "100%", height: "100%" },
-  // ✅ X close button — top right, away from nav bar
   closeBtn: {
     position: "absolute",
     right: 16,
