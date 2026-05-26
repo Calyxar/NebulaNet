@@ -170,6 +170,7 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
 }
 
 function FeedBannerAd({ colors }: { colors: any }) {
+  if (!BANNER_AD_UNIT_ID) return null;
   return (
     <View style={[adStyles.wrap, { backgroundColor: colors.card }]}>
       <Text style={[adStyles.label, { color: colors.textTertiary }]}>
