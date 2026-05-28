@@ -1,13 +1,7 @@
 // lib/firestore/chat.ts — REACT NATIVE FIREBASE ✅
-// Schema: participants live at conversations/{id}/participants/{userId}
-//         messages live at conversations/{id}/messages/{messageId}
-//         typing per-user at conversations/{id}/typing/{userId}
-
 import { ChatAttachment } from "@/components/chat/ChatInput";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
-
-/* -------------------- TYPES -------------------- */
 
 type ProfileRow = {
   id: string;
@@ -59,8 +53,6 @@ export type ChatConversation = ConversationRow & {
   last_message?: ChatMessage;
 };
 
-/* -------------------- HELPERS -------------------- */
-
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts?.toDate) return ts.toDate().toISOString();
@@ -68,7 +60,6 @@ function tsToIso(ts: any): string {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-// In-memory profile cache to avoid N+1 lookups during a single load
 const profileCache = new Map<string, ProfileRow | undefined>();
 
 async function getProfile(userId: string): Promise<ProfileRow | undefined> {
@@ -88,6 +79,8 @@ async function getProfile(userId: string): Promise<ProfileRow | undefined> {
   return profile;
 }
 
+// ✅ FIXED: use individual doc gets instead of FieldPath.documentId()
+// FieldPath.documentId() throws "undefined is not a function" in this SDK version
 async function getProfilesBatch(
   userIds: string[],
 ): Promise<Map<string, ProfileRow>> {
@@ -98,30 +91,30 @@ async function getProfilesBatch(
     const cached = profileCache.get(id);
     if (cached) {
       out.set(id, cached);
-    } else if (cached === undefined && !profileCache.has(id)) {
+    } else if (!profileCache.has(id)) {
       toFetch.push(id);
     }
   }
 
-  for (let i = 0; i < toFetch.length; i += 10) {
-    const batch = toFetch.slice(i, i + 10);
-    const snap = await firestore()
-      .collection("profiles")
-      .where(firestore.FieldPath.documentId(), "in", batch)
-      .get();
-    snap.docs.forEach((d) => {
-      const data = d.data() as any;
-      const profile: ProfileRow = {
-        id: d.id,
-        username: data.username ?? "",
-        full_name: data.full_name ?? null,
-        avatar_url: data.avatar_url ?? null,
-        bio: data.bio ?? null,
-      };
-      profileCache.set(d.id, profile);
-      out.set(d.id, profile);
-    });
-  }
+  await Promise.all(
+    toFetch.map(async (id) => {
+      try {
+        const snap = await firestore().collection("profiles").doc(id).get();
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          const profile: ProfileRow = {
+            id: snap.id,
+            username: data.username ?? "",
+            full_name: data.full_name ?? null,
+            avatar_url: data.avatar_url ?? null,
+            bio: data.bio ?? null,
+          };
+          profileCache.set(id, profile);
+          out.set(id, profile);
+        }
+      } catch {}
+    }),
+  );
 
   return out;
 }
@@ -159,14 +152,7 @@ function docToConversation(d: any, id: string): ConversationRow {
   };
 }
 
-/* -------------------- SUBSCRIPTIONS -------------------- */
-
 export const chatSubscriptions = {
-  /**
-   * Subscribe to new messages in a conversation.
-   * Fires for ALL new messages (including the user's own) so optimistic UI stays in sync.
-   * The hook layer can dedupe by message id.
-   */
   subscribeToMessages: (
     conversationId: string,
     _userId: string,
@@ -196,10 +182,6 @@ export const chatSubscriptions = {
       );
   },
 
-  /**
-   * Subscribe to changes in conversations the user participates in.
-   * Uses participant_ids array on the conversation doc itself.
-   */
   subscribeToUserConversations: (
     userId: string,
     callback: (payload: any) => void,
@@ -222,10 +204,6 @@ export const chatSubscriptions = {
       );
   },
 
-  /**
-   * Subscribe to typing status for a conversation.
-   * Reads from the `typing` subcollection where each doc id is a userId.
-   */
   subscribeToTypingStatus: (
     conversationId: string,
     callback: (payload: any) => void,
@@ -240,7 +218,6 @@ export const chatSubscriptions = {
           const typing: Record<string, boolean> = {};
           snap.docs.forEach((d) => {
             const data = d.data() as any;
-            // Stale-typing guard: typing flag valid for 6s
             const updated = data?.updated_at?.toDate
               ? data.updated_at.toDate().getTime()
               : 0;
@@ -256,8 +233,6 @@ export const chatSubscriptions = {
   },
 };
 
-/* -------------------- QUERIES -------------------- */
-
 export const chatQueries = {
   getConversations: async (userId: string) => {
     try {
@@ -270,7 +245,6 @@ export const chatQueries = {
 
       if (convSnap.empty) return { data: [], error: null };
 
-      // Collect all participant ids across conversations for batched profile fetch
       const allUserIds = new Set<string>();
       convSnap.docs.forEach((d) => {
         const ids = (d.data() as any).participant_ids;
@@ -281,7 +255,6 @@ export const chatQueries = {
       const conversations: ChatConversation[] = await Promise.all(
         convSnap.docs.map(async (convDoc) => {
           const conv = docToConversation(convDoc.data(), convDoc.id);
-
           const participants = (conv.participant_ids ?? []).map((uid) => ({
             user_id: uid,
             profiles: profileCache.get(uid) ?? undefined,
@@ -397,7 +370,6 @@ export const chatQueries = {
 
       const msgRef = await convRef.collection("messages").add(messageData);
 
-      // Update parent conversation pointer + timestamp
       await convRef.update({
         updated_at: new Date().toISOString(),
         updated_at_ts: firestore.FieldValue.serverTimestamp(),
@@ -410,7 +382,6 @@ export const chatQueries = {
         },
       });
 
-      // Bump unread count for everyone except the sender
       try {
         const partsSnap = await convRef.collection("participants").get();
         const batch = firestore().batch();
@@ -512,7 +483,6 @@ export const chatQueries = {
         .collection("conversations")
         .doc(conversationId);
 
-      // Reset this user's unread counter (works even if doc doesn't exist yet)
       await convRef.collection("participants").doc(userId).set(
         {
           user_id: userId,
@@ -522,7 +492,6 @@ export const chatQueries = {
         { merge: true },
       );
 
-      // Mark unread messages from other senders as read (capped to last 50)
       const msgSnap = await convRef
         .collection("messages")
         .orderBy("created_at_ts", "desc")
@@ -599,7 +568,6 @@ export const chatQueries = {
         .collection("conversations")
         .doc(conversationId);
 
-      // Delete messages subcollection
       const msgSnap = await convRef.collection("messages").get();
       const partSnap = await convRef.collection("participants").get();
       const typingSnap = await convRef.collection("typing").get();
@@ -618,10 +586,6 @@ export const chatQueries = {
     }
   },
 
-  /**
-   * Per-user typing status. Writes to conversations/{id}/typing/{currentUserId}.
-   * isTyping=false also acceptable to clear it.
-   */
   updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
     try {
       const uid = auth().currentUser?.uid;
@@ -646,7 +610,6 @@ export const chatQueries = {
   },
 };
 
-/* -------------------- BACKWARD COMPAT EXPORTS -------------------- */
 export const getConversations = chatQueries.getConversations;
 export const getMessages = chatQueries.getMessages;
 export const sendMessage = chatQueries.sendMessage;
