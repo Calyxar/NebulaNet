@@ -64,6 +64,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   collapse_long_threads: true,
   filtered_keywords: [],
   muted_communities: [],
+  haptics_enabled: true,
 };
 
 const DEFAULT_PRIVACY: PrivacySettings = {
@@ -114,7 +115,6 @@ export function useSettings() {
   const queryClient = useQueryClient();
   const uid = user?.uid;
 
-  // ✅ FIX: wire into ThemeProvider so font/animation changes apply immediately
   const { applyFontSize, applyReduceAnimations } = useTheme();
 
   const { data: settings, isLoading } = useQuery<UserSettings>({
@@ -144,7 +144,6 @@ export function useSettings() {
     },
   });
 
-  // ✅ FIX: all generics on one line to prevent TSX parse ambiguity in .ts files
   const updatePreferences = useMutation<void, Error, Partial<UserPreferences>>({
     mutationFn: async (updates: Partial<UserPreferences>) => {
       if (!uid) throw new Error("Not authenticated");
@@ -163,7 +162,6 @@ export function useSettings() {
         );
     },
     onSuccess: (_: void, updates: Partial<UserPreferences>) => {
-      // ✅ push font/animation into ThemeProvider immediately — no re-login needed
       if (updates.font_size) applyFontSize(updates.font_size);
       if (typeof updates.reduce_animations === "boolean") {
         applyReduceAnimations(updates.reduce_animations);

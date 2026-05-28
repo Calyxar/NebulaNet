@@ -1,32 +1,32 @@
-// types/settings.ts - Ensure this matches
 export interface UserPreferences {
-  theme: 'light' | 'dark' | 'system';
+  theme: "light" | "dark" | "system";
   language: string;
   region: string;
   timezone: string;
   show_nsfw: boolean;
   auto_play_media: boolean;
   reduce_animations: boolean;
-  font_size: 'small' | 'medium' | 'large';
+  font_size: "small" | "medium" | "large";
   email_notifications: boolean;
   push_notifications: boolean;
-  default_sort: 'best' | 'hot' | 'new' | 'top';
-  feed_density: 'compact' | 'normal' | 'relaxed';
+  default_sort: "best" | "hot" | "new" | "top";
+  feed_density: "compact" | "normal" | "relaxed";
   show_image_descriptions: boolean;
   hide_spoilers: boolean;
   group_similar_posts: boolean;
   collapse_long_threads: boolean;
   filtered_keywords: string[];
   muted_communities: string[];
+  haptics_enabled: boolean;
 }
 
 export interface PrivacySettings {
-  profile_visibility: 'public' | 'private' | 'friends_only';
+  profile_visibility: "public" | "private" | "friends_only";
   show_online_status: boolean;
   allow_search_indexing: boolean;
   allow_tagging: boolean;
-  who_can_message_me: 'everyone' | 'friends' | 'nobody';
-  who_can_comment: 'everyone' | 'friends' | 'nobody';
+  who_can_message_me: "everyone" | "friends" | "nobody";
+  who_can_comment: "everyone" | "friends" | "nobody";
   hide_likes_count: boolean;
   hide_followers_count: boolean;
   hide_from_search: boolean;
@@ -42,7 +42,7 @@ export interface NotificationSettings {
   community_updates: boolean;
   system_notifications: boolean;
   marketing_emails: boolean;
-  push_frequency: 'immediate' | 'daily' | 'weekly';
+  push_frequency: "immediate" | "daily" | "weekly";
   weekly_newsletter: boolean;
   trending_posts: boolean;
   friend_activity: boolean;
@@ -63,14 +63,14 @@ export interface SecuritySettings {
     last_used: string;
     location?: string;
   }[];
-  session_timeout: number; // days
+  session_timeout: number;
   last_password_change?: string;
   two_factor_setup_at?: string;
 }
 
 export interface LinkedAccount {
   id: string;
-  provider: 'google' | 'github' | 'twitter' | 'discord' | 'spotify' | 'apple';
+  provider: "google" | "github" | "twitter" | "discord" | "spotify" | "apple";
   provider_id: string;
   email?: string;
   username?: string;

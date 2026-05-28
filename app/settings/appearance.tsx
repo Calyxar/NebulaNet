@@ -1,10 +1,8 @@
-// app/settings/appearance.tsx
 import { useSettings } from "@/hooks/useSettings";
-import { closeSettings } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React from "react";
 import {
   ScrollView,
@@ -73,8 +71,7 @@ function OptionRow({
 }
 
 export default function AppearanceScreen() {
-  const { theme, setTheme, colors, isDark, fontScale, reduceAnimations } =
-    useTheme();
+  const { theme, setTheme, colors, isDark, fontScale } = useTheme();
   const { settings, updatePreferences } = useSettings();
   const params = useLocalSearchParams<{ returnTo?: string }>();
 
@@ -82,19 +79,22 @@ export default function AppearanceScreen() {
     (settings?.preferences?.font_size as FontSize) ?? "medium";
   const currentReduceAnimations =
     settings?.preferences?.reduce_animations ?? false;
+  const hapticsEnabled = settings?.preferences?.haptics_enabled ?? true;
 
   const handleTheme = (value: ThemeOption) => {
     void setTheme(value);
   };
 
   const handleFontSize = (value: FontSize) => {
-    // ✅ FIX: save to Firestore AND update ThemeProvider immediately
     updatePreferences.mutate({ font_size: value });
   };
 
   const handleReduceAnimations = (value: boolean) => {
-    // ✅ FIX: save to Firestore AND update ThemeProvider immediately
     updatePreferences.mutate({ reduce_animations: value });
+  };
+
+  const handleHaptics = (value: boolean) => {
+    updatePreferences.mutate({ haptics_enabled: value });
   };
 
   const content = (
@@ -108,11 +108,10 @@ export default function AppearanceScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           activeOpacity={0.85}
-          onPress={() => closeSettings(params.returnTo)}
+          onPress={() => router.back()}
           style={[
             styles.headerBtn,
             { backgroundColor: colors.card, borderColor: colors.border },
@@ -207,30 +206,54 @@ export default function AppearanceScreen() {
           />
         </View>
 
-        {/* Animations */}
+        {/* Accessibility */}
         <SectionTitle label="ACCESSIBILITY" colors={colors} />
-        <View
-          style={[
-            styles.toggleCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.toggleLeft}>
-            <Text style={[styles.optionTitle, { color: colors.text }]}>
-              Reduce Animations
-            </Text>
-            <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
-              Minimise motion effects throughout the app
-            </Text>
+        <View style={styles.group}>
+          <View
+            style={[
+              styles.toggleCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={styles.toggleLeft}>
+              <Text style={[styles.optionTitle, { color: colors.text }]}>
+                Reduce Animations
+              </Text>
+              <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
+                Minimise motion effects throughout the app
+              </Text>
+            </View>
+            <Switch
+              value={currentReduceAnimations}
+              onValueChange={handleReduceAnimations}
+              trackColor={{ false: colors.border, true: colors.primary + "60" }}
+              thumbColor={
+                currentReduceAnimations ? colors.primary : colors.textTertiary
+              }
+            />
           </View>
-          <Switch
-            value={currentReduceAnimations}
-            onValueChange={handleReduceAnimations}
-            trackColor={{ false: colors.border, true: colors.primary + "60" }}
-            thumbColor={
-              currentReduceAnimations ? colors.primary : colors.textTertiary
-            }
-          />
+
+          <View
+            style={[
+              styles.toggleCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={styles.toggleLeft}>
+              <Text style={[styles.optionTitle, { color: colors.text }]}>
+                Haptic Feedback
+              </Text>
+              <Text style={[styles.optionSub, { color: colors.textSecondary }]}>
+                Vibration feedback on interactions
+              </Text>
+            </View>
+            <Switch
+              value={hapticsEnabled}
+              onValueChange={handleHaptics}
+              trackColor={{ false: colors.border, true: colors.primary + "60" }}
+              thumbColor={hapticsEnabled ? colors.primary : colors.textTertiary}
+            />
+          </View>
         </View>
 
         <Text style={[styles.footer, { color: colors.textTertiary }]}>
