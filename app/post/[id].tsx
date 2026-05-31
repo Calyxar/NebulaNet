@@ -19,6 +19,7 @@ import {
   useToggleLike,
   type CommentWithAuthor,
 } from "@/hooks/usePosts";
+import { useOptimisticSharePost } from "@/hooks/useShares";
 import { db } from "@/lib/firebase";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -125,11 +126,11 @@ export default function PostDetailScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
+  const [shareCount, setShareCount] = useState(0);
 
   const commentInputRef = useRef<TextInput>(null);
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
-  // ✅ FIX: scroll ref so comment input stays visible above keyboard
   const scrollViewRef = useRef<ScrollView>(null);
 
   const {
@@ -144,6 +145,7 @@ export default function PostDetailScreen() {
   const toggleBookmarkMutation = useToggleBookmark();
   const addCommentMutation = useAddComment();
   const toggleCommentLikeMutation = useToggleCommentLike();
+  const sharePostMutation = useOptimisticSharePost();
 
   const displayedComments = useMemo(
     () => (showAllComments ? comments : comments.slice(0, 3)),
@@ -169,6 +171,12 @@ export default function PostDetailScreen() {
       getRepostStatus(post.id).then(setIsReposted);
     }
   }, [post?.id]);
+
+  useEffect(() => {
+    if (post?.share_count !== undefined) {
+      setShareCount(post.share_count);
+    }
+  }, [post?.share_count]);
 
   const handleLike = async () => {
     if (!post) return;
@@ -209,8 +217,15 @@ export default function PostDetailScreen() {
     router.push(`/post/create?quote=${post.id}` as any);
   };
 
-  const handleShare = () => {
-    (shareSheetRef.current as any)?.present();
+  const handleShareComplete = async () => {
+    if (!post) return;
+    const prev = shareCount;
+    setShareCount((c) => c + 1);
+    try {
+      await sharePostMutation.mutateAsync(post.id);
+    } catch {
+      setShareCount(prev);
+    }
   };
 
   const handlePostComment = async () => {
@@ -277,6 +292,19 @@ export default function PostDetailScreen() {
 
   const postOptions = useMemo((): PostOption[] => {
     const opts: PostOption[] = [];
+
+    opts.push({
+      label: isReposted ? "Undo Repost" : "Repost",
+      icon: "repeat-outline",
+      onPress: () => (repostSheetRef.current as any)?.present(),
+    });
+
+    opts.push({
+      label: "Share",
+      icon: "arrow-redo-outline",
+      onPress: () => (shareSheetRef.current as any)?.present(),
+    });
+
     if (isOwner) {
       opts.push({
         label: isDeleting ? "Deleting…" : "Delete Post",
@@ -285,13 +313,7 @@ export default function PostDetailScreen() {
         disabled: isDeleting,
         onPress: confirmDelete,
       });
-    }
-    opts.push({
-      label: "Share",
-      icon: "arrow-redo-outline",
-      onPress: handleShare,
-    });
-    if (!isOwner) {
+    } else {
       opts.push({
         label: "Report",
         icon: "flag-outline",
@@ -299,8 +321,9 @@ export default function PostDetailScreen() {
         onPress: () => {},
       });
     }
+
     return opts;
-  }, [isOwner, isDeleting]);
+  }, [isOwner, isDeleting, isReposted]);
 
   const isPoll = (post as any)?.post_type === "poll";
   const hasMedia = (post?.media_urls?.length ?? 0) > 0;
@@ -447,13 +470,11 @@ export default function PostDetailScreen() {
         <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <HeaderBar />
 
-        {/* ✅ FIX: use "padding" on both platforms so input floats above keyboard */}
         <KeyboardAvoidingView
           style={styles.flex}
           behavior="padding"
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
         >
-          {/* ✅ FIX: scrollViewRef + onContentSizeChange scrolls to bottom when comment added */}
           <ScrollView
             ref={scrollViewRef}
             style={styles.flex}
@@ -464,7 +485,6 @@ export default function PostDetailScreen() {
               scrollViewRef.current?.scrollToEnd({ animated: false })
             }
           >
-            {/* Post card */}
             <View
               style={[
                 styles.postCard,
@@ -570,7 +590,6 @@ export default function PostDetailScreen() {
                 ))}
             </View>
 
-            {/* Stats */}
             <View
               style={[
                 styles.statsCard,
@@ -605,6 +624,14 @@ export default function PostDetailScreen() {
                   </Text>{" "}
                   {(post as any).repost_count === 1 ? "repost" : "reposts"}
                 </Text>
+                <Text
+                  style={[styles.statText, { color: colors.textSecondary }]}
+                >
+                  <Text style={[styles.statNum, { color: colors.text }]}>
+                    {shareCount.toLocaleString()}
+                  </Text>{" "}
+                  {shareCount === 1 ? "share" : "shares"}
+                </Text>
               </View>
 
               <View
@@ -634,7 +661,6 @@ export default function PostDetailScreen() {
                   </Text>
                 </TouchableOpacity>
 
-                {/* ✅ FIX: Comment button scrolls to bottom so user sees input */}
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={() => {
@@ -688,7 +714,7 @@ export default function PostDetailScreen() {
 
                 <TouchableOpacity
                   style={styles.actionBtn}
-                  onPress={handleShare}
+                  onPress={() => (shareSheetRef.current as any)?.present()}
                   activeOpacity={0.75}
                 >
                   <Ionicons
@@ -732,7 +758,6 @@ export default function PostDetailScreen() {
               </View>
             </View>
 
-            {/* Comments */}
             <View
               style={[
                 styles.commentsSection,
@@ -911,7 +936,6 @@ export default function PostDetailScreen() {
             <View style={{ height: 80 }} />
           </ScrollView>
 
-          {/* Comment input */}
           <View
             style={[
               styles.commentInputBar,
@@ -948,7 +972,6 @@ export default function PostDetailScreen() {
               maxLength={500}
               returnKeyType="send"
               onSubmitEditing={handlePostComment}
-              // ✅ FIX: scroll to end when keyboard opens so input stays visible
               onFocus={() =>
                 setTimeout(
                   () => scrollViewRef.current?.scrollToEnd({ animated: true }),
@@ -987,36 +1010,20 @@ export default function PostDetailScreen() {
           onQuoteRepost={handleQuoteRepost}
           onUndoRepost={handleRepost}
         />
-
         <ShareSheet
           ref={shareSheetRef}
           title="Share Post"
           url={`https://nebulanet.space/post/${post.id}`}
           text={post.content}
-          shareMessage={`Check out this post on NebulaNet!`}
+          shareMessage="Check out this post on NebulaNet!"
+          onShared={handleShareComplete}
         />
-
         <PostOptionsSheet
           visible={optionsVisible}
           onClose={() => setOptionsVisible(false)}
           options={postOptions}
         />
       </SafeAreaView>
-
-      <RepostSheet
-        ref={repostSheetRef}
-        isReposted={isReposted}
-        onRepost={handleRepost}
-        onQuoteRepost={handleQuoteRepost}
-        onUndoRepost={handleRepost}
-      />
-      <ShareSheet
-        ref={shareSheetRef}
-        title="Share Post"
-        url={"https://nebulanet.space/post/${post?.id}"}
-        text={post?.content ?? ""}
-        shareMessage="Check out this post on NebulaNet!"
-      />
     </LinearGradient>
   );
 }
@@ -1112,19 +1119,12 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
-  videoBadgeWrap: {
+  statsRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignSelf: "flex-start",
-    marginTop: 12,
+    gap: 16,
+    paddingBottom: 12,
+    flexWrap: "wrap",
   },
-  videoBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  statsRow: { flexDirection: "row", gap: 16, paddingBottom: 12 },
   statText: { fontSize: 13 },
   statNum: { fontWeight: "700" },
   actionRow: {

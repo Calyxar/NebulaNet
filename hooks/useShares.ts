@@ -1,18 +1,8 @@
 // hooks/useShares.ts — FIREBASE ✅
 
 import { postKeys } from "@/hooks/usePosts";
-import { auth, db } from "@/lib/firebase";
+import { sharePost } from "@/lib/firestore/interactions";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-
-async function incrementShareCount(postId: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error("Not authenticated");
-  const ref = db.collection("posts").doc(postId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error("Post not found");
-  const current = (snap.data() as any).share_count ?? 0;
-  await ref.update({ share_count: current + 1 });
-}
 
 type FeedPage = { posts: any[] };
 type InfiniteFeed = { pages: FeedPage[]; pageParams: any[] };
@@ -22,7 +12,7 @@ export function useOptimisticSharePost() {
 
   return useMutation({
     mutationFn: async (postId: string) => {
-      await incrementShareCount(postId);
+      await sharePost(postId);
       return postId;
     },
     onMutate: async (postId: string) => {
@@ -53,6 +43,9 @@ export function useOptimisticSharePost() {
     },
     onError: (_err, _postId, ctx) => {
       ctx?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSuccess: (_postId) => {
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
     },
   });
 }

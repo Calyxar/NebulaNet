@@ -7,6 +7,7 @@ import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useDeletePost } from "@/hooks/usePosts";
+import { useOptimisticSharePost } from "@/hooks/useShares";
 import { type PollData } from "@/lib/firestore/polls";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { generatePostLink } from "@/lib/share";
@@ -90,14 +91,15 @@ export default function PostCard(props: PostCardProps) {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const deletePostMutation = useDeletePost();
+  const sharePostMutation = useOptimisticSharePost();
 
   const [expanded, setExpanded] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [repostCount, setRepostCount] = useState(reposts);
   const [isReposting, setIsReposting] = useState(false);
+  const [shareCount, setShareCount] = useState(shares);
   const hasTrackedView = useRef(false);
 
-  // ✅ FIXED: ref types are now BottomSheetModal
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
 
@@ -137,6 +139,16 @@ export default function PostCard(props: PostCardProps) {
     }
   };
 
+  const handleShare = async () => {
+    const prev = shareCount;
+    setShareCount((c) => c + 1);
+    try {
+      await sharePostMutation.mutateAsync(id);
+    } catch {
+      setShareCount(prev);
+    }
+  };
+
   const handleQuoteRepost = () => {
     router.push({
       pathname: "/create/post",
@@ -160,12 +172,10 @@ export default function PostCard(props: PostCardProps) {
       { text: "View Post", onPress: openPost },
       {
         text: isReposted ? "Undo Repost" : "Repost",
-        // ✅ FIXED: present() instead of snapToIndex(0)
         onPress: () => (repostSheetRef.current as any)?.present(),
       },
       {
         text: "Share Post",
-        // ✅ FIXED: present() instead of snapToIndex(0)
         onPress: () => (shareSheetRef.current as any)?.present(),
       },
     ];
@@ -399,6 +409,12 @@ export default function PostCard(props: PostCardProps) {
             color={isReposted ? colors.primary : colors.textSecondary}
           />
           <Stat
+            icon="share-outline"
+            value={shareCount}
+            label="share"
+            color={colors.textSecondary}
+          />
+          <Stat
             icon="bookmark-outline"
             value={saves}
             label="save"
@@ -424,7 +440,6 @@ export default function PostCard(props: PostCardProps) {
             label={isReposted ? "Reposted" : "Repost"}
             color={isReposted ? colors.primary : colors.textSecondary}
             disabled={isReposting}
-            // ✅ FIXED: present() instead of snapToIndex(0)
             onPress={(e) => {
               e.stopPropagation?.();
               (repostSheetRef.current as any)?.present();
@@ -434,7 +449,6 @@ export default function PostCard(props: PostCardProps) {
             icon="share-outline"
             label="Share"
             color={colors.textSecondary}
-            // ✅ FIXED: present() instead of snapToIndex(0)
             onPress={(e) => {
               e.stopPropagation?.();
               (shareSheetRef.current as any)?.present();
@@ -462,6 +476,7 @@ export default function PostCard(props: PostCardProps) {
         url={generatePostLink(id)}
         text={content}
         shareMessage={`Check out this post on NebulaNet: ${content.slice(0, 100)}${content.length > 100 ? "..." : ""}`}
+        onShared={handleShare}
       />
     </>
   );

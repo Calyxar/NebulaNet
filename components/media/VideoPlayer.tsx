@@ -1,3 +1,4 @@
+// components/media/VideoPlayer.tsx
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
@@ -5,6 +6,7 @@ import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   StyleSheet,
   Text,
@@ -35,7 +37,6 @@ interface ControlsProps {
   isZoom: boolean;
   bottomPad: number;
   primaryColor: string;
-
   onToggle: () => void;
   onSeekComplete: (v: number) => void;
   onSlidingStart: () => void;
@@ -82,7 +83,6 @@ function Controls({
       <View style={[styles.bottomControls, { paddingBottom: bottomPad }]}>
         <View style={styles.progressRow}>
           <Text style={styles.timeText}>{formatTime(pos)}</Text>
-
           <Slider
             style={styles.slider}
             minimumValue={0}
@@ -94,7 +94,6 @@ function Controls({
             maximumTrackTintColor="rgba(255,255,255,0.3)"
             thumbTintColor={primaryColor}
           />
-
           <Text style={styles.timeText}>{formatTime(dur)}</Text>
         </View>
 
@@ -143,9 +142,7 @@ function Controls({
                 key={s}
                 style={[
                   styles.speedOption,
-                  speed === s && {
-                    backgroundColor: primaryColor + "44",
-                  },
+                  speed === s && { backgroundColor: primaryColor + "44" },
                 ]}
                 onPress={() => onSpeedSelect(s)}
                 activeOpacity={0.8}
@@ -153,10 +150,7 @@ function Controls({
                 <Text
                   style={[
                     styles.speedOptionText,
-                    speed === s && {
-                      color: primaryColor,
-                      fontWeight: "800",
-                    },
+                    speed === s && { color: primaryColor, fontWeight: "800" },
                   ]}
                 >
                   {s}x
@@ -188,16 +182,17 @@ export default function VideoPlayer({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSlidingRef = useRef(false);
   const lastPositionUpdate = useRef(0);
+  const wasPlayingBeforeSeek = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
   const [showControls, setShowControls] = useState(true);
+  const [showThumbnail, setShowThumbnail] = useState(!autoPlay);
 
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
 
   const [isMuted, setIsMuted] = useState(false);
-
   const [speed, setSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
@@ -207,23 +202,16 @@ export default function VideoPlayer({
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-
-    hideTimer.current = setTimeout(() => {
-      setShowControls(false);
-    }, 3000);
+    hideTimer.current = setTimeout(() => setShowControls(false), 3000);
   }, []);
 
   const onPlaybackStatusUpdate = useCallback(
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
-
-      if (status.durationMillis) {
-        setDuration(status.durationMillis / 1000);
-      }
+      if (status.durationMillis) setDuration(status.durationMillis / 1000);
 
       if (!isSlidingRef.current && status.positionMillis !== undefined) {
         const now = Date.now();
-
         if (now - lastPositionUpdate.current > 250) {
           lastPositionUpdate.current = now;
           setPosition(status.positionMillis / 1000);
@@ -235,6 +223,7 @@ export default function VideoPlayer({
       if (status.didJustFinish && !status.isLooping) {
         onEnd?.();
         setShowControls(true);
+        setShowThumbnail(false);
       }
     },
     [onEnd],
@@ -242,12 +231,10 @@ export default function VideoPlayer({
 
   const onZoomStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
-
     setIsZoomPlaying(status.isPlaying);
 
     if (!isSlidingRef.current && status.positionMillis !== undefined) {
       const now = Date.now();
-
       if (now - lastPositionUpdate.current > 250) {
         lastPositionUpdate.current = now;
         setZoomPosition(status.positionMillis / 1000);
@@ -257,12 +244,12 @@ export default function VideoPlayer({
 
   const togglePlayPause = async () => {
     if (!videoRef.current) return;
-
     if (isPlaying) {
       await videoRef.current.pauseAsync();
       onPause?.();
       setShowControls(true);
     } else {
+      setShowThumbnail(false);
       await videoRef.current.playAsync();
       onPlay?.();
       scheduleHide();
@@ -271,7 +258,6 @@ export default function VideoPlayer({
 
   const toggleZoomPlayPause = async () => {
     if (!zoomVideoRef.current) return;
-
     if (isZoomPlaying) {
       await zoomVideoRef.current.pauseAsync();
     } else {
@@ -282,61 +268,66 @@ export default function VideoPlayer({
 
   const toggleMute = async () => {
     const newMuted = !isMuted;
-
     await videoRef.current?.setIsMutedAsync(newMuted);
     await zoomVideoRef.current?.setIsMutedAsync(newMuted);
-
     setIsMuted(newMuted);
+  };
+
+  const handleSlidingStart = () => {
+    isSlidingRef.current = true;
+    wasPlayingBeforeSeek.current = isPlaying;
+    if (isPlaying) videoRef.current?.pauseAsync();
   };
 
   const handleSeek = async (value: number) => {
     isSlidingRef.current = false;
-
     const ms = value * duration * 1000;
-
     await videoRef.current?.setPositionAsync(ms);
-
     setPosition(value * duration);
+    if (wasPlayingBeforeSeek.current) {
+      await videoRef.current?.playAsync();
+    }
+  };
+
+  const handleZoomSlidingStart = () => {
+    isSlidingRef.current = true;
+    wasPlayingBeforeSeek.current = isZoomPlaying;
+    if (isZoomPlaying) zoomVideoRef.current?.pauseAsync();
   };
 
   const handleZoomSeek = async (value: number) => {
     isSlidingRef.current = false;
-
     const ms = value * duration * 1000;
-
     await zoomVideoRef.current?.setPositionAsync(ms);
-
     setZoomPosition(value * duration);
+    if (wasPlayingBeforeSeek.current) {
+      await zoomVideoRef.current?.playAsync();
+    }
   };
 
   const setPlaybackSpeed = async (s: number) => {
+    const wasPlaying = isPlaying || isZoomPlaying;
     await videoRef.current?.setRateAsync(s, true);
     await zoomVideoRef.current?.setRateAsync(s, true);
-
+    if (wasPlaying) {
+      await videoRef.current?.playAsync();
+      await zoomVideoRef.current?.playAsync();
+    }
     setSpeed(s);
     setShowSpeedMenu(false);
-
     scheduleHide();
   };
 
   const openZoom = async () => {
     setIsZoomed(true);
     setZoomPosition(position);
-
-    if (isPlaying) {
-      await videoRef.current?.pauseAsync();
-    }
+    if (isPlaying) await videoRef.current?.pauseAsync();
   };
 
   const closeZoom = async () => {
     const pos = zoomPosition * 1000;
-
-    if (isZoomPlaying) {
-      await zoomVideoRef.current?.pauseAsync();
-    }
-
+    if (isZoomPlaying) await zoomVideoRef.current?.pauseAsync();
     setIsZoomed(false);
-
     await videoRef.current?.setPositionAsync(pos);
   };
 
@@ -345,13 +336,11 @@ export default function VideoPlayer({
       setShowSpeedMenu(false);
       return;
     }
-
     setShowControls((v) => {
       if (!v) {
         scheduleHide();
         return true;
       }
-
       return false;
     });
   };
@@ -362,8 +351,6 @@ export default function VideoPlayer({
         <Video
           ref={videoRef}
           source={{ uri }}
-          posterSource={poster ? { uri: poster } : undefined}
-          usePoster={!!poster}
           style={styles.video}
           resizeMode={ResizeMode.CONTAIN}
           shouldPlay={autoPlay}
@@ -375,6 +362,26 @@ export default function VideoPlayer({
           onLoad={() => setIsLoading(false)}
           useNativeControls={false}
         />
+
+        {/* Thumbnail overlay — shows until user first presses play */}
+        {showThumbnail && poster && (
+          <Image
+            source={{ uri: poster }}
+            style={styles.thumbnail}
+            resizeMode="cover"
+          />
+        )}
+
+        {/* Thumbnail placeholder when no poster provided */}
+        {showThumbnail && !poster && (
+          <View style={styles.thumbnailPlaceholder}>
+            <Ionicons
+              name="play-circle-outline"
+              size={64}
+              color="rgba(255,255,255,0.8)"
+            />
+          </View>
+        )}
 
         {isLoading && (
           <View style={styles.loadingOverlay}>
@@ -400,9 +407,7 @@ export default function VideoPlayer({
               primaryColor={colors.primary}
               onToggle={togglePlayPause}
               onSeekComplete={handleSeek}
-              onSlidingStart={() => {
-                isSlidingRef.current = true;
-              }}
+              onSlidingStart={handleSlidingStart}
               onMute={toggleMute}
               onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
               onSpeedSelect={setPlaybackSpeed}
@@ -458,9 +463,7 @@ export default function VideoPlayer({
                 primaryColor={colors.primary}
                 onToggle={toggleZoomPlayPause}
                 onSeekComplete={handleZoomSeek}
-                onSlidingStart={() => {
-                  isSlidingRef.current = true;
-                }}
+                onSlidingStart={handleZoomSlidingStart}
                 onMute={toggleMute}
                 onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
                 onSpeedSelect={setPlaybackSpeed}
@@ -482,26 +485,33 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
-
   video: {
     width: "100%",
     height: "100%",
   },
-
+  thumbnail: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  thumbnailPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#111",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
-
   controlsOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.3)",
     alignItems: "center",
     justifyContent: "center",
   },
-
   playButton: {
     width: 72,
     height: 72,
@@ -512,7 +522,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.4)",
   },
-
   bottomControls: {
     position: "absolute",
     bottom: 0,
@@ -522,13 +531,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     backgroundColor: "rgba(0,0,0,0.6)",
   },
-
   progressRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 12,
   },
-
   timeText: {
     fontSize: 11,
     color: "#fff",
@@ -536,39 +543,33 @@ const styles = StyleSheet.create({
     minWidth: 36,
     textAlign: "center",
   },
-
   slider: {
     flex: 1,
     marginHorizontal: 6,
     height: 36,
   },
-
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     marginBottom: 4,
   },
-
   iconBtn: {
     width: 38,
     height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
-
   speedBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
   },
-
   speedText: {
     fontSize: 13,
     fontWeight: "700",
   },
-
   speedMenu: {
     position: "absolute",
     bottom: 52,
@@ -578,30 +579,25 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     minWidth: 80,
   },
-
   speedOption: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     alignItems: "center",
   },
-
   speedOptionText: {
     fontSize: 14,
     color: "#fff",
     fontWeight: "600",
   },
-
   modalContainer: {
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
   },
-
   zoomVideo: {
     width: "100%",
     height: "100%",
   },
-
   closeBtn: {
     position: "absolute",
     right: 16,

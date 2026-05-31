@@ -200,6 +200,37 @@ export async function sharePost(postId: string): Promise<void> {
       });
     }
   });
+
+  const [postSnap, senderSnap] = await Promise.all([
+    db.collection("posts").doc(postId).get(),
+    db.collection("users").doc(uid).get(),
+  ]);
+
+  const postData = postSnap.data() as any;
+  const senderData = senderSnap.data() as any;
+  const postOwnerId = postData?.user_id ?? postData?.userId;
+
+  if (postOwnerId && postOwnerId !== uid) {
+    await db.collection("notifications").add({
+      type: "post_shared",
+      sender_id: uid,
+      receiver_id: postOwnerId,
+      post_id: postId,
+      is_read: false,
+      created_at: new Date().toISOString(),
+      created_at_ts: firestore.FieldValue.serverTimestamp(),
+      sender: {
+        id: uid,
+        username: senderData?.username ?? "",
+        full_name: senderData?.full_name ?? null,
+        avatar_url: senderData?.avatar_url ?? null,
+      },
+      post: {
+        id: postId,
+        content: postData?.content ?? "",
+      },
+    });
+  }
 }
 
 /* =========================

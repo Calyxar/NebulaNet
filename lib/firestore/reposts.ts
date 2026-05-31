@@ -21,7 +21,16 @@ export async function toggleRepost(
     ]);
     return false;
   } else {
-    await Promise.all([
+    const [postSnap, senderSnap] = await Promise.all([
+      postRef.get(),
+      firestore().collection("users").doc(uid).get(),
+    ]);
+
+    const postData = postSnap.data() as any;
+    const senderData = senderSnap.data() as any;
+    const postOwnerId = postData?.user_id ?? postData?.userId;
+
+    const writes: Promise<any>[] = [
       repostRef.set({
         user_id: uid,
         post_id: postId,
@@ -31,7 +40,35 @@ export async function toggleRepost(
       postRef.update({
         repost_count: firestore.FieldValue.increment(1),
       }),
-    ]);
+    ];
+
+    if (postOwnerId && postOwnerId !== uid) {
+      writes.push(
+        firestore()
+          .collection("notifications")
+          .add({
+            type: "repost",
+            sender_id: uid,
+            receiver_id: postOwnerId,
+            post_id: postId,
+            is_read: false,
+            created_at: new Date().toISOString(),
+            created_at_ts: firestore.FieldValue.serverTimestamp(),
+            sender: {
+              id: uid,
+              username: senderData?.username ?? "",
+              full_name: senderData?.full_name ?? null,
+              avatar_url: senderData?.avatar_url ?? null,
+            },
+            post: {
+              id: postId,
+              content: postData?.content ?? "",
+            },
+          }),
+      );
+    }
+
+    await Promise.all(writes);
     return true;
   }
 }

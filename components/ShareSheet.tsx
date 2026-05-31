@@ -1,6 +1,4 @@
 // components/ShareSheet.tsx — ✅ FIXED: uses BottomSheetModal so it renders in portal
-// BottomSheetModal renders above everything via BottomSheetModalProvider
-// Call .present() to open, .dismiss() to close
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,7 +20,6 @@ import {
   View,
 } from "react-native";
 
-// ✅ Ref type is now BottomSheetModal — call .present() and .dismiss()
 export type ShareSheetRef = BottomSheetModal;
 
 type Props = {
@@ -30,10 +27,11 @@ type Props = {
   url: string;
   text?: string;
   shareMessage?: string;
+  onShared?: () => void;
 };
 
 const ShareSheet = forwardRef<ShareSheetRef, Props>(
-  ({ title = "Share", url, text, shareMessage }, ref) => {
+  ({ title = "Share", url, text, shareMessage, onShared }, ref) => {
     const { colors } = useTheme();
     const snapPoints = useMemo(() => ["42%"], []);
 
@@ -42,6 +40,7 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
     const handleCopyLink = async () => {
       await Clipboard.setStringAsync(url);
       dismiss();
+      onShared?.();
       Alert.alert("Copied", "Link copied to clipboard");
     };
 
@@ -53,11 +52,13 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
       const canOpen = await Linking.canOpenURL(smsUrl);
       if (canOpen) {
         await Linking.openURL(smsUrl);
+        onShared?.();
       } else {
-        await Share.share({
+        const result = await Share.share({
           message: Platform.OS === "ios" ? message : `${message}\n\n${url}`,
           url: Platform.OS === "ios" ? url : undefined,
         });
+        if (result.action === Share.sharedAction) onShared?.();
       }
       dismiss();
     };
@@ -65,10 +66,14 @@ const ShareSheet = forwardRef<ShareSheetRef, Props>(
     const handleShare = async () => {
       try {
         const message = shareMessage || text || url;
-        await Share.share({
+        const result = await Share.share({
           message: Platform.OS === "ios" ? message : `${message}\n\n${url}`,
           url: Platform.OS === "ios" ? url : undefined,
         });
+        if (result.action === Share.sharedAction) {
+          onShared?.();
+          dismiss();
+        }
       } catch (error) {
         console.error("Error sharing:", error);
       }
