@@ -3,13 +3,13 @@
 // ✅ FIXED: local decrementHashtagCounts removed — it was writing to wrong "hashtag_counts" collection
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
+import { auth } from "@/lib/firebase";
 import {
   decrementHashtagCounts,
   extractHashtags,
   indexHashtags,
 } from "@/lib/firestore/hashtags";
 import { detectLanguage } from "@/utils/detectLanguage";
-import auth from "@react-native-firebase/auth";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
@@ -396,7 +396,7 @@ export async function getPosts(
   }
 
   const snap = await q.limit(limit + 10).get();
-  const viewerId = auth().currentUser?.uid ?? "";
+  const viewerId = auth.currentUser?.uid ?? "";
   const raw = snap.docs
     .map((d) => docToPost(d.id, d.data()))
     .filter((p) => p.is_visible !== false)
@@ -433,7 +433,7 @@ export async function getPostById(id: string): Promise<Post | null> {
   if (!snap.exists()) return null;
   const d = snap.data() as any;
   if (d.is_visible === false) return null;
-  const viewerId = auth().currentUser?.uid ?? "";
+  const viewerId = auth.currentUser?.uid ?? "";
   let is_liked = false;
   let is_saved = false;
   if (viewerId) {
@@ -468,7 +468,7 @@ export async function getPostById(id: string): Promise<Post | null> {
 export async function createPost(
   postData: CreatePostData,
 ): Promise<Post | null> {
-  const viewer = auth().currentUser;
+  const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
   const uid = viewer.uid;
   const urls = await uploadMediaForPost(uid, postData.media);
@@ -544,7 +544,7 @@ export async function updatePost(
   postId: string,
   patch: UpdatePostData,
 ): Promise<Post | null> {
-  const viewer = auth().currentUser;
+  const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
   const uid = viewer.uid;
   const refDoc = firestore().collection("posts").doc(postId);
@@ -587,7 +587,7 @@ export async function updatePost(
 ========================================================= */
 
 export async function deletePost(postId: string): Promise<boolean> {
-  const viewer = auth().currentUser;
+  const viewer = auth.currentUser;
   if (!viewer) throw new Error("User not authenticated");
   const uid = viewer.uid;
   const refDoc = firestore().collection("posts").doc(postId);

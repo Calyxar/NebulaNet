@@ -1,8 +1,8 @@
 // hooks/useSearch.ts — React Native Firebase ✅
 
+import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +63,25 @@ export type DiscoveryPost = {
   is_video: boolean;
 };
 
+export type TrendingPost = {
+  id: string;
+  content: string | null;
+  media_url: string | null;
+  is_video: boolean;
+  like_count: number;
+  comment_count: number;
+  repost_count: number;
+  share_count: number;
+  score: number;
+  created_at: string;
+  user: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
 export type UseSearchParams = {
   type: SearchType;
   query: string;
@@ -101,11 +120,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-/**
- * Fetches the viewer's follows once and returns a map of
- * following_id -> status. Used to tag search results and seed the
- * useFollowStatus cache so the "Following" state renders instantly.
- */
 async function fetchMyFollowMap(
   uid: string,
 ): Promise<Map<string, FollowStatusLite>> {
@@ -227,7 +241,7 @@ function seedFollowStatusCache(
 }
 
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
-  const uid = auth().currentUser?.uid;
+  const uid = auth.currentUser?.uid;
 
   const followingSet = new Set<string>();
   if (uid) {
@@ -292,6 +306,67 @@ export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
       );
       return { id: p.id, media_url: url, is_video: isVideo };
     });
+}
+
+// ✅ NEW: engagement-based trending — no hashtags required
+export async function fetchTrendingPosts(lim = 20): Promise<TrendingPost[]> {
+  const fortyEightHoursAgo = firestore.Timestamp.fromDate(
+    new Date(Date.now() - 48 * 60 * 60 * 1000),
+  );
+
+  const snap = await firestore()
+    .collection("posts")
+    .where("visibility", "==", "public")
+    .where("created_at_ts", ">=", fortyEightHoursAgo)
+    .orderBy("created_at_ts", "desc")
+    .limit(100)
+    .get();
+
+  // If nothing in last 48h, fall back to last 7 days
+  const docs = snap.empty
+    ? (
+        await firestore()
+          .collection("posts")
+          .where("visibility", "==", "public")
+          .orderBy("like_count", "desc")
+          .limit(100)
+          .get()
+      ).docs
+    : snap.docs;
+
+  return docs
+    .map((d) => ({ id: d.id, ...d.data() }) as any)
+    .filter((p: any) => p.is_visible !== false)
+    .map((p: any) => {
+      const likes = p.like_count ?? 0;
+      const comments = p.comment_count ?? 0;
+      const reposts = p.repost_count ?? 0;
+      const shares = p.share_count ?? 0;
+      // Score: likes + comments weighted higher (more signal) + reposts + shares
+      const score = likes + comments * 2 + reposts * 3 + shares * 2;
+      const url = Array.isArray(p.media_urls)
+        ? (p.media_urls[0] ?? null)
+        : null;
+      const clean = (url || "").split("?")[0].toLowerCase();
+      const isVideo = ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+        clean.endsWith(`.${e}`),
+      );
+      return {
+        id: p.id,
+        content: p.content ?? null,
+        media_url: url,
+        is_video: isVideo,
+        like_count: likes,
+        comment_count: comments,
+        repost_count: reposts,
+        share_count: shares,
+        score,
+        created_at: tsToIso(p.created_at_ts ?? p.created_at),
+        user: p.user ?? null,
+      } as TrendingPost;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, lim);
 }
 
 const RECENT_SEARCHES_KEY = "nebulanet:recent_searches_v1";
@@ -373,7 +448,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     enabled,
     staleTime: 30_000,
     queryFn: async () => {
-      const uid = auth().currentUser?.uid ?? null;
+      const uid = auth.currentUser?.uid ?? null;
 
       if (type === "account") {
         const accounts = await searchAccounts(debouncedQuery, lim, uid);

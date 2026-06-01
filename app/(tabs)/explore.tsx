@@ -1,9 +1,9 @@
+// app/(tabs)/explore.tsx
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import {
-  HashtagRowSkeleton,
   PostSearchSkeleton,
-  SearchRowSkeleton,
+  SearchRowSkeleton
 } from "@/components/Skeleton";
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -14,10 +14,12 @@ import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import {
   fetchDiscoveryPosts,
   fetchSuggestedUsers,
+  fetchTrendingPosts,
   useRecentSearches,
   useSearch,
   type DiscoveryPost,
   type SuggestedUser,
+  type TrendingPost,
 } from "@/hooks/useSearch";
 import {
   getTrendingHashtags,
@@ -154,11 +156,9 @@ function FilterModal({
       />
       <View style={[fStyles.sheet, { backgroundColor: colors.card }]}>
         <View style={[fStyles.handle, { backgroundColor: colors.border }]} />
-
         <Text style={[fStyles.title, { color: colors.text }]}>
           Search Filters
         </Text>
-
         <Text style={[fStyles.sectionLabel, { color: colors.textTertiary }]}>
           Media type
         </Text>
@@ -195,7 +195,6 @@ function FilterModal({
             );
           })}
         </View>
-
         <Text
           style={[
             fStyles.sectionLabel,
@@ -257,7 +256,6 @@ function FilterModal({
             );
           })}
         </View>
-
         <TouchableOpacity
           style={[fStyles.doneBtn, { backgroundColor: colors.primary }]}
           onPress={onClose}
@@ -415,7 +413,6 @@ function SuggestedUserRow({
     u.is_private,
   );
   const { data: status } = useFollowStatus(u.id);
-
   const isFollowing = status === "accepted" || status === "pending";
   const name = u.full_name || u.username || "User";
 
@@ -511,10 +508,7 @@ function SuggestedUserRow({
             activeOpacity={0.85}
             style={[
               styles.menuBtn,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-              },
+              { backgroundColor: colors.surface, borderColor: colors.border },
             ]}
           >
             <Ionicons
@@ -561,12 +555,10 @@ function DiscoveryGrid({
   colors: any;
 }) {
   if (!posts.length) return null;
-
   const rows: DiscoveryPost[][] = [];
   for (let i = 0; i < posts.length; i += GRID_COLS) {
     rows.push(posts.slice(i, i + GRID_COLS));
   }
-
   return (
     <View style={styles.gridWrap}>
       {rows.map((row, ri) => (
@@ -655,15 +647,11 @@ function RecentSearchesPanel({
   isDark: boolean;
 }) {
   if (!recents.length) return null;
-
   return (
     <View
       style={[
         styles.recentPanel,
-        {
-          backgroundColor: colors.card,
-          shadowOpacity: isDark ? 0.22 : 0.05,
-        },
+        { backgroundColor: colors.card, shadowOpacity: isDark ? 0.22 : 0.05 },
       ]}
     >
       <View style={styles.recentHeader}>
@@ -674,7 +662,6 @@ function RecentSearchesPanel({
           </Text>
         </TouchableOpacity>
       </View>
-
       {recents.map((term, idx) => (
         <TouchableOpacity
           key={term}
@@ -737,13 +724,17 @@ export default function ExploreScreen() {
 
   const [selectedUser, setSelectedUser] = useState<SuggestedUser | null>(null);
   const actionsSheetRef = useRef<UserActionsSheetRef>(null);
-
   const inputRef = useRef<TextInput>(null);
 
+  // Trending posts (engagement-based)
+  const [trendingPosts, setTrendingPosts] = useState<TrendingPost[]>([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+
+  // Hashtags (kept for hashtag tab)
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
     [],
   );
-  const [trendingLoading, setTrendingLoading] = useState(true);
+
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
   const [suggestedLoading, setSuggestedLoading] = useState(true);
   const [discoveryPosts, setDiscoveryPosts] = useState<DiscoveryPost[]>([]);
@@ -833,12 +824,20 @@ export default function ExploreScreen() {
     return count;
   }, [mediaFilter, safetyFilter]);
 
+  // ✅ Engagement-based trending
   useEffect(() => {
     setTrendingLoading(true);
+    fetchTrendingPosts(20)
+      .then(setTrendingPosts)
+      .catch((e) => console.warn("fetchTrendingPosts failed:", e))
+      .finally(() => setTrendingLoading(false));
+  }, []);
+
+  // Hashtags for hashtag tab only
+  useEffect(() => {
     getTrendingHashtags(15)
       .then(setTrendingHashtags)
-      .catch((e) => console.warn("getTrendingHashtags failed:", e))
-      .finally(() => setTrendingLoading(false));
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -859,16 +858,14 @@ export default function ExploreScreen() {
 
   const filteredDiscoveryPosts = useMemo(() => {
     let posts = discoveryPosts;
-    if (safetyFilter === "safe") {
+    if (safetyFilter === "safe")
       posts = posts.filter((p) => !(p as any).is_nsfw);
-    }
-    if (mediaFilter === "videos") {
+    if (mediaFilter === "videos")
       posts = posts.filter((p) => p.is_video || isVideoUrl(p.media_url));
-    } else if (mediaFilter === "images") {
+    else if (mediaFilter === "images")
       posts = posts.filter((p) => !p.is_video && isImageUrl(p.media_url));
-    } else if (mediaFilter === "gifs") {
+    else if (mediaFilter === "gifs")
       posts = posts.filter((p) => isGifUrl(p.media_url));
-    }
     return posts;
   }, [discoveryPosts, mediaFilter, safetyFilter]);
 
@@ -1113,109 +1110,212 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
+            {/* ✅ TRENDING — engagement-based, no hashtags required */}
             {activeCategory === "trending" && (
               <>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                  Trending
+                  Trending Now
                 </Text>
 
                 {trendingLoading ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {Array(6)
+                  <View style={{ gap: 10 }}>
+                    {Array(4)
                       .fill(null)
                       .map((_, i) => (
-                        <View
-                          key={i}
-                          style={
-                            i !== 0
-                              ? [
-                                  styles.rowBorder,
-                                  { borderTopColor: colors.border },
-                                ]
-                              : undefined
-                          }
-                        >
-                          <HashtagRowSkeleton />
-                        </View>
+                        <PostSearchSkeleton key={i} />
                       ))}
                   </View>
-                ) : trendingHashtags.length > 0 ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {trendingHashtags.map((h, idx) => (
-                      <TouchableOpacity
-                        key={h.tag}
-                        activeOpacity={0.85}
-                        style={[
-                          styles.trendingRow,
-                          idx !== 0 && [
-                            styles.rowBorder,
-                            { borderTopColor: colors.border },
-                          ],
-                        ]}
-                        onPress={() => router.push(`/hashtag/${h.tag}` as any)}
-                      >
-                        <View style={styles.trendingLeft}>
-                          <Text
-                            style={[
-                              styles.trendingCategory,
-                              { color: colors.textTertiary },
-                            ]}
-                          >
-                            Trending · {h.post_count.toLocaleString()}{" "}
-                            {h.post_count === 1 ? "post" : "posts"}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.trendingTopic,
-                              { color: colors.text },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            #{h.tag}
-                          </Text>
-                        </View>
+                ) : trendingPosts.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {trendingPosts.map((p) => {
+                      const author =
+                        p.user?.full_name || p.user?.username || "User";
+                      const hasMedia = !!p.media_url;
+                      const clean = (p.media_url || "")
+                        .split("?")[0]
+                        .toLowerCase();
+                      const isVideo = [
+                        "mp4",
+                        "mov",
+                        "m4v",
+                        "webm",
+                        "mkv",
+                        "avi",
+                      ].some((e) => clean.endsWith(`.${e}`));
+                      const isImage = !isVideo && hasMedia;
+
+                      return (
                         <TouchableOpacity
+                          key={p.id}
+                          activeOpacity={0.9}
                           style={[
-                            styles.trendingMore,
-                            { backgroundColor: colors.surface },
+                            styles.postCard,
+                            {
+                              backgroundColor: colors.card,
+                              shadowOpacity: isDark ? 0.22 : 0.05,
+                            },
                           ]}
-                          onPress={() =>
-                            router.push(`/hashtag/${h.tag}` as any)
-                          }
-                          activeOpacity={0.85}
-                          hitSlop={8}
+                          onPress={() => router.push(`/post/${p.id}` as any)}
                         >
-                          <Ionicons
-                            name="ellipsis-horizontal"
-                            size={16}
-                            color={colors.textTertiary}
-                          />
+                          <View style={styles.postTop}>
+                            <View style={styles.postAuthorRow}>
+                              {p.user?.avatar_url ? (
+                                <Image
+                                  source={{ uri: p.user.avatar_url }}
+                                  style={[
+                                    styles.postAvatar,
+                                    { backgroundColor: colors.surface },
+                                  ]}
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.postAvatarPlaceholder,
+                                    { backgroundColor: colors.surface },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.avatarText,
+                                      { color: colors.primary, fontSize: 13 },
+                                    ]}
+                                  >
+                                    {(author[0] || "U").toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text
+                                  style={[
+                                    styles.postAuthor,
+                                    { color: colors.text },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {author}
+                                </Text>
+                                {p.user?.username && (
+                                  <Text
+                                    style={[
+                                      styles.postHandle,
+                                      { color: colors.textTertiary },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    @{p.user.username}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                            <Ionicons
+                              name="chevron-forward"
+                              size={16}
+                              color={colors.textTertiary}
+                            />
+                          </View>
+
+                          {!!p.content && (
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={3}
+                            >
+                              {p.content}
+                            </Text>
+                          )}
+
+                          {hasMedia && (
+                            <View
+                              style={[
+                                styles.thumbWrap,
+                                { backgroundColor: colors.surface },
+                              ]}
+                            >
+                              {isImage ? (
+                                <Image
+                                  source={{ uri: p.media_url! }}
+                                  style={styles.thumb}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={styles.videoThumbInner}>
+                                  <Ionicons
+                                    name="videocam"
+                                    size={18}
+                                    color="#fff"
+                                  />
+                                  <Text style={styles.videoLabel}>Video</Text>
+                                  <View style={styles.playCircle}>
+                                    <Ionicons
+                                      name="play"
+                                      size={18}
+                                      color="#fff"
+                                    />
+                                  </View>
+                                </View>
+                              )}
+                            </View>
+                          )}
+
+                          <View style={styles.postStats}>
+                            <View style={styles.postStat}>
+                              <Ionicons
+                                name="heart"
+                                size={13}
+                                color="#FF375F"
+                              />
+                              <Text
+                                style={[
+                                  styles.postStatText,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                {p.like_count.toLocaleString()}
+                              </Text>
+                            </View>
+                            <View style={styles.postStat}>
+                              <Ionicons
+                                name="chatbubble-outline"
+                                size={13}
+                                color={colors.textTertiary}
+                              />
+                              <Text
+                                style={[
+                                  styles.postStatText,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                {p.comment_count.toLocaleString()}
+                              </Text>
+                            </View>
+                            <View style={styles.postStat}>
+                              <Ionicons
+                                name="repeat-outline"
+                                size={13}
+                                color={colors.textTertiary}
+                              />
+                              <Text
+                                style={[
+                                  styles.postStatText,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                {p.repost_count.toLocaleString()}
+                              </Text>
+                            </View>
+                          </View>
                         </TouchableOpacity>
-                      </TouchableOpacity>
-                    ))}
+                      );
+                    })}
                   </View>
                 ) : (
                   <EmptyState
                     colors={colors}
                     icon="trending-up-outline"
                     title="Nothing trending yet"
-                    subtitle="Topics trending in your network will appear here."
+                    subtitle="Posts with the most likes, comments and reposts will appear here."
                   />
                 )}
 
@@ -1723,35 +1823,7 @@ export default function ExploreScreen() {
 
             {activeCategory === "hashtag" && (
               <>
-                {trendingLoading ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {Array(6)
-                      .fill(null)
-                      .map((_, i) => (
-                        <View
-                          key={i}
-                          style={
-                            i !== 0
-                              ? [
-                                  styles.rowBorder,
-                                  { borderTopColor: colors.border },
-                                ]
-                              : undefined
-                          }
-                        >
-                          <HashtagRowSkeleton />
-                        </View>
-                      ))}
-                  </View>
-                ) : hashtagResults.length > 0 ? (
+                {hashtagResults.length > 0 ? (
                   <View
                     style={[
                       styles.card,
@@ -1921,7 +1993,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   filterBtn: {
     width: 44,
     height: 44,
