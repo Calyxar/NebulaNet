@@ -118,6 +118,10 @@ export default function PostCard(props: PostCardProps) {
       .catch(() => {});
   }, [id]);
 
+  useEffect(() => {
+    setRepostCount(reposts);
+  }, [reposts]);
+
   const isPoll = post_type === "poll" && !!poll;
   const openPost = () => router.push(`/post/${id}` as any);
 
@@ -274,7 +278,7 @@ export default function PostCard(props: PostCardProps) {
       >
         {/* Header — tapping author goes to profile */}
         <View style={styles.header}>
-          <Link href={`/user/${author.username}`} asChild>
+          <Link href={`/user/${author.id}`} asChild>
             <TouchableOpacity style={styles.authorInfo} activeOpacity={0.85}>
               <Avatar size={40} name={author.name} image={author.avatar} />
               <View style={styles.authorDetails}>

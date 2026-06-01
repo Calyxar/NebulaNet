@@ -81,6 +81,9 @@ const isVideoUrl = (url?: string | null) => {
 export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
+
+  // Detect Firebase UID routes
+  const isUid = !!raw && raw.length === 28 && /^[a-zA-Z0-9]+$/.test(raw);
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -93,13 +96,40 @@ export default function UserProfileScreen() {
     queryKey: ["user-profile", username],
     enabled: !!username,
     queryFn: async () => {
+      // ✅ Support lookups by Firebase UID
+      if (isUid) {
+        const snap = await firestore()
+          .collection("profiles")
+          .doc(username)
+          .get();
+
+        if (!snap.exists) return null;
+
+        const d = snap.data() as any;
+
+        return {
+          id: snap.id,
+          username: d.username ?? "",
+          full_name: d.full_name ?? null,
+          bio: d.bio ?? null,
+          avatar_url: d.avatar_url ?? null,
+          location: d.location ?? null,
+          is_private: d.is_private ?? false,
+          is_founder: d.is_founder ?? false,
+        } as UserProfile;
+      }
+
+      // ✅ Existing username lookup
       const snap = await firestore()
         .collection("profiles")
         .where("username", "==", username)
         .limit(1)
         .get();
+
       if (snap.empty) return null;
+
       const d = snap.docs[0].data() as any;
+
       return {
         id: snap.docs[0].id,
         username: d.username ?? "",

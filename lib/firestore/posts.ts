@@ -1,6 +1,5 @@
 // lib/firestore/posts.ts — React Native Firebase ✅
-// ✅ FIXED: decrementHashtagCounts now imported from hashtags.ts (uses "hashtags" collection)
-// ✅ FIXED: local decrementHashtagCounts removed — it was writing to wrong "hashtag_counts" collection
+// ✅ FIXED: repost_count added to Post interface, docToPost, and createPost
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth } from "@/lib/firebase";
@@ -56,6 +55,7 @@ export interface Post {
   location?: PostLocation | null;
   like_count: number;
   comment_count: number;
+  repost_count: number; // ✅ ADDED
   share_count: number;
   created_at: string;
   updated_at: string;
@@ -170,6 +170,7 @@ function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
     location: d.location ?? null,
     like_count: typeof d.like_count === "number" ? d.like_count : 0,
     comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
+    repost_count: typeof d.repost_count === "number" ? d.repost_count : 0, // ✅ ADDED
     share_count: typeof d.share_count === "number" ? d.share_count : 0,
     created_at: tsToIso(d.created_at_ts ?? d.created_at),
     updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
@@ -512,6 +513,7 @@ export async function createPost(
       hashtags,
       like_count: 0,
       comment_count: 0,
+      repost_count: 0, // ✅ ADDED
       share_count: 0,
       user: profileSnap,
       community: communitySnap,
@@ -582,8 +584,6 @@ export async function updatePost(
 
 /* =========================================================
    DELETE POST
-   ✅ FIXED: now uses decrementHashtagCounts from hashtags.ts
-   which correctly targets the "hashtags" collection
 ========================================================= */
 
 export async function deletePost(postId: string): Promise<boolean> {
@@ -600,7 +600,6 @@ export async function deletePost(postId: string): Promise<boolean> {
 
   await refDoc.delete();
 
-  // ✅ uses imported decrementHashtagCounts from hashtags.ts ("hashtags" collection)
   if (hashtags.length) {
     decrementHashtagCounts(hashtags).catch((e) =>
       console.warn("decrementHashtagCounts failed:", e),

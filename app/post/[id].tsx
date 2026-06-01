@@ -507,8 +507,8 @@ export default function PostDetailScreen() {
               <Pressable
                 style={styles.authorRow}
                 onPress={() =>
-                  post.user?.username
-                    ? router.push(`/user/${post.user?.username}` as any)
+                  post.user_id
+                    ? router.push(`/user/${post.user_id}` as any)
                     : undefined
                 }
               >

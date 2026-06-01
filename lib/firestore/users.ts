@@ -1,3 +1,4 @@
+// lib/firestore/users.ts — ✅ FIXED: updateUserProfile fans out to posts
 import { auth } from "@/lib/firebase";
 import firestore, {
   FirebaseFirestoreTypes,
@@ -54,12 +55,14 @@ export async function getUserProfile(
   };
 }
 
+// ✅ FIXED: fans out username/avatar/full_name changes to all owned posts
 export async function updateUserProfile(
   updates: Partial<UserProfile>,
 ): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
+  // Update the profile doc
   await firestore()
     .collection("profiles")
     .doc(user.uid)
@@ -67,13 +70,46 @@ export async function updateUserProfile(
       ...updates,
       updated_at: firestore.FieldValue.serverTimestamp(),
     });
+
+  // Build the post snapshot patch — only fields that changed
+  const profileUpdates: Record<string, any> = {};
+  if (updates.username !== undefined)
+    profileUpdates["user.username"] = updates.username;
+  if (updates.full_name !== undefined)
+    profileUpdates["user.full_name"] = updates.full_name;
+  if (updates.avatar_url !== undefined)
+    profileUpdates["user.avatar_url"] = updates.avatar_url;
+
+  if (Object.keys(profileUpdates).length === 0) return;
+
+  // Fetch all posts owned by this user
+  const postsSnap = await firestore()
+    .collection("posts")
+    .where("user_id", "==", user.uid)
+    .get();
+
+  if (postsSnap.empty) return;
+
+  // Batch update in chunks of 500 (Firestore limit)
+  const chunks: FirebaseFirestoreTypes.QueryDocumentSnapshot[][] = [];
+  for (let i = 0; i < postsSnap.docs.length; i += 500) {
+    chunks.push(postsSnap.docs.slice(i, i + 500));
+  }
+
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const batch = firestore().batch();
+      chunk.forEach((doc) => {
+        batch.update(doc.ref, {
+          ...profileUpdates,
+          updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      await batch.commit();
+    }),
+  );
 }
 
-/**
- * Returns whether follower -> following and following -> follower
- * relationships exist AND are accepted. Pending follows don't count
- * as "following" for UI purposes.
- */
 export async function getFollowStatus(followerId: string, followingId: string) {
   const [r1, r2] = await Promise.all([
     firestore()
@@ -96,11 +132,6 @@ export async function getFollowStatus(followerId: string, followingId: string) {
   };
 }
 
-/**
- * Creates or deletes a follow doc. Counts are maintained by the
- * onFollowCreated / onFollowDeleted / onFollowUpdated Cloud Functions —
- * do NOT increment/decrement client-side.
- */
 export async function toggleFollow(followingId: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
@@ -118,7 +149,6 @@ export async function toggleFollow(followingId: string) {
     return { following: false };
   }
 
-  // Check privacy so we write the right status.
   const targetSnap = await firestore()
     .collection("profiles")
     .doc(followingId)
