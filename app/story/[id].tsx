@@ -1,18 +1,4 @@
-// app/story/[id].tsx — ✅ FIXED: keyboard pushes reply up on Android + iOS
-// ✅ Multi-segment progress bars
-// ✅ Smooth JS-driven progress (50ms tick, pause-safe elapsed tracking)
-// ✅ Pause on press-and-hold, resume on release
-// ✅ Header: avatar + ring, display name, time-ago, mute toggle, close
-// ✅ Full-screen image + video (COVER resize)
-// ✅ Text stories: full-screen gradient background + HashtagText
-// ✅ Caption overlay at bottom of image/video stories
-// ✅ Left 30% tap = prev, right 70% tap = next
-// ✅ Reply input + 5 quick-reaction emojis
-// ✅ Seen viewers slide-up bottom sheet (owner only)
-// ✅ sendStoryReply connected to Firestore
-// ✅ markStorySeen called on every story index change
-// ✅ Delete story — owner only, with confirmation alert
-
+// app/story/[id].tsx — ✅ FIXED: keyboard no longer kicks user out on Android
 import HashtagText from "@/components/post/HashtagText";
 import { useDeleteStory } from "@/hooks/useStories";
 import { auth } from "@/lib/firebase";
@@ -36,7 +22,7 @@ import {
   Animated,
   Dimensions,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -46,15 +32,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type KeyboardEvent,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-
-/* =========================
-   CONSTANTS
-========================= */
 
 const { width: W, height: H } = Dimensions.get("window");
 const IMAGE_DURATION_MS = 6000;
@@ -76,10 +59,6 @@ function getTextGradient(id: string): [string, string] {
   return TEXT_GRADIENTS[idx];
 }
 
-/* =========================
-   HELPERS
-========================= */
-
 function timeAgo(dateString?: string | null): string {
   if (!dateString) return "";
   const diff = Date.now() - new Date(dateString).getTime();
@@ -90,10 +69,6 @@ function timeAgo(dateString?: string | null): string {
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
 }
-
-/* =========================
-   SEEN VIEWERS SHEET
-========================= */
 
 function SeenViewersSheet({
   visible,
@@ -196,15 +171,10 @@ function SeenViewersSheet({
   );
 }
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function StoryViewerScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const storyId = typeof id === "string" ? id.trim() : null;
   const insets = useSafeAreaInsets();
-
   const deleteStory = useDeleteStory();
 
   const [loading, setLoading] = useState(true);
@@ -223,6 +193,7 @@ export default function StoryViewerScreen() {
 
   const [reply, setReply] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const replyRef = useRef<TextInput>(null);
 
   const [isOwner, setIsOwner] = useState(false);
@@ -231,6 +202,29 @@ export default function StoryViewerScreen() {
   const [seenViewers, setSeenViewers] = useState<StorySeenViewer[]>([]);
 
   const current = stories[index] ?? null;
+
+  // ✅ Keyboard listener — moves reply bar up without resizing screen
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const show = Keyboard.addListener(showEvent, (e: KeyboardEvent) => {
+      setKeyboardOffset(e.endCoordinates.height);
+      pausedRef.current = true;
+    });
+    const hide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardOffset(0);
+      pausedRef.current = false;
+      lastTickRef.current = Date.now();
+    });
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const stopTick = useCallback(() => {
     if (tickRef.current) {
@@ -398,6 +392,7 @@ export default function StoryViewerScreen() {
     try {
       await sendStoryReply(current.id, text);
       setReply("");
+      Keyboard.dismiss();
     } catch {
       /* silent */
     } finally {
@@ -445,7 +440,7 @@ export default function StoryViewerScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* ── Media ── */}
+      {/* Media */}
       {isTextStory ? (
         <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill}>
           <View style={styles.textStoryContent}>
@@ -478,7 +473,7 @@ export default function StoryViewerScreen() {
         />
       )}
 
-      {/* ── Gradient overlay ── */}
+      {/* Gradient overlay */}
       <LinearGradient
         colors={[
           "rgba(0,0,0,0.55)",
@@ -491,7 +486,7 @@ export default function StoryViewerScreen() {
         pointerEvents="none"
       />
 
-      {/* ── Caption overlay ── */}
+      {/* Caption overlay */}
       {!isTextStory && !!current.caption && (
         <View
           style={[styles.captionOverlay, { bottom: 130 + insets.bottom }]}
@@ -505,7 +500,7 @@ export default function StoryViewerScreen() {
         </View>
       )}
 
-      {/* ── Chrome: progress + header ── */}
+      {/* Progress + header chrome */}
       <SafeAreaView style={styles.chrome} edges={["top", "left", "right"]}>
         <View style={styles.progressRow}>
           {stories.map((s, i) => {
@@ -563,7 +558,6 @@ export default function StoryViewerScreen() {
                 <Ionicons name="eye-outline" size={22} color="#fff" />
               </TouchableOpacity>
             )}
-
             {isOwner && (
               <TouchableOpacity
                 style={styles.headerBtn}
@@ -578,7 +572,6 @@ export default function StoryViewerScreen() {
                 )}
               </TouchableOpacity>
             )}
-
             {current.media_type === "video" && (
               <TouchableOpacity
                 style={styles.headerBtn}
@@ -592,7 +585,6 @@ export default function StoryViewerScreen() {
                 />
               </TouchableOpacity>
             )}
-
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => router.back()}
@@ -604,7 +596,7 @@ export default function StoryViewerScreen() {
         </View>
       </SafeAreaView>
 
-      {/* ── Tap zones ── */}
+      {/* Tap zones */}
       <Pressable
         style={[styles.tapZone, styles.tapZoneLeft]}
         onPressIn={handlePressIn}
@@ -618,73 +610,66 @@ export default function StoryViewerScreen() {
         onPress={goNext}
       />
 
-      {/* ── Reply bar ── */}
-      {/* ✅ FIX: absolute wrapper positions to bottom; KAV inside pushes content up */}
-      <View style={styles.replyKAV}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
+      {/* ✅ Reply bar — Keyboard listener moves it up, no KAV needed */}
+      <Animated.View style={[styles.replyBar, { bottom: keyboardOffset }]}>
+        <View
+          style={[
+            styles.replyContainer,
+            {
+              paddingBottom:
+                keyboardOffset > 0
+                  ? 12
+                  : insets.bottom > 0
+                    ? insets.bottom
+                    : 16,
+            },
+          ]}
         >
-          <View
-            style={[
-              styles.replyContainer,
-              { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
-            ]}
-          >
-            <View style={styles.reactionsRow}>
-              {["❤️", "😂", "😮", "😢", "👏"].map((emoji) => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={styles.reactionBtn}
-                  onPress={() => void handleQuickReaction(emoji)}
-                  activeOpacity={0.8}
-                  disabled={isSending}
-                >
-                  <Text style={styles.reactionText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.replyInputRow}>
-              <TextInput
-                ref={replyRef}
-                style={styles.replyInput}
-                value={reply}
-                onChangeText={setReply}
-                placeholder="Send a reply…"
-                placeholderTextColor="rgba(255,255,255,0.5)"
-                returnKeyType="send"
-                onSubmitEditing={handleSendReply}
-                onFocus={() => {
-                  pausedRef.current = true;
-                }}
-                onBlur={() => {
-                  pausedRef.current = false;
-                  lastTickRef.current = Date.now();
-                }}
-                editable={!isSending}
-                multiline={false}
-              />
+          <View style={styles.reactionsRow}>
+            {["❤️", "😂", "😮", "😢", "👏"].map((emoji) => (
               <TouchableOpacity
-                style={[
-                  styles.sendBtn,
-                  (!reply.trim() || isSending) && { opacity: 0.4 },
-                ]}
-                onPress={handleSendReply}
-                disabled={!reply.trim() || isSending}
-                activeOpacity={0.85}
+                key={emoji}
+                style={styles.reactionBtn}
+                onPress={() => void handleQuickReaction(emoji)}
+                activeOpacity={0.8}
+                disabled={isSending}
               >
-                {isSending ? (
-                  <ActivityIndicator size={18} color="#fff" />
-                ) : (
-                  <Ionicons name="send" size={20} color="#fff" />
-                )}
+                <Text style={styles.reactionText}>{emoji}</Text>
               </TouchableOpacity>
-            </View>
+            ))}
           </View>
-        </KeyboardAvoidingView>
-      </View>
+          <View style={styles.replyInputRow}>
+            <TextInput
+              ref={replyRef}
+              style={styles.replyInput}
+              value={reply}
+              onChangeText={setReply}
+              placeholder="Send a reply…"
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              returnKeyType="send"
+              onSubmitEditing={handleSendReply}
+              editable={!isSending}
+              multiline={false}
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendBtn,
+                (!reply.trim() || isSending) && { opacity: 0.4 },
+              ]}
+              onPress={handleSendReply}
+              disabled={!reply.trim() || isSending}
+              activeOpacity={0.85}
+            >
+              {isSending ? (
+                <ActivityIndicator size={18} color="#fff" />
+              ) : (
+                <Ionicons name="send" size={20} color="#fff" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
 
-      {/* ── Seen viewers sheet ── */}
       <SeenViewersSheet
         visible={seenOpen}
         viewers={seenViewers}
@@ -695,10 +680,6 @@ export default function StoryViewerScreen() {
     </View>
   );
 }
-
-/* =========================
-   STYLES
-========================= */
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#000" },
@@ -794,8 +775,13 @@ const styles = StyleSheet.create({
   tapZone: { position: "absolute", top: 0, bottom: 0, zIndex: 8 },
   tapZoneLeft: { left: 0, width: W * 0.3 },
   tapZoneRight: { right: 0, width: W * 0.7 },
-  // ✅ FIX: outer wrapper stays absolute; KAV is nested inside
-  replyKAV: { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 },
+  // ✅ Keyboard listener drives bottom offset — no KAV needed
+  replyBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 20,
+  },
   replyContainer: {
     backgroundColor: "rgba(0,0,0,0.72)",
     paddingTop: 10,

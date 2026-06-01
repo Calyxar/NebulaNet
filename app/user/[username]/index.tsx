@@ -93,8 +93,8 @@ export default function UserProfileScreen() {
     useState<(typeof profileTabs)[number]>("Post");
 
   const { data: target, isLoading: loadingProfile } = useQuery({
-    queryKey: ["user-profile", username],
-    enabled: !!username,
+    queryKey: ["user-profile", raw],
+    enabled: !!raw,
     queryFn: async () => {
       // ✅ Support lookups by Firebase UID
       if (isUid) {
@@ -103,7 +103,7 @@ export default function UserProfileScreen() {
           .doc(username)
           .get();
 
-        if (!snap.exists) return null;
+        if (!snap.exists()) return null;
 
         const d = snap.data() as any;
 

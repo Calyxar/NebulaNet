@@ -1,3 +1,4 @@
+// providers/AuthProvider.tsx
 import {
   useMutation,
   useQuery,
@@ -221,6 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = useMutation<void, Error, Partial<Profile>>({
     mutationFn: async (updates) => {
       if (!userId) throw new Error("Not authenticated");
+
       if (updates.username) {
         const usernameLc = updates.username.toLowerCase();
         const snap = await firestore()
@@ -233,6 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         updates.username_lc = usernameLc;
       }
+
       await firestore()
         .collection("profiles")
         .doc(userId)
@@ -241,20 +244,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           updated_at: nowIso(),
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
+
+      // ✅ Cascade username change to all embedded snapshots
       if (updates.username) {
-        const postsSnap = await firestore()
-          .collection("posts")
-          .where("user_id", "==", userId)
-          .get();
-        const batch = firestore().batch();
-        postsSnap.docs.forEach((doc) => {
-          batch.update(doc.ref, {
-            "user.username": updates.username,
-            "user.username_lc": updates.username!.toLowerCase(),
-          });
-        });
-        if (postsSnap.docs.length > 0) await batch.commit();
+        const newUsername = updates.username;
+        const newUsernameLc = newUsername.toLowerCase();
+
+        await Promise.allSettled([
+          // Posts
+          (async () => {
+            const snap = await firestore()
+              .collection("posts")
+              .where("user_id", "==", userId)
+              .get();
+            if (!snap.docs.length) return;
+            const batch = firestore().batch();
+            snap.docs.forEach((doc) => {
+              batch.update(doc.ref, {
+                "user.username": newUsername,
+                "user.username_lc": newUsernameLc,
+              });
+            });
+            await batch.commit();
+          })(),
+
+          // Comments
+          (async () => {
+            const snap = await firestore()
+              .collection("comments")
+              .where("user_id", "==", userId)
+              .get();
+            if (!snap.docs.length) return;
+            const batch = firestore().batch();
+            snap.docs.forEach((doc) => {
+              batch.update(doc.ref, {
+                "author.username": newUsername,
+                "author.username_lc": newUsernameLc,
+              });
+            });
+            await batch.commit();
+          })(),
+
+          // Stories
+          (async () => {
+            const snap = await firestore()
+              .collection("stories")
+              .where("user_id", "==", userId)
+              .get();
+            if (!snap.docs.length) return;
+            const batch = firestore().batch();
+            snap.docs.forEach((doc) => {
+              batch.update(doc.ref, {
+                "profiles.username": newUsername,
+              });
+            });
+            await batch.commit();
+          })(),
+
+          // Conversations
+          (async () => {
+            const snap = await firestore()
+              .collection("conversations")
+              .where("participant_ids", "array-contains", userId)
+              .get();
+            if (!snap.docs.length) return;
+            const batch = firestore().batch();
+            snap.docs.forEach((doc) => {
+              batch.update(doc.ref, {
+                [`participants.${userId}.username`]: newUsername,
+              });
+            });
+            await batch.commit();
+          })(),
+        ]);
       }
+
       await qc.invalidateQueries({ queryKey: ["profile", userId] });
     },
     onError: (err) => toast(`Profile update failed: ${err.message}`),
