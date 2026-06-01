@@ -6,10 +6,10 @@ import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
 import { useAuth } from "@/hooks/useAuth";
-import { useDeletePost } from "@/hooks/usePosts";
+import { useDeletePost, useToggleRepost } from "@/hooks/usePosts";
 import { useOptimisticSharePost } from "@/hooks/useShares";
 import { type PollData } from "@/lib/firestore/polls";
-import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
+import { getRepostStatus } from "@/lib/firestore/reposts";
 import { generatePostLink } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -92,6 +92,7 @@ export default function PostCard(props: PostCardProps) {
   const { user } = useAuth();
   const deletePostMutation = useDeletePost();
   const sharePostMutation = useOptimisticSharePost();
+  const toggleRepostMutation = useToggleRepost();
 
   const [expanded, setExpanded] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
@@ -129,7 +130,7 @@ export default function PostCard(props: PostCardProps) {
     setIsReposted(!prev);
     setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
     try {
-      await toggleRepost(id, prev);
+      await toggleRepostMutation.mutateAsync({ postId: id, isReposted: prev });
     } catch {
       setIsReposted(prev);
       setRepostCount(prevCount);

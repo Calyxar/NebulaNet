@@ -11,6 +11,7 @@ import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  postKeys,
   useAddComment,
   useComments,
   usePost,
@@ -24,6 +25,7 @@ import { db } from "@/lib/firebase";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -120,6 +122,7 @@ export default function PostDetailScreen() {
   const { user, profile } = useAuth();
   const { colors, isDark } = useTheme();
   const { bottom: bottomInset } = useSafeAreaInsets();
+  const qc = useQueryClient();
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
@@ -207,15 +210,11 @@ export default function PostDetailScreen() {
     try {
       const newStatus = await toggleRepost(post.id, isReposted);
       setIsReposted(newStatus);
+      // ✅ Invalidate so repost_count updates in feed and detail
+      qc.invalidateQueries({ queryKey: postKeys.detail(post.id) });
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
     } catch (e: any) {
-      console.error(
-        "[repost] code:",
-        e?.code,
-        "msg:",
-        e?.message,
-        "full:",
-        JSON.stringify(e),
-      );
+      console.error("[repost] code:", e?.code, "msg:", e?.message);
       Alert.alert(
         "Error",
         `${e?.code ?? ""} ${e?.message ?? "Failed to repost"}`,

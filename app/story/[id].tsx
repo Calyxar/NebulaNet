@@ -1,17 +1,16 @@
-// app/story/[id].tsx — UPDATED ✅ delete story button added for owner
-// ✅ Multi-segment progress bars — one per story in the user's active set
+// app/story/[id].tsx — ✅ FIXED: keyboard pushes reply up on Android + iOS
+// ✅ Multi-segment progress bars
 // ✅ Smooth JS-driven progress (50ms tick, pause-safe elapsed tracking)
-// ✅ Pause on press-and-hold (both nav zones), resume on release
-// ✅ Header: avatar + ring, display name, time-ago, mute toggle (video), close
+// ✅ Pause on press-and-hold, resume on release
+// ✅ Header: avatar + ring, display name, time-ago, mute toggle, close
 // ✅ Full-screen image + video (COVER resize)
-// ✅ Text stories: full-screen gradient background + HashtagText + large caption
-// ✅ Caption overlay at bottom of image/video stories with HashtagText
+// ✅ Text stories: full-screen gradient background + HashtagText
+// ✅ Caption overlay at bottom of image/video stories
 // ✅ Left 30% tap = prev, right 70% tap = next
-// ✅ Reply input + 5 quick-reaction emojis (KeyboardAvoidingView, iOS + Android)
-// ✅ Seen viewers slide-up bottom sheet (owner only, fetchStorySeenViewers)
+// ✅ Reply input + 5 quick-reaction emojis
+// ✅ Seen viewers slide-up bottom sheet (owner only)
 // ✅ sendStoryReply connected to Firestore
 // ✅ markStorySeen called on every story index change
-// ✅ ReturnType<typeof setInterval> — no NodeJS.Timeout
 // ✅ Delete story — owner only, with confirmation alert
 
 import HashtagText from "@/components/post/HashtagText";
@@ -293,6 +292,7 @@ export default function StoryViewerScreen() {
   const handlePressIn = useCallback(() => {
     pausedRef.current = true;
   }, []);
+
   const handlePressOut = useCallback(() => {
     pausedRef.current = false;
     lastTickRef.current = Date.now();
@@ -348,7 +348,6 @@ export default function StoryViewerScreen() {
     return stopTick;
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ✅ Delete story handler
   const handleDelete = useCallback(() => {
     if (!current) return;
     pausedRef.current = true;
@@ -446,6 +445,7 @@ export default function StoryViewerScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* ── Media ── */}
       {isTextStory ? (
         <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill}>
           <View style={styles.textStoryContent}>
@@ -478,6 +478,7 @@ export default function StoryViewerScreen() {
         />
       )}
 
+      {/* ── Gradient overlay ── */}
       <LinearGradient
         colors={[
           "rgba(0,0,0,0.55)",
@@ -490,6 +491,7 @@ export default function StoryViewerScreen() {
         pointerEvents="none"
       />
 
+      {/* ── Caption overlay ── */}
       {!isTextStory && !!current.caption && (
         <View
           style={[styles.captionOverlay, { bottom: 130 + insets.bottom }]}
@@ -503,8 +505,8 @@ export default function StoryViewerScreen() {
         </View>
       )}
 
+      {/* ── Chrome: progress + header ── */}
       <SafeAreaView style={styles.chrome} edges={["top", "left", "right"]}>
-        {/* Progress bars */}
         <View style={styles.progressRow}>
           {stories.map((s, i) => {
             const fill = i < index ? 1 : i === index ? segmentProgress : 0;
@@ -518,7 +520,6 @@ export default function StoryViewerScreen() {
           })}
         </View>
 
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.avatarWrap}
@@ -553,7 +554,6 @@ export default function StoryViewerScreen() {
           </View>
 
           <View style={styles.headerActions}>
-            {/* Seen count — owner only */}
             {isOwner && (
               <TouchableOpacity
                 style={styles.headerBtn}
@@ -564,7 +564,6 @@ export default function StoryViewerScreen() {
               </TouchableOpacity>
             )}
 
-            {/* ✅ Delete button — owner only */}
             {isOwner && (
               <TouchableOpacity
                 style={styles.headerBtn}
@@ -580,7 +579,6 @@ export default function StoryViewerScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Mute toggle — video only */}
             {current.media_type === "video" && (
               <TouchableOpacity
                 style={styles.headerBtn}
@@ -595,7 +593,6 @@ export default function StoryViewerScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Close */}
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => router.back()}
@@ -607,6 +604,7 @@ export default function StoryViewerScreen() {
         </View>
       </SafeAreaView>
 
+      {/* ── Tap zones ── */}
       <Pressable
         style={[styles.tapZone, styles.tapZoneLeft]}
         onPressIn={handlePressIn}
@@ -620,69 +618,73 @@ export default function StoryViewerScreen() {
         onPress={goNext}
       />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.replyKAV}
-        keyboardVerticalOffset={0}
-      >
-        <View
-          style={[
-            styles.replyContainer,
-            { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
-          ]}
+      {/* ── Reply bar ── */}
+      {/* ✅ FIX: absolute wrapper positions to bottom; KAV inside pushes content up */}
+      <View style={styles.replyKAV}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
         >
-          <View style={styles.reactionsRow}>
-            {["❤️", "😂", "😮", "😢", "👏"].map((emoji) => (
+          <View
+            style={[
+              styles.replyContainer,
+              { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
+            ]}
+          >
+            <View style={styles.reactionsRow}>
+              {["❤️", "😂", "😮", "😢", "👏"].map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={styles.reactionBtn}
+                  onPress={() => void handleQuickReaction(emoji)}
+                  activeOpacity={0.8}
+                  disabled={isSending}
+                >
+                  <Text style={styles.reactionText}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.replyInputRow}>
+              <TextInput
+                ref={replyRef}
+                style={styles.replyInput}
+                value={reply}
+                onChangeText={setReply}
+                placeholder="Send a reply…"
+                placeholderTextColor="rgba(255,255,255,0.5)"
+                returnKeyType="send"
+                onSubmitEditing={handleSendReply}
+                onFocus={() => {
+                  pausedRef.current = true;
+                }}
+                onBlur={() => {
+                  pausedRef.current = false;
+                  lastTickRef.current = Date.now();
+                }}
+                editable={!isSending}
+                multiline={false}
+              />
               <TouchableOpacity
-                key={emoji}
-                style={styles.reactionBtn}
-                onPress={() => void handleQuickReaction(emoji)}
-                activeOpacity={0.8}
-                disabled={isSending}
+                style={[
+                  styles.sendBtn,
+                  (!reply.trim() || isSending) && { opacity: 0.4 },
+                ]}
+                onPress={handleSendReply}
+                disabled={!reply.trim() || isSending}
+                activeOpacity={0.85}
               >
-                <Text style={styles.reactionText}>{emoji}</Text>
+                {isSending ? (
+                  <ActivityIndicator size={18} color="#fff" />
+                ) : (
+                  <Ionicons name="send" size={20} color="#fff" />
+                )}
               </TouchableOpacity>
-            ))}
+            </View>
           </View>
-          <View style={styles.replyInputRow}>
-            <TextInput
-              ref={replyRef}
-              style={styles.replyInput}
-              value={reply}
-              onChangeText={setReply}
-              placeholder="Send a reply…"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              returnKeyType="send"
-              onSubmitEditing={handleSendReply}
-              onFocus={() => {
-                pausedRef.current = true;
-              }}
-              onBlur={() => {
-                pausedRef.current = false;
-                lastTickRef.current = Date.now();
-              }}
-              editable={!isSending}
-              multiline={false}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                (!reply.trim() || isSending) && { opacity: 0.4 },
-              ]}
-              onPress={handleSendReply}
-              disabled={!reply.trim() || isSending}
-              activeOpacity={0.85}
-            >
-              {isSending ? (
-                <ActivityIndicator size={18} color="#fff" />
-              ) : (
-                <Ionicons name="send" size={20} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
 
+      {/* ── Seen viewers sheet ── */}
       <SeenViewersSheet
         visible={seenOpen}
         viewers={seenViewers}
@@ -792,6 +794,7 @@ const styles = StyleSheet.create({
   tapZone: { position: "absolute", top: 0, bottom: 0, zIndex: 8 },
   tapZoneLeft: { left: 0, width: W * 0.3 },
   tapZoneRight: { right: 0, width: W * 0.7 },
+  // ✅ FIX: outer wrapper stays absolute; KAV is nested inside
   replyKAV: { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 },
   replyContainer: {
     backgroundColor: "rgba(0,0,0,0.72)",
@@ -892,6 +895,10 @@ const styles = StyleSheet.create({
   },
   sheetAvatarText: { color: "#fff", fontWeight: "900", fontSize: 15 },
   sheetName: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  sheetUsername: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 1 },
+  sheetUsername: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    marginTop: 1,
+  },
   sheetTime: { color: "rgba(255,255,255,0.4)", fontSize: 12 },
 });

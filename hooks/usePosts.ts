@@ -1,9 +1,8 @@
 // hooks/usePosts.ts — UPDATED ✅
 // ✅ FIXED: useToggleLike onSettled no longer invalidates lists
-//           Prevents like reset caused by refetch returning stale is_liked: false
-//           before Firestore indexes the new like document
 // ✅ FIXED: useToggleBookmark same fix — only invalidates detail, not lists
-// ✅ FIXED: useToggleBookmark writes to "saves" collection (matches saved-content.tsx fix)
+// ✅ FIXED: useToggleBookmark writes to "saves" collection
+// ✅ FIXED: useToggleRepost added with optimistic update + cache invalidation
 
 import { useAuth } from "@/hooks/useAuth";
 import { useSettings } from "@/hooks/useSettings";
@@ -37,10 +36,6 @@ import {
 
 export type { CommentWithAuthor };
 
-/* =============================================================================
-   QUERY KEYS
-============================================================================= */
-
 export const postKeys = {
   all: ["posts"] as const,
   lists: () => [...postKeys.all, "list"] as const,
@@ -54,10 +49,6 @@ const commentKeys = {
   all: ["comments"] as const,
   post: (postId: string) => [...commentKeys.all, "post", postId] as const,
 };
-
-/* =============================================================================
-   HELPERS
-============================================================================= */
 
 function upsertPostAtTop(posts: Post[], next: Post): Post[] {
   return [next, ...posts.filter((p) => p.id !== next.id)];
@@ -83,10 +74,6 @@ function updateInfiniteLists(
   };
 }
 
-/* =============================================================================
-   SINGLE POST
-============================================================================= */
-
 export function usePost(postId: string | undefined) {
   const id = (postId ?? "").trim();
   return useQuery<Post | null>({
@@ -100,10 +87,6 @@ export function usePost(postId: string | undefined) {
     staleTime: 15_000,
   });
 }
-
-/* =============================================================================
-   INFINITE FEED
-============================================================================= */
 
 export function useInfinitePosts(filters: Omit<PostFilters, "cursor">) {
   const limit = filters.limit ?? 20;
@@ -188,10 +171,6 @@ export function useInfiniteCommunityFeed(communitySlug: string | undefined) {
     communitySlug: communitySlug ?? "",
   });
 }
-
-/* =============================================================================
-   CREATE / UPDATE / DELETE
-============================================================================= */
 
 type PostsListsSnapshot = {
   previous: [unknown, InfiniteData<PaginatedPosts> | undefined][];
@@ -316,13 +295,6 @@ export function useDeletePost() {
   });
 }
 
-/* =============================================================================
-   LIKE
-   ✅ FIXED: onSettled only invalidates detail, NOT lists
-   Prevents like reset: optimistic update stays in place after refetch
-   The feed list state is managed entirely via optimistic updates
-============================================================================= */
-
 export function useToggleLike() {
   const qc = useQueryClient();
   return useMutation({
@@ -359,7 +331,6 @@ export function useToggleLike() {
         queryKey: postKeys.lists(),
       });
 
-      // Optimistic update on detail
       if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
           ...prevDetail,
@@ -368,7 +339,6 @@ export function useToggleLike() {
         });
       }
 
-      // Optimistic update on feed list
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>
@@ -397,20 +367,11 @@ export function useToggleLike() {
         qc.setQueryData(key, data);
       });
     },
-    // ✅ FIXED: only invalidate detail, NOT lists
-    // Invalidating lists causes refetch which returns stale is_liked: false
-    // from Firestore before the new like document is indexed
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
     },
   });
 }
-
-/* =============================================================================
-   BOOKMARK / SAVE
-   ✅ FIXED: writes to "saves" collection (matches saved-content.tsx)
-   ✅ FIXED: onSettled only invalidates detail, NOT lists
-============================================================================= */
 
 export function useToggleBookmark() {
   const qc = useQueryClient();
@@ -443,7 +404,6 @@ export function useToggleBookmark() {
         queryKey: postKeys.lists(),
       });
 
-      // Optimistic update on detail
       if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
           ...prevDetail,
@@ -451,7 +411,6 @@ export function useToggleBookmark() {
         });
       }
 
-      // Optimistic update on feed list
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>
@@ -474,16 +433,57 @@ export function useToggleBookmark() {
         qc.setQueryData(key, data);
       });
     },
-    // ✅ FIXED: only invalidate detail, NOT lists
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
     },
   });
 }
 
-/* =============================================================================
-   COMMENTS
-============================================================================= */
+// ✅ NEW: useToggleRepost with optimistic update + cache invalidation
+export function useToggleRepost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { postId: string; isReposted: boolean }) => {
+      const { toggleRepost } = await import("@/lib/firestore/reposts");
+      return toggleRepost(vars.postId, vars.isReposted);
+    },
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: postKeys.lists() });
+      const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
+        queryKey: postKeys.lists(),
+      });
+      qc.setQueriesData<InfiniteData<PaginatedPosts>>(
+        { queryKey: postKeys.lists() },
+        (old) =>
+          updateInfiniteLists(
+            old,
+            (posts) =>
+              posts.map((p) =>
+                p.id !== vars.postId
+                  ? p
+                  : {
+                      ...p,
+                      repost_count:
+                        ((p as any).repost_count ?? 0) +
+                        (vars.isReposted ? -1 : 1),
+                    },
+              ),
+            { allPages: true },
+          ),
+      );
+      return { prevLists };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      ctx?.prevLists?.forEach(([key, data]: any) => {
+        qc.setQueryData(key, data);
+      });
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
+    },
+  });
+}
 
 export function useComments(postId: string | undefined) {
   const id = (postId ?? "").trim();
@@ -529,10 +529,6 @@ export function useToggleCommentLike() {
     },
   });
 }
-
-/* =============================================================================
-   SHARE COUNT
-============================================================================= */
 
 export function useIncrementShareCount() {
   const qc = useQueryClient();
