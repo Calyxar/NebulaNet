@@ -1,9 +1,9 @@
 import GifPicker from "@/components/post/GifPicker";
 import { useCreatePost } from "@/hooks/usePosts";
+import { auth } from "@/lib/firebase";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import auth from "@react-native-firebase/auth";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as VideoThumbnails from "expo-video-thumbnails";
@@ -377,7 +377,7 @@ export default function CreatePostScreen() {
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
 
-    const currentUser = auth().currentUser;
+    const currentUser = auth.currentUser;
     if (!currentUser) {
       Alert.alert("Session Expired", "Please sign in again.");
       router.replace("/(auth)/login");

@@ -1,8 +1,8 @@
 // app/create/community.tsx — React Native Firebase ✅
 import { useAuth } from "@/hooks/useAuth";
+import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
 import * as ImagePicker from "expo-image-picker";
@@ -109,7 +109,7 @@ export default function CreateCommunityScreen() {
   };
 
   const handleCreate = async () => {
-    const user = auth().currentUser;
+    const user = auth.currentUser;
     if (!user) {
       Alert.alert("Not logged in", "Please log in again.");
       return;

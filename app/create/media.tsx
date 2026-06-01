@@ -1,8 +1,8 @@
 import { useAuth } from "@/hooks/useAuth";
+import { auth } from "@/lib/firebase";
 import { createPost } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import auth from "@react-native-firebase/auth";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -101,7 +101,7 @@ export default function CreateMediaScreen() {
 
   const handlePost = async () => {
     if (!canPost) return;
-    if (!auth().currentUser) {
+    if (!auth.currentUser) {
       Alert.alert("Session Expired", "Please sign in again.");
       router.replace("/(auth)/login");
       return;

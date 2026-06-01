@@ -1,7 +1,7 @@
 // app/settings/report.tsx — React Native Firebase ✅
+import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
 import Constants from "expo-constants";
@@ -30,7 +30,7 @@ async function submitSupportReport(params: {
   details: string;
   screenshotUri?: string | null;
 }) {
-  const user = auth().currentUser;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
   const appVersion =
     Constants.expoConfig?.version ??
