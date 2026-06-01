@@ -1,4 +1,4 @@
-import auth from "@react-native-firebase/auth";
+import { auth } from "@/lib/firebase";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
@@ -42,7 +42,7 @@ export async function getUserProfile(
   if (!doc.exists()) return null;
 
   const profile = { id: doc.id, ...(doc.data() as any) };
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) return profile;
 
   const followStatus = await getFollowStatus(currentUser.uid, profile.id);
@@ -57,7 +57,7 @@ export async function getUserProfile(
 export async function updateUserProfile(
   updates: Partial<UserProfile>,
 ): Promise<void> {
-  const user = auth().currentUser;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
   await firestore()
@@ -102,7 +102,7 @@ export async function getFollowStatus(followerId: string, followingId: string) {
  * do NOT increment/decrement client-side.
  */
 export async function toggleFollow(followingId: string) {
-  const user = auth().currentUser;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
   if (user.uid === followingId) throw new Error("Cannot follow yourself");
 
