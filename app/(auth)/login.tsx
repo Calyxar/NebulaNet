@@ -1,14 +1,9 @@
-// app/(auth)/login.tsx — UPDATED ✅ expo-firebase-recaptcha removed
+import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { checkTwoFactorEnabled } from "@/hooks/useTwoFactorAuth";
-import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import authNative from "@react-native-firebase/auth";
-import {
-  GoogleSignin,
-  statusCodes,
-} from "@react-native-google-signin/google-signin";
 import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -25,12 +20,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-GoogleSignin.configure({
-  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-  offlineAccess: false,
-  forceCodeForRefreshToken: false,
-});
-
 const COUNTRY_CODES = [
   { flag: "🇺🇸", code: "+1", label: "US" },
   { flag: "🇬🇧", code: "+44", label: "UK" },
@@ -45,7 +34,7 @@ const COUNTRY_CODES = [
 ];
 
 export default function LoginScreen() {
-  const { user, isLoading: authLoading, login, googleLogin } = useAuth();
+  const { user, isLoading: authLoading, login } = useAuth();
   const { colors, isDark } = useTheme();
   const { sendOTP, state: phoneState, error: phoneError } = usePhoneAuth();
 
@@ -58,9 +47,6 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    GoogleSignin.signOut().catch(() => {});
-  }, []);
   useEffect(() => {
     if (phoneError) Alert.alert("Error", phoneError);
   }, [phoneError]);
@@ -102,7 +88,6 @@ export default function LoginScreen() {
         email: email.trim().toLowerCase(),
         password,
       });
-      // ✅ Check 2FA
       if (res.user) {
         const { enabled, phoneNumber } = await checkTwoFactorEnabled(
           res.user.uid,
@@ -147,46 +132,9 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    if (user) return;
-    setIsSubmitting(true);
-    try {
-      await GoogleSignin.hasPlayServices({
-        showPlayServicesUpdateDialog: true,
-      });
-      const signInResult = await GoogleSignin.signIn();
-      const idToken =
-        (signInResult as any).data?.idToken ??
-        (signInResult as any).idToken ??
-        null;
-      if (!idToken) {
-        Alert.alert("Google Login Failed", "No ID token received.");
-        return;
-      }
-      await googleLogin.mutateAsync({ idToken });
-    } catch (error: any) {
-      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
-      if (error?.code === statusCodes.IN_PROGRESS) return;
-      if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        Alert.alert("Error", "Google Play Services not available.");
-        return;
-      }
-      Alert.alert(
-        "Google Login Failed",
-        error?.message || "Unable to sign in with Google.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const isSendingOTP = phoneState === "sending";
   const disabled =
-    isSubmitting ||
-    authLoading ||
-    login.isPending ||
-    googleLogin.isPending ||
-    isSendingOTP;
+    isSubmitting || authLoading || login.isPending || isSendingOTP;
 
   return (
     <>
@@ -429,8 +377,7 @@ export default function LoginScreen() {
             <View style={styles.socialContainer}>
               <TouchableOpacity
                 style={[styles.socialButton, { backgroundColor: colors.card }]}
-                onPress={handleGoogleLogin}
-                disabled={disabled}
+                disabled
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>

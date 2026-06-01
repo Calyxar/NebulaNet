@@ -1,6 +1,5 @@
-// app/(auth)/signup.tsx — UPDATED ✅ expo-firebase-recaptcha removed
+import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
-import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
@@ -37,7 +36,6 @@ export default function SignUpScreen() {
     user,
     isLoading: authLoading,
     signup,
-    googleLogin,
     signOut,
     updateProfile,
   } = useAuth();
@@ -189,11 +187,7 @@ export default function SignUpScreen() {
 
   const isSendingOTP = phoneState === "sending";
   const disabled =
-    isSubmitting ||
-    authLoading ||
-    signup.isPending ||
-    googleLogin.isPending ||
-    isSendingOTP;
+    isSubmitting || authLoading || signup.isPending || isSendingOTP;
 
   return (
     <>
