@@ -3,7 +3,8 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
 import { AVPlaybackStatus, ResizeMode, Video } from "expo-av";
-import React, { useCallback, useRef, useState } from "react";
+import * as VideoThumbnails from "expo-video-thumbnails";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -183,22 +184,48 @@ export default function VideoPlayer({
   const isSlidingRef = useRef(false);
   const lastPositionUpdate = useRef(0);
   const wasPlayingBeforeSeek = useRef(false);
+  const speedChangeInProgress = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isLoading, setIsLoading] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const [showThumbnail, setShowThumbnail] = useState(!autoPlay);
+  const [thumbnailUri, setThumbnailUri] = useState<string | null>(
+    poster ?? null,
+  );
 
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
 
   const [isMuted, setIsMuted] = useState(false);
+  // Use state for speed so Video rate prop updates reactively
   const [speed, setSpeed] = useState(1);
+  const [pendingSpeed, setPendingSpeed] = useState<number | null>(null);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
   const [isZoomed, setIsZoomed] = useState(false);
   const [zoomPosition, setZoomPosition] = useState(0);
   const [isZoomPlaying, setIsZoomPlaying] = useState(false);
+
+  // Generate thumbnail from video on mount using expo-video-thumbnails
+  useEffect(() => {
+    if (thumbnailUri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { uri: thumb } = await VideoThumbnails.getThumbnailAsync(uri, {
+          time: 0,
+          quality: 0.6,
+        });
+        if (!cancelled) setThumbnailUri(thumb);
+      } catch {
+        // silently fail — fallback placeholder will show
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -216,6 +243,16 @@ export default function VideoPlayer({
           lastPositionUpdate.current = now;
           setPosition(status.positionMillis / 1000);
         }
+      }
+
+      // If a speed change is in progress and video unexpectedly paused, resume it
+      if (
+        speedChangeInProgress.current &&
+        !status.isPlaying &&
+        wasPlayingBeforeSeek.current
+      ) {
+        videoRef.current?.playAsync();
+        return;
       }
 
       setIsPlaying(status.isPlaying);
@@ -305,17 +342,22 @@ export default function VideoPlayer({
     }
   };
 
-  const setPlaybackSpeed = async (s: number) => {
-    const wasPlaying = isPlaying || isZoomPlaying;
-    await videoRef.current?.setRateAsync(s, true);
-    await zoomVideoRef.current?.setRateAsync(s, true);
-    if (wasPlaying) {
-      await videoRef.current?.playAsync();
-      await zoomVideoRef.current?.playAsync();
-    }
+  const handleSpeedSelect = async (s: number) => {
+    wasPlayingBeforeSeek.current = isPlaying || isZoomPlaying;
+    speedChangeInProgress.current = true;
+    // Update rate prop reactively via state — avoids setRateAsync pausing bug
     setSpeed(s);
+    setPendingSpeed(s);
     setShowSpeedMenu(false);
     scheduleHide();
+    // Give the rate prop time to apply, then force resume if needed
+    setTimeout(async () => {
+      speedChangeInProgress.current = false;
+      if (wasPlayingBeforeSeek.current) {
+        await videoRef.current?.playAsync();
+        await zoomVideoRef.current?.playAsync();
+      }
+    }, 300);
   };
 
   const openZoom = async () => {
@@ -363,17 +405,17 @@ export default function VideoPlayer({
           useNativeControls={false}
         />
 
-        {/* Thumbnail overlay — shows until user first presses play */}
-        {showThumbnail && poster && (
+        {/* Thumbnail — generated from video or passed as poster prop */}
+        {showThumbnail && thumbnailUri && (
           <Image
-            source={{ uri: poster }}
+            source={{ uri: thumbnailUri }}
             style={styles.thumbnail}
             resizeMode="cover"
           />
         )}
 
-        {/* Thumbnail placeholder when no poster provided */}
-        {showThumbnail && !poster && (
+        {/* Fallback when no thumbnail available yet */}
+        {showThumbnail && !thumbnailUri && (
           <View style={styles.thumbnailPlaceholder}>
             <Ionicons
               name="play-circle-outline"
@@ -410,7 +452,7 @@ export default function VideoPlayer({
               onSlidingStart={handleSlidingStart}
               onMute={toggleMute}
               onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
-              onSpeedSelect={setPlaybackSpeed}
+              onSpeedSelect={handleSpeedSelect}
               onZoomToggle={openZoom}
             />
           )}
@@ -466,7 +508,7 @@ export default function VideoPlayer({
                 onSlidingStart={handleZoomSlidingStart}
                 onMute={toggleMute}
                 onSpeedMenuToggle={() => setShowSpeedMenu((v) => !v)}
-                onSpeedSelect={setPlaybackSpeed}
+                onSpeedSelect={handleSpeedSelect}
                 onZoomToggle={closeZoom}
               />
             )}
@@ -485,10 +527,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
-  video: {
-    width: "100%",
-    height: "100%",
-  },
+  video: { width: "100%", height: "100%" },
   thumbnail: {
     ...StyleSheet.absoluteFillObject,
     width: "100%",
@@ -543,11 +582,7 @@ const styles = StyleSheet.create({
     minWidth: 36,
     textAlign: "center",
   },
-  slider: {
-    flex: 1,
-    marginHorizontal: 6,
-    height: 36,
-  },
+  slider: { flex: 1, marginHorizontal: 6, height: 36 },
   buttonsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -566,10 +601,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
-  speedText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
+  speedText: { fontSize: 13, fontWeight: "700" },
   speedMenu: {
     position: "absolute",
     bottom: 52,
@@ -584,20 +616,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: "center",
   },
-  speedOptionText: {
-    fontSize: 14,
-    color: "#fff",
-    fontWeight: "600",
-  },
+  speedOptionText: { fontSize: 14, color: "#fff", fontWeight: "600" },
   modalContainer: {
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
   },
-  zoomVideo: {
-    width: "100%",
-    height: "100%",
-  },
+  zoomVideo: { width: "100%", height: "100%" },
   closeBtn: {
     position: "absolute",
     right: 16,

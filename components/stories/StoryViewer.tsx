@@ -1,14 +1,4 @@
 // components/stories/StoryViewer.tsx — React Native Firebase ✅
-// ✅ Pinch-to-zoom on image stories via long-press (react-native-image-viewing)
-// ✅ Smooth progress bar (JS interval, pause-safe elapsed tracking)
-// ✅ Pause on press-and-hold
-// ✅ Text stories with gradient backgrounds + HashtagText
-// ✅ Caption overlay with HashtagText (tappable hashtags)
-// ✅ Firebase Storage path OR direct URL — resolves automatically
-// ✅ Video support via expo-av
-// ✅ Quick reactions + reply input
-// ✅ Theme-aware header (avatar ring, name, time, close)
-
 import HashtagText from "@/components/post/HashtagText";
 import { Ionicons } from "@expo/vector-icons";
 import storage from "@react-native-firebase/storage";
@@ -63,12 +53,9 @@ function timeAgo(dateString?: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-/* =========================
-   TYPES
-========================= */
-
 export interface StoryViewerStory {
   id: string;
+  userId?: string;
   username: string;
   avatar_url?: string | null;
   full_name?: string | null;
@@ -89,10 +76,6 @@ interface StoryViewerProps {
   storyIndex?: number;
 }
 
-/* =========================
-   COMPONENT
-========================= */
-
 export default function StoryViewer({
   story,
   onClose,
@@ -106,15 +89,11 @@ export default function StoryViewer({
   const [reply, setReply] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  /* ---------- media resolution ---------- */
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
-
-  /* ---------- pinch-to-zoom lightbox ---------- */
   const [zoomVisible, setZoomVisible] = useState(false);
 
-  /* ---------- internal progress ---------- */
   const [internalProgress, setInternalProgress] = useState(0);
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -133,22 +112,16 @@ export default function StoryViewer({
     return "text";
   })();
 
-  /* ---------- resolve Firebase Storage path to URL ---------- */
-
   useEffect(() => {
     let cancelled = false;
     const raw = story.story_image ?? null;
-
     setMediaError(null);
     setMediaUrl(null);
-
     if (!raw) return;
-
     if (isHttpUrl(raw)) {
       setMediaUrl(raw);
       return;
     }
-
     setMediaLoading(true);
     storage()
       .ref(raw)
@@ -162,13 +135,10 @@ export default function StoryViewer({
       .finally(() => {
         if (!cancelled) setMediaLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
   }, [story.story_image]);
-
-  /* ---------- internal progress ticker ---------- */
 
   const stopTick = useCallback(() => {
     if (tickRef.current) {
@@ -181,7 +151,6 @@ export default function StoryViewer({
     stopTick();
     elapsedRef.current = 0;
     lastTickRef.current = Date.now();
-
     tickRef.current = setInterval(() => {
       if (pausedRef.current) {
         lastTickRef.current = Date.now();
@@ -215,17 +184,14 @@ export default function StoryViewer({
   const handlePressIn = useCallback(() => {
     pausedRef.current = true;
   }, []);
-
   const handlePressOut = useCallback(() => {
     pausedRef.current = false;
     lastTickRef.current = Date.now();
   }, []);
 
-  /* ---------- progress value ---------- */
   const fillPct =
     externalProgress !== undefined ? externalProgress / 100 : internalProgress;
 
-  /* ---------- send reply ---------- */
   const handleSend = async () => {
     if (!reply.trim() || isSending) return;
     setIsSending(true);
@@ -248,7 +214,6 @@ export default function StoryViewer({
   const displayName = story.full_name || story.username || "Story";
   const hasCaption = !!story.story_content && !!story.story_image;
 
-  /* ---------- segment bar ---------- */
   const segments = Array(totalStories)
     .fill(null)
     .map((_, i) => {
@@ -258,231 +223,232 @@ export default function StoryViewer({
     });
 
   return (
-    <View style={styles.container}>
-      {/* Full-screen media */}
-      {isTextStory ? (
-        <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill}>
-          <View style={styles.textContent}>
-            <HashtagText
-              text={story.story_content ?? ""}
-              style={styles.textStoryText}
-              hashtagStyle={styles.textHashtag}
-            />
-          </View>
-        </LinearGradient>
-      ) : resolvedType === "video" ? (
-        mediaUrl ? (
-          <Video
-            source={{ uri: mediaUrl }}
-            style={StyleSheet.absoluteFill}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay
-            isMuted
-            isLooping={false}
-            onLoad={(s) => {
-              const d = (s as any)?.durationMillis;
-              if (d && useInternalProgress) {
-                durationRef.current = d;
-                startTick();
-              }
-            }}
-          />
-        ) : (
-          <View
-            style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]}
-          />
-        )
-      ) : mediaUrl ? (
-        <>
-          <TouchableOpacity
-            activeOpacity={1}
-            onLongPress={() => {
-              pausedRef.current = true;
-              setZoomVisible(true);
-            }}
+    // ✅ FIX: flex column so KAV pushes reply up properly
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+    >
+      <View style={StyleSheet.absoluteFill}>
+        {/* Full-screen media */}
+        {isTextStory ? (
+          <LinearGradient
+            colors={gradientColors}
             style={StyleSheet.absoluteFill}
           >
-            <Image
-              source={{ uri: mediaUrl }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-            />
-          </TouchableOpacity>
-
-          <ImageViewing
-            images={[{ uri: mediaUrl }]}
-            imageIndex={0}
-            visible={zoomVisible}
-            onRequestClose={() => {
-              setZoomVisible(false);
-              pausedRef.current = false;
-              lastTickRef.current = Date.now();
-            }}
-            swipeToCloseEnabled
-            doubleTapToZoomEnabled
-            presentationStyle="overFullScreen"
-          />
-        </>
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
-      )}
-
-      {/* Dark gradient overlay top + bottom */}
-      <LinearGradient
-        colors={[
-          "rgba(0,0,0,0.55)",
-          "transparent",
-          "transparent",
-          "rgba(0,0,0,0.6)",
-        ]}
-        locations={[0, 0.18, 0.65, 1]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
-      {/* Media loading/error overlay */}
-      {(mediaLoading || !!mediaError) && (
-        <View style={styles.mediaOverlay}>
-          {mediaLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="warning-outline" size={18} color="#fff" />
-              <Text style={styles.mediaOverlayText}>{mediaError}</Text>
-            </>
-          )}
-        </View>
-      )}
-
-      {/* Caption overlay */}
-      {hasCaption && (
-        <View style={styles.captionOverlay} pointerEvents="none">
-          <HashtagText
-            text={story.story_content!}
-            style={styles.captionText}
-            hashtagStyle={styles.captionHashtag}
-          />
-        </View>
-      )}
-
-      {/* Chrome: progress + header */}
-      <View style={styles.chrome}>
-        <View style={styles.progressRow}>
-          {segments.map((fill, i) => (
-            <View key={i} style={styles.progressTrack}>
-              <View
-                style={[styles.progressFill, { width: `${fill * 100}%` }]}
+            <View style={styles.textContent}>
+              <HashtagText
+                text={story.story_content ?? ""}
+                style={styles.textStoryText}
+                hashtagStyle={styles.textHashtag}
               />
             </View>
-          ))}
-        </View>
-
-        <View style={styles.header}>
-          <View style={styles.avatarRing}>
-            {story.avatar_url ? (
-              <Image source={{ uri: story.avatar_url }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarFallbackText}>
-                  {(displayName[0] || "U").toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.displayName} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <Text style={styles.timeAgo}>{timeAgo(story.created_at)}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={onClose}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="close" size={26} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Tap zones — only active when zoom is not open */}
-      {!zoomVisible && (
-        <>
-          <Pressable
-            style={[styles.tapZone, { left: 0, width: W * 0.3 }]}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            onPress={onPrev}
-          />
-          <Pressable
-            style={[styles.tapZone, { right: 0, width: W * 0.7 }]}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            onPress={onNext}
-          />
-        </>
-      )}
-
-      {/* Reply input */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.replyKAV}
-      >
-        <View style={styles.replyContainer}>
-          <View style={styles.reactionsRow}>
-            {["❤️", "😂", "😮", "😢", "👏"].map((e) => (
-              <TouchableOpacity
-                key={e}
-                style={styles.reactionBtn}
-                onPress={() => void handleReaction(e)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.reactionText}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.replyRow}>
-            <TextInput
-              style={styles.replyInput}
-              value={reply}
-              onChangeText={setReply}
-              placeholder="Send a reply…"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              returnKeyType="send"
-              onSubmitEditing={handleSend}
-              onFocus={() => {
-                pausedRef.current = true;
+          </LinearGradient>
+        ) : resolvedType === "video" ? (
+          mediaUrl ? (
+            <Video
+              source={{ uri: mediaUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay
+              isMuted
+              isLooping={false}
+              onLoad={(s) => {
+                const d = (s as any)?.durationMillis;
+                if (d && useInternalProgress) {
+                  durationRef.current = d;
+                  startTick();
+                }
               }}
-              onBlur={() => {
+            />
+          ) : (
+            <View
+              style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]}
+            />
+          )
+        ) : mediaUrl ? (
+          <>
+            <TouchableOpacity
+              activeOpacity={1}
+              onLongPress={() => {
+                pausedRef.current = true;
+                setZoomVisible(true);
+              }}
+              style={StyleSheet.absoluteFill}
+            >
+              <Image
+                source={{ uri: mediaUrl }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+            <ImageViewing
+              images={[{ uri: mediaUrl }]}
+              imageIndex={0}
+              visible={zoomVisible}
+              onRequestClose={() => {
+                setZoomVisible(false);
                 pausedRef.current = false;
                 lastTickRef.current = Date.now();
               }}
-              editable={!isSending}
+              swipeToCloseEnabled
+              doubleTapToZoomEnabled
+              presentationStyle="overFullScreen"
             />
+          </>
+        ) : (
+          <View
+            style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]}
+          />
+        )}
+
+        {/* Gradient overlay */}
+        <LinearGradient
+          colors={[
+            "rgba(0,0,0,0.55)",
+            "transparent",
+            "transparent",
+            "rgba(0,0,0,0.6)",
+          ]}
+          locations={[0, 0.18, 0.65, 1]}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+
+        {/* Media loading/error */}
+        {(mediaLoading || !!mediaError) && (
+          <View style={styles.mediaOverlay}>
+            {mediaLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="warning-outline" size={18} color="#fff" />
+                <Text style={styles.mediaOverlayText}>{mediaError}</Text>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* Caption */}
+        {hasCaption && (
+          <View style={styles.captionOverlay} pointerEvents="none">
+            <HashtagText
+              text={story.story_content!}
+              style={styles.captionText}
+              hashtagStyle={styles.captionHashtag}
+            />
+          </View>
+        )}
+
+        {/* Progress + header chrome */}
+        <View style={styles.chrome}>
+          <View style={styles.progressRow}>
+            {segments.map((fill, i) => (
+              <View key={i} style={styles.progressTrack}>
+                <View
+                  style={[styles.progressFill, { width: `${fill * 100}%` }]}
+                />
+              </View>
+            ))}
+          </View>
+          <View style={styles.header}>
+            <View style={styles.avatarRing}>
+              {story.avatar_url ? (
+                <Image
+                  source={{ uri: story.avatar_url }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={styles.avatarFallbackText}>
+                    {(displayName[0] || "U").toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              <Text style={styles.timeAgo}>{timeAgo(story.created_at)}</Text>
+            </View>
             <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                (!reply.trim() || isSending) && { opacity: 0.4 },
-              ]}
-              onPress={handleSend}
-              disabled={!reply.trim() || isSending}
+              style={styles.closeBtn}
+              onPress={onClose}
               activeOpacity={0.85}
             >
-              <Ionicons name="send" size={18} color="#fff" />
+              <Ionicons name="close" size={26} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+
+        {/* Tap zones */}
+        {!zoomVisible && (
+          <>
+            <Pressable
+              style={[styles.tapZone, { left: 0, width: W * 0.3 }]}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              onPress={onPrev}
+            />
+            <Pressable
+              style={[styles.tapZone, { right: 0, width: W * 0.7 }]}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              onPress={onNext}
+            />
+          </>
+        )}
+      </View>
+
+      {/* ✅ FIX: reply sits in normal flow at bottom of KAV column — keyboard pushes it up */}
+      <View style={styles.replyContainer}>
+        <View style={styles.reactionsRow}>
+          {["❤️", "😂", "😮", "😢", "👏"].map((e) => (
+            <TouchableOpacity
+              key={e}
+              style={styles.reactionBtn}
+              onPress={() => void handleReaction(e)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.reactionText}>{e}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.replyRow}>
+          <TextInput
+            style={styles.replyInput}
+            value={reply}
+            onChangeText={setReply}
+            placeholder="Send a reply…"
+            placeholderTextColor="rgba(255,255,255,0.5)"
+            returnKeyType="send"
+            onSubmitEditing={handleSend}
+            onFocus={() => {
+              pausedRef.current = true;
+            }}
+            onBlur={() => {
+              pausedRef.current = false;
+              lastTickRef.current = Date.now();
+            }}
+            editable={!isSending}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendBtn,
+              (!reply.trim() || isSending) && { opacity: 0.4 },
+            ]}
+            onPress={handleSend}
+            disabled={!reply.trim() || isSending}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="send" size={18} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
-
-/* =========================
-   STYLES
-========================= */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
@@ -588,7 +554,7 @@ const styles = StyleSheet.create({
 
   tapZone: { position: "absolute", top: 0, bottom: 0, zIndex: 8 },
 
-  replyKAV: { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 },
+  // ✅ FIX: no longer absolute — sits in flex flow so KAV can push it up
   replyContainer: {
     backgroundColor: "rgba(0,0,0,0.72)",
     paddingTop: 10,
@@ -597,6 +563,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     gap: 8,
+    zIndex: 20,
   },
   reactionsRow: {
     flexDirection: "row",

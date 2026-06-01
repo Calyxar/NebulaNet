@@ -23,7 +23,8 @@ export async function toggleRepost(
   } else {
     const [postSnap, senderSnap] = await Promise.all([
       postRef.get(),
-      firestore().collection("users").doc(uid).get(),
+      // ✅ FIX: was "users" — your user data lives in "profiles"
+      firestore().collection("profiles").doc(uid).get(),
     ]);
 
     const postData = postSnap.data() as any;

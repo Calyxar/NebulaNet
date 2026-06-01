@@ -2,6 +2,7 @@
 // ✅ FIXED: Added skeleton loading states
 // ✅ FIXED: Added NSFW/spoiler content filtering based on user preferences
 // ✅ FIXED: Heart turns red when liked, Bookmark turns colored when saved
+// ✅ FIXED: Repost count shows repost_count, share count added separately
 
 import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
@@ -90,7 +91,6 @@ const isVideoPost = (post: any) => {
   return isVideoUrl(post?.media_urls?.[0]);
 };
 
-// ✅ NEW: Check if post contains NSFW/spoiler hashtags
 const hasNSFWContent = (post: Post): boolean => {
   const content = (post.content || "").toLowerCase();
   const title = (post.title || "").toLowerCase();
@@ -103,7 +103,6 @@ const hasNSFWContent = (post: Post): boolean => {
   );
 };
 
-// ✅ NEW: Animated skeleton component
 function SkeletonBox({ style }: { style: any }) {
   const opacity = useSharedValue(0.3);
 
@@ -133,7 +132,6 @@ function SkeletonBox({ style }: { style: any }) {
   );
 }
 
-// ✅ NEW: Skeleton post card
 function SkeletonPost({ colors, isDark, feedDensity }: any) {
   const padding =
     feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
@@ -230,7 +228,6 @@ export default function HomeScreen() {
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
 
-  // ✅ NEW: Fetch user preferences for NSFW filtering
   const { data: userPrefs } = useQuery({
     queryKey: ["user-preferences", user?.uid],
     enabled: !!user?.uid,
@@ -261,7 +258,6 @@ export default function HomeScreen() {
     [data],
   );
 
-  // ✅ NEW: Filter NSFW/spoiler content based on user preferences
   const filteredPosts = useMemo(() => {
     if (showNSFW) return posts;
     return posts.filter((post) => !hasNSFWContent(post));
@@ -361,7 +357,6 @@ export default function HomeScreen() {
           }
         />
 
-        {/* Stories */}
         <View
           style={[styles.storiesWrap, { backgroundColor: colors.background }]}
         >
@@ -419,7 +414,6 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Segments */}
         <View
           style={[styles.segmentWrap, { backgroundColor: colors.background }]}
         >
@@ -453,7 +447,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* My Communities row */}
         {activeTab === "my-community" && (
           <View
             style={[
@@ -590,6 +583,8 @@ export default function HomeScreen() {
       const saved = !!post.is_saved;
       const likeColor = liked ? "#FF375F" : colors.text;
       const saveColor = saved ? colors.primary : colors.text;
+      const repostCount = (post as any).repost_count ?? 0;
+      const repostColor = repostCount > 0 ? colors.primary : colors.text;
 
       return (
         <TouchableOpacity
@@ -763,6 +758,7 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
+            {/* ✅ FIX: repost_count not share_count, primary color when > 0 */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -771,7 +767,22 @@ export default function HomeScreen() {
               }}
               activeOpacity={0.7}
             >
-              <Repeat2 size={20} color={colors.text} strokeWidth={2.5} />
+              <Repeat2 size={20} color={repostColor} strokeWidth={2.5} />
+              <Text style={[styles.actionText, { color: repostColor }]}>
+                {repostCount}
+              </Text>
+            </TouchableOpacity>
+
+            {/* ✅ ADD: share count */}
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                openPost(post.id);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="share-outline" size={20} color={colors.text} />
               <Text style={[styles.actionText, { color: colors.text }]}>
                 {post.share_count ?? 0}
               </Text>
@@ -807,7 +818,6 @@ export default function HomeScreen() {
     ],
   );
 
-  // ✅ NEW: Show skeleton loading
   if (isLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>

@@ -79,8 +79,6 @@ async function getProfile(userId: string): Promise<ProfileRow | undefined> {
   return profile;
 }
 
-// ✅ FIXED: use individual doc gets instead of FieldPath.documentId()
-// FieldPath.documentId() throws "undefined is not a function" in this SDK version
 async function getProfilesBatch(
   userIds: string[],
 ): Promise<Map<string, ProfileRow>> {
@@ -382,6 +380,7 @@ export const chatQueries = {
         },
       });
 
+      // Bump unread counts on participants subcollection
       try {
         const partsSnap = await convRef.collection("participants").get();
         const batch = firestore().batch();
@@ -397,6 +396,55 @@ export const chatQueries = {
         await batch.commit();
       } catch (e) {
         console.warn("Failed to bump unread counts:", e);
+      }
+
+      // ✅ Write notifications for all other participants (once per unread convo)
+      try {
+        const convSnap = await convRef.get();
+        const convData = convSnap.data() as any;
+        const participantIds: string[] = Array.isArray(
+          convData?.participant_ids,
+        )
+          ? convData.participant_ids
+          : [];
+
+        const senderProfile = await getProfile(senderId);
+        const recipients = participantIds.filter((id) => id !== senderId);
+
+        await Promise.all(
+          recipients.map(async (recipientId) => {
+            // Only notify if no existing unread message notification for this convo
+            const recentSnap = await firestore()
+              .collection("notifications")
+              .where("receiver_id", "==", recipientId)
+              .where("conversation_id", "==", conversationId)
+              .where("is_read", "==", false)
+              .limit(1)
+              .get();
+
+            if (recentSnap.empty) {
+              await firestore()
+                .collection("notifications")
+                .add({
+                  type: "message",
+                  sender_id: senderId,
+                  receiver_id: recipientId,
+                  conversation_id: conversationId,
+                  is_read: false,
+                  created_at: new Date().toISOString(),
+                  created_at_ts: firestore.FieldValue.serverTimestamp(),
+                  sender: {
+                    id: senderId,
+                    username: senderProfile?.username ?? "",
+                    full_name: senderProfile?.full_name ?? null,
+                    avatar_url: senderProfile?.avatar_url ?? null,
+                  },
+                });
+            }
+          }),
+        );
+      } catch (e) {
+        console.warn("Failed to write message notifications:", e);
       }
 
       const sender = await getProfile(senderId);

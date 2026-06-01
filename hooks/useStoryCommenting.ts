@@ -5,25 +5,55 @@ import firestore from "@react-native-firebase/firestore";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 
-interface UseStoryCommentingProps {
-  storyId?: string;
-  onCommentSuccess?: () => void;
-  onCommentError?: (error: Error) => void;
-}
-
 async function createStoryComment(storyId: string, content: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
 
-  const ref = await db.collection("story_comments").add({
-    story_id: storyId,
-    user_id: user.uid,
-    content: content.trim(),
-    created_at: firestore.FieldValue.serverTimestamp(),
-  });
+  const [commentRef, storySnap, senderSnap] = await Promise.all([
+    db.collection("story_comments").add({
+      story_id: storyId,
+      user_id: user.uid,
+      content: content.trim(),
+      created_at: firestore.FieldValue.serverTimestamp(),
+    }),
+    db.collection("stories").doc(storyId).get(),
+    // ✅ FIX: was "users" — data lives in "profiles"
+    db.collection("profiles").doc(user.uid).get(),
+  ]);
+
+  const storyData = storySnap.data() as any;
+  const senderData = senderSnap.data() as any;
+  const storyOwnerId = storyData?.user_id ?? storyData?.userId;
+
+  if (storyOwnerId && storyOwnerId !== user.uid) {
+    await db.collection("notifications").add({
+      type: "story_comment",
+      sender_id: user.uid,
+      receiver_id: storyOwnerId,
+      story_id: storyId,
+      comment_id: commentRef.id,
+      is_read: false,
+      created_at: new Date().toISOString(),
+      created_at_ts: firestore.FieldValue.serverTimestamp(),
+      sender: {
+        id: user.uid,
+        username: senderData?.username ?? "",
+        full_name: senderData?.full_name ?? null,
+        avatar_url: senderData?.avatar_url ?? null,
+      },
+      story: {
+        id: storyId,
+        content: storyData?.story_content ?? storyData?.content ?? null,
+      },
+      comment: {
+        id: commentRef.id,
+        content: content.trim(),
+      },
+    });
+  }
 
   return {
-    id: ref.id,
+    id: commentRef.id,
     story_id: storyId,
     user_id: user.uid,
     content: content.trim(),
@@ -38,6 +68,12 @@ async function getStoryComments(storyId: string) {
     .orderBy("created_at", "desc")
     .get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+interface UseStoryCommentingProps {
+  storyId?: string;
+  onCommentSuccess?: () => void;
+  onCommentError?: (error: Error) => void;
 }
 
 export function useStoryCommenting({

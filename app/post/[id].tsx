@@ -207,8 +207,19 @@ export default function PostDetailScreen() {
     try {
       const newStatus = await toggleRepost(post.id, isReposted);
       setIsReposted(newStatus);
-    } catch {
-      Alert.alert("Error", "Failed to repost");
+    } catch (e: any) {
+      console.error(
+        "[repost] code:",
+        e?.code,
+        "msg:",
+        e?.message,
+        "full:",
+        JSON.stringify(e),
+      );
+      Alert.alert(
+        "Error",
+        `${e?.code ?? ""} ${e?.message ?? "Failed to repost"}`,
+      );
     }
   };
 

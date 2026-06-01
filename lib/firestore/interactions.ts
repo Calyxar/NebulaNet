@@ -203,7 +203,8 @@ export async function sharePost(postId: string): Promise<void> {
 
   const [postSnap, senderSnap] = await Promise.all([
     db.collection("posts").doc(postId).get(),
-    db.collection("users").doc(uid).get(),
+    // ✅ FIX: was "users" — your user data lives in "profiles"
+    db.collection("profiles").doc(uid).get(),
   ]);
 
   const postData = postSnap.data() as any;
