@@ -30,7 +30,6 @@ export const useAuth = () => {
     isEmailVerified,
     login: ctx.login,
     signup: ctx.signup,
-    googleLogin: ctx.googleLogin,
     updateProfile: ctx.updateProfile,
     signOut: ctx.signOut,
     checkSession,

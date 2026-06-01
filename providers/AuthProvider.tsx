@@ -1,8 +1,3 @@
-// providers/AuthProvider.tsx — FIXED ✅
-// ✅ ADDED: hasCompletedOnboarding, themePreference, setThemePreference to interface + value
-// ✅ FIXED: Google Sign-In idToken access for newer SDK versions
-// ✅ FIXED: googleLogin mutation type matches useAuth.ts expectation
-
 import {
   useMutation,
   useQuery,
@@ -41,6 +36,7 @@ export interface Profile {
   role?: "user" | "admin";
   is_suspended?: boolean;
   is_deactivated?: boolean;
+  is_founder?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +51,11 @@ export interface UserSettings {
   updated_at: string | null;
 }
 
+type EmailPasswordVars = { email: string; password: string };
+type LoginMutation = UseMutationResult<any, Error, EmailPasswordVars>;
+type SignupMutation = UseMutationResult<any, Error, EmailPasswordVars>;
+type UpdateProfileMutation = UseMutationResult<void, Error, Partial<Profile>>;
+
 interface AuthContextType {
   user: FirebaseUser | null;
   profile: Profile | null;
@@ -62,29 +63,12 @@ interface AuthContextType {
   isLoading: boolean;
   isProfileLoading: boolean;
   isUserSettingsLoading: boolean;
-
-  // ✅ ADDED: missing properties
   hasCompletedOnboarding: boolean;
   themePreference: ThemePreference | null;
   setThemePreference: (pref: ThemePreference) => Promise<void>;
-
-  login: UseMutationResult<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { email: string; password: string }
-  >;
-  signup: UseMutationResult<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { email: string; password: string }
-  >;
-  googleLogin: UseMutationResult<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { idToken: string }
-  >;
-
-  updateProfile: UseMutationResult<void, Error, Partial<Profile>>;
+  login: LoginMutation;
+  signup: SignupMutation;
+  updateProfile: UpdateProfileMutation;
   updateSettings: (
     updates: Partial<UserSettings> & Record<string, any>,
   ) => Promise<void>;
@@ -103,6 +87,15 @@ const toast = (message: string) => {
   else console.log("Toast:", message);
 };
 
+async function isWithinFirstHundred(): Promise<boolean> {
+  try {
+    const snap = await firestore().collection("profiles").limit(100).get();
+    return snap.docs.length < 100;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -120,10 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Add id property for compatibility
           (u as any).id = u.uid;
 
-          // Initialize services
           try {
             initRevenueCat(u.uid);
           } catch {}
@@ -131,13 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             registerForPushNotificationsAsync().catch(() => {});
           } catch {}
 
-          // Create profile if doesn't exist
           const profileRef = firestore().collection("profiles").doc(u.uid);
           const profileSnap = await profileRef.get();
           if (!profileSnap.exists()) {
             const baseUsername =
               u.email?.split("@")[0] ?? `user_${u.uid.slice(0, 8)}`;
             const t = nowIso();
+            const isFounder = await isWithinFirstHundred();
             await profileRef.set({
               id: u.uid,
               username: baseUsername,
@@ -149,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: "user",
               is_suspended: false,
               is_deactivated: false,
+              is_founder: isFounder,
               created_at: t,
               updated_at: t,
               created_at_ts: firestore.FieldValue.serverTimestamp(),
@@ -156,7 +148,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           }
 
-          // Create settings if doesn't exist
           const settingsRef = firestore()
             .collection("user_settings")
             .doc(u.uid);
@@ -207,25 +198,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  // ✅ ADDED: derived values
   const hasCompletedOnboarding = !!userSettings?.onboarding_completed;
   const themePreference = userSettings?.theme_preference ?? null;
 
-  const login = useMutation<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { email: string; password: string }
-  >({
+  const login = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) =>
       auth().signInWithEmailAndPassword(email, password),
     onError: (err) => toast(`Login failed: ${err.message}`),
   });
 
-  const signup = useMutation<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { email: string; password: string }
-  >({
+  const signup = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) => {
       const res = await auth().createUserWithEmailAndPassword(email, password);
       try {
@@ -234,19 +216,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return res;
     },
     onError: (err) => toast(`Signup failed: ${err.message}`),
-  });
-
-  const googleLogin = useMutation<
-    FirebaseAuthTypes.UserCredential,
-    Error,
-    { idToken: string }
-  >({
-    mutationFn: async ({ idToken }) => {
-      if (!idToken) throw new Error("Google login failed: no token returned");
-      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-      return auth().signInWithCredential(googleCredential);
-    },
-    onError: (err) => toast(`Google login failed: ${err.message}`),
   });
 
   const updateProfile = useMutation<void, Error, Partial<Profile>>({
@@ -272,6 +241,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           updated_at: nowIso(),
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
+      if (updates.username) {
+        const postsSnap = await firestore()
+          .collection("posts")
+          .where("user_id", "==", userId)
+          .get();
+        const batch = firestore().batch();
+        postsSnap.docs.forEach((doc) => {
+          batch.update(doc.ref, {
+            "user.username": updates.username,
+            "user.username_lc": updates.username!.toLowerCase(),
+          });
+        });
+        if (postsSnap.docs.length > 0) await batch.commit();
+      }
       await qc.invalidateQueries({ queryKey: ["profile", userId] });
     },
     onError: (err) => toast(`Profile update failed: ${err.message}`),
@@ -297,7 +280,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [userId, qc],
   );
 
-  // ✅ ADDED: setThemePreference
   const setThemePreference = useCallback(
     async (pref: ThemePreference) => {
       await updateSettings({ theme_preference: pref });
@@ -329,8 +311,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!userId) throw new Error("Not authenticated");
     const u = auth().currentUser;
     if (!u) throw new Error("Not authenticated");
-
-    // Deletion Request - Don't delete anything yet
     await firestore()
       .collection("account_deletion_requests")
       .doc(userId)
@@ -344,15 +324,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         { merge: true },
       );
-
-    // Show success message
     Alert.alert(
       "Request Received",
       "We've received your account deletion request. You'll receive an email with instructions to confirm deletion. Your account will be deleted within 30 days.",
       [{ text: "OK" }],
     );
-
-    // Don't clear cache or sign out - let them continue using the app until deletion is confirmed via email. This also prevents issues if they accidentally tap "Delete Account".
   }, [userId]);
 
   const signOut = useCallback(async () => {
@@ -369,12 +345,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: !hydrated,
       isProfileLoading,
       isUserSettingsLoading,
-      hasCompletedOnboarding, // ✅ ADDED
-      themePreference, // ✅ ADDED
-      setThemePreference, // ✅ ADDED
+      hasCompletedOnboarding,
+      themePreference,
+      setThemePreference,
       login,
       signup,
-      googleLogin,
       updateProfile,
       updateSettings,
       completeOnboarding,
@@ -395,7 +370,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setThemePreference,
       login,
       signup,
-      googleLogin,
       updateProfile,
       updateSettings,
       completeOnboarding,
