@@ -1,4 +1,4 @@
-// components/post/PostCard.tsx — ✅ FIXED: uses present()/dismiss() for BottomSheetModal
+// components/post/PostCard.tsx — ✅ FIXED: hashtags tappable in feed (Twitter-style)
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
@@ -19,7 +19,6 @@ import {
   Alert,
   Dimensions,
   Image,
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -262,8 +261,8 @@ export default function PostCard(props: PostCardProps) {
 
   return (
     <>
-      <Pressable
-        onPress={openPost}
+      {/* ✅ No onPress on outer container — lets hashtag/mention taps fall through */}
+      <View
         style={[
           styles.container,
           {
@@ -273,13 +272,10 @@ export default function PostCard(props: PostCardProps) {
           },
         ]}
       >
+        {/* Header — tapping author goes to profile */}
         <View style={styles.header}>
           <Link href={`/user/${author.username}`} asChild>
-            <TouchableOpacity
-              style={styles.authorInfo}
-              onPress={(e) => e.stopPropagation?.()}
-              activeOpacity={0.85}
-            >
+            <TouchableOpacity style={styles.authorInfo} activeOpacity={0.85}>
               <Avatar size={40} name={author.name} image={author.avatar} />
               <View style={styles.authorDetails}>
                 <Text style={[styles.authorName, { color: colors.text }]}>
@@ -309,10 +305,7 @@ export default function PostCard(props: PostCardProps) {
               {timestamp}
             </Text>
             <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation?.();
-                handleMoreOptions();
-              }}
+              onPress={handleMoreOptions}
               style={styles.moreButton}
               hitSlop={12}
               activeOpacity={0.8}
@@ -326,15 +319,18 @@ export default function PostCard(props: PostCardProps) {
           </View>
         </View>
 
-        <View style={styles.content}>
+        {/* Content — pointerEvents="box-none" lets child hashtag taps through */}
+        <View style={styles.content} pointerEvents="box-none">
           {isPoll ? (
             <>
-              <Text
-                style={[styles.pollQuestion, { color: colors.text }]}
-                numberOfLines={3}
-              >
-                {title || content}
-              </Text>
+              <TouchableOpacity activeOpacity={0.85} onPress={openPost}>
+                <Text
+                  style={[styles.pollQuestion, { color: colors.text }]}
+                  numberOfLines={3}
+                >
+                  {title || content}
+                </Text>
+              </TouchableOpacity>
               <PollCard
                 postId={id}
                 poll={poll}
@@ -348,25 +344,26 @@ export default function PostCard(props: PostCardProps) {
           ) : (
             <>
               {!!title && (
-                <Text style={[styles.title, { color: colors.text }]}>
-                  {title}
-                </Text>
+                <TouchableOpacity activeOpacity={0.85} onPress={openPost}>
+                  <Text style={[styles.title, { color: colors.text }]}>
+                    {title}
+                  </Text>
+                </TouchableOpacity>
               )}
+              {/* ✅ HashtagText has no onPress — tapping plain text does nothing,
+                  tapping a hashtag/mention routes to that page.
+                  Users tap the action bar to open the post, like Twitter. */}
               <HashtagText
                 text={displayContent}
                 style={StyleSheet.flatten([
                   styles.text,
                   { color: colors.text },
                 ])}
-                onPress={openPost}
               />
               {isTruncated && (
                 <Text
                   style={[styles.readMore, { color: colors.primary }]}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    setExpanded((v) => !v);
-                  }}
+                  onPress={() => setExpanded((v) => !v)}
                 >
                   {expanded ? " Show less" : " Read more"}
                 </Text>
@@ -395,7 +392,12 @@ export default function PostCard(props: PostCardProps) {
           </Text>
         )}
 
-        <View style={[styles.stats, { borderColor: colors.border }]}>
+        {/* Stats row — tapping opens post */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={openPost}
+          style={[styles.stats, { borderColor: colors.border }]}
+        >
           <Stat icon="heart" value={likes} label="like" color="#FF375F" />
           <Stat
             icon="chatbubble-outline"
@@ -421,7 +423,7 @@ export default function PostCard(props: PostCardProps) {
             label="save"
             color={colors.textSecondary}
           />
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.actions}>
           <Action
@@ -441,19 +443,13 @@ export default function PostCard(props: PostCardProps) {
             label={isReposted ? "Reposted" : "Repost"}
             color={isReposted ? colors.primary : colors.textSecondary}
             disabled={isReposting}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              (repostSheetRef.current as any)?.present();
-            }}
+            onPress={() => (repostSheetRef.current as any)?.present()}
           />
           <Action
             icon="share-outline"
             label="Share"
             color={colors.textSecondary}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              (shareSheetRef.current as any)?.present();
-            }}
+            onPress={() => (shareSheetRef.current as any)?.present()}
           />
           <Action
             icon={isSaved ? "bookmark" : "bookmark-outline"}
@@ -462,7 +458,7 @@ export default function PostCard(props: PostCardProps) {
             onPress={() => void onSavePress?.()}
           />
         </View>
-      </Pressable>
+      </View>
 
       <RepostSheet
         ref={repostSheetRef}
@@ -515,7 +511,7 @@ function Action({
   label: string;
   color: string;
   disabled?: boolean;
-  onPress?: (e: any) => void;
+  onPress?: (e?: any) => void;
 }) {
   return (
     <TouchableOpacity
