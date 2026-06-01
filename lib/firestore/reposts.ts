@@ -1,12 +1,12 @@
 // lib/firestore/reposts.ts — ✅ FIXED: uses native SDK consistently
-import auth from "@react-native-firebase/auth";
+import { auth } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
 export async function toggleRepost(
   postId: string,
   isReposted: boolean,
 ): Promise<boolean> {
-  const uid = auth().currentUser?.uid;
+  const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Not authenticated");
 
   const repostRef = firestore().collection("reposts").doc(`${uid}_${postId}`);
@@ -23,7 +23,6 @@ export async function toggleRepost(
   } else {
     const [postSnap, senderSnap] = await Promise.all([
       postRef.get(),
-      // ✅ FIX: was "users" — your user data lives in "profiles"
       firestore().collection("profiles").doc(uid).get(),
     ]);
 
@@ -75,7 +74,7 @@ export async function toggleRepost(
 }
 
 export async function getRepostStatus(postId: string): Promise<boolean> {
-  const uid = auth().currentUser?.uid;
+  const uid = auth.currentUser?.uid;
   if (!uid) return false;
   const snap = await firestore()
     .collection("reposts")

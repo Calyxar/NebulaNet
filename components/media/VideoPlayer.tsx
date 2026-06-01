@@ -211,15 +211,19 @@ export default function VideoPlayer({
   useEffect(() => {
     if (thumbnailUri) return;
     let cancelled = false;
+    const cleanUri = uri.split("?")[0]; // strip token query string
     (async () => {
       try {
-        const { uri: thumb } = await VideoThumbnails.getThumbnailAsync(uri, {
-          time: 0,
-          quality: 0.6,
-        });
+        const { uri: thumb } = await VideoThumbnails.getThumbnailAsync(
+          cleanUri,
+          {
+            time: 0,
+            quality: 0.6,
+          },
+        );
         if (!cancelled) setThumbnailUri(thumb);
       } catch {
-        // silently fail — fallback placeholder will show
+        // fallback placeholder will show
       }
     })();
     return () => {
