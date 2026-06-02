@@ -778,6 +778,7 @@ const styles = StyleSheet.create({
   // ✅ Keyboard listener drives bottom offset — no KAV needed
   replyBar: {
     position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
     zIndex: 20,

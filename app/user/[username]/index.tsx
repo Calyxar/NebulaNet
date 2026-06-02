@@ -1,5 +1,7 @@
 // app/user/[username]/index.tsx
 // ✅ FIXED: ShareSheet moved outside SafeAreaView so it overlays the full screen
+// ✅ FIXED: Activity tab now shows actual reposts
+// ✅ FIXED: UID-based profile lookup support
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -54,6 +56,19 @@ type PostRow = {
   created_at: string;
   post_type?: string | null;
 };
+type RepostRow = {
+  id: string;
+  content: string;
+  media_urls: string[] | null;
+  created_at: string;
+  post_type?: string | null;
+  reposted_at: string;
+  original_user: {
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
 type FollowEdge = {
   follower_id: string;
   following_id: string;
@@ -82,8 +97,9 @@ export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
 
-  // Detect Firebase UID routes
+  // ✅ Detect Firebase UID routes (28 char alphanumeric)
   const isUid = !!raw && raw.length === 28 && /^[a-zA-Z0-9]+$/.test(raw);
+
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -102,11 +118,8 @@ export default function UserProfileScreen() {
           .collection("profiles")
           .doc(username)
           .get();
-
         if (!snap.exists()) return null;
-
         const d = snap.data() as any;
-
         return {
           id: snap.id,
           username: d.username ?? "",
@@ -119,17 +132,14 @@ export default function UserProfileScreen() {
         } as UserProfile;
       }
 
-      // ✅ Existing username lookup
+      // ✅ Username lookup
       const snap = await firestore()
         .collection("profiles")
         .where("username", "==", username)
         .limit(1)
         .get();
-
       if (snap.empty) return null;
-
       const d = snap.docs[0].data() as any;
-
       return {
         id: snap.docs[0].id,
         username: d.username ?? "",
@@ -209,6 +219,7 @@ export default function UserProfileScreen() {
 
   const isBlocked = !!blockEdge;
   const isPrivate = !!target?.is_private;
+
   const canViewPosts = useMemo(() => {
     if (!target?.id) return false;
     if (isMe) return true;
@@ -224,7 +235,8 @@ export default function UserProfileScreen() {
         .collection("profiles")
         .doc(target!.id)
         .get();
-      if (!snap.exists) return { hide_followers: false, hide_following: false };
+      if (!snap.exists())
+        return { hide_followers: false, hide_following: false };
       const d = snap.data() as any;
       return {
         hide_followers: d.hide_followers === true,
@@ -283,6 +295,66 @@ export default function UserProfileScreen() {
           post_type: x.post_type ?? null,
         };
       }) as PostRow[];
+    },
+  });
+
+  // ✅ NEW: query reposts for Activity tab
+  const { data: reposts, isLoading: loadingReposts } = useQuery({
+    queryKey: ["user-reposts", target?.id],
+    enabled: !!target?.id && canViewPosts,
+    queryFn: async () => {
+      const repostSnap = await firestore()
+        .collection("reposts")
+        .where("user_id", "==", target!.id)
+        .orderBy("created_at", "desc")
+        .limit(30)
+        .get();
+
+      if (repostSnap.empty) return [];
+
+      const postIds = repostSnap.docs.map((d) => (d.data() as any).post_id);
+      const repostedAt: Record<string, string> = {};
+      repostSnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        repostedAt[data.post_id] = data.created_at;
+      });
+
+      // Fetch posts in chunks of 10 (Firestore `in` limit)
+      const chunks: string[][] = [];
+      for (let i = 0; i < postIds.length; i += 10) {
+        chunks.push(postIds.slice(i, i + 10));
+      }
+
+      const postDocs: RepostRow[] = [];
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("posts")
+          .where(firestore.FieldPath.documentId(), "in", chunk)
+          .get();
+        snap.docs.forEach((d) => {
+          const x = d.data() as any;
+          postDocs.push({
+            id: d.id,
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: x.created_at ?? "",
+            post_type: x.post_type ?? null,
+            reposted_at: repostedAt[d.id] ?? x.created_at ?? "",
+            original_user: x.user
+              ? {
+                  username: x.user.username ?? null,
+                  full_name: x.user.full_name ?? null,
+                  avatar_url: x.user.avatar_url ?? null,
+                }
+              : null,
+          });
+        });
+      }
+
+      return postDocs.sort(
+        (a, b) =>
+          new Date(b.reposted_at).getTime() - new Date(a.reposted_at).getTime(),
+      );
     },
   });
 
@@ -841,27 +913,138 @@ export default function UserProfileScreen() {
           </View>
 
           <View style={styles.contentSection}>
+            {/* ✅ ACTIVITY — shows actual reposts */}
             {activeTab === "Activity" && (
-              <View
-                style={[styles.emptyCard, { backgroundColor: colors.card }]}
-              >
-                <Ionicons
-                  name="pulse-outline"
-                  size={40}
-                  color={colors.textTertiary}
-                />
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                  No Activity Yet
-                </Text>
-                <Text
-                  style={[
-                    styles.emptyDescription,
-                    { color: colors.textTertiary },
-                  ]}
-                >
-                  This user's recent activity will appear here
-                </Text>
-              </View>
+              <>
+                {loadingReposts ? (
+                  <View style={{ gap: 12 }}>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.postCard,
+                          { backgroundColor: colors.card },
+                        ]}
+                      >
+                        <Skeleton
+                          style={{ height: 12, width: "75%", borderRadius: 10 }}
+                        />
+                        <Skeleton
+                          style={{
+                            height: 12,
+                            width: "55%",
+                            borderRadius: 10,
+                            marginTop: 10,
+                          }}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : reposts && reposts.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {reposts.map((p) => {
+                      const img = p.media_urls?.[0];
+                      const isVid = isVideoUrl(img) || p.post_type === "video";
+                      const originalAuthor =
+                        p.original_user?.full_name ||
+                        p.original_user?.username ||
+                        "Unknown";
+                      return (
+                        <TouchableOpacity
+                          key={p.id}
+                          style={[
+                            styles.postCard,
+                            { backgroundColor: colors.card },
+                          ]}
+                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          activeOpacity={0.9}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              marginBottom: 8,
+                            }}
+                          >
+                            <Ionicons
+                              name="repeat-outline"
+                              size={14}
+                              color={colors.primary}
+                            />
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: "700",
+                                color: colors.primary,
+                              }}
+                            >
+                              Reposted · originally by @{originalAuthor}
+                            </Text>
+                          </View>
+                          {!!p.content && (
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={4}
+                            >
+                              {p.content}
+                            </Text>
+                          )}
+                          {!!img && (
+                            <View
+                              style={[
+                                styles.postMediaWrap,
+                                { backgroundColor: colors.surface },
+                              ]}
+                            >
+                              <Image
+                                source={{ uri: img }}
+                                style={styles.postMedia}
+                                resizeMode="cover"
+                              />
+                              {isVid && (
+                                <View style={styles.videoOverlay}>
+                                  <Ionicons
+                                    name="play-circle"
+                                    size={32}
+                                    color="#fff"
+                                  />
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="repeat-outline"
+                      size={40}
+                      color={colors.textTertiary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      No Reposts Yet
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Posts{" "}
+                      {isMe ? "you repost" : `@${target.username} reposts`} will
+                      appear here.
+                    </Text>
+                  </View>
+                )}
+              </>
             )}
 
             {activeTab === "Post" && (
@@ -1220,7 +1403,7 @@ export default function UserProfileScreen() {
         )}
       </SafeAreaView>
 
-      {/* ✅ FIX: ShareSheet outside SafeAreaView so it overlays the full screen */}
+      {/* ✅ ShareSheet outside SafeAreaView so it overlays full screen */}
       <ShareSheet
         ref={shareSheetRef}
         title="Share Profile"
