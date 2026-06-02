@@ -111,6 +111,8 @@ export default function UserProfileScreen() {
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", raw],
     enabled: !!raw,
+    staleTime: 30_000,
+    gcTime: 60_000,
     queryFn: async () => {
       // ✅ Support lookups by Firebase UID
       if (isUid) {
