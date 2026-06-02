@@ -1,6 +1,6 @@
-// lib/firestore/chat.ts — REACT NATIVE FIREBASE ✅
+// lib/firestore/chat.ts — React Native Firebase ✅
 import { ChatAttachment } from "@/components/chat/ChatInput";
-import auth from "@react-native-firebase/auth";
+import { auth } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
 type ProfileRow = {
@@ -22,6 +22,7 @@ type MessageRow = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  is_deleted?: boolean;
 };
 
 type ConversationRow = {
@@ -43,6 +44,7 @@ type ConversationRow = {
 export type ChatMessage = MessageRow & {
   sender?: ProfileRow;
   attachments?: ChatAttachment[];
+  is_deleted?: boolean;
 };
 
 export type ChatConversation = ConversationRow & {
@@ -122,13 +124,14 @@ function docToMessage(d: any, id: string, conversationId: string): MessageRow {
     id,
     conversation_id: d.conversation_id ?? conversationId,
     sender_id: d.sender_id,
-    content: d.content ?? null,
-    media_url: d.media_url ?? null,
-    media_type: d.media_type ?? null,
-    attachments: d.attachments ?? [],
+    content: d.is_deleted ? null : (d.content ?? null),
+    media_url: d.is_deleted ? null : (d.media_url ?? null),
+    media_type: d.is_deleted ? null : (d.media_type ?? null),
+    attachments: d.is_deleted ? [] : (d.attachments ?? []),
     created_at: tsToIso(d.created_at_ts ?? d.created_at),
     delivered_at: d.delivered_at ? tsToIso(d.delivered_at) : null,
     read_at: d.read_at ? tsToIso(d.read_at) : null,
+    is_deleted: d.is_deleted ?? false,
   };
 }
 
@@ -166,17 +169,16 @@ export const chatSubscriptions = {
         (snap) => {
           if (!snap) return;
           snap.docChanges().forEach((change) => {
-            if (change.type === "added") {
+            if (change.type === "added" || change.type === "modified") {
               const data = change.doc.data() as any;
               callback({
                 new: docToMessage(data, change.doc.id, conversationId),
+                type: change.type,
               });
             }
           });
         },
-        (error) => {
-          console.error("Error in subscribeToMessages:", error);
-        },
+        (error) => console.error("Error in subscribeToMessages:", error),
       );
   },
 
@@ -196,9 +198,8 @@ export const chatSubscriptions = {
           }));
           callback({ docs });
         },
-        (error) => {
-          console.error("Error in subscribeToUserConversations:", error);
-        },
+        (error) =>
+          console.error("Error in subscribeToUserConversations:", error),
       );
   },
 
@@ -219,14 +220,11 @@ export const chatSubscriptions = {
             const updated = data?.updated_at?.toDate
               ? data.updated_at.toDate().getTime()
               : 0;
-            const fresh = updated > Date.now() - 6000;
-            typing[d.id] = !!data?.is_typing && fresh;
+            typing[d.id] = !!data?.is_typing && updated > Date.now() - 6000;
           });
           callback({ new: { typing } });
         },
-        (error) => {
-          console.error("Error in subscribeToTypingStatus:", error);
-        },
+        (error) => console.error("Error in subscribeToTypingStatus:", error),
       );
   },
 };
@@ -291,11 +289,7 @@ export const chatQueries = {
     }
   },
 
-  getMessages: async (
-    conversationId: string,
-    page = 0,
-    pageSize: number = 20,
-  ) => {
+  getMessages: async (conversationId: string, page = 0, pageSize = 20) => {
     try {
       const limitCount = pageSize * (page + 1);
       const snap = await firestore()
@@ -341,6 +335,7 @@ export const chatQueries = {
         content: content.trim() || null,
         delivered_at: new Date().toISOString(),
         read_at: null,
+        is_deleted: false,
         created_at: new Date().toISOString(),
         created_at_ts: firestore.FieldValue.serverTimestamp(),
       };
@@ -365,7 +360,6 @@ export const chatQueries = {
       const convRef = firestore()
         .collection("conversations")
         .doc(conversationId);
-
       const msgRef = await convRef.collection("messages").add(messageData);
 
       await convRef.update({
@@ -380,7 +374,6 @@ export const chatQueries = {
         },
       });
 
-      // Bump unread counts on participants subcollection
       try {
         const partsSnap = await convRef.collection("participants").get();
         const batch = firestore().batch();
@@ -398,7 +391,6 @@ export const chatQueries = {
         console.warn("Failed to bump unread counts:", e);
       }
 
-      // ✅ Write notifications for all other participants (once per unread convo)
       try {
         const convSnap = await convRef.get();
         const convData = convSnap.data() as any;
@@ -407,13 +399,11 @@ export const chatQueries = {
         )
           ? convData.participant_ids
           : [];
-
         const senderProfile = await getProfile(senderId);
         const recipients = participantIds.filter((id) => id !== senderId);
 
         await Promise.all(
           recipients.map(async (recipientId) => {
-            // Only notify if no existing unread message notification for this convo
             const recentSnap = await firestore()
               .collection("notifications")
               .where("receiver_id", "==", recipientId)
@@ -457,6 +447,43 @@ export const chatQueries = {
     } catch (error) {
       console.error("Error sending message:", error);
       return { data: null, error: error as Error };
+    }
+  },
+
+  // ✅ NEW: soft-delete a message
+  deleteMessage: async (
+    conversationId: string,
+    messageId: string,
+    userId: string,
+  ): Promise<{ error: Error | null }> => {
+    try {
+      const msgRef = firestore()
+        .collection("conversations")
+        .doc(conversationId)
+        .collection("messages")
+        .doc(messageId);
+
+      const snap = await msgRef.get();
+      if (!snap.exists()) return { error: new Error("Message not found") };
+
+      const data = snap.data() as any;
+      if (data.sender_id !== userId) {
+        return { error: new Error("You can only delete your own messages") };
+      }
+
+      await msgRef.update({
+        content: null,
+        media_url: null,
+        media_type: null,
+        attachments: [],
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+      });
+
+      return { error: null };
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      return { error: error as Error };
     }
   },
 
@@ -507,7 +534,6 @@ export const chatQueries = {
 
       const convSnap = await convRef.get();
       const conv = docToConversation(convSnap.data(), convSnap.id);
-
       const participants = await Promise.all(
         participantIds.map(async (userId) => ({
           user_id: userId,
@@ -531,14 +557,17 @@ export const chatQueries = {
         .collection("conversations")
         .doc(conversationId);
 
-      await convRef.collection("participants").doc(userId).set(
-        {
-          user_id: userId,
-          unread_count: 0,
-          last_read_at: firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+      await convRef
+        .collection("participants")
+        .doc(userId)
+        .set(
+          {
+            user_id: userId,
+            unread_count: 0,
+            last_read_at: firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
 
       const msgSnap = await convRef
         .collection("messages")
@@ -574,7 +603,6 @@ export const chatQueries = {
       if (!convData) throw new Error("Conversation not found");
 
       const conv = docToConversation(convData, convSnap.id);
-
       const participants = await Promise.all(
         (conv.participant_ids ?? []).map(async (uid) => ({
           user_id: uid,
@@ -615,18 +643,19 @@ export const chatQueries = {
       const convRef = firestore()
         .collection("conversations")
         .doc(conversationId);
-
-      const msgSnap = await convRef.collection("messages").get();
-      const partSnap = await convRef.collection("participants").get();
-      const typingSnap = await convRef.collection("typing").get();
+      const [msgSnap, partSnap, typingSnap] = await Promise.all([
+        convRef.collection("messages").get(),
+        convRef.collection("participants").get(),
+        convRef.collection("typing").get(),
+      ]);
 
       const batch = firestore().batch();
       msgSnap.docs.forEach((d) => batch.delete(d.ref));
       partSnap.docs.forEach((d) => batch.delete(d.ref));
       typingSnap.docs.forEach((d) => batch.delete(d.ref));
       batch.delete(convRef);
-
       await batch.commit();
+
       return { error: null };
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -636,7 +665,7 @@ export const chatQueries = {
 
   updateTypingStatus: async (conversationId: string, isTyping: boolean) => {
     try {
-      const uid = auth().currentUser?.uid;
+      const uid = auth.currentUser?.uid;
       if (!uid) return { error: null };
       await firestore()
         .collection("conversations")
@@ -666,3 +695,4 @@ export const markAsRead = chatQueries.markAsRead;
 export const getConversation = chatQueries.getConversation;
 export const deleteConversation = chatQueries.deleteConversation;
 export const updateTypingStatus = chatQueries.updateTypingStatus;
+export const deleteMessage = chatQueries.deleteMessage; // ✅ NEW

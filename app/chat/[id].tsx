@@ -1,4 +1,7 @@
 // app/chat/[id].tsx — React Native Firebase ✅
+// ✅ FIXED: message deletion with long press
+// ✅ FIXED: deleted messages hidden from UI
+// ✅ FIXED: media/attachments supported
 
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput, { type ChatAttachment } from "@/components/chat/ChatInput";
@@ -11,6 +14,7 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -31,18 +35,16 @@ export default function ChatConversationScreen() {
     loading,
     selectConversation,
     sendMessage,
+    deleteMessage,
   } = useChat();
 
   useEffect(() => {
     if (!id) return;
-    if (activeConversation !== id) {
-      selectConversation(id);
-    }
+    if (activeConversation !== id) selectConversation(id);
   }, [id, activeConversation, selectConversation]);
 
   useEffect(() => {
     if (!id || !user?.uid) return;
-
     const markAsRead = async () => {
       try {
         await firestore()
@@ -61,7 +63,6 @@ export default function ChatConversationScreen() {
         console.error("Error marking messages as read:", error);
       }
     };
-
     markAsRead();
   }, [id, user?.uid]);
 
@@ -117,6 +118,19 @@ export default function ChatConversationScreen() {
     await sendMessage(content, id, attachments);
   };
 
+  const handleMessageLongPress = (message: any) => {
+    if (message.sender !== "me") return;
+    if (message.is_deleted) return;
+    Alert.alert("Delete message?", "This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => void deleteMessage(id!, message.id),
+      },
+    ]);
+  };
+
   if (loading.conversations && !conversation) {
     return (
       <>
@@ -167,7 +181,7 @@ export default function ChatConversationScreen() {
           <ChatList
             messages={messages.map((msg) => ({
               id: msg.id,
-              content: msg.content ?? "",
+              content: (msg as any).is_deleted ? null : (msg.content ?? ""),
               createdAtIso: msg.created_at,
               sender: msg.sender_id === user?.uid ? "me" : "other",
               timestamp: new Date(msg.created_at).toLocaleTimeString([], {
@@ -179,17 +193,17 @@ export default function ChatConversationScreen() {
                 : msg.delivered_at
                   ? "delivered"
                   : "sent",
-              mediaUrl: msg.media_url ?? undefined,
-              mediaType:
-                (msg.media_type as
-                  | "image"
-                  | "video"
-                  | "audio"
-                  | "file"
-                  | undefined) ?? undefined,
-              attachments: msg.attachments,
+              mediaUrl: (msg as any).is_deleted
+                ? undefined
+                : (msg.media_url ?? undefined),
+              mediaType: (msg as any).is_deleted
+                ? undefined
+                : ((msg.media_type as any) ?? undefined),
+              attachments: (msg as any).is_deleted ? [] : msg.attachments,
+              is_deleted: (msg as any).is_deleted ?? false,
             }))}
             isLoading={loading.messages}
+            onMessageLongPress={handleMessageLongPress}
           />
 
           <ChatInput

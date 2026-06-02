@@ -1,11 +1,11 @@
-// lib/firestore/storage.ts — REACT NATIVE FIREBASE ✅
-import auth from "@react-native-firebase/auth";
+// lib/firestore/storage.ts — React Native Firebase ✅
+import { auth } from "@/lib/firebase";
 import storage from "@react-native-firebase/storage";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as VideoThumbnails from "expo-video-thumbnails";
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 export interface UploadOptions {
   compressImages?: boolean;
@@ -25,9 +25,8 @@ export interface UploadResult {
 }
 
 function generatePath(folder: string, ext: string) {
-  const user = auth().currentUser;
+  const user = auth.currentUser;
   if (!user) throw new Error("Not authenticated");
-
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2);
   return `${folder}/${user.uid}/${timestamp}-${random}.${ext}`;
@@ -49,7 +48,6 @@ function guessContentType(type: "image" | "video" | "file", ext: string) {
     if (ext === "gif") return "image/gif";
     return "image/jpeg";
   }
-
   if (type === "video") {
     if (ext === "mp4") return "video/mp4";
     if (ext === "mov") return "video/quicktime";
@@ -57,7 +55,6 @@ function guessContentType(type: "image" | "video" | "file", ext: string) {
     if (ext === "webm") return "video/webm";
     return "video/mp4";
   }
-
   return undefined;
 }
 
@@ -80,7 +77,6 @@ async function compressImage(
       format: ImageManipulator.SaveFormat.JPEG,
     },
   );
-
   return result.uri;
 }
 
@@ -98,19 +94,14 @@ export async function uploadFile(
   options: UploadOptions = {},
 ): Promise<UploadResult> {
   try {
-    if (!auth().currentUser) {
-      throw new Error("Not authenticated");
-    }
+    if (!auth.currentUser) throw new Error("Not authenticated");
 
     const fileInfo = await FileSystem.getInfoAsync(uri);
     if (!fileInfo.exists) throw new Error("File does not exist");
-
-    if (fileInfo.size && fileInfo.size > MAX_FILE_SIZE) {
+    if (fileInfo.size && fileInfo.size > MAX_FILE_SIZE)
       throw new Error("File too large");
-    }
 
     let uploadUri = uri;
-
     if (type === "image" && options.compressImages) {
       uploadUri = await compressImage(uri, options);
     }
@@ -118,24 +109,19 @@ export async function uploadFile(
     const ext = guessExtFromUri(uploadUri);
     const storagePath = generatePath(folder, ext);
     const storageRef = storage().ref(storagePath);
-
     const contentType = guessContentType(type, ext);
     await storageRef.putFile(
       uploadUri,
       contentType ? { contentType } : undefined,
     );
-
     const downloadURL = await storageRef.getDownloadURL();
 
     let thumbnailUrl: string | undefined;
-
     if (options.generateThumbnails && type === "video") {
       const thumbUri = await generateVideoThumbnail(uri);
       const thumbPath = generatePath("thumbnails", "jpg");
       const thumbRef = storage().ref(thumbPath);
-
       await thumbRef.putFile(thumbUri, { contentType: "image/jpeg" });
-
       thumbnailUrl = await thumbRef.getDownloadURL();
     }
 
@@ -148,10 +134,7 @@ export async function uploadFile(
     };
   } catch (error: any) {
     console.error("Firebase upload failed:", error);
-    return {
-      success: false,
-      error: error?.message || "Upload failed",
-    };
+    return { success: false, error: error?.message || "Upload failed" };
   }
 }
 
@@ -160,10 +143,7 @@ export async function uploadChatFile(params: {
   storagePath: string;
   contentType: string;
 }): Promise<{ downloadURL: string }> {
-  if (!auth().currentUser) {
-    throw new Error("Not authenticated");
-  }
-
+  if (!auth.currentUser) throw new Error("Not authenticated");
   const storageRef = storage().ref(params.storagePath);
   await storageRef.putFile(params.uri, { contentType: params.contentType });
   const downloadURL = await storageRef.getDownloadURL();

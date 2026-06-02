@@ -20,7 +20,7 @@ import {
 
 export interface Message {
   id: string;
-  content: string;
+  content: string | null;
   sender: "me" | "other";
   timestamp: string;
   createdAtIso: string;
@@ -143,6 +143,43 @@ export default function ChatList({
     const isMe = item.sender === "me";
     const hasAttachments = !!item.attachments?.length;
     const hasMedia = !!item.mediaUrl && !!item.mediaType;
+    const isDeleted = !!(item as any).is_deleted;
+
+    if (isDeleted) {
+      return (
+        <View
+          style={[
+            styles.messageContainer,
+            isMe ? styles.myMessage : styles.otherMessage,
+          ]}
+        >
+          <Text
+            style={[
+              styles.messageText,
+              isMe
+                ? [
+                    styles.myMessageText,
+                    { backgroundColor: colors.primary, opacity: 0.5 },
+                  ]
+                : [
+                    styles.otherMessageText,
+                    {
+                      backgroundColor: colors.card,
+                      color: colors.textTertiary,
+                    },
+                  ],
+            ]}
+          >
+            🚫 Message deleted
+          </Text>
+          <View style={styles.messageFooter}>
+            <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
+              {item.timestamp}
+            </Text>
+          </View>
+        </View>
+      );
+    }
 
     return (
       <View
