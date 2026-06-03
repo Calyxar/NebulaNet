@@ -1,5 +1,7 @@
 // app/(tabs)/home.tsx — UPDATED ✅
 // ✅ Removed bell button — notifications now lives in tab bar
+// ✅ Real-time profile sync — username/avatar updates reflect immediately
+// ✅ Route by user_id instead of username — fixes User Not Found
 
 import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
@@ -11,7 +13,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
 import type { Post } from "@/hooks/useFeed";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
-import { useFeedDensity, useInfiniteFeedPosts } from "@/hooks/usePosts";
+import {
+  useCurrentUserProfileSync,
+  useFeedDensity,
+  useInfiniteFeedPosts,
+} from "@/hooks/usePosts";
 import { useActiveStories } from "@/hooks/useStories";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -200,6 +206,9 @@ export default function HomeScreen() {
   const { maybeShowInterstitial } = useInterstitialAd();
   const feedDensity = useFeedDensity();
 
+  // ✅ Real-time profile sync — patches feed when username/avatar changes
+  useCurrentUserProfileSync();
+
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
     [width],
@@ -254,8 +263,9 @@ export default function HomeScreen() {
     const items: FeedItem[] = [];
     filteredPosts.forEach((post, i) => {
       items.push(post);
-      if ((i + 1) % AD_EVERY_N_POSTS === 0)
+      if ((i + 1) % AD_EVERY_N_POSTS === 0) {
         items.push({ __type: "ad", id: `ad_${i}` });
+      }
     });
     return items;
   }, [filteredPosts]);
@@ -526,8 +536,9 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
-      if ("__type" in item && item.__type === "ad")
+      if ("__type" in item && item.__type === "ad") {
         return <FeedBannerAd colors={colors} />;
+      }
 
       const post = item as Post;
       const author = post.user?.full_name || post.user?.username || "User";
@@ -567,11 +578,11 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.cardTop}>
+            {/* ✅ Route by user_id — fixes User Not Found after username change */}
             <TouchableOpacity
               style={styles.authorRow}
               onPress={() =>
-                post.user?.username &&
-                router.push(`/user/${post.user.username}` as any)
+                post.user_id && router.push(`/user/${post.user_id}` as any)
               }
               activeOpacity={0.85}
             >
@@ -608,6 +619,7 @@ export default function HomeScreen() {
                 </Text>
               </View>
             </TouchableOpacity>
+
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={(e) => {
@@ -698,6 +710,7 @@ export default function HomeScreen() {
                 {post.like_count ?? 0}
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -711,6 +724,7 @@ export default function HomeScreen() {
                 {post.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -724,6 +738,7 @@ export default function HomeScreen() {
                 {repostCount}
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -737,6 +752,7 @@ export default function HomeScreen() {
                 {post.share_count ?? 0}
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -854,6 +870,7 @@ function SegBtn({
 }
 
 const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -985,16 +1002,6 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   media: { width: "100%", height: "100%" },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingTop: 10,
-    borderTopWidth: 1,
-  },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { fontSize: 12.5, fontWeight: "800" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   videoBadge: {
     position: "absolute",
     top: 10,
@@ -1020,4 +1027,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  actionText: { fontSize: 12.5, fontWeight: "800" },
 });

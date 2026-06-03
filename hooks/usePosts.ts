@@ -3,6 +3,8 @@
 // ✅ FIXED: useToggleBookmark same fix — only invalidates detail, not lists
 // ✅ FIXED: useToggleBookmark writes to "saves" collection
 // ✅ FIXED: useToggleRepost added with optimistic update + cache invalidation
+// ✅ FIXED: repost_count added to optimistic post in useCreatePost
+// ✅ FIXED: useCurrentUserProfileSync — real-time feed patch on profile change
 
 import { useAuth } from "@/hooks/useAuth";
 import { useSettings } from "@/hooks/useSettings";
@@ -33,6 +35,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 export type { CommentWithAuthor };
 
@@ -203,6 +206,7 @@ export function useCreatePost() {
         like_count: 0,
         comment_count: 0,
         share_count: 0,
+        repost_count: 0, // ✅ fixed
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         user: null,
@@ -439,7 +443,6 @@ export function useToggleBookmark() {
   });
 }
 
-// ✅ NEW: useToggleRepost with optimistic update + cache invalidation
 export function useToggleRepost() {
   const qc = useQueryClient();
   return useMutation({
@@ -569,4 +572,51 @@ export function useIncrementShareCount() {
       qc.invalidateQueries({ queryKey: postKeys.detail(postId) });
     },
   });
+}
+
+// ✅ Real-time listener — patches feed cache when current user's profile changes
+export function useCurrentUserProfileSync() {
+  const qc = useQueryClient();
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+
+    const unsub = firestore()
+      .collection("profiles")
+      .doc(uid)
+      .onSnapshot((snap) => {
+        if (!snap.exists) return;
+        const data = snap.data() as any;
+
+        // ✅ Patch all feed list caches with updated username/name/avatar
+        qc.setQueriesData<InfiniteData<PaginatedPosts>>(
+          { queryKey: postKeys.lists() },
+          (old) =>
+            updateInfiniteLists(
+              old,
+              (posts) =>
+                posts.map((p) =>
+                  p.user_id !== uid
+                    ? p
+                    : {
+                        ...p,
+                        user: p.user
+                          ? {
+                              ...p.user,
+                              id: p.user.id ?? uid,
+                              username: data.username,
+                              full_name: data.full_name,
+                              avatar_url: data.avatar_url,
+                            }
+                          : p.user,
+                      },
+                ),
+              { allPages: true },
+            ),
+        );
+      });
+
+    return () => unsub();
+  }, [uid, qc]);
 }
