@@ -33,6 +33,14 @@ export function usePhoneAuth() {
       setState("awaiting_code");
       return true;
     } catch (e: any) {
+      console.error(
+        "[phoneAuth] code:",
+        e?.code,
+        "msg:",
+        e?.message,
+        "full:",
+        JSON.stringify(e),
+      );
       const msg = parsePhoneError(e);
       setError(msg);
       setState("error");
