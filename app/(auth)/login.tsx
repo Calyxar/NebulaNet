@@ -1,9 +1,13 @@
-// app/(auth)/login.tsx ✅
+// app/(auth)/login.tsx ✅ — with Google SSO
 import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import authNative from "@react-native-firebase/auth";
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
 import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -19,6 +23,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+// ✅ Configure Google Sign-In once
+GoogleSignin.configure({
+  webClientId:
+    "651919287297-p47sq6itdfidob7nrluutl0ggqlgoe8p.apps.googleusercontent.com",
+});
 
 const COUNTRY_CODES = [
   { flag: "🇺🇸", code: "+1", label: "US" },
@@ -46,12 +56,43 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   useEffect(() => {
     if (phoneError) Alert.alert("Error", phoneError);
   }, [phoneError]);
 
   const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+  // ✅ Google Sign-In handler
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+      await GoogleSignin.signIn();
+      const tokens = await GoogleSignin.getTokens();
+      const googleCredential = authNative.GoogleAuthProvider.credential(
+        tokens.idToken,
+      );
+      await authNative().signInWithCredential(googleCredential);
+      // Auth state change will handle navigation
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) return;
+      if (error.code === statusCodes.IN_PROGRESS) return;
+      if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert("Error", "Google Play Services not available.");
+        return;
+      }
+      Alert.alert(
+        "Google Sign-In Failed",
+        error?.message ?? "Please try again.",
+      );
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (user) return;
@@ -92,7 +133,6 @@ export default function LoginScreen() {
       const code: string = error?.code ?? "";
       const lower = (error?.message || "").toLowerCase();
 
-      // ✅ MFA required — use verifyPhoneNumber directly (no PhoneAuthProvider constructor)
       if (code === "auth/multi-factor-auth-required") {
         try {
           const resolver = authNative().getMultiFactorResolver(error);
@@ -104,7 +144,6 @@ export default function LoginScreen() {
           const hint = resolver.hints[0] as any;
           const phoneNumber: string = hint?.phoneNumber ?? "";
 
-          // ✅ verifyPhoneNumber on the auth instance — no constructor needed
           const verificationId = await new Promise<string>(
             (resolve, reject) => {
               authNative()
@@ -160,7 +199,11 @@ export default function LoginScreen() {
 
   const isSendingOTP = phoneState === "sending";
   const disabled =
-    isSubmitting || authLoading || login.isPending || isSendingOTP;
+    isSubmitting ||
+    authLoading ||
+    login.isPending ||
+    isSendingOTP ||
+    isGoogleLoading;
 
   return (
     <>
@@ -380,7 +423,7 @@ export default function LoginScreen() {
               <Text style={styles.loginButtonText}>
                 {isSendingOTP
                   ? "Sending code..."
-                  : disabled
+                  : isSubmitting
                     ? "Signing in..."
                     : activeTab === "phone"
                       ? "Send Code"
@@ -400,10 +443,17 @@ export default function LoginScreen() {
               />
             </View>
 
+            {/* ✅ Google SSO — enabled */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
-                style={[styles.socialButton, { backgroundColor: colors.card }]}
-                disabled
+                style={[
+                  styles.socialButton,
+                  { backgroundColor: colors.card },
+                  isGoogleLoading && { opacity: 0.6 },
+                ]}
+                onPress={handleGoogleSignIn}
+                disabled={disabled}
+                activeOpacity={0.85}
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>

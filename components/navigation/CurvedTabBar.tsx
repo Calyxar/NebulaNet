@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 0,
     borderTopWidth: Platform.OS === "android" ? 1 : 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: -20,
   },
 
   createTab: {

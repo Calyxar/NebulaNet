@@ -1,0 +1,6 @@
+// app/(tabs)/notifications.tsx
+import { Redirect } from "expo-router";
+
+export default function NotificationsTab() {
+  return <Redirect href="/notifications" />;
+}

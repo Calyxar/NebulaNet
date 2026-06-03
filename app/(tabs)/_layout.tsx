@@ -28,19 +28,12 @@ export default function TabsLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="explore" />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          tabBarBadge: messageBadge,
-        }}
-      />
+      <Tabs.Screen name="chat" options={{ tabBarBadge: messageBadge }} />
       <Tabs.Screen name="create" />
       <Tabs.Screen name="home" />
       <Tabs.Screen
         name="profile"
-        options={{
-          tabBarBadge: notificationBadge,
-        }}
+        options={{ tabBarBadge: notificationBadge }}
       />
     </Tabs>
   );

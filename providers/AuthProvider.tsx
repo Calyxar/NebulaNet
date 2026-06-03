@@ -205,7 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) =>
       auth().signInWithEmailAndPassword(email, password),
-    onError: (err) => toast(`Login failed: ${err.message}`),
+    // No onError toast - login.tsx handles all errors including MFA redirect
   });
 
   const signup = useMutation<any, Error, EmailPasswordVars>({

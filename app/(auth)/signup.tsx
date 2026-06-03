@@ -1,7 +1,13 @@
+// app/(auth)/signup.tsx ✅ — with Google SSO
 import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import authNative from "@react-native-firebase/auth";
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
 import { Link, router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -17,6 +23,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+// ✅ Configure Google Sign-In once
+GoogleSignin.configure({
+  webClientId:
+    "651919287297-p47sq6itdfidob7nrluutl0ggqlgoe8p.apps.googleusercontent.com",
+});
 
 const COUNTRY_CODES = [
   { flag: "🇺🇸", code: "+1", label: "US" },
@@ -54,6 +66,7 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   useEffect(() => {
     if (phoneError) Alert.alert("Error", phoneError);
@@ -62,6 +75,36 @@ export default function SignUpScreen() {
   const validateEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const validateUsername = (v: string) => /^[a-zA-Z0-9_]{3,20}$/.test(v);
   const validatePassword = (v: string) => v.length >= 8;
+
+  // ✅ Google Sign-In — works for both sign-up and sign-in
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+      await GoogleSignin.signIn();
+      const tokens = await GoogleSignin.getTokens();
+      const googleCredential = authNative.GoogleAuthProvider.credential(
+        tokens.idToken,
+      );
+      await authNative().signInWithCredential(googleCredential);
+      // Auth state change in AuthProvider handles profile creation + navigation
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) return;
+      if (error.code === statusCodes.IN_PROGRESS) return;
+      if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert("Error", "Google Play Services not available.");
+        return;
+      }
+      Alert.alert(
+        "Google Sign-In Failed",
+        error?.message ?? "Please try again.",
+      );
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleSignUp = async () => {
     if (user) return;
@@ -187,7 +230,11 @@ export default function SignUpScreen() {
 
   const isSendingOTP = phoneState === "sending";
   const disabled =
-    isSubmitting || authLoading || signup.isPending || isSendingOTP;
+    isSubmitting ||
+    authLoading ||
+    signup.isPending ||
+    isSendingOTP ||
+    isGoogleLoading;
 
   return (
     <>
@@ -438,7 +485,7 @@ export default function SignUpScreen() {
               <Text style={styles.signupButtonText}>
                 {isSendingOTP
                   ? "Sending code..."
-                  : disabled
+                  : isSubmitting
                     ? "Creating account..."
                     : activeTab === "phone"
                       ? "Send Code"
@@ -458,10 +505,17 @@ export default function SignUpScreen() {
               />
             </View>
 
+            {/* ✅ Google SSO — enabled */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
-                style={[styles.socialButton, { backgroundColor: colors.card }]}
-                disabled
+                style={[
+                  styles.socialButton,
+                  { backgroundColor: colors.card },
+                  isGoogleLoading && { opacity: 0.6 },
+                ]}
+                onPress={handleGoogleSignIn}
+                disabled={disabled}
+                activeOpacity={0.85}
               >
                 <Ionicons name="logo-google" size={24} color="#DB4437" />
               </TouchableOpacity>

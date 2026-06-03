@@ -1,38 +1,54 @@
-// utils/pushNotifications.ts — FIREBASE ✅
-
+// utils/pushNotifications.ts — FIREBASE FCM ✅
 import { auth, db } from "@/lib/firebase";
+import messaging from "@react-native-firebase/messaging";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 
-export async function registerForPushNotificationsAsync() {
-  if (!Device.isDevice) {
-    alert("Must use physical device for Push Notifications");
+export async function registerForPushNotificationsAsync(): Promise<
+  string | null
+> {
+  if (!Device.isDevice) return null;
+
+  try {
+    const authStatus = await messaging().requestPermission();
+    const enabled =
+      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+    if (!enabled) return null;
+
+    const fcmToken = await messaging().getToken();
+    if (!fcmToken) return null;
+
+    const user = auth.currentUser;
+    if (user) {
+      await db.collection("profiles").doc(user.uid).set(
+        {
+          fcm_token: fcmToken,
+          fcm_token_platform: Platform.OS,
+          fcm_token_updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+    }
+
+    messaging().onTokenRefresh(async (newToken: string) => {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await db.collection("profiles").doc(currentUser.uid).set(
+          {
+            fcm_token: newToken,
+            fcm_token_platform: Platform.OS,
+            fcm_token_updated_at: new Date().toISOString(),
+          },
+          { merge: true },
+        );
+      }
+    });
+
+    return fcmToken;
+  } catch (error) {
+    console.warn("Push notification registration failed:", error);
     return null;
   }
-
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== "granted") {
-    alert("Failed to get push token for push notification!");
-    return null;
-  }
-
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
-  console.log("Push Token:", token);
-
-  const user = auth.currentUser;
-  if (user) {
-    await db
-      .collection("profiles")
-      .doc(user.uid)
-      .set({ push_token: token }, { merge: true });
-  }
-
-  return token;
 }

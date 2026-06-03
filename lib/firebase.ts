@@ -1,6 +1,5 @@
 // lib/firebase.ts — React Native Firebase ✅
 import { firebase as rnApp } from "@react-native-firebase/app";
-import rnAppCheck from "@react-native-firebase/app-check";
 import rnAuth from "@react-native-firebase/auth";
 import rnFirestore from "@react-native-firebase/firestore";
 import rnFunctions from "@react-native-firebase/functions";
@@ -16,14 +15,6 @@ export const firebaseConfig = {
 };
 
 export const app = rnApp.app();
-
-// ✅ Initialize App Check with Play Integrity for production
-const appCheck = rnAppCheck();
-appCheck.initializeAppCheck({
-  provider: appCheck.newReactNativeFirebaseAppCheckProvider(),
-  isTokenAutoRefreshEnabled: true,
-});
-
 export const auth = rnAuth();
 export const db = rnFirestore();
 export const storage = rnStorage();
