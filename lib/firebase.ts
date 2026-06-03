@@ -1,8 +1,6 @@
 // lib/firebase.ts — React Native Firebase ✅
-// All services routed through @react-native-firebase so auth state is
-// shared across auth, firestore, storage, and functions calls.
-
 import { firebase as rnApp } from "@react-native-firebase/app";
+import rnAppCheck from "@react-native-firebase/app-check";
 import rnAuth from "@react-native-firebase/auth";
 import rnFirestore from "@react-native-firebase/firestore";
 import rnFunctions from "@react-native-firebase/functions";
@@ -17,12 +15,15 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID!,
 };
 
-// RN Firebase reads config from google-services.json on Android, so we don't
-// need to call initializeApp manually — rnApp.app() returns the default.
 export const app = rnApp.app();
 
-// These look like the web SDK's singletons but return RN Firebase modules
-// whose methods are accessed via instance (e.g. auth().currentUser).
+// ✅ Initialize App Check with Play Integrity for production
+const appCheck = rnAppCheck();
+appCheck.initializeAppCheck({
+  provider: appCheck.newReactNativeFirebaseAppCheckProvider(),
+  isTokenAutoRefreshEnabled: true,
+});
+
 export const auth = rnAuth();
 export const db = rnFirestore();
 export const storage = rnStorage();

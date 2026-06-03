@@ -35,10 +35,10 @@
       }
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": "$GOOGLE_SERVICES_JSON",
       "package": "com.nebulanet.app",
-      "versionCode": 2,
-      "versionName": "1.0.6",
+      "versionCode": 3,
+      "versionName": "1.0.7",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -85,7 +85,8 @@
         "CAMERA",
         "RECORD_AUDIO",
         "ACCESS_NOTIFICATION_POLICY",
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "READ_PHONE_STATE"
       ],
       "softwareKeyboardLayoutMode": "resize",
       "allowBackup": false
@@ -149,7 +150,12 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/app-check",
+      [
+        "@react-native-firebase/app-check",
+        {
+          "androidDebugToken": ""
+        }
+      ],
       [
         "react-native-google-mobile-ads",
         {
