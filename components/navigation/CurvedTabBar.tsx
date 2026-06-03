@@ -1,6 +1,14 @@
+import { useTheme } from "@/providers/ThemeProvider";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
-import { Home, MessageCircle, Plus, Search, User } from "lucide-react-native";
+import {
+  Bell,
+  Home,
+  MessageCircle,
+  Plus,
+  Search,
+  User,
+} from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -13,8 +21,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useTheme } from "@/providers/ThemeProvider";
-
 export const TAB_BAR_BASE_HEIGHT = 68;
 
 export function getTabBarHeight(insetsBottom: number) {
@@ -22,8 +28,15 @@ export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, extraAndroidGesture);
 }
 
-// ✅ Put tabs in the exact order you want visually
-const ORDER = ["home", "explore", "create", "chat", "profile"] as const;
+// ✅ 6 tabs — even spacing
+const ORDER = [
+  "home",
+  "explore",
+  "create",
+  "chat",
+  "notifications",
+  "profile",
+] as const;
 
 function CreateTabButton({
   onPress,
@@ -37,7 +50,6 @@ function CreateTabButton({
   const scale = useRef(new Animated.Value(1)).current;
   const [pressed, setPressed] = useState(false);
 
-  // ✅ tight / premium press-in
   const pressIn = () => {
     setPressed(true);
     Animated.spring(scale, {
@@ -48,7 +60,6 @@ function CreateTabButton({
     }).start();
   };
 
-  // ✅ faster snap-back
   const pressOut = () => {
     setPressed(false);
     Animated.spring(scale, {
@@ -82,7 +93,6 @@ function CreateTabButton({
           },
         ]}
       >
-        {/* ✅ soft pressed overlay */}
         <View
           pointerEvents="none"
           style={[
@@ -90,8 +100,7 @@ function CreateTabButton({
             { opacity: pressed ? 0.08 : 0, backgroundColor: "#000" },
           ]}
         />
-
-        <Plus size={28} color="#FFFFFF" strokeWidth={3} />
+        <Plus size={26} color="#FFFFFF" strokeWidth={3} />
       </Animated.View>
     </Pressable>
   );
@@ -100,11 +109,10 @@ function CreateTabButton({
 export default function CurvedTabBar({
   state,
   navigation,
-  descriptors, // ✅ IMPORTANT: needed to read tabBarBadge
+  descriptors,
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const height = getTabBarHeight(insets.bottom);
-
   const { colors, isDark } = useTheme();
 
   const activeColor = colors.primary;
@@ -138,7 +146,6 @@ export default function CurvedTabBar({
           const isFocused = state.index === index;
           const isCreate = route.name === "create";
 
-          // ✅ Read the badge from screen options (set in TabsLayout)
           const badge = descriptors?.[route.key]?.options?.tabBarBadge;
 
           const onPress = () => {
@@ -147,13 +154,11 @@ export default function CurvedTabBar({
               target: route.key,
               canPreventDefault: true,
             });
-
-            if (!event.defaultPrevented) {
+            if (!event.defaultPrevented)
               navigation.navigate(route.name as never);
-            }
           };
 
-          const iconSize = isFocused ? 26 : 24;
+          const iconSize = isFocused ? 24 : 22;
           const color = isFocused ? activeColor : inactiveColor;
           const strokeWidth = isFocused ? 2.5 : 2;
 
@@ -164,11 +169,12 @@ export default function CurvedTabBar({
                 ? "Explore"
                 : route.name === "chat"
                   ? "Chat"
-                  : route.name === "profile"
-                    ? "Profile"
-                    : "";
+                  : route.name === "notifications"
+                    ? "Alerts"
+                    : route.name === "profile"
+                      ? "Profile"
+                      : "";
 
-          // ✅ Special create button with animation + haptics
           if (isCreate) {
             return (
               <View key={route.key} style={[styles.tab, styles.createTab]}>
@@ -207,6 +213,14 @@ export default function CurvedTabBar({
                     strokeWidth={strokeWidth}
                   />
                 );
+              case "notifications":
+                return (
+                  <Bell
+                    size={iconSize}
+                    color={color}
+                    strokeWidth={strokeWidth}
+                  />
+                );
               case "profile":
                 return (
                   <User
@@ -238,15 +252,12 @@ export default function CurvedTabBar({
             >
               <View style={styles.iconWrap}>
                 <Icon />
-
-                {/* ✅ Badge */}
                 {showBadge ? (
                   <View style={[styles.badge, { borderColor: colors.card }]}>
                     <Text style={styles.badgeText}>{String(badge)}</Text>
                   </View>
                 ) : null}
               </View>
-
               <Text
                 style={[
                   styles.label,
@@ -272,7 +283,6 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: "transparent",
   },
-
   tabBar: {
     flex: 1,
     flexDirection: "row",
@@ -285,55 +295,38 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -4 },
     shadowRadius: 12,
   },
-
   tab: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: -20,
+    paddingVertical: 8,
   },
-
   createTab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: -20,
   },
-
   createPressable: {
     alignItems: "center",
     justifyContent: "center",
   },
-
   createButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-
-    // ✅ Completely removes ugly glow/light
     shadowColor: "transparent",
     shadowOpacity: 0,
     shadowOffset: { width: 0, height: 0 },
     shadowRadius: 0,
     elevation: 0,
-
-    // ✅ premium border instead of glow
     borderWidth: 1,
-
-    // so the overlay clips perfectly
     overflow: "hidden",
   },
-
-  softPressOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-
-  label: {
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-
-  // ✅ badge support
+  softPressOverlay: { ...StyleSheet.absoluteFillObject },
+  label: { fontSize: 10, fontWeight: "700", marginTop: 4 },
   iconWrap: {
     position: "relative",
     alignItems: "center",
@@ -342,19 +335,15 @@ const styles = StyleSheet.create({
   badge: {
     position: "absolute",
     top: -6,
-    right: -12,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#EF4444",
-    borderWidth: 2, // gives a “cutout” look against card background
+    borderWidth: 2,
   },
-  badgeText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "900",
-  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 });

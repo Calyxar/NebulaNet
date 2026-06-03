@@ -32,9 +32,10 @@ export default function TabsLayout() {
       <Tabs.Screen name="create" />
       <Tabs.Screen name="home" />
       <Tabs.Screen
-        name="profile"
+        name="notifications"
         options={{ tabBarBadge: notificationBadge }}
       />
+      <Tabs.Screen name="profile" />
     </Tabs>
   );
 }

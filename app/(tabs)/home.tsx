@@ -1,8 +1,5 @@
 // app/(tabs)/home.tsx — UPDATED ✅
-// ✅ FIXED: Added skeleton loading states
-// ✅ FIXED: Added NSFW/spoiler content filtering based on user preferences
-// ✅ FIXED: Heart turns red when liked, Bookmark turns colored when saved
-// ✅ FIXED: Repost count shows repost_count, share count added separately
+// ✅ Removed bell button — notifications now lives in tab bar
 
 import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
@@ -16,14 +13,12 @@ import type { Post } from "@/hooks/useFeed";
 import { useFeedInteractions } from "@/hooks/useFeedInteractions";
 import { useFeedDensity, useInfiniteFeedPosts } from "@/hooks/usePosts";
 import { useActiveStories } from "@/hooks/useStories";
-import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
-  Bell,
   Bookmark,
   Heart,
   MessageCircle,
@@ -105,7 +100,6 @@ const hasNSFWContent = (post: Post): boolean => {
 
 function SkeletonBox({ style }: { style: any }) {
   const opacity = useSharedValue(0.3);
-
   React.useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
@@ -116,11 +110,7 @@ function SkeletonBox({ style }: { style: any }) {
       false,
     );
   }, []);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
-
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View
       style={[
@@ -135,7 +125,6 @@ function SkeletonBox({ style }: { style: any }) {
 function SkeletonPost({ colors, isDark, feedDensity }: any) {
   const padding =
     feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
-
   return (
     <View
       style={[
@@ -215,7 +204,6 @@ export default function HomeScreen() {
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
     [width],
   );
-
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
@@ -224,7 +212,6 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
   const [communitySearch, setCommunitySearch] = useState("");
 
-  const unreadCount = useUnreadNotificationsCount();
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
 
@@ -267,9 +254,8 @@ export default function HomeScreen() {
     const items: FeedItem[] = [];
     filteredPosts.forEach((post, i) => {
       items.push(post);
-      if ((i + 1) % AD_EVERY_N_POSTS === 0) {
+      if ((i + 1) % AD_EVERY_N_POSTS === 0)
         items.push({ __type: "ad", id: `ad_${i}` });
-      }
     });
     return items;
   }, [filteredPosts]);
@@ -312,6 +298,7 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
+        {/* ✅ No bell button — notifications is in the tab bar */}
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
@@ -327,33 +314,6 @@ export default function HomeScreen() {
                 NebulaNet
               </Text>
             </View>
-          }
-          right={
-            <TouchableOpacity
-              style={[
-                styles.bellWrap,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-              onPress={() => router.push("/notifications")}
-              activeOpacity={0.7}
-            >
-              <Bell size={22} color={colors.primary} strokeWidth={2.5} />
-              {unreadCount > 0 && (
-                <View
-                  style={[
-                    styles.badge,
-                    {
-                      backgroundColor: colors.primary,
-                      borderColor: colors.surface,
-                    },
-                  ]}
-                >
-                  <Text style={styles.badgeText}>
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
           }
         />
 
@@ -492,7 +452,6 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
             </View>
-
             {filteredCommunities.length > 0 ? (
               <FlatList
                 horizontal
@@ -558,7 +517,6 @@ export default function HomeScreen() {
     );
   }, [
     activeTab,
-    unreadCount,
     colors,
     isDark,
     stories,
@@ -568,9 +526,8 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
-      if ("__type" in item && item.__type === "ad") {
+      if ("__type" in item && item.__type === "ad")
         return <FeedBannerAd colors={colors} />;
-      }
 
       const post = item as Post;
       const author = post.user?.full_name || post.user?.username || "User";
@@ -578,7 +535,6 @@ export default function HomeScreen() {
       const media = post.media_urls?.[0];
       const video = isVideoPost(post);
       const isPoll = post.post_type === "poll" && !!(post as any).poll;
-
       const liked = !!post.is_liked;
       const saved = !!post.is_saved;
       const likeColor = liked ? "#FF375F" : colors.text;
@@ -652,7 +608,6 @@ export default function HomeScreen() {
                 </Text>
               </View>
             </TouchableOpacity>
-
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={(e) => {
@@ -743,7 +698,6 @@ export default function HomeScreen() {
                 {post.like_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -757,8 +711,6 @@ export default function HomeScreen() {
                 {post.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
-
-            {/* ✅ FIX: repost_count not share_count, primary color when > 0 */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -772,8 +724,6 @@ export default function HomeScreen() {
                 {repostCount}
               </Text>
             </TouchableOpacity>
-
-            {/* ✅ ADD: share count */}
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -787,7 +737,6 @@ export default function HomeScreen() {
                 {post.share_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -905,7 +854,6 @@ function SegBtn({
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -919,28 +867,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     flexShrink: 1,
   },
-  bellWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    borderWidth: 1,
-  },
-  badge: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-    borderWidth: 2,
-  },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
   storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
   storyItem: { alignItems: "center", marginRight: 16, width: 76 },
   addStoryCircle: {
@@ -1059,6 +985,16 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   media: { width: "100%", height: "100%" },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  actionText: { fontSize: 12.5, fontWeight: "800" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   videoBadge: {
     position: "absolute",
     top: 10,
@@ -1084,13 +1020,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingTop: 10,
-    borderTopWidth: 1,
-  },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { fontSize: 12.5, fontWeight: "800" },
 });
