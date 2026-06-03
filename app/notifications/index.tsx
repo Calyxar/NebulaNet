@@ -1,27 +1,26 @@
-// app/notifications/index.tsx — FIREBASE ✅ COMPLETED + REWRITTEN
+// app/notifications/index.tsx ✅
 import AppHeader from "@/components/navigation/AppHeader";
-import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
-import { useAuth } from "@/hooks/useAuth";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  SectionList,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    BackHandler,
+    Image,
+    SectionList,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import {
-  SafeAreaView,
-  useSafeAreaInsets,
+    SafeAreaView,
+    useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
 type FilterTab = "all" | "unread";
@@ -38,8 +37,18 @@ function NotificationRowSkeleton({ colors }: { colors: any }) {
         <View style={[styles.avatar, { backgroundColor: colors.surface }]} />
       </View>
       <View style={{ flex: 1, gap: 7 }}>
-        <View style={[styles.skeletonLine, { width: "72%", backgroundColor: colors.surface }]} />
-        <View style={[styles.skeletonLine, { width: "52%", backgroundColor: colors.surface, height: 10 }]} />
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: "72%", backgroundColor: colors.surface },
+          ]}
+        />
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: "52%", backgroundColor: colors.surface, height: 10 },
+          ]}
+        />
       </View>
     </View>
   );
@@ -64,7 +73,8 @@ function NotificationRow({
 }) {
   const iconName = getIcon(item.type);
   const iconColor = getColor(item.type);
-  const senderName = item.sender?.full_name || item.sender?.username || "Someone";
+  const senderName =
+    item.sender?.full_name || item.sender?.username || "Someone";
 
   const timeAgo = (iso: string) => {
     const diff = Date.now() - new Date(iso).getTime();
@@ -75,33 +85,45 @@ function NotificationRow({
     if (h < 24) return `${h}h`;
     const d = Math.floor(h / 24);
     if (d < 7) return `${d}d`;
-    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
   };
 
   const bodyText = useMemo(() => {
     const base = item.sender?.full_name || item.sender?.username || "Someone";
     switch (item.type) {
-      case "like": return `${base} liked your post`;
+      case "like":
+        return `${base} liked your post`;
       case "comment":
         return item.comment?.content
           ? `${base}: "${item.comment.content.slice(0, 80)}"`
           : `${base} commented on your post`;
-      case "follow": return `${base} started following you`;
-      case "follow_request": return `${base} requested to follow you`;
-      case "mention": return `${base} mentioned you in a post`;
+      case "follow":
+        return `${base} started following you`;
+      case "follow_request":
+        return `${base} requested to follow you`;
+      case "mention":
+        return `${base} mentioned you in a post`;
       case "community_invite":
         return item.community?.name
           ? `${base} invited you to ${item.community.name}`
           : `${base} invited you to a community`;
-      case "post_shared": return `${base} shared your post`;
+      case "post_shared":
+        return `${base} shared your post`;
       case "story_comment":
         return item.comment?.content
           ? `${base}: "${item.comment.content.slice(0, 80)}"`
           : `${base} replied to your story`;
-      case "story_like": return `${base} liked your story`;
-      case "message": return `${base} sent you a message`;
-      case "join_request": return `${base} wants to join your community`;
-      default: return item.comment?.content || "New notification";
+      case "story_like":
+        return `${base} liked your story`;
+      case "message":
+        return `${base} sent you a message`;
+      case "join_request":
+        return `${base} wants to join your community`;
+      default:
+        return item.comment?.content || "New notification";
     }
   }, [item]);
 
@@ -128,8 +150,16 @@ function NotificationRow({
             style={[styles.avatar, { backgroundColor: colors.surface }]}
           />
         ) : (
-          <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.avatarFallbackText, { color: colors.primary }]}>
+          <View
+            style={[
+              styles.avatar,
+              styles.avatarFallback,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <Text
+              style={[styles.avatarFallbackText, { color: colors.primary }]}
+            >
               {(senderName[0] || "?").toUpperCase()}
             </Text>
           </View>
@@ -140,7 +170,10 @@ function NotificationRow({
       </View>
 
       <View style={styles.rowBody}>
-        <Text style={[styles.rowText, { color: colors.text }]} numberOfLines={2}>
+        <Text
+          style={[styles.rowText, { color: colors.text }]}
+          numberOfLines={2}
+        >
           {bodyText}
         </Text>
         <Text style={[styles.rowTime, { color: colors.textTertiary }]}>
@@ -158,7 +191,9 @@ function NotificationRow({
 function SectionHeader({ title, colors }: { title: string; colors: any }) {
   return (
     <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>{title}</Text>
+      <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>
+        {title}
+      </Text>
     </View>
   );
 }
@@ -166,9 +201,15 @@ function SectionHeader({ title, colors }: { title: string; colors: any }) {
 function EmptyState({ filter, colors }: { filter: FilterTab; colors: any }) {
   return (
     <View style={styles.emptyState}>
-      <View style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}>
+      <View
+        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
+      >
         <Ionicons
-          name={filter === "unread" ? "checkmark-circle-outline" : "notifications-off-outline"}
+          name={
+            filter === "unread"
+              ? "checkmark-circle-outline"
+              : "notifications-off-outline"
+          }
           size={32}
           color={colors.primary}
         />
@@ -188,7 +229,6 @@ function EmptyState({ filter, colors }: { filter: FilterTab; colors: any }) {
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
-  const { user } = useAuth();
   const { showActionSheetWithOptions } = useActionSheet();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
 
@@ -203,14 +243,30 @@ export default function NotificationsScreen() {
     groupNotificationsByDate,
   } = useNotifications();
 
-  const bottomPad = useMemo(() => getTabBarHeight(insets.bottom) + 12, [insets.bottom]);
+  // ✅ Fix: use insets.bottom only — no tab bar on this screen
+  const bottomPad = useMemo(() => insets.bottom + 24, [insets.bottom]);
+
+  // ✅ Fix: hardware back button goes back to home, not out of app
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => {
+          router.back();
+          return true;
+        },
+      );
+      return () => subscription.remove();
+    }, []),
+  );
 
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
     : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
 
   const filtered = useMemo(() => {
-    if (activeFilter === "unread") return notifications.filter((n) => !n.is_read);
+    if (activeFilter === "unread")
+      return notifications.filter((n) => !n.is_read);
     return notifications;
   }, [notifications, activeFilter]);
 
@@ -243,7 +299,11 @@ export default function NotificationsScreen() {
     const destructiveIndex = options.indexOf("Delete");
 
     showActionSheetWithOptions(
-      { options, cancelButtonIndex: cancelIndex, destructiveButtonIndex: destructiveIndex },
+      {
+        options,
+        cancelButtonIndex: cancelIndex,
+        destructiveButtonIndex: destructiveIndex,
+      },
       (selectedIndex) => {
         if (selectedIndex == null || selectedIndex === cancelIndex) return;
         const action = options[selectedIndex];
@@ -266,9 +326,19 @@ export default function NotificationsScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+          {/* ✅ Back button in header */}
           <AppHeader
             title="Notifications"
             backgroundColor="transparent"
+            left={
+              <TouchableOpacity
+                onPress={() => router.back()}
+                activeOpacity={0.7}
+                style={styles.backBtn}
+              >
+                <Ionicons name="arrow-back" size={24} color={colors.text} />
+              </TouchableOpacity>
+            }
             rightWide={
               unreadCount > 0 ? (
                 <TouchableOpacity
@@ -276,13 +346,20 @@ export default function NotificationsScreen() {
                   activeOpacity={0.8}
                   style={[
                     styles.markAllBtn,
-                    { backgroundColor: colors.primary + "18", borderColor: colors.primary + "30" },
+                    {
+                      backgroundColor: colors.primary + "18",
+                      borderColor: colors.primary + "30",
+                    },
                   ]}
                 >
                   {markAsRead.isPending ? (
                     <ActivityIndicator size={12} color={colors.primary} />
                   ) : (
-                    <Ionicons name="checkmark-done" size={15} color={colors.primary} />
+                    <Ionicons
+                      name="checkmark-done"
+                      size={15}
+                      color={colors.primary}
+                    />
                   )}
                   <Text style={[styles.markAllText, { color: colors.primary }]}>
                     Mark all read
@@ -296,7 +373,10 @@ export default function NotificationsScreen() {
             <View
               style={[
                 styles.tabsRow,
-                { backgroundColor: colors.card, shadowOpacity: isDark ? 0.2 : 0.05 },
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.2 : 0.05,
+                },
               ]}
             >
               {(["all", "unread"] as FilterTab[]).map((tab) => {
@@ -310,7 +390,10 @@ export default function NotificationsScreen() {
                     key={tab}
                     onPress={() => setActiveFilter(tab)}
                     activeOpacity={0.85}
-                    style={[styles.tabItem, isActive && { backgroundColor: colors.primary }]}
+                    style={[
+                      styles.tabItem,
+                      isActive && { backgroundColor: colors.primary },
+                    ]}
                   >
                     <Text
                       style={[
@@ -328,10 +411,20 @@ export default function NotificationsScreen() {
           </View>
 
           {isLoading ? (
-            <View style={[styles.skeletonCard, { backgroundColor: colors.card, shadowOpacity: isDark ? 0.2 : 0.05 }]}>
-              {Array(6).fill(null).map((_, i) => (
-                <NotificationRowSkeleton key={i} colors={colors} />
-              ))}
+            <View
+              style={[
+                styles.skeletonCard,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.2 : 0.05,
+                },
+              ]}
+            >
+              {Array(6)
+                .fill(null)
+                .map((_, i) => (
+                  <NotificationRowSkeleton key={i} colors={colors} />
+                ))}
             </View>
           ) : sections.length === 0 ? (
             <EmptyState filter={activeFilter} colors={colors} />
@@ -378,8 +471,15 @@ export default function NotificationsScreen() {
                 );
               }}
               ItemSeparatorComponent={() => (
-                <View style={[styles.separator, { backgroundColor: colors.card }]}>
-                  <View style={[styles.separatorLine, { backgroundColor: colors.border, marginLeft: 74 }]} />
+                <View
+                  style={[styles.separator, { backgroundColor: colors.card }]}
+                >
+                  <View
+                    style={[
+                      styles.separatorLine,
+                      { backgroundColor: colors.border, marginLeft: 74 },
+                    ]}
+                  />
                 </View>
               )}
             />
@@ -393,6 +493,13 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+  },
   markAllBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -494,5 +601,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyTitle: { fontSize: 20, fontWeight: "800", textAlign: "center" },
-  emptySubtitle: { fontSize: 14, textAlign: "center", lineHeight: 20, maxWidth: 280 },
+  emptySubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    maxWidth: 280,
+  },
 });
