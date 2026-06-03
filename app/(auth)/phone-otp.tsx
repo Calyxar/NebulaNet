@@ -1,7 +1,4 @@
 // app/(auth)/phone-otp.tsx — REACT NATIVE FIREBASE ✅
-// OTP verification screen — navigated to from login/signup phone flow
-// Params: phoneNumber (display only), twoFactor (bool), email, password
-
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,16 +23,19 @@ const CODE_LENGTH = 6;
 
 export default function PhoneOTPScreen() {
   const { colors, isDark } = useTheme();
-  const { phoneNumber, twoFactor, email, password } = useLocalSearchParams<{
-    phoneNumber: string;
-    twoFactor?: string;
-    email?: string;
-    password?: string;
-  }>();
+  const { phoneNumber, twoFactor, email, password, verificationId } =
+    useLocalSearchParams<{
+      phoneNumber: string;
+      twoFactor?: string;
+      email?: string;
+      password?: string;
+      verificationId?: string;
+    }>();
   const { verifyOTP, state, error, reset } = usePhoneAuth();
 
   const [code, setCode] = useState("");
   const [countdown, setCountdown] = useState(60);
+  const [isVerifying, setIsVerifying] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const gradientColors = isDark
@@ -52,38 +52,65 @@ export default function PhoneOTPScreen() {
     if (error) Alert.alert("Verification Failed", error);
   }, [error]);
 
-  // ─── FIX: Two-factor sign-in with proper error handling ─────────────────
-  // Previously this silently swallowed errors, which could leave the user
-  // phone-verified but not email-signed-in with no feedback or recovery path.
-  const finishTwoFactor = async (): Promise<boolean> => {
-    if (twoFactor !== "1" || !email || !password) return true;
+  // ✅ MFA login flow — uses verificationId param from login screen
+  const finishMFALogin = async (otpCode: string): Promise<boolean> => {
+    if (!verificationId) return false;
     try {
-      await auth().signInWithEmailAndPassword(email, password);
+      const credential = auth.PhoneAuthProvider.credential(
+        verificationId,
+        otpCode,
+      );
+      const multiFactorAssertion =
+        auth.PhoneMultiFactorGenerator.assertion(credential);
+
+      // Get the resolver from the error that was passed — stored in global
+      const resolver = (global as any).__mfaResolver;
+      if (!resolver) throw new Error("MFA session expired");
+
+      await resolver.resolveSignIn(multiFactorAssertion);
+      delete (global as any).__mfaResolver;
       return true;
     } catch (e: any) {
-      // Phone verification succeeded but email re-auth failed.
-      // This can happen if the session expired. Show a clear message
-      // and send them to login so they can start fresh.
-      Alert.alert(
-        "Session Expired",
-        "Phone verified successfully, but your session expired. Please log in again.",
-        [
-          {
-            text: "Log In",
-            onPress: () => router.replace("/(auth)/login"),
-          },
-        ],
-      );
+      Alert.alert("Verification Failed", e?.message ?? "MFA sign-in failed");
       return false;
     }
   };
 
-  const handleVerify = async () => {
-    if (code.length !== CODE_LENGTH) return;
-    const otpUser = await verifyOTP(code);
-    if (otpUser) {
-      const ok = await finishTwoFactor();
-      if (ok) router.replace("/(tabs)/home" as any);
+  const handleVerify = async (otpCode: string = code) => {
+    if (otpCode.length !== CODE_LENGTH) return;
+    setIsVerifying(true);
+    try {
+      // ✅ MFA login path
+      if (verificationId) {
+        const ok = await finishMFALogin(otpCode);
+        if (ok) router.replace("/(tabs)/home" as any);
+        return;
+      }
+
+      // ✅ Normal phone sign-in / 2FA enrollment path
+      const otpUser = await verifyOTP(otpCode);
+      if (otpUser) {
+        if (twoFactor === "1" && email && password) {
+          try {
+            await auth().signInWithEmailAndPassword(email, password);
+          } catch (e: any) {
+            Alert.alert(
+              "Session Expired",
+              "Phone verified but session expired. Please log in again.",
+              [
+                {
+                  text: "Log In",
+                  onPress: () => router.replace("/(auth)/login"),
+                },
+              ],
+            );
+            return;
+          }
+        }
+        router.replace("/(tabs)/home" as any);
+      }
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -91,24 +118,18 @@ export default function PhoneOTPScreen() {
     const clean = text.replace(/\D/g, "").slice(0, CODE_LENGTH);
     setCode(clean);
     if (clean.length === CODE_LENGTH) {
-      setTimeout(async () => {
-        const otpUser = await verifyOTP(clean);
-        if (otpUser) {
-          const ok = await finishTwoFactor();
-          if (ok) router.replace("/(tabs)/home" as any);
-        }
-      }, 200);
+      setTimeout(() => handleVerify(clean), 200);
     }
   };
 
-  const isVerifying = state === "verifying";
+  const verifyingState = isVerifying || state === "verifying";
 
   const renderBoxes = () =>
     Array(CODE_LENGTH)
       .fill(0)
       .map((_, i) => {
         const char = code[i] ?? "";
-        const isActive = i === code.length && !isVerifying;
+        const isActive = i === code.length && !verifyingState;
         return (
           <View
             key={i}
@@ -145,6 +166,7 @@ export default function PhoneOTPScreen() {
         <TouchableOpacity
           onPress={() => {
             reset();
+            delete (global as any).__mfaResolver;
             router.back();
           }}
           style={[
@@ -192,7 +214,7 @@ export default function PhoneOTPScreen() {
             maxLength={CODE_LENGTH}
             style={styles.hiddenInput}
             autoFocus
-            editable={!isVerifying}
+            editable={!verifyingState}
           />
 
           <TouchableOpacity
@@ -214,17 +236,17 @@ export default function PhoneOTPScreen() {
               styles.verifyBtn,
               {
                 backgroundColor:
-                  code.length === CODE_LENGTH && !isVerifying
+                  code.length === CODE_LENGTH && !verifyingState
                     ? colors.primary
                     : colors.border,
               },
             ]}
-            onPress={handleVerify}
-            disabled={code.length !== CODE_LENGTH || isVerifying}
+            onPress={() => handleVerify()}
+            disabled={code.length !== CODE_LENGTH || verifyingState}
             activeOpacity={0.85}
           >
             <Text style={styles.verifyBtnText}>
-              {isVerifying ? "Verifying..." : "Verify"}
+              {verifyingState ? "Verifying..." : "Verify"}
             </Text>
           </TouchableOpacity>
 

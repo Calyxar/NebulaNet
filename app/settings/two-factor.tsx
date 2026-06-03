@@ -50,6 +50,7 @@ export default function TwoFactorScreen() {
   const disableMutation = useDisableTwoFactor();
   const {
     sendOTP,
+    sendOTPForLink,
     verifyOTP,
     state: phoneState,
     error: phoneError,
@@ -75,7 +76,7 @@ export default function TwoFactorScreen() {
       return;
     }
     const num = `${selectedCountry.code}${digits}`;
-    const ok = await sendOTP(num);
+    const ok = await sendOTPForLink(num);
     if (ok) {
       setFullNumber(num);
       setStep("enter_otp");

@@ -1,6 +1,6 @@
 // hooks/usePhoneAuth.ts — REACT NATIVE FIREBASE ✅
-// ✅ FIXED: uses verifyPhoneNumber + linkWithCredential
-// so existing user session is preserved during 2FA enrollment
+// ✅ FIXED: separate modes for sign-up (signInWithPhoneNumber)
+// vs 2FA enrollment (verifyPhoneNumber + linkWithCredential)
 
 import auth from "@react-native-firebase/auth";
 import { useRef, useState } from "react";
@@ -16,22 +16,44 @@ export type PhoneAuthState =
 export function usePhoneAuth() {
   const [state, setState] = useState<PhoneAuthState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const confirmationRef = useRef<{ verificationId: string } | null>(null);
+  const confirmationRef = useRef<any>(null);
+  const modeRef = useRef<"signin" | "link">("signin");
 
   const reset = () => {
     setState("idle");
     setError(null);
     confirmationRef.current = null;
+    modeRef.current = "signin";
   };
 
+  // ✅ For sign-up / phone login — creates new session
   const sendOTP = async (phoneNumber: string): Promise<boolean> => {
     setError(null);
     setState("sending");
+    modeRef.current = "signin";
+    try {
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+      confirmationRef.current = confirmation;
+      setState("awaiting_code");
+      return true;
+    } catch (e: any) {
+      console.error("[phoneAuth] sendOTP:", e?.code, e?.message);
+      const msg = parsePhoneError(e);
+      setError(msg);
+      setState("error");
+      return false;
+    }
+  };
+
+  // ✅ For 2FA enrollment on existing user — keeps session intact
+  const sendOTPForLink = async (phoneNumber: string): Promise<boolean> => {
+    setError(null);
+    setState("sending");
+    modeRef.current = "link";
     try {
       const currentUser = auth().currentUser;
       if (!currentUser) throw new Error("Not signed in");
 
-      // If phone is already linked, unlink first
       const provider = currentUser.providerData.find(
         (p) => p.providerId === "phone",
       );
@@ -39,7 +61,6 @@ export function usePhoneAuth() {
         await currentUser.unlink("phone");
       }
 
-      // ✅ verifyPhoneNumber keeps existing session intact
       const verificationId = await new Promise<string>((resolve, reject) => {
         auth()
           .verifyPhoneNumber(phoneNumber)
@@ -56,11 +77,11 @@ export function usePhoneAuth() {
           );
       });
 
-      confirmationRef.current = { verificationId };
+      confirmationRef.current = { verificationId, mode: "link" };
       setState("awaiting_code");
       return true;
     } catch (e: any) {
-      console.error("[phoneAuth] sendOTP code:", e?.code, "msg:", e?.message);
+      console.error("[phoneAuth] sendOTPForLink:", e?.code, e?.message);
       const msg = parsePhoneError(e);
       setError(msg);
       setState("error");
@@ -77,19 +98,25 @@ export function usePhoneAuth() {
     setError(null);
     setState("verifying");
     try {
-      const currentUser = auth().currentUser;
-      if (!currentUser) throw new Error("Not signed in");
+      // ✅ Link mode — keeps existing session
+      if (modeRef.current === "link") {
+        const currentUser = auth().currentUser;
+        if (!currentUser) throw new Error("Not signed in");
+        const credential = auth.PhoneAuthProvider.credential(
+          confirmationRef.current.verificationId,
+          code,
+        );
+        const result = await currentUser.linkWithCredential(credential);
+        setState("success");
+        return result.user ?? currentUser;
+      }
 
-      // ✅ linkWithCredential keeps existing session intact
-      const credential = auth.PhoneAuthProvider.credential(
-        confirmationRef.current.verificationId,
-        code,
-      );
-      const result = await currentUser.linkWithCredential(credential);
+      // ✅ Sign-in mode — new session
+      const result = await confirmationRef.current.confirm(code);
       setState("success");
-      return result.user ?? currentUser;
+      return result.user;
     } catch (e: any) {
-      console.error("[phoneAuth] verifyOTP code:", e?.code, "msg:", e?.message);
+      console.error("[phoneAuth] verifyOTP:", e?.code, e?.message);
       const msg = parsePhoneError(e);
       setError(msg);
       setState("error");
@@ -97,7 +124,7 @@ export function usePhoneAuth() {
     }
   };
 
-  return { state, error, sendOTP, verifyOTP, reset };
+  return { state, error, sendOTP, sendOTPForLink, verifyOTP, reset };
 }
 
 function parsePhoneError(e: any): string {

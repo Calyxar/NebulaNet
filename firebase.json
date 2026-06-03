@@ -29,17 +29,10 @@
   },
   "hosting": {
     "public": "public",
-    "ignore": ["firebase.json", "**/node_modules/**"],
-    "headers": [
-      {
-        "source": "/.well-known/assetlinks.json",
-        "headers": [{ "key": "Content-Type", "value": "application/json" }]
-      }
-    ],
-    "rewrites": [
-      { "source": "/auth/action**", "destination": "/auth/action.html" },
-      { "source": "/auth/verify**", "destination": "/auth/verify.html" },
-      { "source": "/auth/reset**", "destination": "/auth/reset.html" }
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
     ]
   }
 }

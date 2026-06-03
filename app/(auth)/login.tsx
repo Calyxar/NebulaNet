@@ -1,6 +1,6 @@
+// app/(auth)/login.tsx ✅
 import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
-import { checkTwoFactorEnabled } from "@/hooks/useTwoFactorAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import authNative from "@react-native-firebase/auth";
@@ -84,33 +84,59 @@ export default function LoginScreen() {
 
     setIsSubmitting(true);
     try {
-      const res = await login.mutateAsync({
+      await login.mutateAsync({
         email: email.trim().toLowerCase(),
         password,
       });
-      if (res.user) {
-        const { enabled, phoneNumber } = await checkTwoFactorEnabled(
-          res.user.uid,
-        );
-        if (enabled && phoneNumber) {
-          await authNative().signOut();
-          const ok = await sendOTP(phoneNumber);
-          if (ok) {
-            router.push({
-              pathname: "/(auth)/phone-otp",
-              params: {
-                phoneNumber,
-                twoFactor: "1",
-                email: email.trim().toLowerCase(),
-                password,
-              },
-            } as any);
-          }
-          return;
-        }
-      }
     } catch (error: any) {
+      const code: string = error?.code ?? "";
       const lower = (error?.message || "").toLowerCase();
+
+      // ✅ MFA required — use verifyPhoneNumber directly (no PhoneAuthProvider constructor)
+      if (code === "auth/multi-factor-auth-required") {
+        try {
+          const resolver = authNative().getMultiFactorResolver(error);
+          if (!resolver) {
+            Alert.alert("Error", "MFA session could not be established.");
+            return;
+          }
+          (global as any).__mfaResolver = resolver;
+          const hint = resolver.hints[0] as any;
+          const phoneNumber: string = hint?.phoneNumber ?? "";
+
+          // ✅ verifyPhoneNumber on the auth instance — no constructor needed
+          const verificationId = await new Promise<string>(
+            (resolve, reject) => {
+              authNative()
+                .verifyPhoneNumber(phoneNumber)
+                .on(
+                  "state_changed",
+                  (snapshot: any) => {
+                    if (
+                      snapshot.state === authNative.PhoneAuthState.CODE_SENT
+                    ) {
+                      resolve(snapshot.verificationId);
+                    } else if (
+                      snapshot.state === authNative.PhoneAuthState.ERROR
+                    ) {
+                      reject(snapshot.error);
+                    }
+                  },
+                  reject,
+                );
+            },
+          );
+
+          router.push({
+            pathname: "/(auth)/phone-otp",
+            params: { phoneNumber, verificationId },
+          } as any);
+        } catch (mfaError: any) {
+          Alert.alert("Error", mfaError?.message ?? "MFA challenge failed");
+        }
+        return;
+      }
+
       let title = "Login Failed",
         message = error?.message || "Login failed";
       if (
@@ -428,7 +454,12 @@ const styles = StyleSheet.create({
     padding: 4,
     marginBottom: 24,
   },
-  tab: { flex: 1, paddingVertical: 12, borderRadius: 22, alignItems: "center" },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 22,
+    alignItems: "center",
+  },
   tabText: { fontSize: 15, fontWeight: "500" },
   inputContainer: {
     borderRadius: 16,
@@ -490,7 +521,11 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   loginButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "600" },
-  orContainer: { flexDirection: "row", alignItems: "center", marginBottom: 24 },
+  orContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+  },
   orLine: { flex: 1, height: 1 },
   orText: { marginHorizontal: 16, fontSize: 14, fontWeight: "500" },
   socialContainer: {
