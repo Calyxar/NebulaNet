@@ -1,6 +1,6 @@
 // hooks/usePhoneAuth.ts — REACT NATIVE FIREBASE ✅
-// @react-native-firebase/auth handles Play Integrity/SafetyNet natively on Android
-// No reCAPTCHA, no verifier needed at all
+// ✅ FIXED: uses verifyPhoneNumber + linkWithCredential
+// so existing user session is preserved during 2FA enrollment
 
 import auth from "@react-native-firebase/auth";
 import { useRef, useState } from "react";
@@ -16,7 +16,7 @@ export type PhoneAuthState =
 export function usePhoneAuth() {
   const [state, setState] = useState<PhoneAuthState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const confirmationRef = useRef<any>(null);
+  const confirmationRef = useRef<{ verificationId: string } | null>(null);
 
   const reset = () => {
     setState("idle");
@@ -28,19 +28,39 @@ export function usePhoneAuth() {
     setError(null);
     setState("sending");
     try {
-      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
-      confirmationRef.current = confirmation;
+      const currentUser = auth().currentUser;
+      if (!currentUser) throw new Error("Not signed in");
+
+      // If phone is already linked, unlink first
+      const provider = currentUser.providerData.find(
+        (p) => p.providerId === "phone",
+      );
+      if (provider) {
+        await currentUser.unlink("phone");
+      }
+
+      // ✅ verifyPhoneNumber keeps existing session intact
+      const verificationId = await new Promise<string>((resolve, reject) => {
+        auth()
+          .verifyPhoneNumber(phoneNumber)
+          .on(
+            "state_changed",
+            (snapshot) => {
+              if (snapshot.state === auth.PhoneAuthState.CODE_SENT) {
+                resolve(snapshot.verificationId);
+              } else if (snapshot.state === auth.PhoneAuthState.ERROR) {
+                reject(snapshot.error);
+              }
+            },
+            reject,
+          );
+      });
+
+      confirmationRef.current = { verificationId };
       setState("awaiting_code");
       return true;
     } catch (e: any) {
-      console.error(
-        "[phoneAuth] code:",
-        e?.code,
-        "msg:",
-        e?.message,
-        "full:",
-        JSON.stringify(e),
-      );
+      console.error("[phoneAuth] sendOTP code:", e?.code, "msg:", e?.message);
       const msg = parsePhoneError(e);
       setError(msg);
       setState("error");
@@ -57,10 +77,19 @@ export function usePhoneAuth() {
     setError(null);
     setState("verifying");
     try {
-      const result = await confirmationRef.current.confirm(code);
+      const currentUser = auth().currentUser;
+      if (!currentUser) throw new Error("Not signed in");
+
+      // ✅ linkWithCredential keeps existing session intact
+      const credential = auth.PhoneAuthProvider.credential(
+        confirmationRef.current.verificationId,
+        code,
+      );
+      const result = await currentUser.linkWithCredential(credential);
       setState("success");
-      return result.user;
+      return result.user ?? currentUser;
     } catch (e: any) {
+      console.error("[phoneAuth] verifyOTP code:", e?.code, "msg:", e?.message);
       const msg = parsePhoneError(e);
       setError(msg);
       setState("error");
@@ -98,6 +127,8 @@ function parsePhoneError(e: any): string {
     return "Phone authentication isn't configured for this build. Check Play Integrity setup.";
   if (code === "auth/app-not-authorized" || msg.includes("app-not-authorized"))
     return "This app isn't authorized for phone auth. Check SHA-256 fingerprints in Firebase Console.";
+  if (code === "auth/provider-already-linked" || msg.includes("already-linked"))
+    return "This phone number is already linked to your account.";
   if (msg.includes("cancelled") || msg.includes("dismissed")) return "";
   return e?.message || "Something went wrong. Please try again.";
 }
