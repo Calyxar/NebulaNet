@@ -37,6 +37,10 @@ export default function SecurityScreen() {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isSendingVerification, setIsSendingVerification] = useState(false);
 
+  // ✅ NEW: reset password modal state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState(user?.email ?? "");
+
   const handlePasswordUpdate = async () => {
     if (!passwordData.current) {
       Alert.alert("Error", "Please enter your current password");
@@ -82,31 +86,24 @@ export default function SecurityScreen() {
     }
   };
 
+  // ✅ FIXED: replaced Alert.prompt (iOS only) with cross-platform modal
   const handleResetPassword = () => {
-    Alert.prompt(
-      "Reset Password",
-      "Enter your email to receive a reset link",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Send",
-          onPress: async (email: string | undefined) => {
-            if (!email?.trim()) return;
-            setIsResettingPassword(true);
-            try {
-              await auth().sendPasswordResetEmail(email.trim());
-              Alert.alert("Sent", "Check your email for the reset link");
-            } catch (e: any) {
-              Alert.alert("Error", e?.message ?? "Failed to send reset email");
-            } finally {
-              setIsResettingPassword(false);
-            }
-          },
-        },
-      ],
-      "plain-text",
-      user?.email ?? "",
-    );
+    setResetEmail(user?.email ?? "");
+    setShowResetModal(true);
+  };
+
+  const handleSendResetEmail = async () => {
+    if (!resetEmail.trim()) return;
+    setIsResettingPassword(true);
+    try {
+      await auth().sendPasswordResetEmail(resetEmail.trim());
+      setShowResetModal(false);
+      Alert.alert("Sent", "Check your email for the reset link.");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to send reset email");
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const handleSendVerificationEmail = async () => {
@@ -117,7 +114,6 @@ export default function SecurityScreen() {
         Alert.alert("Error", "Not signed in");
         return;
       }
-
       await currentUser.sendEmailVerification();
       Alert.alert(
         "Verification Email Sent",
@@ -424,6 +420,77 @@ export default function SecurityScreen() {
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ✅ FIXED: Reset Password Modal — works on Android and iOS */}
+      {showResetModal && (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+          <TouchableOpacity
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: "rgba(0,0,0,0.5)" },
+            ]}
+            activeOpacity={1}
+            onPress={() => setShowResetModal(false)}
+          />
+          <View
+            style={[
+              styles.resetModal,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.resetTitle, { color: colors.text }]}>
+              Reset Password
+            </Text>
+            <Text style={[styles.resetSub, { color: colors.textSecondary }]}>
+              Enter your email to receive a reset link
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="Email address"
+              placeholderTextColor={colors.textTertiary}
+              value={resetEmail}
+              onChangeText={setResetEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
+              <TouchableOpacity
+                style={[
+                  styles.modalSaveBtn,
+                  {
+                    backgroundColor: colors.primary,
+                    opacity: isResettingPassword ? 0.6 : 1,
+                  },
+                ]}
+                onPress={handleSendResetEmail}
+                disabled={isResettingPassword}
+              >
+                <Text style={styles.modalSaveBtnText}>
+                  {isResettingPassword ? "Sending..." : "Send Link"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { borderColor: colors.border }]}
+                onPress={() => setShowResetModal(false)}
+              >
+                <Text
+                  style={[styles.modalCancelBtnText, { color: colors.text }]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 
@@ -540,4 +607,33 @@ const styles = StyleSheet.create({
   },
   infoText: { fontSize: 13, flex: 1, lineHeight: 18 },
   footer: { marginTop: 14, fontSize: 12, textAlign: "center", lineHeight: 18 },
+  // ✅ Reset modal styles
+  resetModal: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+    borderWidth: 1,
+  },
+  resetTitle: { fontSize: 18, fontWeight: "900", marginBottom: 6 },
+  resetSub: { fontSize: 13, marginBottom: 16, lineHeight: 18 },
+  modalSaveBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  modalSaveBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  modalCancelBtnText: { fontWeight: "800", fontSize: 14 },
 });
