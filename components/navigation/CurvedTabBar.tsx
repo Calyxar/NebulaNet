@@ -1,14 +1,7 @@
 import { useTheme } from "@/providers/ThemeProvider";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
-import {
-  Bell,
-  Home,
-  MessageCircle,
-  Plus,
-  Search,
-  User,
-} from "lucide-react-native";
+import { Home, MessageCircle, Plus, Search, User } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -28,15 +21,8 @@ export function getTabBarHeight(insetsBottom: number) {
   return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, extraAndroidGesture);
 }
 
-// ✅ 6 tabs — even spacing
-const ORDER = [
-  "home",
-  "explore",
-  "create",
-  "chat",
-  "notifications",
-  "profile",
-] as const;
+// ✅ 5 tabs — clean even spacing
+const ORDER = ["home", "explore", "create", "chat", "profile"] as const;
 
 function CreateTabButton({
   onPress,
@@ -100,7 +86,7 @@ function CreateTabButton({
             { opacity: pressed ? 0.08 : 0, backgroundColor: "#000" },
           ]}
         />
-        <Plus size={26} color="#FFFFFF" strokeWidth={3} />
+        <Plus size={28} color="#FFFFFF" strokeWidth={3} />
       </Animated.View>
     </Pressable>
   );
@@ -158,7 +144,7 @@ export default function CurvedTabBar({
               navigation.navigate(route.name as never);
           };
 
-          const iconSize = isFocused ? 24 : 22;
+          const iconSize = isFocused ? 26 : 24;
           const color = isFocused ? activeColor : inactiveColor;
           const strokeWidth = isFocused ? 2.5 : 2;
 
@@ -169,11 +155,9 @@ export default function CurvedTabBar({
                 ? "Explore"
                 : route.name === "chat"
                   ? "Chat"
-                  : route.name === "notifications"
-                    ? "Alerts"
-                    : route.name === "profile"
-                      ? "Profile"
-                      : "";
+                  : route.name === "profile"
+                    ? "Profile"
+                    : "";
 
           if (isCreate) {
             return (
@@ -208,14 +192,6 @@ export default function CurvedTabBar({
               case "chat":
                 return (
                   <MessageCircle
-                    size={iconSize}
-                    color={color}
-                    strokeWidth={strokeWidth}
-                  />
-                );
-              case "notifications":
-                return (
-                  <Bell
                     size={iconSize}
                     color={color}
                     strokeWidth={strokeWidth}
@@ -289,7 +265,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
-    paddingHorizontal: 0,
+    paddingHorizontal: 4,
     borderTopWidth: Platform.OS === "android" ? 1 : 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
@@ -312,9 +288,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   createButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "transparent",
@@ -326,7 +302,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   softPressOverlay: { ...StyleSheet.absoluteFillObject },
-  label: { fontSize: 10, fontWeight: "700", marginTop: 4 },
+  label: { fontSize: 11, fontWeight: "700", marginTop: 4 },
   iconWrap: {
     position: "relative",
     alignItems: "center",
@@ -335,15 +311,15 @@ const styles = StyleSheet.create({
   badge: {
     position: "absolute",
     top: -6,
-    right: -10,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    right: -12,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#EF4444",
     borderWidth: 2,
   },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
+  badgeText: { color: "#fff", fontSize: 11, fontWeight: "900" },
 });

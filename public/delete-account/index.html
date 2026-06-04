@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Delete Account — NebulaNet</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0b0f1a;
+        color: #fff;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .card {
+        background: #121726;
+        border-radius: 24px;
+        padding: 40px 32px;
+        max-width: 480px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 32px;
+      }
+
+      .logo img {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+      }
+
+      .logo span {
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+        color: #fff;
+      }
+
+      h1 {
+        font-size: 24px;
+        font-weight: 800;
+        margin-bottom: 10px;
+        color: #fff;
+      }
+
+      .subtitle {
+        font-size: 14px;
+        color: #8892a4;
+        margin-bottom: 32px;
+        line-height: 1.6;
+      }
+
+      .warning {
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 28px;
+        font-size: 13px;
+        color: #fca5a5;
+        line-height: 1.6;
+      }
+
+      .warning strong {
+        color: #f87171;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        color: #8892a4;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        background: #0b0f1a;
+        border: 1px solid #1e2a3a;
+        border-radius: 14px;
+        padding: 14px 16px;
+        font-size: 15px;
+        color: #fff;
+        margin-bottom: 20px;
+        outline: none;
+        transition: border-color 0.2s;
+        font-family: inherit;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: #8a7cfa;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 100px;
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: #3d4e63;
+      }
+
+      .confirm-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .confirm-row input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        min-width: 20px;
+        margin: 0;
+        accent-color: #8a7cfa;
+        cursor: pointer;
+      }
+
+      .confirm-row span {
+        font-size: 13px;
+        color: #8892a4;
+        line-height: 1.6;
+      }
+
+      button {
+        width: 100%;
+        background: #ef4444;
+        color: #fff;
+        border: none;
+        border-radius: 999px;
+        padding: 16px;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+          opacity 0.2s,
+          transform 0.1s;
+      }
+
+      button:hover {
+        opacity: 0.9;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .success {
+        display: none;
+        text-align: center;
+        padding: 20px 0;
+      }
+
+      .success .icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+      }
+
+      .success h2 {
+        font-size: 22px;
+        font-weight: 800;
+        margin-bottom: 10px;
+      }
+
+      .success p {
+        font-size: 14px;
+        color: #8892a4;
+        line-height: 1.6;
+      }
+
+      .error-msg {
+        display: none;
+        color: #f87171;
+        font-size: 13px;
+        margin-top: -12px;
+        margin-bottom: 16px;
+      }
+
+      footer {
+        margin-top: 24px;
+        font-size: 12px;
+        color: #3d4e63;
+        text-align: center;
+      }
+
+      footer a {
+        color: #8a7cfa;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <img
+          src="/icon.png"
+          alt="NebulaNet"
+          onerror="this.style.display = 'none'"
+        />
+        <span>NebulaNet</span>
+      </div>
+
+      <div id="form-section">
+        <h1>Delete Your Account</h1>
+        <p class="subtitle">
+          Submit a deletion request below. Your account and all associated data
+          will be permanently deleted within 30 days. This action cannot be
+          undone.
+        </p>
+
+        <div class="warning">
+          <strong>⚠️ This is permanent.</strong> All your posts, messages,
+          followers, and data will be deleted. You will not be able to recover
+          your account after deletion is processed.
+        </div>
+
+        <label>Email Address</label>
+        <input
+          type="email"
+          id="email"
+          placeholder="The email linked to your account"
+        />
+        <div class="error-msg" id="email-error">
+          Please enter a valid email address.
+        </div>
+
+        <label>Username (optional)</label>
+        <input type="text" id="username" placeholder="@yourusername" />
+
+        <label>Reason for leaving (optional)</label>
+        <textarea
+          id="reason"
+          placeholder="Help us improve by sharing why you're leaving..."
+        ></textarea>
+
+        <div class="confirm-row">
+          <input type="checkbox" id="confirm" />
+          <span>
+            I understand that deleting my account is permanent and all my data
+            will be erased within 30 days.
+          </span>
+        </div>
+
+        <button id="submit-btn" disabled onclick="submitRequest()">
+          Request Account Deletion
+        </button>
+      </div>
+
+      <div class="success" id="success-section">
+        <div class="icon">✅</div>
+        <h2>Request Submitted</h2>
+        <p>
+          We've received your account deletion request. Your account and all
+          associated data will be permanently deleted within
+          <strong>30 days</strong>.<br /><br />
+          You'll receive a confirmation email at the address you provided. If
+          you have any questions, contact us at
+          <a href="mailto:nebulanetapp@gmail.com">nebulanetapp@gmail.com</a>.
+        </p>
+      </div>
+    </div>
+
+    <footer>
+      <a href="/">Home</a> · <a href="/privacy">Privacy Policy</a> ·
+      <a href="/terms">Terms of Service</a>
+    </footer>
+
+    <!-- ✅ Firebase auto-config — no keys exposed, injected by Firebase Hosting -->
+    <script src="/__/firebase/10.7.1/firebase-app-compat.js"></script>
+    <script src="/__/firebase/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/init.js"></script>
+
+    <script>
+      const db = firebase.firestore();
+
+      const confirmBox = document.getElementById("confirm");
+      const submitBtn = document.getElementById("submit-btn");
+
+      confirmBox.addEventListener("change", () => {
+        submitBtn.disabled = !confirmBox.checked;
+      });
+
+      window.submitRequest = async function () {
+        const email = document.getElementById("email").value.trim();
+        const username = document.getElementById("username").value.trim();
+        const reason = document.getElementById("reason").value.trim();
+        const emailError = document.getElementById("email-error");
+
+        const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        if (!emailValid) {
+          emailError.style.display = "block";
+          return;
+        }
+        emailError.style.display = "none";
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting...";
+
+        try {
+          await db.collection("account_deletion_requests").add({
+            email,
+            username: username || null,
+            reason: reason || null,
+            status: "requested",
+            source: "web",
+            created_at: new Date().toISOString(),
+          });
+
+          document.getElementById("form-section").style.display = "none";
+          document.getElementById("success-section").style.display = "block";
+        } catch (err) {
+          console.error(err);
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Request Account Deletion";
+          alert(
+            "Something went wrong. Please try again or email nebulanetapp@gmail.com",
+          );
+        }
+      };
+    </script>
+  </body>
+</html>

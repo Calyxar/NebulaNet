@@ -1,5 +1,5 @@
 // app/(tabs)/home.tsx — UPDATED ✅
-// ✅ Removed bell button — notifications now lives in tab bar
+// ✅ Bell notification button restored on home header
 // ✅ Real-time profile sync — username/avatar updates reflect immediately
 // ✅ Route by user_id instead of username — fixes User Not Found
 
@@ -19,12 +19,14 @@ import {
   useInfiniteFeedPosts,
 } from "@/hooks/usePosts";
 import { useActiveStories } from "@/hooks/useStories";
+import { useUnreadNotificationsCount } from "@/hooks/useUnreadNotificationsCount";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
+  Bell,
   Bookmark,
   Heart,
   MessageCircle,
@@ -206,8 +208,11 @@ export default function HomeScreen() {
   const { maybeShowInterstitial } = useInterstitialAd();
   const feedDensity = useFeedDensity();
 
-  // ✅ Real-time profile sync — patches feed when username/avatar changes
+  // ✅ Real-time profile sync
   useCurrentUserProfileSync();
+
+  // ✅ Bell badge
+  const unreadCount = useUnreadNotificationsCount();
 
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
@@ -308,7 +313,7 @@ export default function HomeScreen() {
   const Header = useMemo(() => {
     return (
       <>
-        {/* ✅ No bell button — notifications is in the tab bar */}
+        {/* ✅ Bell button restored */}
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
@@ -324,6 +329,33 @@ export default function HomeScreen() {
                 NebulaNet
               </Text>
             </View>
+          }
+          right={
+            <TouchableOpacity
+              style={[
+                styles.bellWrap,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+              onPress={() => router.push("/notifications")}
+              activeOpacity={0.7}
+            >
+              <Bell size={22} color={colors.primary} strokeWidth={2.5} />
+              {unreadCount > 0 && (
+                <View
+                  style={[
+                    styles.bellBadge,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.surface,
+                    },
+                  ]}
+                >
+                  <Text style={styles.bellBadgeText}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           }
         />
 
@@ -527,6 +559,7 @@ export default function HomeScreen() {
     );
   }, [
     activeTab,
+    unreadCount,
     colors,
     isDark,
     stories,
@@ -578,7 +611,7 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.cardTop}>
-            {/* ✅ Route by user_id — fixes User Not Found after username change */}
+            {/* ✅ Route by user_id — fixes User Not Found */}
             <TouchableOpacity
               style={styles.authorRow}
               onPress={() =>
@@ -884,6 +917,29 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     flexShrink: 1,
   },
+  // ✅ Bell button styles
+  bellWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    borderWidth: 1,
+  },
+  bellBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+    borderWidth: 2,
+  },
+  bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
   storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
   storyItem: { alignItems: "center", marginRight: 16, width: 76 },
   addStoryCircle: {
