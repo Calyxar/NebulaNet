@@ -1,4 +1,4 @@
-// app/(auth)/onboarding.tsx — ✅ FIXED: 4-step onboarding flow
+// app/(auth)/onboarding.tsx — ✅ UPDATED: birthdate step added
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -51,11 +51,13 @@ const INTERESTS = [
   { id: "sports", name: "Sports", emoji: "🏀" },
 ];
 
+// ✅ birthdate added before congrats
 const STEPS = [
   "welcome",
   "avatar",
   "username",
   "interests",
+  "birthdate",
   "congrats",
 ] as const;
 type Step = (typeof STEPS)[number];
@@ -109,9 +111,8 @@ export default function OnboardingScreen() {
 
   // Username
   const [username, setUsername] = useState("");
-  const [usernameStatus, setUsernameStatus] = useState<
-    "idle" | "checking" | "available" | "taken" | "invalid"
-  >("idle");
+  const [usernameStatus, setUsernameStatus] = useState;
+  "idle" | "checking" | "available" | "taken" | ("invalid" > "idle");
   const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Interests
@@ -125,8 +126,6 @@ export default function OnboardingScreen() {
   const gradientColors = isDark
     ? ([colors.background, colors.background] as const)
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
-
-  const stepIndex = STEPS.indexOf(step);
 
   const goToStep = (s: Step) => setStep(s);
   const goHome = () => router.replace("/(tabs)/home");
@@ -160,7 +159,6 @@ export default function OnboardingScreen() {
       goToStep("username");
       return;
     }
-
     setUploadingAvatar(true);
     try {
       const url = await uploadAvatar(user.uid, avatarUri);
@@ -178,17 +176,10 @@ export default function OnboardingScreen() {
   };
 
   // ─── Username ─────────────────────────────────────────────
-  const validateUsername = (val: string) => {
-    if (val.length < 3) return "invalid";
-    if (!/^[a-zA-Z0-9_.]+$/.test(val)) return "invalid";
-    return "valid";
-  };
-
   const onUsernameChange = (val: string) => {
     const cleaned = val.toLowerCase().replace(/[^a-z0-9_.]/g, "");
     setUsername(cleaned);
     setUsernameStatus("idle");
-
     if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current);
     if (!cleaned || cleaned.length < 3) {
       setUsernameStatus(cleaned.length > 0 ? "invalid" : "idle");
@@ -198,7 +189,6 @@ export default function OnboardingScreen() {
       setUsernameStatus("invalid");
       return;
     }
-
     setUsernameStatus("checking");
     usernameCheckTimer.current = setTimeout(async () => {
       try {
@@ -220,7 +210,6 @@ export default function OnboardingScreen() {
     }
     if (!username || usernameStatus === "taken" || usernameStatus === "invalid")
       return;
-
     setSaving(true);
     try {
       await db.collection("profiles").doc(user.uid).update({
@@ -250,7 +239,7 @@ export default function OnboardingScreen() {
 
   const handleInterestsContinue = async () => {
     if (!user?.uid) {
-      goToStep("congrats");
+      router.replace("/(auth)/birthdate");
       return;
     }
     if (selectedInterests.length === 0) {
@@ -271,12 +260,13 @@ export default function OnboardingScreen() {
     } finally {
       setSaving(false);
     }
-    goToStep("congrats");
+    // ✅ Route to birthdate screen after interests
+    router.replace("/(auth)/birthdate");
   };
 
   const handleSkipInterests = async () => {
     if (!user?.uid) {
-      goToStep("congrats");
+      router.replace("/(auth)/birthdate");
       return;
     }
     setSaving(true);
@@ -290,7 +280,8 @@ export default function OnboardingScreen() {
     } finally {
       setSaving(false);
     }
-    goToStep("congrats");
+    // ✅ Route to birthdate screen after skipping interests
+    router.replace("/(auth)/birthdate");
   };
 
   // ─── Step indicator ───────────────────────────────────────
@@ -351,7 +342,6 @@ export default function OnboardingScreen() {
             >
               Your space to share, connect, and discover what matters to you.
             </Text>
-
             <View style={styles.welcomeFeatures}>
               {[
                 {
@@ -389,7 +379,6 @@ export default function OnboardingScreen() {
               ))}
             </View>
           </View>
-
           <View style={styles.footer}>
             <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
@@ -433,7 +422,6 @@ export default function OnboardingScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-
           <View style={styles.stepContent}>
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               Add a profile photo
@@ -443,7 +431,6 @@ export default function OnboardingScreen() {
             >
               Help people recognize you. You can change this later.
             </Text>
-
             <TouchableOpacity
               style={styles.avatarPickerWrap}
               onPress={pickAvatar}
@@ -491,7 +478,6 @@ export default function OnboardingScreen() {
               )}
             </TouchableOpacity>
           </View>
-
           <View style={styles.footer}>
             <TouchableOpacity
               style={[
@@ -590,7 +576,6 @@ export default function OnboardingScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-
             <View style={styles.stepContent}>
               <Text style={[styles.stepTitle, { color: colors.text }]}>
                 Choose a username
@@ -600,7 +585,6 @@ export default function OnboardingScreen() {
               >
                 This is how people will find and mention you.
               </Text>
-
               <View
                 style={[
                   styles.usernameInputWrap,
@@ -643,14 +627,12 @@ export default function OnboardingScreen() {
                   <Ionicons name="close-circle" size={22} color="#FF3B30" />
                 )}
               </View>
-
               {!!statusText && (
                 <Text style={[styles.usernameStatus, { color: statusColor }]}>
                   {statusText}
                 </Text>
               )}
             </View>
-
             <View style={styles.footer}>
               <TouchableOpacity
                 style={[
@@ -698,7 +680,6 @@ export default function OnboardingScreen() {
             backgroundColor="transparent"
             translucent
           />
-
           <View style={styles.stepHeader}>
             <TouchableOpacity
               onPress={() => goToStep("username")}
@@ -717,7 +698,6 @@ export default function OnboardingScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-
           <View style={styles.interestsHeader}>
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               What are you into?
@@ -728,7 +708,6 @@ export default function OnboardingScreen() {
               Pick your interests and we'll tailor your feed. Select as many as
               you like.
             </Text>
-
             <View style={styles.progressRow}>
               <Text style={[styles.progressText, { color: colors.text }]}>
                 {selectedInterests.length}/{maxSelections}
@@ -748,7 +727,6 @@ export default function OnboardingScreen() {
               </View>
             </View>
           </View>
-
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={styles.interestsGrid}
@@ -788,7 +766,6 @@ export default function OnboardingScreen() {
               );
             })}
           </ScrollView>
-
           <View style={[styles.footer, { backgroundColor: "transparent" }]}>
             <TouchableOpacity
               style={[
@@ -819,7 +796,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // CONGRATS
+  // CONGRATS — shown after birthdate screen completes
   return (
     <LinearGradient
       colors={gradientColors as any}
@@ -852,7 +829,6 @@ export default function OnboardingScreen() {
           >
             Welcome to NebulaNet. Your feed is ready and tailored just for you.
           </Text>
-
           {selectedInterests.length > 0 && (
             <View style={styles.congratsInterestsWrap}>
               <Text
@@ -916,7 +892,6 @@ export default function OnboardingScreen() {
             </View>
           )}
         </View>
-
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
@@ -934,8 +909,6 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
-  // Welcome
   welcomeContent: {
     flex: 1,
     paddingHorizontal: 28,
@@ -957,11 +930,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 40,
   },
-  welcomeSubtitle: {
-    fontSize: 16,
-    textAlign: "center",
-    lineHeight: 24,
-  },
+  welcomeSubtitle: { fontSize: 16, textAlign: "center", lineHeight: 24 },
   welcomeFeatures: { gap: 14 },
   welcomeFeatureRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   welcomeFeatureIcon: {
@@ -972,8 +941,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   welcomeFeatureText: { fontSize: 15, fontWeight: "600", flex: 1 },
-
-  // Step header
   stepHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -984,8 +951,6 @@ const styles = StyleSheet.create({
   dotsRow: { flexDirection: "row", gap: 6, alignItems: "center" },
   dot: { height: 8, borderRadius: 4 },
   skipText: { fontSize: 15, fontWeight: "600" },
-
-  // Step content
   stepContent: {
     flex: 1,
     paddingHorizontal: 28,
@@ -994,18 +959,12 @@ const styles = StyleSheet.create({
   },
   stepTitle: { fontSize: 28, fontWeight: "900", lineHeight: 34 },
   stepSubtitle: { fontSize: 15, lineHeight: 22 },
-
-  // Avatar
   avatarPickerWrap: {
     alignSelf: "center",
     marginTop: 24,
     position: "relative",
   },
-  avatarPreview: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-  },
+  avatarPreview: { width: 140, height: 140, borderRadius: 70 },
   avatarPlaceholder: {
     width: 140,
     height: 140,
@@ -1027,8 +986,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Username
   usernameInputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -1042,13 +999,7 @@ const styles = StyleSheet.create({
   usernameAt: { fontSize: 18, fontWeight: "700" },
   usernameInput: { flex: 1, fontSize: 17, fontWeight: "600" },
   usernameStatus: { fontSize: 13, fontWeight: "600", marginTop: 4 },
-
-  // Interests
-  interestsHeader: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 8,
-  },
+  interestsHeader: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
   progressRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   progressText: { fontSize: 13, fontWeight: "700", minWidth: 44 },
   progressBarBg: { height: 6, borderRadius: 3, overflow: "hidden" },
@@ -1071,8 +1022,6 @@ const styles = StyleSheet.create({
   },
   interestEmoji: { fontSize: 16 },
   interestText: { fontSize: 14, fontWeight: "600" },
-
-  // Congrats
   congratsContent: {
     flex: 1,
     paddingHorizontal: 28,
@@ -1089,11 +1038,7 @@ const styles = StyleSheet.create({
   },
   congratsEmoji: { fontSize: 56 },
   congratsTitle: { fontSize: 32, fontWeight: "900", textAlign: "center" },
-  congratsSubtitle: {
-    fontSize: 16,
-    textAlign: "center",
-    lineHeight: 24,
-  },
+  congratsSubtitle: { fontSize: 16, textAlign: "center", lineHeight: 24 },
   congratsInterestsWrap: { width: "100%", gap: 10 },
   congratsInterestsLabel: {
     fontSize: 13,
@@ -1119,12 +1064,7 @@ const styles = StyleSheet.create({
   },
   congratsChipEmoji: { fontSize: 14 },
   congratsChipText: { fontSize: 13, fontWeight: "700" },
-
-  // Footer
-  footer: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-  },
+  footer: { paddingHorizontal: 24, paddingVertical: 20 },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",

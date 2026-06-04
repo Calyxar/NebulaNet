@@ -1,5 +1,4 @@
-// app/u/[id].tsx — REACT NATIVE FIREBASE ✅
-import firestore from "@react-native-firebase/firestore";
+// app/u/[id].tsx ✅ — route by UID directly, profile screen handles both UID and username lookup
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
@@ -18,46 +17,11 @@ export default function UserIdRedirectScreen() {
         return;
       }
 
-      // If it looks like a UUID, treat it as a user id; otherwise as a username.
-      const looksLikeUuid =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          raw,
-        );
-
       try {
-        let username: string | null = null;
-
-        if (looksLikeUuid) {
-          // Direct doc lookup by id
-          const docSnap = await firestore()
-            .collection("profiles")
-            .doc(raw)
-            .get();
-          if (docSnap.exists()) {
-            const data = docSnap.data() as any;
-            username = data?.username ?? null;
-          }
-        } else {
-          // Lookup by username
-          const snap = await firestore()
-            .collection("profiles")
-            .where("username", "==", raw)
-            .limit(1)
-            .get();
-          if (!snap.empty) {
-            const data = snap.docs[0].data() as any;
-            username = data?.username ?? null;
-          }
-        }
-
         if (!alive) return;
-
-        if (username) {
-          router.replace(`/user/${username}`);
-          return;
-        }
-
-        router.replace("/+not-found");
+        // ✅ Route directly by UID — profile screen handles both UID and username lookup
+        // No need to resolve username first — avoids User Not Found after username changes
+        router.replace(`/user/${raw}` as any);
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message || "Failed to open profile.");
