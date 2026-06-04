@@ -1,4 +1,4 @@
-// app/(tabs)/notifications.tsx ✅ — now a tab screen, no back button needed
+// app/(tabs)/notifications.tsx ✅ — tab screen with back handler
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
@@ -6,10 +6,11 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   SectionList,
   StatusBar,
@@ -236,10 +237,23 @@ export default function NotificationsScreen() {
     groupNotificationsByDate,
   } = useNotifications();
 
-  // ✅ Tab screen — use tab bar height for bottom padding
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
+  );
+
+  // ✅ Hardware back goes to home instead of exiting app
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => {
+          router.replace("/(tabs)/home");
+          return true;
+        },
+      );
+      return () => subscription.remove();
+    }, []),
   );
 
   const gradientColors = isDark
