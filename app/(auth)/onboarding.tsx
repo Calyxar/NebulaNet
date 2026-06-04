@@ -111,8 +111,9 @@ export default function OnboardingScreen() {
 
   // Username
   const [username, setUsername] = useState("");
-  const [usernameStatus, setUsernameStatus] = useState;
-  "idle" | "checking" | "available" | "taken" | ("invalid" > "idle");
+  const [usernameStatus, setUsernameStatus] = useState<
+    "idle" | "checking" | "available" | "taken" | "invalid"
+  >("idle");
   const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Interests
@@ -239,7 +240,7 @@ export default function OnboardingScreen() {
 
   const handleInterestsContinue = async () => {
     if (!user?.uid) {
-      router.replace("/(auth)/birthdate");
+      router.replace("/(auth)/birthdate" as any);
       return;
     }
     if (selectedInterests.length === 0) {
@@ -261,12 +262,12 @@ export default function OnboardingScreen() {
       setSaving(false);
     }
     // ✅ Route to birthdate screen after interests
-    router.replace("/(auth)/birthdate");
+    router.replace("/(auth)/birthdate" as any);
   };
 
   const handleSkipInterests = async () => {
     if (!user?.uid) {
-      router.replace("/(auth)/birthdate");
+      router.replace("/(auth)/birthdate" as any);
       return;
     }
     setSaving(true);
@@ -281,7 +282,7 @@ export default function OnboardingScreen() {
       setSaving(false);
     }
     // ✅ Route to birthdate screen after skipping interests
-    router.replace("/(auth)/birthdate");
+    router.replace("/(auth)/birthdate" as any);
   };
 
   // ─── Step indicator ───────────────────────────────────────
