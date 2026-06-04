@@ -1,11 +1,13 @@
-// app/settings/privacy.tsx — UPDATED ✅ dark mode
+// app/settings/privacy.tsx ✅ — hide birthday + Firestore-backed hide followers/following
+import { useAuth } from "@/hooks/useAuth";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { closeSettings, pushSettings } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -118,15 +120,65 @@ function Row({
 
 export default function PrivacyScreen() {
   const { colors, isDark } = useTheme();
+  const { user, profile, updateProfile } = useAuth();
   const params = useLocalSearchParams<Record<string, string>>();
 
+  // ✅ Firestore-backed profile flags
+  const [hideFollowers, setHideFollowersState] = useState<boolean>(
+    !!(profile as any)?.hide_followers,
+  );
+  const [hideFollowing, setHideFollowingState] = useState<boolean>(
+    !!(profile as any)?.hide_following,
+  );
+  const [hideBirthday, setHideBirthdayState] = useState<boolean>(
+    !!(profile as any)?.hide_birthday,
+  );
+
+  useEffect(() => {
+    if (profile) {
+      setHideFollowersState(!!(profile as any)?.hide_followers);
+      setHideFollowingState(!!(profile as any)?.hide_following);
+      setHideBirthdayState(!!(profile as any)?.hide_birthday);
+    }
+  }, [profile]);
+
+  const saveProfileFlag = async (field: string, value: boolean) => {
+    if (!user?.uid) return;
+    try {
+      await firestore()
+        .collection("profiles")
+        .doc(user.uid)
+        .update({
+          [field]: value,
+          updated_at: new Date().toISOString(),
+          updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
+    } catch (err: any) {
+      Alert.alert("Error", err?.message || "Failed to save setting.");
+    }
+  };
+
+  const handleHideFollowers = async (val: boolean) => {
+    setHideFollowersState(val);
+    await saveProfileFlag("hide_followers", val);
+  };
+
+  const handleHideFollowing = async (val: boolean) => {
+    setHideFollowingState(val);
+    await saveProfileFlag("hide_following", val);
+  };
+
+  const handleHideBirthday = async (val: boolean) => {
+    setHideBirthdayState(val);
+    await saveProfileFlag("hide_birthday", val);
+  };
+
+  // Local persisted state for everything else
   const p1 = usePersistedState("privacy.privateAccount", false);
   const p2 = usePersistedState("privacy.discoverable", true);
   const p3 = usePersistedState("privacy.activityStatus", true);
   const p4 = usePersistedState("privacy.readReceipts", true);
   const p5 = usePersistedState("privacy.hideLikes", false);
-  const p6 = usePersistedState("privacy.hideFollowers", false);
-  const p7 = usePersistedState("privacy.hideFollowing", false);
   const p8 = usePersistedState("privacy.allowTagging", true);
   const p9 = usePersistedState("privacy.messageRequests", true);
   const p10 = usePersistedState("privacy.reduceSensitive", false);
@@ -134,21 +186,9 @@ export default function PrivacyScreen() {
   const p12 = usePersistedState("privacy.whoCanMessage", "Followers");
   const p13 = usePersistedState("privacy.mentions", "Everyone");
 
-  const allReady = [
-    p1,
-    p2,
-    p3,
-    p4,
-    p5,
-    p6,
-    p7,
-    p8,
-    p9,
-    p10,
-    p11,
-    p12,
-    p13,
-  ].every((p) => p.isReady);
+  const allReady = [p1, p2, p3, p4, p5, p8, p9, p10, p11, p12, p13].every(
+    (p) => p.isReady,
+  );
 
   useEffect(() => {
     if (
@@ -282,20 +322,31 @@ export default function PrivacyScreen() {
           onToggle: p5.setValue,
         },
         {
+          // ✅ Firestore-backed
           title: "Hide Followers",
           description: "Hide your followers list from others",
           icon: "people-outline",
           toggle: true,
-          toggleValue: p6.value,
-          onToggle: p6.setValue,
+          toggleValue: hideFollowers,
+          onToggle: handleHideFollowers,
         },
         {
+          // ✅ Firestore-backed
           title: "Hide Following",
           description: "Hide who you follow from others",
           icon: "person-add-outline",
           toggle: true,
-          toggleValue: p7.value,
-          onToggle: p7.setValue,
+          toggleValue: hideFollowing,
+          onToggle: handleHideFollowing,
+        },
+        {
+          // ✅ NEW — hide birthday
+          title: "Hide Birthday",
+          description: "Hide your date of birth from your profile",
+          icon: "calendar-outline",
+          toggle: true,
+          toggleValue: hideBirthday,
+          onToggle: handleHideBirthday,
         },
       ],
     },
@@ -396,7 +447,6 @@ export default function PrivacyScreen() {
         >
           <Ionicons name="arrow-back" size={20} color={colors.text} />
         </TouchableOpacity>
-
         <View style={styles.headerCenter}>
           <View
             style={[
@@ -425,7 +475,6 @@ export default function PrivacyScreen() {
             </Text>
           </View>
         </View>
-
         <TouchableOpacity
           style={[
             styles.circleBtn,
