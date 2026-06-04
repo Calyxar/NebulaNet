@@ -1,4 +1,4 @@
-// app/create/poll.tsx — UPDATED ✅ dark mode + app design
+// app/create/poll.tsx ✅ — with NSFW toggle
 import { useAuth } from "@/hooks/useAuth";
 import { createPoll } from "@/lib/firestore/polls";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -31,6 +31,26 @@ const MAX_OPTIONS = 6;
 const DURATION_CHOICES: PollDurationDays[] = [1, 3, 7, 14];
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+// ✅ Basic explicit keyword pre-scan
+const EXPLICIT_KEYWORDS = [
+  "nsfw",
+  "nude",
+  "naked",
+  "porn",
+  "sex",
+  "xxx",
+  "adult content",
+  "explicit",
+  "18+",
+  "onlyfans",
+  "hentai",
+  "lewd",
+];
+function containsExplicitText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return EXPLICIT_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 export default function CreatePollScreen() {
   const { profile } = useAuth();
   const { colors, isDark } = useTheme();
@@ -43,6 +63,8 @@ export default function CreatePollScreen() {
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [durationDays, setDurationDays] = useState<PollDurationDays>(7);
   const [isLoading, setIsLoading] = useState(false);
+  // ✅ NSFW toggle
+  const [isNsfw, setIsNsfw] = useState(false);
 
   const charCount = useMemo(() => question.trim().length, [question]);
   const canPost = useMemo(
@@ -75,6 +97,19 @@ export default function CreatePollScreen() {
       Alert.alert("Duplicate options", "Please remove duplicate options.");
       return;
     }
+
+    // ✅ Auto-detect explicit content in question or options
+    const allText = [question, ...cleaned].join(" ");
+    let finalIsNsfw = isNsfw;
+    if (!isNsfw && containsExplicitText(allText)) {
+      finalIsNsfw = true;
+      Alert.alert(
+        "Content Warning",
+        "Your poll contains content that has been automatically marked as NSFW.",
+        [{ text: "OK" }],
+      );
+    }
+
     setIsLoading(true);
     try {
       await createPoll({
@@ -84,7 +119,8 @@ export default function CreatePollScreen() {
         is_anonymous: false,
         duration_days: durationDays,
         visibility: "public",
-      });
+        is_nsfw: finalIsNsfw,
+      } as any);
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to create poll.");
@@ -108,7 +144,6 @@ export default function CreatePollScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        {/* Header */}
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -145,7 +180,6 @@ export default function CreatePollScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Composer row */}
           <View style={styles.composerRow}>
             <View style={styles.avatarCol}>
               {profile?.avatar_url ? (
@@ -197,7 +231,6 @@ export default function CreatePollScreen() {
             </View>
           </View>
 
-          {/* Options */}
           <View style={styles.optionsSection}>
             <View style={styles.avatarColSpacer} />
             <View style={styles.optionsCol}>
@@ -260,7 +293,6 @@ export default function CreatePollScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* Settings card */}
               <View
                 style={[
                   styles.settingsCard,
@@ -358,7 +390,73 @@ export default function CreatePollScreen() {
                     ))}
                   </View>
                 </View>
+
+                <View
+                  style={[styles.divider, { backgroundColor: colors.border }]}
+                />
+
+                {/* ✅ NSFW toggle */}
+                <TouchableOpacity
+                  style={styles.settingRow}
+                  onPress={() => setIsNsfw((p) => !p)}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.settingTitle,
+                        { color: isNsfw ? "#EF4444" : colors.text },
+                      ]}
+                    >
+                      Mark as NSFW
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      {isNsfw
+                        ? "Poll marked as adult content"
+                        : "Mark if poll contains explicit topics"}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.toggle,
+                      isNsfw
+                        ? { backgroundColor: "#EF4444", alignItems: "flex-end" }
+                        : {
+                            backgroundColor: colors.border,
+                            alignItems: "flex-start",
+                          },
+                    ]}
+                  >
+                    <View
+                      style={[styles.toggleDot, { backgroundColor: "#fff" }]}
+                    />
+                  </View>
+                </TouchableOpacity>
               </View>
+
+              {/* ✅ NSFW warning banner */}
+              {isNsfw && (
+                <View
+                  style={[
+                    styles.nsfwBanner,
+                    {
+                      backgroundColor: "#EF4444" + "12",
+                      borderColor: "#EF4444" + "30",
+                    },
+                  ]}
+                >
+                  <Ionicons name="warning-outline" size={16} color="#EF4444" />
+                  <Text style={[styles.nsfwBannerText, { color: "#EF4444" }]}>
+                    This poll will only be visible to users who have enabled
+                    adult content.
+                  </Text>
+                </View>
+              )}
 
               <View style={{ height: 32 }} />
             </View>
@@ -467,11 +565,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   addOptionText: { fontSize: 15, fontWeight: "600" },
-  settingsCard: { borderWidth: 1, borderRadius: 16, padding: 16 },
+  settingsCard: { borderWidth: 1, borderRadius: 16, padding: 16, gap: 0 },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingVertical: 4,
   },
   settingTitle: { fontSize: 14, fontWeight: "700" },
   settingSubtitle: { fontSize: 13, marginTop: 2 },
@@ -492,4 +591,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   durationChipText: { fontSize: 14, fontWeight: "700" },
+  nsfwBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  nsfwBannerText: { flex: 1, fontSize: 12, lineHeight: 17 },
 });

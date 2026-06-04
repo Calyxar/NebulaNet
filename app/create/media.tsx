@@ -1,3 +1,4 @@
+// app/create/media.tsx ✅ — with NSFW toggle
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
 import { createPost } from "@/lib/firestore/posts";
@@ -44,6 +45,8 @@ export default function CreateMediaScreen() {
   const [visibility, setVisibility] = useState<
     "public" | "followers" | "private"
   >("public");
+  // ✅ NSFW toggle
+  const [isNsfw, setIsNsfw] = useState(false);
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
   const canPost = mediaItems.length > 0 && !isLoading;
@@ -67,7 +70,6 @@ export default function CreateMediaScreen() {
     },
   };
   const vis = visibilityConfig[visibility];
-
   const cycleVisibility = () =>
     setVisibility((v) =>
       v === "public" ? "followers" : v === "followers" ? "private" : "public",
@@ -84,7 +86,6 @@ export default function CreateMediaScreen() {
         selectedTab === "photos" ? PickerMedia.Images : PickerMedia.Videos,
       allowsMultipleSelection: true,
       selectionLimit: selectedTab === "photos" ? 10 : 1,
-      // ✅ FIXED: quality: 1 for video caused large files crashing the app
       quality: selectedTab === "videos" ? 0.7 : 0.85,
       videoMaxDuration: 60,
     });
@@ -117,12 +118,13 @@ export default function CreateMediaScreen() {
       await createPost({
         content: caption.trim(),
         visibility,
+        is_nsfw: isNsfw,
         media: mediaItems.map((m, i) => ({
           id: `${Date.now()}_${i}`,
           uri: m.uri,
           type: m.type,
         })) as any,
-      });
+      } as any);
       router.back();
     } catch (e: any) {
       Alert.alert(
@@ -396,6 +398,56 @@ export default function CreateMediaScreen() {
                 </TouchableOpacity>
               )}
 
+              {/* ✅ NSFW toggle */}
+              <TouchableOpacity
+                style={[
+                  styles.nsfwRow,
+                  {
+                    backgroundColor: isNsfw ? "#EF4444" + "12" : colors.surface,
+                    borderColor: isNsfw ? "#EF4444" + "30" : colors.border,
+                  },
+                ]}
+                onPress={() => setIsNsfw((v) => !v)}
+                disabled={isLoading}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={isNsfw ? "eye-off" : "eye-off-outline"}
+                  size={18}
+                  color={isNsfw ? "#EF4444" : colors.textTertiary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.nsfwLabel,
+                      { color: isNsfw ? "#EF4444" : colors.text },
+                    ]}
+                  >
+                    Mark as NSFW
+                  </Text>
+                  <Text
+                    style={[styles.nsfwSub, { color: colors.textTertiary }]}
+                  >
+                    {isNsfw
+                      ? "Marked as adult content"
+                      : "Images are auto-scanned for explicit content"}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.nsfwToggle,
+                    { backgroundColor: isNsfw ? "#EF4444" : colors.border },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.nsfwToggleDot,
+                      { marginLeft: isNsfw ? 22 : 2 },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+
               <Text style={[styles.helperText, { color: colors.textTertiary }]}>
                 {selectedTab === "photos"
                   ? "Up to 10 photos per post."
@@ -549,5 +601,29 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   addBtnText: { fontSize: 15, fontWeight: "600" },
+  // ✅ NSFW styles
+  nsfwRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  nsfwLabel: { fontSize: 14, fontWeight: "700" },
+  nsfwSub: { fontSize: 12, marginTop: 2 },
+  nsfwToggle: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+  },
+  nsfwToggleDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#fff",
+  },
   helperText: { fontSize: 12, lineHeight: 16, marginTop: 2 },
 });

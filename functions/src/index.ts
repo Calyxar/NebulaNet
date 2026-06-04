@@ -20,8 +20,8 @@ setGlobalOptions({
 const db = getFirestore();
 const auth = getAuth();
 
-// ✅ Resend API key secret
 const resendApiKey = defineSecret("RESEND_API_KEY");
+const googleCloudApiKey = defineSecret("GOOGLE_CLOUD_VISION_API_KEY");
 
 function getNotificationTitle(type: string, senderName: string): string {
   if (type === "follow") return senderName + " started following you";
@@ -58,42 +58,59 @@ function getNotificationBody(type: string, text?: string | null): string {
   return "";
 }
 
-// ✅ HTML builder — keeps template literal out of function body
 function buildParentalEmailHtml(childUsername: string, code: string): string {
-  return [
-    "<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 16px;\">",
-    '<div style="text-align: center; margin-bottom: 32px;">',
+  const lines: string[] = [];
+  lines.push(
+    '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
+  );
+  lines.push('<div style="text-align: center; margin-bottom: 32px;">');
+  lines.push(
     '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
+  );
+  lines.push(
     '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
-    "</div>",
-    '<p style="color: #CBD5E1; line-height: 1.6;">',
-    "Hi there,<br /><br />",
+  );
+  lines.push("</div>");
+  lines.push(
+    '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
+  );
+  lines.push(
     '<strong style="color: #fff;">' +
       childUsername +
-      "</strong> is trying to create a NebulaNet account and has listed you as their parent or guardian. Because they are under 13, your approval is required.",
-    "</p>",
+      "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>",
+  );
+  lines.push(
     '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
-    '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px;">Your verification code</p>',
+  );
+  lines.push(
+    '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
+  );
+  lines.push(
     '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' +
       code +
       "</div>",
+  );
+  lines.push(
     '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
-    "</div>",
-    '<p style="color: #CBD5E1; line-height: 1.6;">',
-    "Share this code with " +
+  );
+  lines.push("</div>");
+  lines.push(
+    '<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
       childUsername +
-      " to complete account setup. Their account will have safe content settings enabled automatically.",
-    "</p>",
+      " to complete account setup.</p>",
+  );
+  lines.push(
     '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
-    '<p style="color: #FCA5A5; font-size: 13px; margin: 0; line-height: 1.6;">',
-    "<strong>Did not request this?</strong> If you did not initiate this request, please ignore this email. No account will be created without this code.",
-    "</p>",
-    "</div>",
-    '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">',
-    'NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA;">nebulanet.space</a> &middot; <a href="https://nebulanet.space/privacy" style="color: #8A7CFA;">Privacy Policy</a>',
-    "</p>",
-    "</div>",
-  ].join("\n");
+  );
+  lines.push(
+    '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
+  );
+  lines.push("</div>");
+  lines.push(
+    '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
+  );
+  lines.push("</div>");
+  return lines.join("\n");
 }
 
 export const sendPushNotification = onDocumentCreated(
@@ -135,7 +152,7 @@ export const sendPushNotification = onDocumentCreated(
           notifId: event.params.notifId,
           senderId,
           entityId: (notif.entity_id as string) ?? null,
-          "entityType": (notif.entity_type as string) ?? null,
+          entityType: (notif.entity_type as string) ?? null,
         },
       };
       const response = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -342,12 +359,8 @@ export const deleteCommunity = https.onCall(
   },
 );
 
-// ✅ Send parental verification email via Resend
 export const sendParentalVerificationEmail = https.onCall(
-  {
-    region: "us-central1",
-    secrets: [resendApiKey],
-  },
+  { region: "us-central1", secrets: [resendApiKey] },
   async (req) => {
     const { parentEmail, childUserId, childUsername } = req.data;
     if (!parentEmail || !childUserId) {
@@ -365,7 +378,7 @@ export const sendParentalVerificationEmail = https.onCall(
       .doc(childUserId)
       .set({
         parent_email: parentEmail,
-        "child_user_id": childUserId,
+        child_user_id: childUserId,
         child_username: childUsername ?? null,
         code,
         expires_at: expiresAt.toISOString(),
@@ -383,7 +396,7 @@ export const sendParentalVerificationEmail = https.onCall(
       body: JSON.stringify({
         from: "NebulaNet <noreply@nebulanet.space>",
         to: [parentEmail],
-        subject: "Parental Approval Required — NebulaNet",
+        subject: "Parental Approval Required - NebulaNet",
         html: buildParentalEmailHtml(childUsername ?? "Your child", code),
       }),
     });
@@ -399,7 +412,6 @@ export const sendParentalVerificationEmail = https.onCall(
   },
 );
 
-// ✅ Verify parental code
 export const verifyParentalCode = https.onCall(
   { region: "us-central1" },
   async (req) => {
@@ -442,7 +454,6 @@ export const verifyParentalCode = https.onCall(
       verified: true,
       verified_at: new Date().toISOString(),
     });
-
     await db.collection("profiles").doc(childUserId).update({
       parental_approved: true,
       parental_email: data.parent_email,
@@ -451,5 +462,148 @@ export const verifyParentalCode = https.onCall(
     });
 
     return { success: true };
+  },
+);
+
+export const moderatePostContent = onDocumentCreated(
+  { document: "posts/{postId}", secrets: [googleCloudApiKey] },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const post = snap.data() as Record<string, unknown>;
+    const postId = event.params.postId;
+
+    if (post.is_nsfw === true) return;
+
+    const content =
+      ((post.content as string) ?? "") + " " + ((post.title as string) ?? "");
+    const mediaUrls = (post.media_urls as string[]) ?? [];
+    const userId = post.user_id as string;
+
+    let shouldFlag = false;
+    let flagReason = "";
+
+    const EXPLICIT_WORDS = [
+      "porn",
+      "nude",
+      "naked",
+      "xxx",
+      "nsfw",
+      "onlyfans",
+      "sex tape",
+      "adult content",
+      "explicit",
+      "18+",
+      "hentai",
+      "lewd",
+      "slutty",
+      "horny",
+      "masturbat",
+      "genitals",
+    ];
+
+    const lower = content.toLowerCase();
+    const textMatch = EXPLICIT_WORDS.find((w) => lower.includes(w));
+    if (textMatch) {
+      shouldFlag = true;
+      flagReason = "explicit_text:" + textMatch;
+    }
+
+    if (!shouldFlag && mediaUrls.length > 0) {
+      try {
+        const imageUrl = mediaUrls.find(
+          (u) =>
+            !u.includes(".mp4") &&
+            !u.includes(".mov") &&
+            !u.includes(".m4v") &&
+            !u.includes(".webm"),
+        );
+
+        if (imageUrl) {
+          const visionRes = await fetch(
+            "https://vision.googleapis.com/v1/images:annotate?key=" +
+              googleCloudApiKey.value(),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                requests: [
+                  {
+                    image: { source: { imageUri: imageUrl } },
+                    features: [{ type: "SAFE_SEARCH_DETECTION" }],
+                  },
+                ],
+              }),
+            },
+          );
+
+          const visionData = (await visionRes.json()) as any;
+          const safeSearch = visionData?.responses?.[0]?.safeSearchAnnotation;
+
+          if (safeSearch) {
+            const flagLevels = ["LIKELY", "VERY_LIKELY"];
+            if (
+              flagLevels.includes(safeSearch.adult) ||
+              flagLevels.includes(safeSearch.violence) ||
+              flagLevels.includes(safeSearch.racy)
+            ) {
+              shouldFlag = true;
+              flagReason = [
+                flagLevels.includes(safeSearch.adult)
+                  ? "adult:" + safeSearch.adult
+                  : "",
+                flagLevels.includes(safeSearch.racy)
+                  ? "racy:" + safeSearch.racy
+                  : "",
+                flagLevels.includes(safeSearch.violence)
+                  ? "violence:" + safeSearch.violence
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(",");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Vision API error:", String(err));
+      }
+    }
+
+    if (shouldFlag) {
+      await snap.ref.update({
+        is_nsfw: true,
+        nsfw_auto_detected: true,
+        nsfw_flag_reason: flagReason,
+        nsfw_detected_at: new Date().toISOString(),
+      });
+
+      await db.collection("content_violations").add({
+        post_id: postId,
+        user_id: userId,
+        flag_reason: flagReason,
+        content_preview: content.slice(0, 200),
+        media_urls: mediaUrls,
+        detected_at: new Date().toISOString(),
+        detected_at_ts: FieldValue.serverTimestamp(),
+        action_taken: "nsfw_flagged",
+        reviewed: false,
+      });
+
+      const violationsSnap = await db
+        .collection("content_violations")
+        .where("user_id", "==", userId)
+        .get();
+
+      if (violationsSnap.size >= 3) {
+        await db.collection("profiles").doc(userId).update({
+          content_violation_count: violationsSnap.size,
+          flagged_for_review: true,
+          updated_at: new Date().toISOString(),
+          updated_at_ts: FieldValue.serverTimestamp(),
+        });
+      }
+
+      console.log("Post", postId, "auto-flagged NSFW:", flagReason);
+    }
   },
 );

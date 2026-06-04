@@ -1,3 +1,4 @@
+// app/create/post.tsx ✅ — with NSFW toggle + explicit text pre-scan
 import GifPicker from "@/components/post/GifPicker";
 import { useCreatePost } from "@/hooks/usePosts";
 import { auth } from "@/lib/firebase";
@@ -47,6 +48,27 @@ const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
 
 const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
+
+// ✅ Basic explicit keyword pre-scan (Cloud Function does the full scan server-side)
+const EXPLICIT_KEYWORDS = [
+  "nsfw",
+  "nude",
+  "naked",
+  "porn",
+  "sex",
+  "xxx",
+  "adult content",
+  "explicit",
+  "18+",
+  "onlyfans",
+  "slutty",
+  "horny",
+];
+
+function containsExplicitText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return EXPLICIT_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 function LocationPicker({
   visible,
@@ -274,6 +296,8 @@ export default function CreatePostScreen() {
     name: string;
     place_id: string;
   } | null>(null);
+  // ✅ NSFW toggle
+  const [isNsfw, setIsNsfw] = useState(false);
 
   const isPosting = createPostMutation.isPending;
 
@@ -324,15 +348,12 @@ export default function CreatePostScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: PickerMedia.Videos,
       selectionLimit: 1,
-      // ✅ FIXED: quality: 1 caused very large files crashing the app — lowered to 0.7
       quality: 0.7,
       videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.length) return;
-
     const videoUri = result.assets[0].uri;
     let thumbnailUri: string | undefined;
-
     try {
       const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
         time: 1000,
@@ -341,7 +362,6 @@ export default function CreatePostScreen() {
     } catch (e) {
       console.warn("Thumbnail generation failed:", e);
     }
-
     setMediaItems([{ uri: videoUri, type: "video" as const, thumbnailUri }]);
   };
 
@@ -384,6 +404,18 @@ export default function CreatePostScreen() {
       return;
     }
 
+    // ✅ Auto-detect explicit text and warn/force NSFW
+    const allText = `${title} ${bodyText}`.trim();
+    let finalIsNsfw = isNsfw;
+    if (!isNsfw && containsExplicitText(allText)) {
+      finalIsNsfw = true;
+      Alert.alert(
+        "Content Warning",
+        "Your post contains content that has been automatically marked as NSFW. It will only be shown to users who have enabled adult content.",
+        [{ text: "OK" }],
+      );
+    }
+
     try {
       if (mediaItems.length > 0) {
         const hasVideo = mediaItems.some((m) => m.type === "video");
@@ -404,7 +436,8 @@ export default function CreatePostScreen() {
         })) as any,
         visibility,
         location: location ?? undefined,
-      });
+        is_nsfw: finalIsNsfw,
+      } as any);
 
       router.back();
     } catch (e: any) {
@@ -607,6 +640,7 @@ export default function CreatePostScreen() {
             <View
               style={[styles.optionsCard, { backgroundColor: colors.card }]}
             >
+              {/* Location */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomColor: colors.border }]}
                 onPress={() => setShowLocationPicker(true)}
@@ -655,8 +689,9 @@ export default function CreatePostScreen() {
                 </View>
               </TouchableOpacity>
 
+              {/* Visibility */}
               <TouchableOpacity
-                style={[styles.optionRow, { borderBottomWidth: 0 }]}
+                style={[styles.optionRow, { borderBottomColor: colors.border }]}
                 onPress={() =>
                   setVisibility((v) =>
                     v === "public"
@@ -693,7 +728,85 @@ export default function CreatePostScreen() {
                   color={colors.textTertiary}
                 />
               </TouchableOpacity>
+
+              {/* ✅ NSFW toggle */}
+              <TouchableOpacity
+                style={[styles.optionRow, { borderBottomWidth: 0 }]}
+                onPress={() => setIsNsfw((v) => !v)}
+                disabled={isPosting}
+              >
+                <View
+                  style={[
+                    styles.optionIcon,
+                    {
+                      backgroundColor: isNsfw
+                        ? "#EF4444" + "18"
+                        : colors.surface,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={isNsfw ? "eye-off" : "eye-off-outline"}
+                    size={18}
+                    color={isNsfw ? "#EF4444" : colors.textTertiary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.optionLabel,
+                      { color: isNsfw ? "#EF4444" : colors.text, flex: 0 },
+                    ]}
+                  >
+                    Mark as NSFW
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: colors.textTertiary,
+                      marginTop: 2,
+                    }}
+                  >
+                    {isNsfw
+                      ? "This post is marked as adult content"
+                      : "Content will be automatically scanned"}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.nsfwToggle,
+                    { backgroundColor: isNsfw ? "#EF4444" : colors.border },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.nsfwToggleDot,
+                      { marginLeft: isNsfw ? 22 : 2 },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
             </View>
+
+            {/* ✅ NSFW warning banner */}
+            {isNsfw && (
+              <View
+                style={[
+                  styles.nsfwBanner,
+                  {
+                    backgroundColor: "#EF4444" + "12",
+                    borderColor: "#EF4444" + "30",
+                  },
+                ]}
+              >
+                <Ionicons name="warning-outline" size={16} color="#EF4444" />
+                <Text style={[styles.nsfwBannerText, { color: "#EF4444" }]}>
+                  This post will only be visible to users who have enabled adult
+                  content in their settings. Falsely marking content may result
+                  in account action.
+                </Text>
+              </View>
+            )}
 
             {uploadProgress !== "" && (
               <View
@@ -724,6 +837,16 @@ export default function CreatePostScreen() {
               },
             ]}
           >
+            <View style={styles.bottomLeft}>
+              <Text
+                style={[
+                  styles.charCountText,
+                  { color: isOverLimit ? "#EF4444" : colors.textTertiary },
+                ]}
+              >
+                {charLimit - charCount}
+              </Text>
+            </View>
             <TouchableOpacity
               style={[
                 styles.draftBtn,
@@ -885,6 +1008,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // ✅ NSFW toggle styles
+  nsfwToggle: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+  },
+  nsfwToggleDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#fff",
+  },
+  nsfwBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  nsfwBannerText: { flex: 1, fontSize: 12, lineHeight: 17 },
   uploadBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -902,7 +1048,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingBottom: 24,
     borderTopWidth: 1,
+    alignItems: "center",
   },
+  bottomLeft: { width: 40, alignItems: "center" },
+  charCountText: { fontSize: 12, fontWeight: "700" },
   draftBtn: {
     flex: 1,
     paddingVertical: 16,

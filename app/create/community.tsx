@@ -1,4 +1,4 @@
-// app/create/community.tsx — React Native Firebase ✅
+// app/create/community.tsx ✅ — with NSFW toggle
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -26,6 +26,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const PickerMedia: any =
   (ImagePicker as any).MediaType ?? (ImagePicker as any).MediaTypeOptions;
+
+// ✅ Explicit keyword check
+const EXPLICIT_KEYWORDS = [
+  "nsfw",
+  "nude",
+  "naked",
+  "porn",
+  "sex",
+  "xxx",
+  "adult",
+  "explicit",
+  "18+",
+  "onlyfans",
+  "hentai",
+  "lewd",
+];
+function containsExplicitText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return EXPLICIT_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 function slugify(input: string) {
   return input
@@ -67,7 +87,6 @@ async function uploadCommunityImage(
   const mimeType =
     ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
   const fileRef = storage().ref(path);
-  // putFile handles content:// URIs natively — no FileSystem dance required.
   await fileRef.putFile(uri, { contentType: mimeType });
   return fileRef.getDownloadURL();
 }
@@ -79,6 +98,7 @@ export default function CreateCommunityScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [isNsfw, setIsNsfw] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -122,6 +142,19 @@ export default function CreateCommunityScreen() {
       );
       return;
     }
+
+    // ✅ Auto-detect explicit content
+    const allText = `${trimmedName} ${description}`;
+    let finalIsNsfw = isNsfw;
+    if (!isNsfw && containsExplicitText(allText)) {
+      finalIsNsfw = true;
+      Alert.alert(
+        "Content Warning",
+        "Your community name or description contains content that has been automatically marked as NSFW.",
+        [{ text: "OK" }],
+      );
+    }
+
     setIsSubmitting(true);
     try {
       const slug = await ensureUniqueSlug(slugify(trimmedName));
@@ -141,6 +174,7 @@ export default function CreateCommunityScreen() {
           description: description.trim() || null,
           image_url,
           is_private: isPrivate,
+          is_nsfw: finalIsNsfw,
           owner_id: user.uid,
           member_count: 1,
           created_at: firestore.FieldValue.serverTimestamp(),
@@ -170,7 +204,6 @@ export default function CreateCommunityScreen() {
         backgroundColor="transparent"
         translucent
       />
-
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -240,7 +273,6 @@ export default function CreateCommunityScreen() {
                 style={[styles.avatarLine, { backgroundColor: colors.border }]}
               />
             </View>
-
             <View style={styles.inputCol}>
               <TextInput
                 style={[styles.nameInput, { color: colors.text }]}
@@ -413,7 +445,88 @@ export default function CreateCommunityScreen() {
                     />
                   )}
                 </TouchableOpacity>
+
+                <View
+                  style={[styles.divider, { backgroundColor: colors.border }]}
+                />
+
+                {/* ✅ NSFW toggle */}
+                <TouchableOpacity
+                  style={styles.settingRow}
+                  onPress={() => setIsNsfw((p) => !p)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.settingIconWrap,
+                      {
+                        backgroundColor: isNsfw
+                          ? "#EF4444" + "18"
+                          : colors.surface,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={isNsfw ? "eye-off" : "eye-off-outline"}
+                      size={18}
+                      color={isNsfw ? "#EF4444" : colors.textTertiary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.settingTitle,
+                        { color: isNsfw ? "#EF4444" : colors.text },
+                      ]}
+                    >
+                      NSFW Community
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      {isNsfw
+                        ? "Marked as adult content community"
+                        : "Mark if community contains adult content"}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.toggle,
+                      isNsfw
+                        ? { backgroundColor: "#EF4444", alignItems: "flex-end" }
+                        : {
+                            backgroundColor: colors.border,
+                            alignItems: "flex-start",
+                          },
+                    ]}
+                  >
+                    <View
+                      style={[styles.toggleDot, { backgroundColor: "#fff" }]}
+                    />
+                  </View>
+                </TouchableOpacity>
               </View>
+
+              {isNsfw && (
+                <View
+                  style={[
+                    styles.nsfwBanner,
+                    {
+                      backgroundColor: "#EF4444" + "12",
+                      borderColor: "#EF4444" + "30",
+                    },
+                  ]}
+                >
+                  <Ionicons name="warning-outline" size={16} color="#EF4444" />
+                  <Text style={[styles.nsfwBannerText, { color: "#EF4444" }]}>
+                    This community will only be visible to users who have
+                    enabled adult content in their settings.
+                  </Text>
+                </View>
+              )}
 
               <Text style={[styles.helperText, { color: colors.textTertiary }]}>
                 You'll be the first member and moderator.
@@ -546,5 +659,23 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: 14, fontWeight: "700" },
   settingSubtitle: { fontSize: 12, marginTop: 2 },
   divider: { height: 1, marginHorizontal: 14 },
+  toggle: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+    padding: 2,
+  },
+  toggleDot: { width: 22, height: 22, borderRadius: 11 },
+  nsfwBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  nsfwBannerText: { flex: 1, fontSize: 12, lineHeight: 17 },
   helperText: { fontSize: 12, marginTop: 12, lineHeight: 16 },
 });

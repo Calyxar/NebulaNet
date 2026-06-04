@@ -1,7 +1,7 @@
-// app/create/story.tsx — UPDATED ✅ GIF picker wired in + immediate story refresh
+// app/create/story.tsx ✅ — with NSFW toggle
 import GifPicker from "@/components/post/GifPicker";
 import { useAuth } from "@/hooks/useAuth";
-import { useCreateStory } from "@/hooks/useStories"; // ✅ FIX: use hook not direct call
+import { useCreateStory } from "@/hooks/useStories";
 import { uploadStoryMedia } from "@/lib/queries/stories";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,8 +38,9 @@ export default function CreateStoryScreen() {
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  // ✅ NSFW toggle
+  const [isNsfw, setIsNsfw] = useState(false);
 
-  // ✅ FIX: use the hook so onSuccess invalidates storyKeys.active()
   const createStoryMutation = useCreateStory();
 
   const avatarLetter = profile?.username?.charAt(0).toUpperCase() ?? "U";
@@ -95,16 +96,13 @@ export default function CreateStoryScreen() {
         mediaUri,
         mediaType === "gif" ? "image" : mediaType,
       );
-
-      // ✅ FIX: use mutation hook — invalidates storyKeys.active() on success
-      // so the story row on the home screen updates immediately
       await createStoryMutation.mutateAsync({
         media_url: uploaded.publicUrl,
         media_type: mediaType === "gif" ? "image" : mediaType,
         caption: caption.trim() || undefined,
         duration: mediaType === "video" ? 15 : 5,
-      });
-
+        is_nsfw: isNsfw,
+      } as any);
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to post story.");
@@ -113,10 +111,7 @@ export default function CreateStoryScreen() {
     }
   };
 
-  const mediaTypeIcon = () => {
-    if (mediaType === "video") return "videocam";
-    return "image";
-  };
+  const mediaTypeIcon = () => (mediaType === "video" ? "videocam" : "image");
   const mediaTypeBadge = () => {
     if (mediaType === "video") return "VIDEO";
     if (mediaType === "gif") return "GIF";
@@ -377,6 +372,57 @@ export default function CreateStoryScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+
+              {/* ✅ NSFW toggle */}
+              <TouchableOpacity
+                style={[
+                  styles.nsfwRow,
+                  {
+                    backgroundColor: isNsfw ? "#EF4444" + "12" : colors.surface,
+                    borderColor: isNsfw ? "#EF4444" + "30" : colors.border,
+                  },
+                ]}
+                onPress={() => setIsNsfw((v) => !v)}
+                disabled={uploading}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={isNsfw ? "eye-off" : "eye-off-outline"}
+                  size={18}
+                  color={isNsfw ? "#EF4444" : colors.textTertiary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.nsfwLabel,
+                      { color: isNsfw ? "#EF4444" : colors.text },
+                    ]}
+                  >
+                    Mark as NSFW
+                  </Text>
+                  <Text
+                    style={[styles.nsfwSub, { color: colors.textTertiary }]}
+                  >
+                    {isNsfw
+                      ? "Story marked as adult content"
+                      : "Mark if story contains explicit content"}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.nsfwToggle,
+                    { backgroundColor: isNsfw ? "#EF4444" : colors.border },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.nsfwToggleDot,
+                      { marginLeft: isNsfw ? 22 : 2 },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+
               <Text style={[styles.helperText, { color: colors.textTertiary }]}>
                 Stories are visible to your followers for 24 hours.
               </Text>
@@ -540,5 +586,29 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   uploadingText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  nsfwRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  nsfwLabel: { fontSize: 14, fontWeight: "700" },
+  nsfwSub: { fontSize: 12, marginTop: 2 },
+  nsfwToggle: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+  },
+  nsfwToggleDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#fff",
+  },
   helperText: { fontSize: 12, lineHeight: 16, marginTop: 4 },
 });

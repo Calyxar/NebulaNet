@@ -50,6 +50,7 @@
     "dotenv": "^16.6.1",
     "eld": "^2.0.2",
     "expo": "~54.0.31",
+    "expo-application": "~7.0.8",
     "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.8",
     "expo-build-properties": "~1.0.10",
