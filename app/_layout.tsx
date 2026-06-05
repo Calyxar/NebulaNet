@@ -1,4 +1,4 @@
-// app/_layout.tsx ✅ — with birthdate redirect for existing users
+// app/_layout.tsx ✅ — no redirect loop
 import { useAuth } from "@/hooks/useAuth";
 import "@/lib/i18n";
 import {
@@ -86,23 +86,32 @@ function RootLayout() {
     profile,
   } = useAuth();
 
+  // ✅ Only consider ready when ALL loading states are false
   const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
+
+  // ✅ Prevent redirect loop — only redirect once per session
+  const hasRedirected = useRef(false);
 
   useEffect(() => {
     if (!isReady) return;
+    // ✅ Already redirected this session — do nothing
+    if (hasRedirected.current) return;
 
     if (!user) {
+      hasRedirected.current = true;
       router.replace("/(auth)/login");
       return;
     }
 
     if (!hasCompletedOnboarding) {
+      hasRedirected.current = true;
       router.replace("/(auth)/onboarding");
       return;
     }
 
-    // ✅ Only redirect existing users (who completed onboarding) missing birthdate
+    // ✅ Existing users missing birthdate (pre-feature)
     if (!(profile as any)?.birthdate) {
+      hasRedirected.current = true;
       router.replace("/(auth)/birthdate" as any);
       return;
     }
@@ -111,10 +120,21 @@ function RootLayout() {
     const ageGroup = (profile as any)?.age_group;
     const parentalApproved = (profile as any)?.parental_approved;
     if (ageGroup === "under_13" && !parentalApproved) {
+      hasRedirected.current = true;
       router.replace("/(auth)/parental-approval" as any);
       return;
     }
+
+    // ✅ All checks passed — mark done
+    hasRedirected.current = true;
   }, [isReady, user, hasCompletedOnboarding, profile]);
+
+  // ✅ Reset on logout so next login redirects correctly
+  useEffect(() => {
+    if (!user) {
+      hasRedirected.current = false;
+    }
+  }, [user]);
 
   return (
     <>

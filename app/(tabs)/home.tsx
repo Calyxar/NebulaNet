@@ -164,8 +164,10 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
   );
 }
 
+// Replace FeedBannerAd in home.tsx with this:
 function FeedBannerAd({ colors }: { colors: any }) {
-  if (!BANNER_AD_UNIT_ID) return null;
+  const [failed, setFailed] = useState(false);
+  if (!BANNER_AD_UNIT_ID || failed) return null;
   return (
     <View style={[adStyles.wrap, { backgroundColor: colors.card }]}>
       <Text style={[adStyles.label, { color: colors.textTertiary }]}>
@@ -175,6 +177,7 @@ function FeedBannerAd({ colors }: { colors: any }) {
         unitId={BANNER_AD_UNIT_ID}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ requestNonPersonalizedAdsOnly: false }}
+        onAdFailedToLoad={() => setFailed(true)}
       />
     </View>
   );
