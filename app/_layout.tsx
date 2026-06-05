@@ -86,15 +86,11 @@ function RootLayout() {
     profile,
   } = useAuth();
 
-  // ✅ Only consider ready when ALL loading states are false
   const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
-
-  // ✅ Prevent redirect loop — only redirect once per session
   const hasRedirected = useRef(false);
 
   useEffect(() => {
     if (!isReady) return;
-    // ✅ Already redirected this session — do nothing
     if (hasRedirected.current) return;
 
     if (!user) {
@@ -109,14 +105,12 @@ function RootLayout() {
       return;
     }
 
-    // ✅ Existing users missing birthdate (pre-feature)
     if (!(profile as any)?.birthdate) {
       hasRedirected.current = true;
       router.replace("/(auth)/birthdate" as any);
       return;
     }
 
-    // ✅ Block under_13 without parental approval
     const ageGroup = (profile as any)?.age_group;
     const parentalApproved = (profile as any)?.parental_approved;
     if (ageGroup === "under_13" && !parentalApproved) {
@@ -125,15 +119,11 @@ function RootLayout() {
       return;
     }
 
-    // ✅ All checks passed — mark done
     hasRedirected.current = true;
   }, [isReady, user, hasCompletedOnboarding, profile]);
 
-  // ✅ Reset on logout so next login redirects correctly
   useEffect(() => {
-    if (!user) {
-      hasRedirected.current = false;
-    }
+    if (!user) hasRedirected.current = false;
   }, [user]);
 
   return (
