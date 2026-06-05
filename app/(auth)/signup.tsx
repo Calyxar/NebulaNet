@@ -82,7 +82,7 @@ export default function SignUpScreen() {
   const saveDeviceFingerprint = async (uid: string) => {
     try {
       const deviceId =
-        Application.androidId ??
+        (await Application.getAndroidId()) ??
         `${Device.modelName ?? "unknown"}_${Device.osVersion ?? "0"}`;
 
       const flaggedSnap = await firestore()
