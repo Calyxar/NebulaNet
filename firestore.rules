@@ -33,7 +33,6 @@ service cloud.firestore {
         .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count', 'view_count']);
     }
 
-    // ✅ FIXED: allows poll transaction to update poll.options and poll.total_votes
     function isPollVoteUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['poll', 'updated_at', 'updated_at_ts']);
@@ -42,7 +41,8 @@ service cloud.firestore {
     match /profiles/{userId} {
       allow read, get, list: if signedIn();
       allow create: if isSelf(userId);
-      allow update: if isSelf(userId) && resource.data.is_suspended != true;
+      // ✅ admin can update any profile (e.g. unsuspend); self can update unless suspended
+      allow update: if (isSelf(userId) && resource.data.is_suspended != true) || isAdmin();
       allow delete: if isSelf(userId) || isAdmin();
     }
 
@@ -63,7 +63,6 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read, get, list: if signedIn();
       allow create: if signedIn();
-      // ✅ FIXED: || added before isPollVoteUpdate()
       allow update: if signedIn() && (
         resource.data.user_id == uid() ||
         isAdmin() ||
@@ -72,7 +71,6 @@ service cloud.firestore {
       );
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
 
-      // ✅ poll votes subcollection
       match /poll_votes/{voteId} {
         allow read: if signedIn();
         allow create: if signedIn() && voteId == uid();
@@ -136,6 +134,12 @@ service cloud.firestore {
       allow write: if isSelf(userId);
     }
 
+    // ✅ ADDED: was missing — onboarding writes here, silently failed in production
+    match /user_interests/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
     match /stories/{storyId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -156,6 +160,9 @@ service cloud.firestore {
     match /story_comments/{commentId} {
       allow read: if signedIn();
       allow create: if signedIn();
+      // ✅ ADDED: edit/delete own story comments
+      allow update: if signedIn() && resource.data.user_id == uid();
+      allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }
 
     match /conversations/{convoId} {

@@ -1,4 +1,4 @@
-// app/(tabs)/notifications.tsx ✅ — tab screen with back handler
+// app/notifications/index.tsx ✅ — tab screen with back handler
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
@@ -9,19 +9,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  BackHandler,
-  Image,
-  SectionList,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    BackHandler,
+    Image,
+    SectionList,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import {
-  SafeAreaView,
-  useSafeAreaInsets,
+    SafeAreaView,
+    useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
 type FilterTab = "all" | "unread";

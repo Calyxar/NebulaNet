@@ -22,27 +22,20 @@ function ThemeSync() {
   const { user } = useAuth();
   const { loadUserPrefs } = useTheme();
   const syncedRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (!user?.uid || syncedRef.current === user.uid) return;
     syncedRef.current = user.uid;
     void loadUserPrefs(user.uid);
   }, [user?.uid, loadUserPrefs]);
-
   return null;
 }
 
 function PushNotificationSetup() {
   const { user } = useAuth();
-
   useEffect(() => {
     setupNotificationHandler();
     setupNotificationChannels();
-
-    if (user?.uid) {
-      registerPushNotifications();
-    }
-
+    if (user?.uid) registerPushNotifications();
     const cleanup = setupNotificationListeners(
       (notification) => {
         console.log("Notification received:", notification);
@@ -65,14 +58,12 @@ function PushNotificationSetup() {
         ) {
           if (data.entityId) router.push(`/story/${data.entityId}` as any);
         } else {
-          router.push("/notifications");
+          router.push("/notifications" as any);
         }
       },
     );
-
     return cleanup;
   }, [user?.uid]);
-
   return null;
 }
 
@@ -85,46 +76,32 @@ function RootLayout() {
     hasCompletedOnboarding,
     profile,
   } = useAuth();
-
   const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
   const hasRedirected = useRef(false);
 
   useEffect(() => {
     if (!isReady) return;
-
-    // ✅ Allow re-evaluation every time isReady becomes true.
-    // Previously this was locked after first redirect, causing a blank
-    // screen when the user finished birthdate but the layout never
-    // re-ran to send them home.
     hasRedirected.current = false;
   }, [isReady]);
 
   useEffect(() => {
     if (!isReady) return;
     if (hasRedirected.current) return;
-
-    // Not logged in
     if (!user) {
       hasRedirected.current = true;
       router.replace("/(auth)/login");
       return;
     }
-
-    // Onboarding not done
     if (!hasCompletedOnboarding) {
       hasRedirected.current = true;
       router.replace("/(auth)/onboarding");
       return;
     }
-
-    // Birthdate missing — send to birthdate screen
     if (!(profile as any)?.birthdate) {
       hasRedirected.current = true;
       router.replace("/(auth)/birthdate" as any);
       return;
     }
-
-    // Under-13 without parental approval
     const ageGroup = (profile as any)?.age_group;
     const parentalApproved = (profile as any)?.parental_approved;
     if (ageGroup === "under_13" && !parentalApproved) {
@@ -132,13 +109,10 @@ function RootLayout() {
       router.replace("/(auth)/parental-approval" as any);
       return;
     }
-
-    // ✅ All checks passed — go home
     hasRedirected.current = true;
     router.replace("/(tabs)/home");
   }, [isReady, user, hasCompletedOnboarding, profile]);
 
-  // Reset on logout so the next login re-runs all checks
   useEffect(() => {
     if (!user) hasRedirected.current = false;
   }, [user]);
@@ -147,25 +121,24 @@ function RootLayout() {
     <>
       <ThemeSync />
       <PushNotificationSetup />
-
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="user" options={{ headerShown: false }} />
-        <Stack.Screen name="post" options={{ headerShown: false }} />
-        <Stack.Screen name="story/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="community" options={{ headerShown: false }} />
-        <Stack.Screen name="hashtag" options={{ headerShown: false }} />
-        <Stack.Screen name="notifications" options={{ headerShown: false }} />
-        <Stack.Screen name="chat" options={{ headerShown: false }} />
-        <Stack.Screen name="boost/[postId]" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ headerShown: false }} />
-        <Stack.Screen name="profile" options={{ headerShown: false }} />
-        <Stack.Screen name="create" options={{ headerShown: false }} />
-        <Stack.Screen name="u/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="index" />
+        <Stack.Screen name="user" />
+        <Stack.Screen name="post" />
+        <Stack.Screen name="story/[id]" />
+        <Stack.Screen name="community" />
+        <Stack.Screen name="hashtag" />
+        {/* ✅ notifications is now a Stack screen, not a tab */}
+        <Stack.Screen name="notifications" />
+        <Stack.Screen name="chat" />
+        <Stack.Screen name="boost/[postId]" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="create" />
+        <Stack.Screen name="u/[id]" />
       </Stack>
-
       {isLoading && (
         <View
           style={{
