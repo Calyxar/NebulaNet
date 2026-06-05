@@ -1,7 +1,4 @@
-// components/chat/ChatList.tsx ✅ THEMED
-// Only the renderMessageItem + date header + empty state need theme colors
-// Everything else (attachment shapes) stays the same
-
+// components/chat/ChatList.tsx ✅ — deleted messages completely removed
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +25,7 @@ export interface Message {
   mediaUrl?: string;
   mediaType?: "image" | "video" | "audio" | "file";
   attachments?: ChatAttachment[];
+  is_deleted?: boolean; // ✅ added
 }
 
 interface ChatListProps {
@@ -74,9 +72,15 @@ export default function ChatList({
     } catch {}
   };
 
+  // ✅ Filter out deleted messages before grouping
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => !m.is_deleted),
+    [messages],
+  );
+
   const grouped = useMemo(() => {
     const groups: Record<string, Message[]> = {};
-    for (const m of messages) {
+    for (const m of visibleMessages) {
       const d = new Date(m.createdAtIso);
       const key = isNaN(d.getTime()) ? "Unknown Date" : d.toLocaleDateString();
       if (!groups[key]) groups[key] = [];
@@ -90,7 +94,7 @@ export default function ChatList({
       );
     }
     return groups;
-  }, [messages]);
+  }, [visibleMessages]);
 
   const dates = useMemo(() => {
     return Object.keys(grouped).sort((a, b) => {
@@ -143,43 +147,9 @@ export default function ChatList({
     const isMe = item.sender === "me";
     const hasAttachments = !!item.attachments?.length;
     const hasMedia = !!item.mediaUrl && !!item.mediaType;
-    const isDeleted = !!(item as any).is_deleted;
 
-    if (isDeleted) {
-      return (
-        <View
-          style={[
-            styles.messageContainer,
-            isMe ? styles.myMessage : styles.otherMessage,
-          ]}
-        >
-          <Text
-            style={[
-              styles.messageText,
-              isMe
-                ? [
-                    styles.myMessageText,
-                    { backgroundColor: colors.primary, opacity: 0.5 },
-                  ]
-                : [
-                    styles.otherMessageText,
-                    {
-                      backgroundColor: colors.card,
-                      color: colors.textTertiary,
-                    },
-                  ],
-            ]}
-          >
-            🚫 Message deleted
-          </Text>
-          <View style={styles.messageFooter}>
-            <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-              {item.timestamp}
-            </Text>
-          </View>
-        </View>
-      );
-    }
+    // ✅ Deleted messages are completely gone — return null
+    if (item.is_deleted) return null;
 
     return (
       <View
@@ -288,7 +258,7 @@ export default function ChatList({
   return (
     <FlatList
       ref={flatListRef}
-      data={messages}
+      data={visibleMessages}
       renderItem={({ item }) => (
         <TouchableOpacity
           onPress={() => onMessagePress?.(item)}
@@ -389,7 +359,9 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.audioDuration,
-              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
+              {
+                color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary,
+              },
             ]}
           >
             {attachment.duration}
@@ -423,7 +395,9 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.fileSize,
-              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
+              {
+                color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary,
+              },
             ]}
           >
             {formatFileSize(attachment.size)}
@@ -539,7 +513,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  emptySubtitle: { fontSize: 14, textAlign: "center", paddingHorizontal: 40 },
+  emptySubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    paddingHorizontal: 40,
+  },
   footer: { paddingVertical: 20, alignItems: "center" },
   attachmentsContainer: { marginBottom: 8 },
   attachmentImage: {
