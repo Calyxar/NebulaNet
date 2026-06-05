@@ -253,15 +253,12 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       await saveUserInterests(user.uid, selectedInterests);
-      await completeOnboarding();
-    } catch {
-      try {
-        await completeOnboarding();
-      } catch {}
+      // ✅ DO NOT call completeOnboarding() here — birthdate screen does it
+    } catch (e) {
+      console.warn("Interests save failed:", e);
     } finally {
       setSaving(false);
     }
-    // ✅ Route to birthdate screen after interests
     router.replace("/(auth)/birthdate" as any);
   };
 
@@ -273,15 +270,11 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       await saveUserInterests(user.uid, []);
-      await completeOnboarding();
+      // ✅ DO NOT call completeOnboarding() here — birthdate screen does it
     } catch {
-      try {
-        await completeOnboarding();
-      } catch {}
     } finally {
       setSaving(false);
     }
-    // ✅ Route to birthdate screen after skipping interests
     router.replace("/(auth)/birthdate" as any);
   };
 

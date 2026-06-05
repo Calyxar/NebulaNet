@@ -1,11 +1,11 @@
-// app/settings/index.tsx — FIXED ✅ (Using AuthProvider signOut)
+// app/settings/index.tsx ✅ — with redo onboarding
 import { useThemeStyles } from "@/hooks/useThemeStyles";
 import {
   closeSettings,
   pushSettings,
   type SettingsRouteKey,
 } from "@/lib/routes/settingsRoutes";
-import { useAuth } from "@/providers/AuthProvider"; // ✅ Changed from hooks/useAuth
+import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -29,6 +29,7 @@ type SettingsRow = {
   routeKey?: SettingsRouteKey;
   danger?: boolean;
   rightText?: string;
+  onPress?: () => void;
 };
 
 function SectionHeader({ title }: { title: string }) {
@@ -48,10 +49,7 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
     <View
       style={[
         styles.card,
-        {
-          backgroundColor: colors.card,
-          shadowOpacity: isDark ? 0.25 : 0.06,
-        },
+        { backgroundColor: colors.card, shadowOpacity: isDark ? 0.25 : 0.06 },
       ]}
     >
       {children}
@@ -59,10 +57,26 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Row({ item, isLast }: { item: SettingsRow; isLast?: boolean }) {
+function Row({
+  item,
+  isLast,
+  onPressOverride,
+}: {
+  item: SettingsRow;
+  isLast?: boolean;
+  onPressOverride?: () => void;
+}) {
   const { colors } = useTheme();
 
   const onPress = () => {
+    if (onPressOverride) {
+      onPressOverride();
+      return;
+    }
+    if (item.onPress) {
+      item.onPress();
+      return;
+    }
     if (!item.routeKey) {
       Alert.alert(item.title, "Coming soon");
       return;
@@ -130,13 +144,34 @@ function Row({ item, isLast }: { item: SettingsRow; isLast?: boolean }) {
 }
 
 export default function SettingsIndexScreen() {
-  const { user, profile, signOut } = useAuth(); // ✅ Get signOut from AuthProvider
+  const { user, profile, signOut, updateSettings } = useAuth();
   const { theme, colors, isDark } = useTheme();
   const ts = useThemeStyles();
   const params = useLocalSearchParams<{ returnTo?: string }>();
 
   const themeLabel =
     theme === "system" ? "SYSTEM" : theme === "dark" ? "DARK" : "LIGHT";
+
+  const handleRedoOnboarding = () => {
+    Alert.alert(
+      "Redo Onboarding",
+      "This will walk you through setup again. Your current profile data will be kept.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          onPress: async () => {
+            try {
+              await updateSettings({ onboarding_completed: false });
+              router.replace("/(auth)/onboarding");
+            } catch (e: any) {
+              Alert.alert("Error", e?.message || "Failed to reset onboarding.");
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const primary: SettingsRow[] = [
     {
@@ -207,6 +242,13 @@ export default function SettingsIndexScreen() {
       icon: "link-outline",
       routeKey: "linkedAccounts",
     },
+    {
+      // ✅ Redo onboarding
+      title: "Redo Onboarding",
+      description: "Update your profile setup and interests",
+      icon: "refresh-outline",
+      onPress: handleRedoOnboarding,
+    },
   ];
 
   const support: SettingsRow[] = [
@@ -241,7 +283,6 @@ export default function SettingsIndexScreen() {
     },
   ];
 
-  // ✅ FIXED: Use signOut from AuthProvider
   const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
@@ -251,7 +292,6 @@ export default function SettingsIndexScreen() {
         onPress: async () => {
           try {
             await signOut();
-            // Immediate redirect to login
             router.replace("/(auth)/login");
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to sign out");
@@ -269,7 +309,6 @@ export default function SettingsIndexScreen() {
         translucent
       />
 
-      {/* Header */}
       <View style={styles.header}>
         <View style={ts.row}>
           <View
@@ -363,7 +402,6 @@ export default function SettingsIndexScreen() {
           ))}
         </SettingsCard>
 
-        {/* Sign out */}
         <TouchableOpacity
           style={[
             styles.signOut,
@@ -413,7 +451,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   logoBubble: {
     width: 44,
     height: 44,
@@ -427,15 +464,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-
   headerTitle: { fontSize: 18, fontWeight: "800" },
   headerSub: { fontSize: 12, marginTop: 2 },
-
   scrollContent: { paddingHorizontal: 18, paddingBottom: 28 },
-
   sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
   sectionHeaderText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.4 },
-
   card: {
     borderRadius: 22,
     overflow: "hidden",
@@ -444,7 +477,6 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 2,
   },
-
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -465,7 +497,6 @@ const styles = StyleSheet.create({
   rowDesc: { marginTop: 3, fontSize: 12, lineHeight: 16 },
   rowRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowRightText: { fontSize: 12, fontWeight: "800" },
-
   signOut: {
     marginTop: 14,
     borderRadius: 18,
@@ -478,7 +509,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   signOutText: { fontSize: 14, fontWeight: "800" },
-
   footerText: {
     marginTop: 14,
     fontSize: 12,

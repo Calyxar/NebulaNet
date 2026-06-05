@@ -1,4 +1,4 @@
-// app/(auth)/birthdate.tsx ✅
+// app/(auth)/birthdate.tsx ✅ — completeOnboarding called here
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -8,14 +8,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -34,7 +34,7 @@ function getAgeGroup(age: number): "under_13" | "teen" | "adult" {
 }
 
 export default function BirthdateScreen() {
-  const { user } = useAuth();
+  const { user, completeOnboarding } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [month, setMonth] = useState("");
@@ -78,7 +78,6 @@ export default function BirthdateScreen() {
     const birthdateIso = birthdate.toISOString().split("T")[0];
 
     if (ageGroup === "under_13") {
-      // Route to parental approval screen
       router.push({
         pathname: "/(auth)/parental-approval",
         params: { birthdate: birthdateIso, age: age.toString() },
@@ -95,22 +94,28 @@ export default function BirthdateScreen() {
           updated_at: new Date().toISOString(),
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
-      }
 
-      if (ageGroup === "teen") {
-        // Lock NSFW in settings
-        await db
-          .collection("user_settings")
-          .doc(user!.uid)
-          .set(
-            { nsfw_locked: true, updated_at: new Date().toISOString() },
-            { merge: true },
-          );
+        if (ageGroup === "teen") {
+          await db
+            .collection("user_settings")
+            .doc(user.uid)
+            .set(
+              { nsfw_locked: true, updated_at: new Date().toISOString() },
+              { merge: true },
+            );
+        }
+
+        // ✅ Complete onboarding HERE — after birthdate is saved
+        // This is the fix for onboarding blank screen issue
+        await completeOnboarding();
       }
 
       router.replace("/(tabs)/home");
     } catch (err) {
       console.warn("Birthdate save failed:", err);
+      try {
+        await completeOnboarding();
+      } catch {}
       router.replace("/(tabs)/home");
     } finally {
       setSaving(false);

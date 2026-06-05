@@ -1,4 +1,4 @@
-// app/_layout.tsx
+// app/_layout.tsx ✅ — with birthdate redirect for existing users
 import { useAuth } from "@/hooks/useAuth";
 import "@/lib/i18n";
 import {
@@ -49,7 +49,6 @@ function PushNotificationSetup() {
       },
       (response) => {
         const data = response.notification.request.content.data;
-
         if (data?.type === "follow") {
           if (data.senderId) router.push(`/user/${data.senderId}` as any);
         } else if (data?.type === "message") {
@@ -78,22 +77,44 @@ function PushNotificationSetup() {
 }
 
 function RootLayout() {
-  const { user, isLoading, isUserSettingsLoading, hasCompletedOnboarding } =
-    useAuth();
+  const {
+    user,
+    isLoading,
+    isProfileLoading,
+    isUserSettingsLoading,
+    hasCompletedOnboarding,
+    profile,
+  } = useAuth();
 
-  const isReady = !isLoading && !isUserSettingsLoading;
+  const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
 
   useEffect(() => {
     if (!isReady) return;
+
     if (!user) {
       router.replace("/(auth)/login");
       return;
     }
+
     if (!hasCompletedOnboarding) {
       router.replace("/(auth)/onboarding");
       return;
     }
-  }, [isReady, user, hasCompletedOnboarding]);
+
+    // ✅ Only redirect existing users (who completed onboarding) missing birthdate
+    if (!(profile as any)?.birthdate) {
+      router.replace("/(auth)/birthdate" as any);
+      return;
+    }
+
+    // ✅ Block under_13 without parental approval
+    const ageGroup = (profile as any)?.age_group;
+    const parentalApproved = (profile as any)?.parental_approved;
+    if (ageGroup === "under_13" && !parentalApproved) {
+      router.replace("/(auth)/parental-approval" as any);
+      return;
+    }
+  }, [isReady, user, hasCompletedOnboarding, profile]);
 
   return (
     <>

@@ -1,13 +1,16 @@
-// app/(auth)/signup.tsx ✅ — with Google SSO
+// app/(auth)/signup.tsx ✅ — with Google SSO + device fingerprinting
 import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import authNative from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import {
   GoogleSignin,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
+import * as Application from "expo-application";
+import * as Device from "expo-device";
 import { Link, router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -24,7 +27,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// ✅ Configure Google Sign-In once
 GoogleSignin.configure({
   webClientId:
     "651919287297-p47sq6itdfidob7nrluutl0ggqlgoe8p.apps.googleusercontent.com",
@@ -76,7 +78,47 @@ export default function SignUpScreen() {
   const validateUsername = (v: string) => /^[a-zA-Z0-9_]{3,20}$/.test(v);
   const validatePassword = (v: string) => v.length >= 8;
 
-  // ✅ Google Sign-In — works for both sign-up and sign-in
+  // ✅ Device fingerprint helper
+  const saveDeviceFingerprint = async (uid: string) => {
+    try {
+      const deviceId =
+        Application.androidId ??
+        `${Device.modelName ?? "unknown"}_${Device.osVersion ?? "0"}`;
+
+      const flaggedSnap = await firestore()
+        .collection("flagged_devices")
+        .doc(deviceId)
+        .get();
+
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .update({
+          device_id: deviceId,
+          device_info: {
+            device_id: deviceId,
+            device_name: Device.deviceName ?? null,
+            os_version: Device.osVersion ?? null,
+            model: Device.modelName ?? null,
+            updated_at: new Date().toISOString(),
+          },
+        });
+
+      if (flaggedSnap.exists()) {
+        const flagData = flaggedSnap.data() as any;
+        if (flagData?.reason === "under_13_blocked") {
+          await firestore().collection("profiles").doc(uid).update({
+            requires_parental_approval: true,
+            device_flagged: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Device fingerprint failed:", err);
+    }
+  };
+
+  // ✅ Google Sign-In
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     try {
@@ -88,8 +130,10 @@ export default function SignUpScreen() {
       const googleCredential = authNative.GoogleAuthProvider.credential(
         tokens.idToken,
       );
-      await authNative().signInWithCredential(googleCredential);
-      // Auth state change in AuthProvider handles profile creation + navigation
+      const result = await authNative().signInWithCredential(googleCredential);
+      if (result.user?.uid) {
+        await saveDeviceFingerprint(result.user.uid);
+      }
     } catch (error: any) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) return;
       if (error.code === statusCodes.IN_PROGRESS) return;
@@ -180,6 +224,7 @@ export default function SignUpScreen() {
         password,
       });
       const createdUser = res.user;
+
       try {
         await updateProfile.mutateAsync({ username: uname, full_name: name });
       } catch (e: any) {
@@ -191,6 +236,12 @@ export default function SignUpScreen() {
           );
         }
       }
+
+      // ✅ Save device fingerprint after successful signup
+      if (createdUser?.uid) {
+        await saveDeviceFingerprint(createdUser.uid);
+      }
+
       if (createdUser && !createdUser.emailVerified) {
         try {
           await createdUser.sendEmailVerification();
@@ -505,7 +556,6 @@ export default function SignUpScreen() {
               />
             </View>
 
-            {/* ✅ Google SSO — enabled */}
             <View style={styles.socialContainer}>
               <TouchableOpacity
                 style={[
