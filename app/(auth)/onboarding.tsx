@@ -1,4 +1,4 @@
-// app/(auth)/onboarding.tsx — ✅ UPDATED: birthdate step added
+// app/(auth)/onboarding.tsx ✅
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -51,13 +51,13 @@ const INTERESTS = [
   { id: "sports", name: "Sports", emoji: "🏀" },
 ];
 
-// ✅ birthdate added before congrats
+// ✅ birthdate and congrats removed from STEPS — birthdate is its own screen,
+// congrats is shown inline here after interests are saved.
 const STEPS = [
   "welcome",
   "avatar",
   "username",
   "interests",
-  "birthdate",
   "congrats",
 ] as const;
 type Step = (typeof STEPS)[number];
@@ -129,7 +129,6 @@ export default function OnboardingScreen() {
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const goToStep = (s: Step) => setStep(s);
-  const goHome = () => router.replace("/(tabs)/home");
 
   // ─── Avatar ───────────────────────────────────────────────
   const pickAvatar = async () => {
@@ -152,11 +151,7 @@ export default function OnboardingScreen() {
   };
 
   const handleAvatarContinue = async () => {
-    if (!user?.uid) {
-      goToStep("username");
-      return;
-    }
-    if (!avatarUri) {
+    if (!user?.uid || !avatarUri) {
       goToStep("username");
       return;
     }
@@ -253,12 +248,12 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       await saveUserInterests(user.uid, selectedInterests);
-      // ✅ DO NOT call completeOnboarding() here — birthdate screen does it
     } catch (e) {
       console.warn("Interests save failed:", e);
     } finally {
       setSaving(false);
     }
+    // ✅ Go to birthdate screen — it calls completeOnboarding() and routes home
     router.replace("/(auth)/birthdate" as any);
   };
 
@@ -270,7 +265,6 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       await saveUserInterests(user.uid, []);
-      // ✅ DO NOT call completeOnboarding() here — birthdate screen does it
     } catch {
     } finally {
       setSaving(false);
@@ -609,6 +603,7 @@ export default function OnboardingScreen() {
                   autoCorrect={false}
                   maxLength={30}
                   returnKeyType="done"
+                  onSubmitEditing={handleUsernameContinue}
                 />
                 {usernameStatus === "checking" && (
                   <ActivityIndicator size="small" color={colors.primary} />
@@ -790,7 +785,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // CONGRATS — shown after birthdate screen completes
+  // CONGRATS — reachable if needed in future; currently flow goes through birthdate.tsx
   return (
     <LinearGradient
       colors={gradientColors as any}
@@ -889,7 +884,7 @@ export default function OnboardingScreen() {
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-            onPress={goHome}
+            onPress={() => router.replace("/(tabs)/home")}
             activeOpacity={0.9}
           >
             <Text style={styles.primaryBtnText}>Explore NebulaNet</Text>

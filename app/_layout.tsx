@@ -1,4 +1,4 @@
-// app/_layout.tsx ✅ — no redirect loop
+// app/_layout.tsx ✅
 import { useAuth } from "@/hooks/useAuth";
 import "@/lib/i18n";
 import {
@@ -91,26 +91,40 @@ function RootLayout() {
 
   useEffect(() => {
     if (!isReady) return;
+
+    // ✅ Allow re-evaluation every time isReady becomes true.
+    // Previously this was locked after first redirect, causing a blank
+    // screen when the user finished birthdate but the layout never
+    // re-ran to send them home.
+    hasRedirected.current = false;
+  }, [isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
     if (hasRedirected.current) return;
 
+    // Not logged in
     if (!user) {
       hasRedirected.current = true;
       router.replace("/(auth)/login");
       return;
     }
 
+    // Onboarding not done
     if (!hasCompletedOnboarding) {
       hasRedirected.current = true;
       router.replace("/(auth)/onboarding");
       return;
     }
 
+    // Birthdate missing — send to birthdate screen
     if (!(profile as any)?.birthdate) {
       hasRedirected.current = true;
       router.replace("/(auth)/birthdate" as any);
       return;
     }
 
+    // Under-13 without parental approval
     const ageGroup = (profile as any)?.age_group;
     const parentalApproved = (profile as any)?.parental_approved;
     if (ageGroup === "under_13" && !parentalApproved) {
@@ -119,9 +133,12 @@ function RootLayout() {
       return;
     }
 
+    // ✅ All checks passed — go home
     hasRedirected.current = true;
+    router.replace("/(tabs)/home");
   }, [isReady, user, hasCompletedOnboarding, profile]);
 
+  // Reset on logout so the next login re-runs all checks
   useEffect(() => {
     if (!user) hasRedirected.current = false;
   }, [user]);

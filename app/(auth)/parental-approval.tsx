@@ -9,6 +9,9 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -80,12 +83,11 @@ export default function ParentalApprovalScreen() {
         code,
       });
 
-      // ✅ Save birthdate + age group + parental approval
       const { db } = await import("@/lib/firebase");
       const firestore = (await import("@react-native-firebase/firestore"))
         .default;
       await db.collection("profiles").doc(user!.uid).update({
-        birthdate,
+        birthdate, // ✅ consistent field name
         age_group: "under_13",
         parental_approved: true,
         parental_email: parentEmail,
@@ -93,7 +95,6 @@ export default function ParentalApprovalScreen() {
         updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
 
-      // ✅ Lock all restricted content
       await db.collection("user_settings").doc(user!.uid).set(
         {
           nsfw_locked: true,
@@ -103,7 +104,6 @@ export default function ParentalApprovalScreen() {
         { merge: true },
       );
 
-      // ✅ Complete onboarding so _layout.tsx doesn't redirect back
       await completeOnboarding();
 
       Alert.alert(
@@ -154,207 +154,241 @@ export default function ParentalApprovalScreen() {
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={styles.content}>
-          <View
-            style={[styles.iconWrap, { backgroundColor: "#FF9500" + "18" }]}
+        {/*
+          KAV wraps everything below the back button.
+          ScrollView inside ensures content is reachable on small screens
+          and when the keyboard is up.
+        */}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.iconEmoji}>👨‍👩‍👧</Text>
-          </View>
+            <View style={styles.content}>
+              <View
+                style={[styles.iconWrap, { backgroundColor: "#FF9500" + "18" }]}
+              >
+                <Text style={styles.iconEmoji}>👨‍👩‍👧</Text>
+              </View>
 
-          <Text style={[styles.title, { color: colors.text }]}>
-            Parental Approval Required
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            NebulaNet requires parental consent for users under 13. Please ask a
-            parent or guardian to verify your account.
-          </Text>
-
-          <View
-            style={[
-              styles.ageNotice,
-              {
-                backgroundColor: "#FF9500" + "12",
-                borderColor: "#FF9500" + "30",
-              },
-            ]}
-          >
-            <Ionicons
-              name="information-circle-outline"
-              size={18}
-              color="#FF9500"
-            />
-            <Text
-              style={[styles.ageNoticeText, { color: colors.textSecondary }]}
-            >
-              You entered a birthdate that indicates you are under 13 years old.
-              A parent or guardian must approve your account.
-            </Text>
-          </View>
-
-          {!codeSent ? (
-            <>
-              <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>
-                Parent or Guardian's Email
+              <Text style={[styles.title, { color: colors.text }]}>
+                Parental Approval Required
               </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    color: colors.text,
-                  },
-                ]}
-                placeholder="parent@email.com"
-                placeholderTextColor={colors.textTertiary}
-                value={parentEmail}
-                onChangeText={setParentEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Text style={[styles.emailNote, { color: colors.textTertiary }]}>
-                We'll send a 6-digit verification code to this email. Your
-                parent will need to provide the code to complete setup.
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                NebulaNet requires parental consent for users under 13. Please
+                ask a parent or guardian to verify your account.
               </Text>
-            </>
-          ) : (
-            <>
+
               <View
                 style={[
-                  styles.sentNotice,
+                  styles.ageNotice,
                   {
-                    backgroundColor: colors.primary + "12",
-                    borderColor: colors.primary + "30",
+                    backgroundColor: "#FF9500" + "12",
+                    borderColor: "#FF9500" + "30",
                   },
                 ]}
               >
                 <Ionicons
-                  name="mail-outline"
+                  name="information-circle-outline"
                   size={18}
-                  color={colors.primary}
+                  color="#FF9500"
                 />
                 <Text
                   style={[
-                    styles.sentNoticeText,
+                    styles.ageNoticeText,
                     { color: colors.textSecondary },
                   ]}
                 >
-                  A code was sent to {parentEmail}. Ask your parent to check
-                  their email and share the code with you.
+                  You entered a birthdate that indicates you are under 13 years
+                  old. A parent or guardian must approve your account.
                 </Text>
               </View>
 
-              <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>
-                Enter 6-Digit Code
-              </Text>
-              <TextInput
-                style={[
-                  styles.codeInput,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    color: colors.text,
-                  },
-                ]}
-                placeholder="• • • • • •"
-                placeholderTextColor={colors.textTertiary}
-                value={code}
-                onChangeText={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))}
-                keyboardType="number-pad"
-                maxLength={6}
-              />
+              {!codeSent ? (
+                <>
+                  <Text
+                    style={[styles.fieldLabel, { color: colors.textTertiary }]}
+                  >
+                    Parent or Guardian's Email
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                        color: colors.text,
+                      },
+                    ]}
+                    placeholder="parent@email.com"
+                    placeholderTextColor={colors.textTertiary}
+                    value={parentEmail}
+                    onChangeText={setParentEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                  />
+                  <Text
+                    style={[styles.emailNote, { color: colors.textTertiary }]}
+                  >
+                    We'll send a 6-digit verification code to this email. Your
+                    parent will need to provide the code to complete setup.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <View
+                    style={[
+                      styles.sentNotice,
+                      {
+                        backgroundColor: colors.primary + "12",
+                        borderColor: colors.primary + "30",
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="mail-outline"
+                      size={18}
+                      color={colors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.sentNoticeText,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      A code was sent to {parentEmail}. Ask your parent to check
+                      their email and share the code with you.
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={[styles.fieldLabel, { color: colors.textTertiary }]}
+                  >
+                    Enter 6-Digit Code
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.codeInput,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                        color: colors.text,
+                      },
+                    ]}
+                    placeholder="• • • • • •"
+                    placeholderTextColor={colors.textTertiary}
+                    value={code}
+                    onChangeText={(v) =>
+                      setCode(v.replace(/\D/g, "").slice(0, 6))
+                    }
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    returnKeyType="done"
+                    onSubmitEditing={handleVerifyCode}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCodeSent(false);
+                      setCode("");
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[styles.resendText, { color: colors.primary }]}
+                    >
+                      Didn't receive it? Send again
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+
+            {/* Footer buttons inside ScrollView so they're reachable above keyboard */}
+            <View style={styles.footer}>
+              {!codeSent ? (
+                <TouchableOpacity
+                  style={[
+                    styles.btn,
+                    {
+                      backgroundColor: validateEmail(parentEmail)
+                        ? colors.primary
+                        : colors.border,
+                    },
+                  ]}
+                  onPress={handleSendCode}
+                  disabled={!validateEmail(parentEmail) || sending}
+                  activeOpacity={0.9}
+                >
+                  {sending ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={styles.btnText}>Send Code to Parent</Text>
+                      <Ionicons name="send-outline" size={18} color="#fff" />
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.btn,
+                    {
+                      backgroundColor:
+                        code.length === 6 ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={handleVerifyCode}
+                  disabled={code.length !== 6 || verifying}
+                  activeOpacity={0.9}
+                >
+                  {verifying ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={styles.btnText}>Verify & Continue</Text>
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={20}
+                        color="#fff"
+                      />
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
+                style={styles.exitBtn}
                 onPress={() => {
-                  setCodeSent(false);
-                  setCode("");
+                  Alert.alert(
+                    "Exit Setup",
+                    "You need parental approval to use NebulaNet. Your account will not be accessible until a parent approves it.",
+                    [
+                      { text: "Stay", style: "cancel" },
+                      {
+                        text: "Exit",
+                        style: "destructive",
+                        onPress: () => router.replace("/(auth)/login"),
+                      },
+                    ],
+                  );
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.resendText, { color: colors.primary }]}>
-                  Didn't receive it? Send again
+                <Text style={[styles.exitText, { color: colors.textTertiary }]}>
+                  Exit without approving
                 </Text>
               </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        <View style={styles.footer}>
-          {!codeSent ? (
-            <TouchableOpacity
-              style={[
-                styles.btn,
-                {
-                  backgroundColor: validateEmail(parentEmail)
-                    ? colors.primary
-                    : colors.border,
-                },
-              ]}
-              onPress={handleSendCode}
-              disabled={!validateEmail(parentEmail) || sending}
-              activeOpacity={0.9}
-            >
-              {sending ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.btnText}>Send Code to Parent</Text>
-                  <Ionicons name="send-outline" size={18} color="#fff" />
-                </>
-              )}
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[
-                styles.btn,
-                {
-                  backgroundColor:
-                    code.length === 6 ? colors.primary : colors.border,
-                },
-              ]}
-              onPress={handleVerifyCode}
-              disabled={code.length !== 6 || verifying}
-              activeOpacity={0.9}
-            >
-              {verifying ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.btnText}>Verify & Continue</Text>
-                  <Ionicons
-                    name="checkmark-circle-outline"
-                    size={20}
-                    color="#fff"
-                  />
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.exitBtn}
-            onPress={() => {
-              Alert.alert(
-                "Exit Setup",
-                "You need parental approval to use NebulaNet. Your account will not be accessible until a parent approves it.",
-                [
-                  { text: "Stay", style: "cancel" },
-                  {
-                    text: "Exit",
-                    style: "destructive",
-                    onPress: () => router.replace("/(auth)/login"),
-                  },
-                ],
-              );
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.exitText, { color: colors.textTertiary }]}>
-              Exit without approving
-            </Text>
-          </TouchableOpacity>
-        </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -363,10 +397,11 @@ export default function ParentalApprovalScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   backBtn: { padding: 20, paddingBottom: 0 },
+  scrollContent: { flexGrow: 1 },
   content: {
     flex: 1,
     paddingHorizontal: 28,
-    justifyContent: "center",
+    paddingTop: 24,
     gap: 16,
   },
   iconWrap: {

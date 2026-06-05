@@ -10,6 +10,7 @@ import React, { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StatusBar,
@@ -17,6 +18,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -37,7 +39,6 @@ export default function SecurityScreen() {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isSendingVerification, setIsSendingVerification] = useState(false);
 
-  // ✅ NEW: reset password modal state
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState(user?.email ?? "");
 
@@ -58,6 +59,7 @@ export default function SecurityScreen() {
       Alert.alert("Error", "New password must differ from current");
       return;
     }
+
     setIsUpdatingPassword(true);
     try {
       const currentUser = auth().currentUser;
@@ -67,7 +69,6 @@ export default function SecurityScreen() {
         currentUser.email,
         passwordData.current,
       );
-
       try {
         await currentUser.reauthenticateWithCredential(credential);
       } catch {
@@ -86,7 +87,6 @@ export default function SecurityScreen() {
     }
   };
 
-  // ✅ FIXED: replaced Alert.prompt (iOS only) with cross-platform modal
   const handleResetPassword = () => {
     setResetEmail(user?.email ?? "");
     setShowResetModal(true);
@@ -117,7 +117,7 @@ export default function SecurityScreen() {
       await currentUser.sendEmailVerification();
       Alert.alert(
         "Verification Email Sent",
-        "Check your inbox and click the verification link. You may need to sign out and back in after verifying.",
+        "Check your inbox and click the verification link.",
       );
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to send verification email");
@@ -421,23 +421,33 @@ export default function SecurityScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ✅ FIXED: Reset Password Modal — works on Android and iOS */}
-      {showResetModal && (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-          <TouchableOpacity
-            style={[
-              StyleSheet.absoluteFillObject,
-              { backgroundColor: "rgba(0,0,0,0.5)" },
-            ]}
-            activeOpacity={1}
-            onPress={() => setShowResetModal(false)}
-          />
+      {/*
+        ✅ FIXED: Reset Password modal now uses a proper Modal + KAV so the
+        email input is never hidden behind the keyboard on Android or iOS.
+      */}
+      <Modal
+        visible={showResetModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowResetModal(false)}
+        statusBarTranslucent
+      >
+        <TouchableWithoutFeedback onPress={() => setShowResetModal(false)}>
+          <View style={styles.modalBackdrop} />
+        </TouchableWithoutFeedback>
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalKAV}
+          keyboardVerticalOffset={0}
+        >
           <View
             style={[
               styles.resetModal,
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
+            <View style={styles.modalHandle} />
             <Text style={[styles.resetTitle, { color: colors.text }]}>
               Reset Password
             </Text>
@@ -460,6 +470,8 @@ export default function SecurityScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleSendResetEmail}
             />
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
               <TouchableOpacity
@@ -474,7 +486,7 @@ export default function SecurityScreen() {
                 disabled={isResettingPassword}
               >
                 <Text style={styles.modalSaveBtnText}>
-                  {isResettingPassword ? "Sending..." : "Send Link"}
+                  {isResettingPassword ? "Sending…" : "Send Link"}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -489,8 +501,8 @@ export default function SecurityScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      )}
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 
@@ -607,17 +619,27 @@ const styles = StyleSheet.create({
   },
   infoText: { fontSize: 13, flex: 1, lineHeight: 18 },
   footer: { marginTop: 14, fontSize: 12, textAlign: "center", lineHeight: 18 },
-  // ✅ Reset modal styles
+  // Modal
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  modalKAV: { position: "absolute", bottom: 0, left: 0, right: 0 },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(150,150,150,0.35)",
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 12,
+  },
   resetModal: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
     paddingBottom: 40,
-    borderWidth: 1,
+    borderTopWidth: 1,
   },
   resetTitle: { fontSize: 18, fontWeight: "900", marginBottom: 6 },
   resetSub: { fontSize: 13, marginBottom: 16, lineHeight: 18 },

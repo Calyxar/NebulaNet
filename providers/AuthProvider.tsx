@@ -1,4 +1,4 @@
-// providers/AuthProvider.tsx
+// providers/AuthProvider.tsx ✅
 import {
   useMutation,
   useQuery,
@@ -205,7 +205,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) =>
       auth().signInWithEmailAndPassword(email, password),
-    // No onError toast - login.tsx handles all errors including MFA redirect
   });
 
   const signup = useMutation<any, Error, EmailPasswordVars>({
@@ -245,13 +244,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
 
-      // ✅ Cascade username change to all embedded snapshots
       if (updates.username) {
         const newUsername = updates.username;
         const newUsernameLc = newUsername.toLowerCase();
 
         await Promise.allSettled([
-          // Posts
           (async () => {
             const snap = await firestore()
               .collection("posts")
@@ -267,8 +264,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             await batch.commit();
           })(),
-
-          // Comments
           (async () => {
             const snap = await firestore()
               .collection("comments")
@@ -284,8 +279,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             await batch.commit();
           })(),
-
-          // Stories
           (async () => {
             const snap = await firestore()
               .collection("stories")
@@ -294,14 +287,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snap.docs.length) return;
             const batch = firestore().batch();
             snap.docs.forEach((doc) => {
-              batch.update(doc.ref, {
-                "profiles.username": newUsername,
-              });
+              batch.update(doc.ref, { "profiles.username": newUsername });
             });
             await batch.commit();
           })(),
-
-          // Conversations
           (async () => {
             const snap = await firestore()
               .collection("conversations")
@@ -356,7 +345,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onboarding_completed: true,
       onboarding_completed_at: nowIso(),
     });
-  }, [updateSettings]);
+    // ✅ Also refetch profile so _layout.tsx sees the freshly-written
+    // birthdate field without needing an app restart. birthdate.tsx writes
+    // directly to Firestore outside the updateProfile mutation, so the
+    // query cache won't know about it unless we force a refetch here.
+    await qc.refetchQueries({ queryKey: ["profile", userId] });
+  }, [updateSettings, qc, userId]);
 
   const skipOnboarding = completeOnboarding;
 

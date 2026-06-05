@@ -1,11 +1,11 @@
-// app/settings/index.tsx ✅ — with redo onboarding
+// app/settings/index.tsx ✅
+import { useAuth } from "@/hooks/useAuth"; // ✅ use hook, not provider directly
 import { useThemeStyles } from "@/hooks/useThemeStyles";
 import {
   closeSettings,
   pushSettings,
   type SettingsRouteKey,
 } from "@/lib/routes/settingsRoutes";
-import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -162,7 +162,21 @@ export default function SettingsIndexScreen() {
           text: "Continue",
           onPress: async () => {
             try {
+              // ✅ Reset onboarding flag AND clear birthdate so _layout.tsx
+              // doesn't short-circuit past onboarding on the birthdate check.
               await updateSettings({ onboarding_completed: false });
+
+              // Clear birthdate directly on the profile doc
+              const firestore = (
+                await import("@react-native-firebase/firestore")
+              ).default;
+              if (user?.uid) {
+                await firestore().collection("profiles").doc(user.uid).update({
+                  birthdate: firestore.FieldValue.delete(),
+                  age_group: firestore.FieldValue.delete(),
+                });
+              }
+
               router.replace("/(auth)/onboarding");
             } catch (e: any) {
               Alert.alert("Error", e?.message || "Failed to reset onboarding.");
@@ -243,7 +257,6 @@ export default function SettingsIndexScreen() {
       routeKey: "linkedAccounts",
     },
     {
-      // ✅ Redo onboarding
       title: "Redo Onboarding",
       description: "Update your profile setup and interests",
       icon: "refresh-outline",
