@@ -7,19 +7,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ParentalApprovalScreen() {
-  const { user } = useAuth();
+  const { user, completeOnboarding } = useAuth();
   const { colors, isDark } = useTheme();
   const { birthdate, age } = useLocalSearchParams<{
     birthdate: string;
@@ -80,7 +80,7 @@ export default function ParentalApprovalScreen() {
         code,
       });
 
-      // Save birthdate + age group with parental approval
+      // ✅ Save birthdate + age group + parental approval
       const { db } = await import("@/lib/firebase");
       const firestore = (await import("@react-native-firebase/firestore"))
         .default;
@@ -92,7 +92,8 @@ export default function ParentalApprovalScreen() {
         updated_at: new Date().toISOString(),
         updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
-      // Lock all restricted content
+
+      // ✅ Lock all restricted content
       await db.collection("user_settings").doc(user!.uid).set(
         {
           nsfw_locked: true,
@@ -101,6 +102,9 @@ export default function ParentalApprovalScreen() {
         },
         { merge: true },
       );
+
+      // ✅ Complete onboarding so _layout.tsx doesn't redirect back
+      await completeOnboarding();
 
       Alert.alert(
         "Welcome to NebulaNet!",
