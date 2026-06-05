@@ -1,8 +1,8 @@
-// components/chat/ChatList.tsx ✅ — deleted messages completely removed
+// components/chat/ChatList.tsx ✅
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -25,8 +25,13 @@ export interface Message {
   mediaUrl?: string;
   mediaType?: "image" | "video" | "audio" | "file";
   attachments?: ChatAttachment[];
-  is_deleted?: boolean; // ✅ added
+  is_deleted?: boolean;
 }
+
+// Flat list item — either a message or a date separator
+type ListItem =
+  | { type: "message"; data: Message }
+  | { type: "date"; label: string };
 
 interface ChatListProps {
   messages: Message[];
@@ -52,17 +57,6 @@ export default function ChatList({
   showDateHeaders = true,
 }: ChatListProps) {
   const { colors } = useTheme();
-  const flatListRef = useRef<FlatList>(null);
-
-  useEffect(() => {
-    if (messages.length > 0 && flatListRef.current) {
-      const t = setTimeout(
-        () => flatListRef.current?.scrollToEnd({ animated: true }),
-        80,
-      );
-      return () => clearTimeout(t);
-    }
-  }, [messages]);
 
   const openUrl = async (url?: string) => {
     if (!url) return;
@@ -72,50 +66,133 @@ export default function ChatList({
     } catch {}
   };
 
-  // ✅ Filter out deleted messages before grouping
-  const visibleMessages = useMemo(
-    () => messages.filter((m) => !m.is_deleted),
-    [messages],
-  );
-
-  const grouped = useMemo(() => {
-    const groups: Record<string, Message[]> = {};
-    for (const m of visibleMessages) {
-      const d = new Date(m.createdAtIso);
-      const key = isNaN(d.getTime()) ? "Unknown Date" : d.toLocaleDateString();
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(m);
-    }
-    for (const k of Object.keys(groups)) {
-      groups[k].sort(
+  // ✅ Filter deleted, then build a flat array newest-first (for inverted FlatList)
+  const listItems = useMemo<ListItem[]>(() => {
+    const visible = messages
+      .filter((m) => !m.is_deleted)
+      .slice()
+      .sort(
         (a, b) =>
-          new Date(a.createdAtIso).getTime() -
-          new Date(b.createdAtIso).getTime(),
+          new Date(b.createdAtIso).getTime() -
+          new Date(a.createdAtIso).getTime(),
+      );
+
+    if (!showDateHeaders) {
+      return visible.map((m) => ({ type: "message", data: m }));
+    }
+
+    // Insert date headers between groups (after reversing so newest is first)
+    const items: ListItem[] = [];
+    let lastDate = "";
+    for (const m of visible) {
+      const d = new Date(m.createdAtIso);
+      const dateKey = isNaN(d.getTime())
+        ? "Unknown Date"
+        : d.toLocaleDateString();
+      items.push({ type: "message", data: m });
+      // Date header goes AFTER the last message of that day
+      // (because list is inverted, "after" visually = above)
+      if (dateKey !== lastDate) {
+        items.push({ type: "date", label: dateKey });
+        lastDate = dateKey;
+      }
+    }
+    return items;
+  }, [messages, showDateHeaders]);
+
+  const renderItem = ({ item }: { item: ListItem }) => {
+    if (item.type === "date") {
+      return (
+        <View style={styles.dateHeader}>
+          <Text
+            style={[
+              styles.dateHeaderText,
+              {
+                color: colors.textSecondary,
+                backgroundColor: colors.surface,
+              },
+            ]}
+          >
+            {item.label}
+          </Text>
+        </View>
       );
     }
-    return groups;
-  }, [visibleMessages]);
 
-  const dates = useMemo(() => {
-    return Object.keys(grouped).sort((a, b) => {
-      if (a === "Unknown Date") return 1;
-      if (b === "Unknown Date") return -1;
-      return new Date(a).getTime() - new Date(b).getTime();
-    });
-  }, [grouped]);
+    const msg = item.data;
+    const isMe = msg.sender === "me";
+    const hasAttachments = !!msg.attachments?.length;
+    const hasMedia = !!msg.mediaUrl && !!msg.mediaType;
 
-  const renderDateHeader = (date: string) => (
-    <View style={styles.dateHeader}>
-      <Text
-        style={[
-          styles.dateHeaderText,
-          { color: colors.textSecondary, backgroundColor: colors.surface },
-        ]}
+    return (
+      <TouchableOpacity
+        onPress={() => onMessagePress?.(msg)}
+        onLongPress={() => onMessageLongPress?.(msg)}
+        activeOpacity={0.7}
       >
-        {date}
-      </Text>
-    </View>
-  );
+        <View
+          style={[
+            styles.messageContainer,
+            isMe ? styles.myMessage : styles.otherMessage,
+          ]}
+        >
+          {hasAttachments && (
+            <View style={styles.attachmentsContainer}>
+              {msg.attachments!.map((attachment, index) => (
+                <AttachmentPreview
+                  key={`${msg.id}-att-${index}`}
+                  attachment={attachment}
+                  isMe={isMe}
+                  onOpen={() => openUrl(attachment.url)}
+                  colors={colors}
+                />
+              ))}
+            </View>
+          )}
+
+          {hasMedia && !hasAttachments && (
+            <MediaPreview
+              mediaUrl={msg.mediaUrl!}
+              mediaType={msg.mediaType!}
+              isMe={isMe}
+              onOpen={() => openUrl(msg.mediaUrl)}
+              colors={colors}
+            />
+          )}
+
+          {!!msg.content && (
+            <Text
+              style={[
+                styles.messageText,
+                isMe
+                  ? [styles.myMessageText, { backgroundColor: colors.primary }]
+                  : [
+                      styles.otherMessageText,
+                      { backgroundColor: colors.card, color: colors.text },
+                    ],
+              ]}
+            >
+              {msg.content}
+            </Text>
+          )}
+
+          <View style={styles.messageFooter}>
+            <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
+              {msg.timestamp}
+            </Text>
+            {isMe && msg.status && (
+              <Ionicons
+                name={msg.status === "sent" ? "checkmark" : "checkmark-done"}
+                size={16}
+                color={msg.status === "read" ? "#4ADE80" : colors.textTertiary}
+                style={styles.statusIcon}
+              />
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmpty = () => {
     if (emptyComponent) return emptyComponent;
@@ -143,132 +220,17 @@ export default function ChatList({
       </View>
     ) : null;
 
-  const renderMessageItem = ({ item }: { item: Message }) => {
-    const isMe = item.sender === "me";
-    const hasAttachments = !!item.attachments?.length;
-    const hasMedia = !!item.mediaUrl && !!item.mediaType;
-
-    // ✅ Deleted messages are completely gone — return null
-    if (item.is_deleted) return null;
-
-    return (
-      <View
-        style={[
-          styles.messageContainer,
-          isMe ? styles.myMessage : styles.otherMessage,
-        ]}
-      >
-        {hasAttachments && (
-          <View style={styles.attachmentsContainer}>
-            {item.attachments!.map((attachment, index) => (
-              <AttachmentPreview
-                key={`${item.id}-att-${index}`}
-                attachment={attachment}
-                isMe={isMe}
-                onOpen={() => openUrl(attachment.url)}
-                colors={colors}
-              />
-            ))}
-          </View>
-        )}
-
-        {hasMedia && !hasAttachments && (
-          <MediaPreview
-            mediaUrl={item.mediaUrl!}
-            mediaType={item.mediaType!}
-            isMe={isMe}
-            onOpen={() => openUrl(item.mediaUrl)}
-            colors={colors}
-          />
-        )}
-
-        {!!item.content && (
-          <Text
-            style={[
-              styles.messageText,
-              isMe
-                ? [styles.myMessageText, { backgroundColor: colors.primary }]
-                : [
-                    styles.otherMessageText,
-                    { backgroundColor: colors.card, color: colors.text },
-                  ],
-            ]}
-          >
-            {item.content}
-          </Text>
-        )}
-
-        <View style={styles.messageFooter}>
-          <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-            {item.timestamp}
-          </Text>
-          {isMe && item.status && (
-            <Ionicons
-              name={item.status === "sent" ? "checkmark" : "checkmark-done"}
-              size={16}
-              color={item.status === "read" ? "#4ADE80" : colors.textTertiary}
-              style={styles.statusIcon}
-            />
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  if (showDateHeaders && dates.length > 0) {
-    return (
-      <FlatList
-        ref={flatListRef}
-        data={dates}
-        keyExtractor={(date) => date}
-        renderItem={({ item: date }) => (
-          <View>
-            {renderDateHeader(date)}
-            {grouped[date].map((message) => (
-              <TouchableOpacity
-                key={message.id}
-                onPress={() => onMessagePress?.(message)}
-                onLongPress={() => onMessageLongPress?.(message)}
-                activeOpacity={0.7}
-              >
-                {renderMessageItem({ item: message })}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-            />
-          ) : undefined
-        }
-        onEndReached={onLoadMore}
-        onEndReachedThreshold={0.5}
-        ListEmptyComponent={renderEmpty}
-        ListFooterComponent={renderFooter}
-      />
-    );
-  }
-
   return (
     <FlatList
-      ref={flatListRef}
-      data={visibleMessages}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          onPress={() => onMessagePress?.(item)}
-          onLongPress={() => onMessageLongPress?.(item)}
-          activeOpacity={0.7}
-        >
-          {renderMessageItem({ item })}
-        </TouchableOpacity>
-      )}
-      keyExtractor={(item) => item.id}
+      data={listItems}
+      keyExtractor={(item) =>
+        item.type === "date" ? `date-${item.label}` : item.data.id
+      }
+      renderItem={renderItem}
+      // ✅ inverted=true puts newest messages at the bottom naturally.
+      // No scrollToEnd needed — the list starts at the bottom and
+      // new items push existing ones up, exactly like iMessage/WhatsApp.
+      inverted
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -280,13 +242,20 @@ export default function ChatList({
           />
         ) : undefined
       }
+      // onEndReached fires when the user scrolls UP (older messages) because inverted
       onEndReached={onLoadMore}
-      onEndReachedThreshold={0.5}
+      onEndReachedThreshold={0.3}
       ListEmptyComponent={renderEmpty}
       ListFooterComponent={renderFooter}
+      // Performance
+      removeClippedSubviews
+      maxToRenderPerBatch={20}
+      windowSize={10}
     />
   );
 }
+
+// ─── Attachment + Media previews (unchanged) ─────────────────────────────────
 
 const AttachmentPreview = ({
   attachment,
@@ -359,9 +328,7 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.audioDuration,
-              {
-                color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary,
-              },
+              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
             ]}
           >
             {attachment.duration}
@@ -395,9 +362,7 @@ const AttachmentPreview = ({
           <Text
             style={[
               styles.fileSize,
-              {
-                color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary,
-              },
+              { color: isMe ? "rgba(255,255,255,0.7)" : colors.textSecondary },
             ]}
           >
             {formatFileSize(attachment.size)}
@@ -470,6 +435,7 @@ const MediaPreview = ({
 };
 
 const styles = StyleSheet.create({
+  // ✅ justifyContent: "flex-end" removed — inverted handles bottom alignment
   container: { paddingHorizontal: 16, paddingVertical: 8, flexGrow: 1 },
   messageContainer: { maxWidth: "80%", marginBottom: 12 },
   myMessage: { alignSelf: "flex-end", alignItems: "flex-end" },
@@ -513,11 +479,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  emptySubtitle: {
-    fontSize: 14,
-    textAlign: "center",
-    paddingHorizontal: 40,
-  },
+  emptySubtitle: { fontSize: 14, textAlign: "center", paddingHorizontal: 40 },
   footer: { paddingVertical: 20, alignItems: "center" },
   attachmentsContainer: { marginBottom: 8 },
   attachmentImage: {

@@ -1,11 +1,10 @@
-// app/(tabs)/chat.tsx — React Native Firebase ✅
-
+// app/(tabs)/chat.tsx ✅
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import { useAuth } from "@/hooks/useAuth"; // ✅ hook not provider directly
 import { useChat } from "@/hooks/useChat";
 import { type ChatConversation } from "@/lib/firestore/chat";
-import { useAuth } from "@/providers/AuthProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -44,7 +43,6 @@ export default function ChatScreen() {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
@@ -87,7 +85,6 @@ export default function ChatScreen() {
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
-
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={["left", "right"]}
@@ -100,17 +97,13 @@ export default function ChatScreen() {
               <TouchableOpacity
                 style={[
                   styles.iconButton,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                  },
+                  { backgroundColor: colors.card, borderColor: colors.border },
                 ]}
                 activeOpacity={0.7}
                 onPress={() => router.push("/chat/search")}
               >
                 <Ionicons name="search-outline" size={22} color={colors.text} />
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.addButton, { backgroundColor: colors.primary }]}
                 activeOpacity={0.85}
@@ -123,7 +116,6 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Stories row placeholder */}
         <View
           style={[
             styles.storiesContainer,
@@ -197,12 +189,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconButton: {
     width: 40,
     height: 40,
@@ -220,27 +207,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     gap: 6,
   },
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#fff",
-  },
-
-  storiesContainer: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  storiesContent: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
+  addButtonText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  storiesContainer: { paddingVertical: 12, borderBottomWidth: 1 },
+  storiesContent: { paddingHorizontal: 16, gap: 12 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   emptyState: {
     flex: 1,
     justifyContent: "center",
@@ -253,11 +223,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  emptyStateText: {
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-
+  emptyStateText: { fontSize: 15, textAlign: "center", lineHeight: 22 },
   listContent: { paddingTop: 0 },
 });

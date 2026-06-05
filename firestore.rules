@@ -284,6 +284,12 @@ service cloud.firestore {
       allow write: if signedIn();
     }
 
+    // ✅ ADDED: Cloud Function writes here; client reads only own doc
+    match /parental_verifications/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if false; // Cloud Function only (admin SDK)
+    }
+
     match /app_config/{docId} {
       allow read: if signedIn();
       allow write: if isAdmin();

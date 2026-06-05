@@ -1,16 +1,13 @@
-// app/create/event.tsx — UPDATED ✅ dark mode + app design
-// ✅ FIXED: use user from useAuth() instead of auth.currentUser directly
+// app/create/event.tsx ✅
+// ✅ FIXED: migrated from firebase/firestore web SDK to @react-native-firebase/firestore
 // ✅ FIXED: added creator_id field to match Firestore rules
-// ✅ FIXED: guard against null user before submitting
-
 import { useAuth } from "@/hooks/useAuth";
-import "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import firestore from "@react-native-firebase/firestore"; // ✅ RN Firebase, not web SDK
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { addDoc, collection, getFirestore, serverTimestamp } from "firebase/firestore";
 import React, { useState } from "react";
 import {
   Alert,
@@ -76,20 +73,24 @@ export default function CreateEventScreen() {
     }
     setIsLoading(true);
     try {
-      await addDoc(collection(getFirestore(), "events"), {
-        user_id: user.uid,
-        creator_id: user.uid, // ✅ required by Firestore rules
-        title: title.trim(),
-        description: description.trim() || null,
-        location: location.trim() || null,
-        is_online: isOnline,
-        event_type: eventType,
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        max_attendees: max,
-        attendees_count: 0,
-        created_at: serverTimestamp(),
-      });
+      // ✅ @react-native-firebase/firestore — consistent with rest of app
+      await firestore()
+        .collection("events")
+        .add({
+          user_id: user.uid,
+          creator_id: user.uid,
+          title: title.trim(),
+          description: description.trim() || null,
+          location: location.trim() || null,
+          is_online: isOnline,
+          event_type: eventType,
+          start_time: startDate.toISOString(),
+          end_time: endDate.toISOString(),
+          max_attendees: max,
+          attendees_count: 0,
+          created_at: firestore.FieldValue.serverTimestamp(),
+          updated_at: firestore.FieldValue.serverTimestamp(),
+        });
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to create event.");

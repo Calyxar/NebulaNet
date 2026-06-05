@@ -210,7 +210,6 @@ export default function PostDetailScreen() {
     try {
       const newStatus = await toggleRepost(post.id, isReposted);
       setIsReposted(newStatus);
-      // ✅ Invalidate so repost_count updates in feed and detail
       qc.invalidateQueries({ queryKey: postKeys.detail(post.id) });
       qc.invalidateQueries({ queryKey: postKeys.lists() });
     } catch (e: any) {
@@ -246,6 +245,11 @@ export default function PostDetailScreen() {
         content: comment.trim(),
       });
       setComment("");
+      // ✅ Scroll to bottom only after a comment is successfully submitted
+      setTimeout(
+        () => scrollViewRef.current?.scrollToEnd({ animated: true }),
+        150,
+      );
     } catch {
       Alert.alert("Error", "Failed to post comment");
     }
@@ -302,19 +306,16 @@ export default function PostDetailScreen() {
 
   const postOptions = useMemo((): PostOption[] => {
     const opts: PostOption[] = [];
-
     opts.push({
       label: isReposted ? "Undo Repost" : "Repost",
       icon: "repeat-outline",
       onPress: () => (repostSheetRef.current as any)?.present(),
     });
-
     opts.push({
       label: "Share",
       icon: "arrow-redo-outline",
       onPress: () => (shareSheetRef.current as any)?.present(),
     });
-
     if (isOwner) {
       opts.push({
         label: isDeleting ? "Deleting…" : "Delete Post",
@@ -331,7 +332,6 @@ export default function PostDetailScreen() {
         onPress: () => {},
       });
     }
-
     return opts;
   }, [isOwner, isDeleting, isReposted]);
 
@@ -491,9 +491,10 @@ export default function PostDetailScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() =>
-              scrollViewRef.current?.scrollToEnd({ animated: false })
-            }
+            // ✅ REMOVED onContentSizeChange — it scrolled the post to the
+            // bottom on every keystroke while the user was typing a comment.
+            // Scroll to bottom now only happens in handlePostComment (after
+            // submit) and on input focus below.
           >
             <View
               style={[
@@ -610,38 +611,22 @@ export default function PostDetailScreen() {
               ]}
             >
               <View style={styles.statsRow}>
-                <Text
-                  style={[styles.statText, { color: colors.textSecondary }]}
-                >
-                  <Text style={[styles.statNum, { color: colors.text }]}>
-                    {(post.like_count ?? 0).toLocaleString()}
-                  </Text>{" "}
-                  {post.like_count === 1 ? "like" : "likes"}
-                </Text>
-                <Text
-                  style={[styles.statText, { color: colors.textSecondary }]}
-                >
-                  <Text style={[styles.statNum, { color: colors.text }]}>
-                    {(post.comment_count ?? 0).toLocaleString()}
-                  </Text>{" "}
-                  {post.comment_count === 1 ? "comment" : "comments"}
-                </Text>
-                <Text
-                  style={[styles.statText, { color: colors.textSecondary }]}
-                >
-                  <Text style={[styles.statNum, { color: colors.text }]}>
-                    {((post as any).repost_count ?? 0).toLocaleString()}
-                  </Text>{" "}
-                  {(post as any).repost_count === 1 ? "repost" : "reposts"}
-                </Text>
-                <Text
-                  style={[styles.statText, { color: colors.textSecondary }]}
-                >
-                  <Text style={[styles.statNum, { color: colors.text }]}>
-                    {shareCount.toLocaleString()}
-                  </Text>{" "}
-                  {shareCount === 1 ? "share" : "shares"}
-                </Text>
+                {[
+                  { val: post.like_count ?? 0, label: "like" },
+                  { val: post.comment_count ?? 0, label: "comment" },
+                  { val: (post as any).repost_count ?? 0, label: "repost" },
+                  { val: shareCount, label: "share" },
+                ].map(({ val, label }) => (
+                  <Text
+                    key={label}
+                    style={[styles.statText, { color: colors.textSecondary }]}
+                  >
+                    <Text style={[styles.statNum, { color: colors.text }]}>
+                      {val.toLocaleString()}
+                    </Text>{" "}
+                    {val === 1 ? label : `${label}s`}
+                  </Text>
+                ))}
               </View>
 
               <View
@@ -983,9 +968,11 @@ export default function PostDetailScreen() {
               returnKeyType="send"
               onSubmitEditing={handlePostComment}
               onFocus={() =>
+                // ✅ Bumped from 300ms to 450ms — fires after keyboard
+                // animation completes instead of mid-animation
                 setTimeout(
                   () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-                  300,
+                  450,
                 )
               }
             />

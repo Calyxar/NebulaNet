@@ -1,4 +1,4 @@
-// hooks/useChat.ts — React Native Firebase ✅
+// hooks/useChat.ts ✅
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -119,7 +119,6 @@ export const useChat = () => {
       mediaType?: "image" | "video" | "audio" | "file",
     ) => {
       if (!user?.uid) return null;
-
       const hasText = !!content?.trim();
       const hasAtts = !!attachments?.length;
       const hasLegacyMedia = !!mediaUrl && !!mediaType;
@@ -136,7 +135,6 @@ export const useChat = () => {
           mediaType,
         );
         if (result.error) throw result.error;
-
         if (result.data) {
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === result.data!.id);
@@ -160,7 +158,6 @@ export const useChat = () => {
     [user?.uid, patchConversation],
   );
 
-  // ✅ NEW: delete a single message
   const deleteMessage = useCallback(
     async (conversationId: string, messageId: string) => {
       if (!user?.uid) return;
@@ -232,7 +229,10 @@ export const useChat = () => {
     (conversationId: string | null) => {
       setActiveConversation(conversationId);
       if (conversationId) {
-        if (!conversationsRef.current.length) loadConversations();
+        // ✅ Always load conversations when selecting — fixes blank header when
+        // navigating directly via deep link or notification tap without visiting
+        // the chat list first. The load is fast if data is already cached.
+        loadConversations();
         loadMessages(conversationId);
       } else {
         setMessages([]);
@@ -245,7 +245,6 @@ export const useChat = () => {
   // Real-time: conversation list
   useEffect(() => {
     if (!user?.uid) return;
-
     const unsub = chatSubscriptions.subscribeToUserConversations(
       user.uid,
       async (payload) => {
@@ -258,14 +257,11 @@ export const useChat = () => {
             await loadConversations();
             return;
           }
-
           const updatedAt =
             toIsoMaybe(changed.updated_at_ts) ??
             toIsoMaybe(changed.updated_at) ??
             undefined;
-
           const lm = changed.last_message as any | null;
-
           patchConversation(changed.id, {
             ...(updatedAt ? { updated_at: updatedAt } : {}),
             is_typing: !!changed.is_typing,
@@ -274,7 +270,6 @@ export const useChat = () => {
         }
       },
     );
-
     return unsub;
   }, [user?.uid, loadConversations, patchConversation]);
 
@@ -291,7 +286,6 @@ export const useChat = () => {
         if (activeConversationRef.current !== activeConversation) return;
 
         if (payload.type === "modified") {
-          // Handle edits/deletes from subscription
           setMessages((prev) =>
             prev.map((m) =>
               m.id === newMessage.id ? { ...m, ...newMessage } : m,

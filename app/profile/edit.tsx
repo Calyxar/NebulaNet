@@ -61,8 +61,8 @@ function formatBirthdate(iso: string): string {
   return `${month}/${day}/${year}`;
 }
 
-// ─── DOB Verify Sheet ─────────────────────────────────────────────────────────
-// Plain View overlay — NOT a Modal — so Android KAV works correctly.
+// ─── DOB Sheet ────────────────────────────────────────────────────────────────
+// Plain View overlay (NOT a Modal) so Android KAV pushes it up correctly.
 function BirthdateSheet({
   visible,
   uid,
@@ -147,7 +147,7 @@ function BirthdateSheet({
     const entered = `${confirmYear.padStart(4, "0")}-${confirmMonth.padStart(2, "0")}-${confirmDay.padStart(2, "0")}`;
 
     if (entered !== currentBirthdate) {
-      // ✅ Inline error — no Alert that steals keyboard focus
+      // ✅ Inline error — no Alert that steals keyboard focus on Android
       setErrorMsg("Birthdate doesn't match our records. Please try again.");
       return;
     }
@@ -244,6 +244,10 @@ function BirthdateSheet({
 
   if (!visible) return null;
 
+  const month = step === "confirm" ? confirmMonth : newMonth;
+  const day = step === "confirm" ? confirmDay : newDay;
+  const year = step === "confirm" ? confirmYear : newYear;
+
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
       <TouchableWithoutFeedback onPress={handleClose}>
@@ -285,8 +289,8 @@ function BirthdateSheet({
               : "Enter your new date of birth. This may affect your content settings."}
           </Text>
 
-          {/* Inputs */}
           <View style={styles.dobRow}>
+            {/* MONTH */}
             <View style={styles.dobField}>
               <Text style={[styles.dobLabel, { color: colors.textTertiary }]}>
                 MM
@@ -297,15 +301,13 @@ function BirthdateSheet({
                   {
                     backgroundColor: colors.surface,
                     borderColor:
-                      (step === "confirm" ? confirmMonth : newMonth).length > 0
-                        ? colors.primary
-                        : colors.border,
+                      month.length > 0 ? colors.primary : colors.border,
                   },
                 ]}
               >
                 <TextInput
                   style={[styles.dobText, { color: colors.text }]}
-                  value={step === "confirm" ? confirmMonth : newMonth}
+                  value={month}
                   onChangeText={(v) => {
                     const n = v.replace(/\D/g, "").slice(0, 2);
                     step === "confirm" ? setConfirmMonth(n) : setNewMonth(n);
@@ -329,6 +331,7 @@ function BirthdateSheet({
               /
             </Text>
 
+            {/* DAY */}
             <View style={styles.dobField}>
               <Text style={[styles.dobLabel, { color: colors.textTertiary }]}>
                 DD
@@ -339,16 +342,14 @@ function BirthdateSheet({
                   {
                     backgroundColor: colors.surface,
                     borderColor:
-                      (step === "confirm" ? confirmDay : newDay).length > 0
-                        ? colors.primary
-                        : colors.border,
+                      day.length > 0 ? colors.primary : colors.border,
                   },
                 ]}
               >
                 <TextInput
                   ref={step === "confirm" ? dayConfirmRef : dayNewRef}
                   style={[styles.dobText, { color: colors.text }]}
-                  value={step === "confirm" ? confirmDay : newDay}
+                  value={day}
                   onChangeText={(v) => {
                     const n = v.replace(/\D/g, "").slice(0, 2);
                     step === "confirm" ? setConfirmDay(n) : setNewDay(n);
@@ -372,6 +373,7 @@ function BirthdateSheet({
               /
             </Text>
 
+            {/* YEAR */}
             <View style={[styles.dobField, { flex: IS_SMALL ? 1.4 : 1.6 }]}>
               <Text style={[styles.dobLabel, { color: colors.textTertiary }]}>
                 YYYY
@@ -382,16 +384,14 @@ function BirthdateSheet({
                   {
                     backgroundColor: colors.surface,
                     borderColor:
-                      (step === "confirm" ? confirmYear : newYear).length > 0
-                        ? colors.primary
-                        : colors.border,
+                      year.length > 0 ? colors.primary : colors.border,
                   },
                 ]}
               >
                 <TextInput
                   ref={step === "confirm" ? yearConfirmRef : yearNewRef}
                   style={[styles.dobText, { color: colors.text }]}
-                  value={step === "confirm" ? confirmYear : newYear}
+                  value={year}
                   onChangeText={(v) => {
                     const n = v.replace(/\D/g, "").slice(0, 4);
                     step === "confirm" ? setConfirmYear(n) : setNewYear(n);
@@ -410,7 +410,7 @@ function BirthdateSheet({
             </View>
           </View>
 
-          {/* Inline error */}
+          {/* Inline error — no Alert */}
           {!!errorMsg && (
             <View
               style={[
@@ -821,65 +821,62 @@ export default function EditProfileScreen() {
 
             {/* DOB section */}
             <View style={[styles.formCard, { backgroundColor: colors.card }]}>
-              <View style={styles.birthdateRow}>
+              <View style={styles.dobSectionHeader}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Date of Birth
+                </Text>
+              </View>
+              <View style={styles.dobLockedRow}>
                 <View
                   style={[
-                    styles.birthdateIconWrap,
-                    { backgroundColor: colors.primary + "18" },
-                  ]}
-                >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={20}
-                    color={colors.primary}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.label, { color: colors.text }]}>
-                    Date of Birth
-                  </Text>
-                  <Text
-                    style={[
-                      styles.birthdateValue,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    {currentBirthdate
-                      ? formatBirthdate(currentBirthdate)
-                      : "Not set"}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.birthdateNote,
-                      { color: colors.textTertiary },
-                    ]}
-                  >
-                    {currentAgeGroup === "adult"
-                      ? "Adult (18+)"
-                      : currentAgeGroup === "teen"
-                        ? "Teen (13–17) — Some content restricted"
-                        : currentAgeGroup === "under_13"
-                          ? "Under 13 — Parental approval required"
-                          : "Not verified"}
-                    {" · "}
-                    <Text style={{ color: colors.primary }}>
-                      Not shown publicly
-                    </Text>
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.changeBtn,
+                    styles.dobLockedValue,
                     {
                       backgroundColor: colors.surface,
                       borderColor: colors.border,
                     },
                   ]}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={18}
+                    color={colors.textTertiary}
+                    style={{ marginRight: 8 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[styles.dobLockedText, { color: colors.text }]}
+                    >
+                      {currentBirthdate
+                        ? formatBirthdate(currentBirthdate)
+                        : "Not set"}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.dobSubText,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      {currentAgeGroup === "adult"
+                        ? "Adult (18+)"
+                        : currentAgeGroup === "teen"
+                          ? "Teen (13–17) — Some content restricted"
+                          : currentAgeGroup === "under_13"
+                            ? "Under 13 — Parental approval required"
+                            : "Not verified"}
+                      {" · "}
+                      <Text style={{ color: colors.primary }}>
+                        Not shown publicly
+                      </Text>
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.dobChangeBtn, { borderColor: colors.primary }]}
                   onPress={() => setShowBirthdateSheet(true)}
-                  activeOpacity={0.85}
+                  activeOpacity={0.8}
                 >
                   <Text
-                    style={[styles.changeBtnText, { color: colors.primary }]}
+                    style={[styles.dobChangeBtnText, { color: colors.primary }]}
                   >
                     Change
                   </Text>
@@ -927,7 +924,7 @@ export default function EditProfileScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* DOB sheet — outside SafeAreaView, plain View overlay so KAV works on Android */}
+      {/* DOB sheet — plain View overlay outside SafeAreaView so KAV works on Android */}
       {user?.uid && (
         <BirthdateSheet
           visible={showBirthdateSheet}
@@ -1036,24 +1033,36 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   continueButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
-  // DOB section
-  birthdateRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  birthdateIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  // DOB
+  dobSectionHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
   },
-  birthdateValue: { fontSize: 15, fontWeight: "700", marginTop: 2 },
-  birthdateNote: { fontSize: 12, marginTop: 3, lineHeight: 16 },
-  changeBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  dobLockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+  dobLockedValue: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderWidth: 1,
   },
-  changeBtnText: { fontSize: 13, fontWeight: "800" },
+  dobLockedText: { fontSize: 15, fontWeight: "600" },
+  dobSubText: { fontSize: 11, marginTop: 2 },
+  dobChangeBtn: {
+    borderRadius: 10,
+    borderWidth: 1.5,
+    paddingHorizontal: IS_SMALL ? 10 : 14,
+    paddingVertical: 10,
+  },
+  dobChangeBtnText: { fontSize: IS_SMALL ? 13 : 14, fontWeight: "700" },
   ageNotice: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1061,7 +1070,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    marginTop: 4,
+    marginTop: 12,
   },
   ageNoticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
   // Sheet

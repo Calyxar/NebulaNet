@@ -1,4 +1,4 @@
-// components/navigation/AppHeader.tsx — COMPLETED + UPDATED ✅
+// components/navigation/AppHeader.tsx ✅
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
@@ -15,6 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 type Props = {
   title?: string;
   onBack?: () => void;
+  // ✅ Added leftIcon + onLeftPress so notifications screen back button works
+  leftIcon?: keyof typeof Ionicons.glyphMap;
+  onLeftPress?: () => void;
   left?: React.ReactNode;
   right?: React.ReactNode;
   leftWide?: React.ReactNode;
@@ -30,6 +33,8 @@ const SIDE = 44;
 export default function AppHeader({
   title,
   onBack,
+  leftIcon,
+  onLeftPress,
   left,
   leftWide,
   right,
@@ -42,17 +47,20 @@ export default function AppHeader({
   const { colors, isDark } = useTheme();
   const hasTitle = !!title && title.trim().length > 0;
 
-  // Use passed backgroundColor, fall back to theme
   const bgColor = backgroundColor ?? colors.background;
+
+  // ✅ onLeftPress + leftIcon takes priority over onBack
+  const backHandler = onLeftPress ?? onBack;
+  const backIcon: keyof typeof Ionicons.glyphMap = leftIcon ?? "arrow-back";
 
   const LeftNode = leftWide ? (
     <View style={styles.leftWide}>{leftWide}</View>
   ) : left ? (
     <View style={styles.side}>{left}</View>
-  ) : onBack ? (
+  ) : backHandler ? (
     <View style={styles.side}>
       <Pressable
-        onPress={onBack}
+        onPress={backHandler}
         style={[
           styles.circleBtn,
           {
@@ -63,7 +71,7 @@ export default function AppHeader({
         ]}
         android_ripple={{ borderless: true }}
       >
-        <Ionicons name="arrow-back" size={22} color={colors.text} />
+        <Ionicons name={backIcon} size={22} color={colors.text} />
       </Pressable>
     </View>
   ) : (
@@ -117,14 +125,12 @@ export default function AppHeader({
 
 const styles = StyleSheet.create({
   shell: {},
-
   row: {
     height: HEADER_ROW_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
   },
-
   side: {
     width: SIDE,
     height: SIDE,
@@ -133,13 +139,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   sideGhost: { width: SIDE, height: SIDE },
-
-  leftNoTitleWrap: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 10,
-  },
-
+  leftNoTitleWrap: { flex: 1, minWidth: 0, marginRight: 10 },
   leftWide: {
     minHeight: SIDE,
     flexDirection: "row",
@@ -147,7 +147,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-
   rightWide: {
     minHeight: SIDE,
     flexDirection: "row",
@@ -156,7 +155,6 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginLeft: 10,
   },
-
   circleBtn: {
     width: SIDE,
     height: SIDE,
@@ -169,7 +167,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-
   titleWrap: {
     flex: 1,
     minWidth: 0,
@@ -178,7 +175,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   titleWrapLeft: { alignItems: "flex-start" },
-
   title: {
     fontSize: 16,
     fontWeight: Platform.select({ ios: "900", android: "800" }) as any,
