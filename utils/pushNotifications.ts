@@ -1,7 +1,7 @@
-// utils/pushNotifications.ts — FIREBASE FCM ✅
 import { auth, db } from "@/lib/firebase";
 import messaging from "@react-native-firebase/messaging";
 import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 export async function registerForPushNotificationsAsync(): Promise<
@@ -32,6 +32,23 @@ export async function registerForPushNotificationsAsync(): Promise<
       );
     }
 
+    // Show notification when app is in foreground
+    messaging().onMessage(async (remoteMessage) => {
+      const title = remoteMessage.notification?.title;
+      const body = remoteMessage.notification?.body;
+      if (!title && !body) return;
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: title ?? "NebulaNet",
+          body: body ?? "",
+          sound: "notification.wav",
+          data: remoteMessage.data ?? {},
+        },
+        trigger: null,
+      });
+    });
+
+    // Refresh token when it changes
     messaging().onTokenRefresh(async (newToken: string) => {
       const currentUser = auth.currentUser;
       if (currentUser) {

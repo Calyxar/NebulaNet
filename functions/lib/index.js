@@ -4,6 +4,7 @@ exports.moderatePostContent = exports.verifyParentalCode = exports.sendParentalV
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
+const messaging_1 = require("firebase-admin/messaging");
 const params_1 = require("firebase-functions/params");
 const v2_1 = require("firebase-functions/v2");
 const firestore_2 = require("firebase-functions/v2/firestore");
@@ -36,12 +37,10 @@ function getNotificationTitle(type, senderName) {
         return senderName + " liked your story";
     if (type === "story_comment")
         return senderName + " commented on your story";
-    if (type === "community_invite") {
+    if (type === "community_invite")
         return senderName + " invited you to a community";
-    }
-    if (type === "join_request") {
+    if (type === "join_request")
         return senderName + " wants to join your community";
-    }
     return "New notification from NebulaNet";
 }
 function getNotificationBody(type, text) {
@@ -73,32 +72,31 @@ function getNotificationBody(type, text) {
 }
 function buildParentalEmailHtml(childUsername, code) {
     const lines = [];
-    lines.push('<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 16px;">');
+    lines.push('<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">');
     lines.push('<div style="text-align: center; margin-bottom: 32px;">');
     lines.push('<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>');
     lines.push('<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>');
-    lines.push("</div>");
+    lines.push('</div>');
     lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>');
     lines.push('<strong style="color: #fff;">' +
         childUsername +
-        "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>");
+        '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>');
     lines.push('<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">');
     lines.push('<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>');
-    lines.push('<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' +
-        code +
-        "</div>");
+    lines.push('<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + '</div>');
     lines.push('<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>');
-    lines.push("</div>");
+    lines.push('</div>');
     lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
         childUsername +
-        " to complete account setup.</p>");
+        ' to complete account setup.</p>');
     lines.push('<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">');
     lines.push('<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>');
-    lines.push("</div>");
+    lines.push('</div>');
     lines.push('<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>');
-    lines.push("</div>");
-    return lines.join("\n");
+    lines.push('</div>');
+    return lines.join('\n');
 }
+// ✅ UPDATED: FCM push notifications via Firebase Admin SDK
 exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications/{notifId}", async (event) => {
     const snap = event.data;
     if (!snap)
@@ -117,9 +115,12 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         if (!profileSnap.exists)
             return;
         const profile = profileSnap.data();
-        const pushToken = profile?.push_token ?? null;
-        if (!pushToken || !pushToken.startsWith("ExponentPushToken["))
+        // ✅ Use fcm_token instead of push_token
+        const fcmToken = profile?.fcm_token ?? null;
+        if (!fcmToken) {
+            console.log("No FCM token for", receiverId);
             return;
+        }
         let senderName = "Someone";
         if (senderId) {
             const senderSnap = await db.collection("profiles").doc(senderId).get();
@@ -129,47 +130,54 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
                     s?.full_name || s?.username || "Someone";
             }
         }
-        const payload = {
-            to: pushToken,
-            title: getNotificationTitle(type, senderName),
-            body: getNotificationBody(type, text),
-            sound: "notification.wav",
-            badge: 1,
-            priority: "high",
+        const title = getNotificationTitle(type, senderName);
+        const body = getNotificationBody(type, text);
+        // ✅ Send via Firebase Admin SDK
+        const message = {
+            token: fcmToken,
+            notification: {
+                title,
+                body,
+            },
+            android: {
+                notification: {
+                    channelId: type === "message" ? "messages" : "default",
+                    sound: "notification",
+                    priority: "high",
+                    defaultVibrateTimings: true,
+                },
+                priority: "high",
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        sound: "notification.wav",
+                        badge: 1,
+                    },
+                },
+            },
             data: {
                 type,
                 notifId: event.params.notifId,
-                senderId,
-                entityId: notif.entity_id ?? null,
-                entityType: notif.entity_type ?? null,
+                senderId: senderId ?? "",
+                entityId: notif.entity_id ?? "",
+                entityType: notif.entity_type ?? "",
             },
         };
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-            method: "POST",
-            headers: {
-                Accept: "application/json",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        });
-        const result = (await response.json());
-        const resultData = result?.data;
-        if (resultData?.status === "error") {
-            console.error("Expo push error:", resultData.message);
-            const details = resultData.details;
-            if (details?.error === "DeviceNotRegistered") {
-                await db
-                    .collection("profiles")
-                    .doc(receiverId)
-                    .update({ push_token: null });
-            }
-        }
-        else {
-            console.log("Push sent to", receiverId, "type=", type);
-        }
+        const response = await (0, messaging_1.getMessaging)().send(message);
+        console.log("FCM sent to", receiverId, "type=", type, "msgId=", response);
     }
     catch (err) {
         console.error("sendPushNotification error:", String(err));
+        // ✅ Clean up invalid tokens automatically
+        if (err?.code === "messaging/registration-token-not-registered" ||
+            err?.code === "messaging/invalid-registration-token") {
+            await db
+                .collection("profiles")
+                .doc(receiverId)
+                .update({ fcm_token: null });
+            console.log("Cleared invalid FCM token for", receiverId);
+        }
     }
 });
 exports.onFollowCreated = (0, firestore_2.onDocumentCreated)("follows/{followId}", async (event) => {

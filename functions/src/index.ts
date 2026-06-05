@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
 import { https, setGlobalOptions } from "firebase-functions/v2";
 import {
@@ -33,12 +34,10 @@ function getNotificationTitle(type: string, senderName: string): string {
   if (type === "message") return senderName + " sent you a message";
   if (type === "story_like") return senderName + " liked your story";
   if (type === "story_comment") return senderName + " commented on your story";
-  if (type === "community_invite") {
+  if (type === "community_invite")
     return senderName + " invited you to a community";
-  }
-  if (type === "join_request") {
+  if (type === "join_request")
     return senderName + " wants to join your community";
-  }
   return "New notification from NebulaNet";
 }
 
@@ -61,23 +60,19 @@ function getNotificationBody(type: string, text?: string | null): string {
 function buildParentalEmailHtml(childUsername: string, code: string): string {
   const lines: string[] = [];
   lines.push(
-    '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
+    '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
   );
   lines.push('<div style="text-align: center; margin-bottom: 32px;">');
   lines.push(
     '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
   );
-  lines.push(
-    '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
-  );
-  lines.push("</div>");
-  lines.push(
-    '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
-  );
+  lines.push('<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>');
+  lines.push('</div>');
+  lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>');
   lines.push(
     '<strong style="color: #fff;">' +
       childUsername +
-      "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>",
+      '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>',
   );
   lines.push(
     '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
@@ -86,18 +81,16 @@ function buildParentalEmailHtml(childUsername: string, code: string): string {
     '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
   );
   lines.push(
-    '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' +
-      code +
-      "</div>",
+    '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + '</div>',
   );
   lines.push(
     '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
   );
-  lines.push("</div>");
+  lines.push('</div>');
   lines.push(
     '<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
       childUsername +
-      " to complete account setup.</p>",
+      ' to complete account setup.</p>',
   );
   lines.push(
     '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
@@ -105,14 +98,15 @@ function buildParentalEmailHtml(childUsername: string, code: string): string {
   lines.push(
     '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
   );
-  lines.push("</div>");
+  lines.push('</div>');
   lines.push(
     '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
   );
-  lines.push("</div>");
-  return lines.join("\n");
+  lines.push('</div>');
+  return lines.join('\n');
 }
 
+// ✅ UPDATED: FCM push notifications via Firebase Admin SDK
 export const sendPushNotification = onDocumentCreated(
   "notifications/{notifId}",
   async (event) => {
@@ -125,12 +119,19 @@ export const sendPushNotification = onDocumentCreated(
     const text = (notif.text as string) ?? null;
     if (!receiverId) return;
     if (senderId && senderId === receiverId) return;
+
     try {
       const profileSnap = await db.collection("profiles").doc(receiverId).get();
       if (!profileSnap.exists) return;
       const profile = profileSnap.data() as Record<string, unknown>;
-      const pushToken = (profile?.push_token as string) ?? null;
-      if (!pushToken || !pushToken.startsWith("ExponentPushToken[")) return;
+
+      // ✅ Use fcm_token instead of push_token
+      const fcmToken = (profile?.fcm_token as string) ?? null;
+      if (!fcmToken) {
+        console.log("No FCM token for", receiverId);
+        return;
+      }
+
       let senderName = "Someone";
       if (senderId) {
         const senderSnap = await db.collection("profiles").doc(senderId).get();
@@ -140,45 +141,58 @@ export const sendPushNotification = onDocumentCreated(
             (s?.full_name as string) || (s?.username as string) || "Someone";
         }
       }
-      const payload = {
-        to: pushToken,
-        title: getNotificationTitle(type, senderName),
-        body: getNotificationBody(type, text),
-        sound: "notification.wav",
-        badge: 1,
-        priority: "high",
+
+      const title = getNotificationTitle(type, senderName);
+      const body = getNotificationBody(type, text);
+
+      // ✅ Send via Firebase Admin SDK
+      const message = {
+        token: fcmToken,
+        notification: {
+          title,
+          body,
+        },
+        android: {
+          notification: {
+            channelId: type === "message" ? "messages" : "default",
+            sound: "notification",
+            priority: "high" as const,
+            defaultVibrateTimings: true,
+          },
+          priority: "high" as const,
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "notification.wav",
+              badge: 1,
+            },
+          },
+        },
         data: {
           type,
           notifId: event.params.notifId,
-          senderId,
-          entityId: (notif.entity_id as string) ?? null,
-          entityType: (notif.entity_type as string) ?? null,
+          senderId: senderId ?? "",
+          entityId: (notif.entity_id as string) ?? "",
+          entityType: (notif.entity_type as string) ?? "",
         },
       };
-      const response = await fetch("https://exp.host/--/api/v2/push/send", {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-      const result = (await response.json()) as Record<string, unknown>;
-      const resultData = result?.data as Record<string, unknown>;
-      if (resultData?.status === "error") {
-        console.error("Expo push error:", resultData.message);
-        const details = resultData.details as Record<string, unknown>;
-        if (details?.error === "DeviceNotRegistered") {
-          await db
-            .collection("profiles")
-            .doc(receiverId)
-            .update({ push_token: null });
-        }
-      } else {
-        console.log("Push sent to", receiverId, "type=", type);
-      }
-    } catch (err) {
+
+      const response = await getMessaging().send(message);
+      console.log("FCM sent to", receiverId, "type=", type, "msgId=", response);
+    } catch (err: any) {
       console.error("sendPushNotification error:", String(err));
+      // ✅ Clean up invalid tokens automatically
+      if (
+        err?.code === "messaging/registration-token-not-registered" ||
+        err?.code === "messaging/invalid-registration-token"
+      ) {
+        await db
+          .collection("profiles")
+          .doc(receiverId)
+          .update({ fcm_token: null });
+        console.log("Cleared invalid FCM token for", receiverId);
+      }
     }
   },
 );
@@ -495,7 +509,8 @@ export const moderatePostContent = onDocumentCreated(
       "explicit",
       "18+",
       "hentai",
-      "lewd",
+  
+    "lewd",
       "slutty",
       "horny",
       "masturbat",
