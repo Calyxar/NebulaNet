@@ -2,7 +2,7 @@
   "expo": {
     "name": "NebulaNet",
     "slug": "nebulanet",
-    "version": "1.0.0",
+    "version": "1.0.8",
     "orientation": "default",
     "icon": "./assets/images/nebulanet-icon.png",
     "scheme": "nebulanet",
@@ -37,8 +37,7 @@
     "android": {
       "googleServicesFile": "$GOOGLE_SERVICES_JSON",
       "package": "com.nebulanet.app",
-      "versionCode": 3,
-      "versionName": "1.0.7",
+      "versionCode": 4,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -162,7 +161,8 @@
           "androidAppId": "ca-app-pub-7224753372359384~7108691257",
           "iosAppId": "ca-app-pub-7224753372359384~7108691257"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
