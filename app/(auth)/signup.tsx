@@ -1,4 +1,7 @@
 // app/(auth)/signup.tsx ✅ — with Google SSO + device fingerprinting
+// ✅ FIXED: email verification no longer blocks onboarding
+//           verification email sent in background, user proceeds to onboarding
+
 import { useAuth } from "@/hooks/useAuth";
 import { usePhoneAuth } from "@/hooks/usePhoneAuth";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -78,18 +81,15 @@ export default function SignUpScreen() {
   const validateUsername = (v: string) => /^[a-zA-Z0-9_]{3,20}$/.test(v);
   const validatePassword = (v: string) => v.length >= 8;
 
-  // ✅ Device fingerprint helper
   const saveDeviceFingerprint = async (uid: string) => {
     try {
       const deviceId =
         (await Application.getAndroidId()) ??
         `${Device.modelName ?? "unknown"}_${Device.osVersion ?? "0"}`;
-
       const flaggedSnap = await firestore()
         .collection("flagged_devices")
         .doc(deviceId)
         .get();
-
       await firestore()
         .collection("profiles")
         .doc(uid)
@@ -103,7 +103,6 @@ export default function SignUpScreen() {
             updated_at: new Date().toISOString(),
           },
         });
-
       if (flaggedSnap.exists()) {
         const flagData = flaggedSnap.data() as any;
         if (flagData?.reason === "under_13_blocked") {
@@ -118,7 +117,6 @@ export default function SignUpScreen() {
     }
   };
 
-  // ✅ Google Sign-In
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     try {
@@ -237,30 +235,22 @@ export default function SignUpScreen() {
         }
       }
 
-      // ✅ Save device fingerprint after successful signup
+      // ✅ Save device fingerprint
       if (createdUser?.uid) {
         await saveDeviceFingerprint(createdUser.uid);
       }
 
+      // ✅ Send verification email silently in background.
+      // Do NOT sign the user out or block onboarding.
+      // _layout.tsx will route them to onboarding immediately.
+      // They can verify their email later from settings.
       if (createdUser && !createdUser.emailVerified) {
-        try {
-          await createdUser.sendEmailVerification();
-        } catch (emailErr: any) {
+        createdUser.sendEmailVerification().catch((emailErr: any) => {
           console.warn("Verification email failed to send:", emailErr?.message);
-        }
-        await signOut();
-        Alert.alert(
-          "Check your email",
-          "We sent you a verification link. Please verify, then log in.",
-          [
-            {
-              text: "OK",
-              onPress: () => router.replace("/(auth)/verify-email"),
-            },
-          ],
-        );
-        return;
+        });
       }
+
+      // ✅ _layout.tsx takes over from here — routes to onboarding automatically
     } catch (error: any) {
       const msg = error?.message || "Sign up failed";
       const lower = msg.toLowerCase();
