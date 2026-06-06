@@ -1,5 +1,6 @@
-// lib/firestore/posts.ts — React Native Firebase ✅
+// lib/firestore/posts.ts ✅
 // ✅ FIXED: repost_count added to Post interface, docToPost, and createPost
+// ✅ FIXED: getRepostFeedItems merges reposts into feed on first page
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth } from "@/lib/firebase";
@@ -55,7 +56,7 @@ export interface Post {
   location?: PostLocation | null;
   like_count: number;
   comment_count: number;
-  repost_count: number; // ✅ ADDED
+  repost_count: number;
   share_count: number;
   created_at: string;
   updated_at: string;
@@ -170,7 +171,7 @@ function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
     location: d.location ?? null,
     like_count: typeof d.like_count === "number" ? d.like_count : 0,
     comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
-    repost_count: typeof d.repost_count === "number" ? d.repost_count : 0, // ✅ ADDED
+    repost_count: typeof d.repost_count === "number" ? d.repost_count : 0,
     share_count: typeof d.share_count === "number" ? d.share_count : 0,
     created_at: tsToIso(d.created_at_ts ?? d.created_at),
     updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
@@ -331,6 +332,63 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
 }
 
 /* =========================================================
+   REPOST FEED ITEMS
+   ✅ Fetches posts the current user has reposted so they
+   appear in their own feed with a "Reposted" label.
+========================================================= */
+
+async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
+  try {
+    const repostSnap = await firestore()
+      .collection("reposts")
+      .where("user_id", "==", uid)
+      .orderBy("created_at_ts", "desc")
+      .limit(limit)
+      .get();
+
+    if (repostSnap.empty) return [];
+
+    const postIds = repostSnap.docs.map(
+      (d) => (d.data() as any).post_id as string,
+    );
+    const repostedAtMap: Record<string, string> = {};
+    repostSnap.docs.forEach((d) => {
+      const data = d.data() as any;
+      repostedAtMap[data.post_id] = data.created_at ?? new Date().toISOString();
+    });
+
+    const chunks2 = chunk(postIds, 10);
+    const postDocs: Post[] = [];
+
+    for (const c of chunks2) {
+      const snap = await firestore()
+        .collection("posts")
+        .where(firestore.FieldPath.documentId(), "in", c)
+        .get();
+      snap.docs.forEach((d) => {
+        if (!d.exists()) return;
+        const data = d.data() as any;
+        if (data.is_visible === false) return;
+        const p = docToPost(d.id, data, {
+          is_liked: false,
+          is_saved: false,
+          is_owned: data.user_id === uid,
+        });
+        // ✅ Tag so feed card can render "Reposted" label
+        (p as any).is_repost = true;
+        (p as any).reposted_at = repostedAtMap[d.id] ?? p.created_at;
+        postDocs.push(p);
+      });
+    }
+
+    return postDocs;
+  } catch (e) {
+    console.error("[getRepostFeedItems] error:", e);
+    return [];
+  }
+}
+
+/* =========================================================
    GET POSTS
 ========================================================= */
 
@@ -415,12 +473,49 @@ export async function getPosts(
     }),
   );
 
+  // ✅ On the first page only, merge in posts the viewer has reposted.
+  // Pagination pages skip this to avoid duplicates.
+  let merged = posts;
+  if (viewerId && !cursor && !resolvedUserId && !resolvedCommunityIds.length) {
+    const repostItems = await getRepostFeedItems(viewerId, limit);
+
+    // Deduplicate — don't show a post twice if the user both owns and reposted it
+    const ownPostIds = new Set(posts.map((p) => p.id));
+    const newReposts = repostItems.filter((r) => !ownPostIds.has(r.id));
+
+    if (newReposts.length > 0) {
+      // Apply like/save flags to the repost items
+      const repostIds = newReposts.map((p) => p.id);
+      const { liked: rLiked, saved: rSaved } = await fetchMyLikeSaveFlags(
+        viewerId,
+        repostIds,
+      );
+      const flaggedReposts = newReposts.map((p) => ({
+        ...p,
+        is_liked: rLiked.has(p.id),
+        is_saved: rSaved.has(p.id),
+      }));
+
+      // Sort combined feed: use reposted_at for reposts, created_at for originals
+      merged = [...posts, ...flaggedReposts].sort((a, b) => {
+        const aTime = (a as any).reposted_at ?? a.created_at;
+        const bTime = (b as any).reposted_at ?? b.created_at;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      });
+    }
+  }
+
   const last = snap.docs[snap.docs.length - 1];
   const nextCursor: PostFilters["cursor"] = last
     ? { lastDocId: last.id }
     : null;
 
-  return { posts, total: -1, hasMore: snap.docs.length >= limit, nextCursor };
+  return {
+    posts: merged,
+    total: -1,
+    hasMore: snap.docs.length >= limit,
+    nextCursor,
+  };
 }
 
 /* =========================================================
@@ -493,7 +588,6 @@ export async function createPost(
     ? await getCommunitySnapshot(postData.community_id)
     : null;
   const now = new Date().toISOString();
-
   const combinedText = [postData.title ?? "", postData.content].join(" ");
   const hashtags = extractHashtags(combinedText);
 
@@ -513,7 +607,7 @@ export async function createPost(
       hashtags,
       like_count: 0,
       comment_count: 0,
-      repost_count: 0, // ✅ ADDED
+      repost_count: 0,
       share_count: 0,
       user: profileSnap,
       community: communitySnap,
@@ -597,7 +691,6 @@ export async function deletePost(postId: string): Promise<boolean> {
   if (d.user_id !== uid) throw new Error("Not allowed");
 
   const hashtags: string[] = Array.isArray(d.hashtags) ? d.hashtags : [];
-
   await refDoc.delete();
 
   if (hashtags.length) {
