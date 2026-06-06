@@ -24,7 +24,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+// ✅ added useSafeAreaInsets
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 type MediaType = "image" | "video" | "gif";
 type Visibility = "public" | "followers" | "private";
@@ -49,7 +53,6 @@ const PickerMedia: any =
 
 const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
 
-// ✅ Basic explicit keyword pre-scan (Cloud Function does the full scan server-side)
 const EXPLICIT_KEYWORDS = [
   "nsfw",
   "nude",
@@ -282,6 +285,8 @@ const lpStyles = StyleSheet.create({
 
 export default function CreatePostScreen() {
   const { colors, isDark } = useTheme();
+  // ✅ get safe area insets for bottom bar
+  const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const createPostMutation = useCreatePost();
 
@@ -296,7 +301,6 @@ export default function CreatePostScreen() {
     name: string;
     place_id: string;
   } | null>(null);
-  // ✅ NSFW toggle
   const [isNsfw, setIsNsfw] = useState(false);
 
   const isPosting = createPostMutation.isPending;
@@ -396,15 +400,12 @@ export default function CreatePostScreen() {
 
   const handlePost = async () => {
     if (!canPost || isOverLimit) return;
-
     const currentUser = auth.currentUser;
     if (!currentUser) {
       Alert.alert("Session Expired", "Please sign in again.");
       router.replace("/(auth)/login");
       return;
     }
-
-    // ✅ Auto-detect explicit text and warn/force NSFW
     const allText = `${title} ${bodyText}`.trim();
     let finalIsNsfw = isNsfw;
     if (!isNsfw && containsExplicitText(allText)) {
@@ -415,7 +416,6 @@ export default function CreatePostScreen() {
         [{ text: "OK" }],
       );
     }
-
     try {
       if (mediaItems.length > 0) {
         const hasVideo = mediaItems.some((m) => m.type === "video");
@@ -425,7 +425,6 @@ export default function CreatePostScreen() {
             : `Uploading ${mediaItems.length} file${mediaItems.length > 1 ? "s" : ""}…`,
         );
       }
-
       await createPostMutation.mutateAsync({
         title: title.trim() || undefined,
         content: bodyText.trim(),
@@ -438,7 +437,6 @@ export default function CreatePostScreen() {
         location: location ?? undefined,
         is_nsfw: finalIsNsfw,
       } as any);
-
       router.back();
     } catch (e: any) {
       Alert.alert(
@@ -729,7 +727,7 @@ export default function CreatePostScreen() {
                 />
               </TouchableOpacity>
 
-              {/* ✅ NSFW toggle */}
+              {/* NSFW toggle */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomWidth: 0 }]}
                 onPress={() => setIsNsfw((v) => !v)}
@@ -788,7 +786,6 @@ export default function CreatePostScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* ✅ NSFW warning banner */}
             {isNsfw && (
               <View
                 style={[
@@ -828,12 +825,14 @@ export default function CreatePostScreen() {
             <View style={{ height: 120 }} />
           </ScrollView>
 
+          {/* ✅ paddingBottom uses insets.bottom so buttons clear the gesture nav bar */}
           <View
             style={[
               styles.bottomBar,
               {
                 backgroundColor: colors.background,
                 borderTopColor: colors.border,
+                paddingBottom: Math.max(insets.bottom, 16),
               },
             ]}
           >
@@ -1008,7 +1007,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // ✅ NSFW toggle styles
   nsfwToggle: {
     width: 46,
     height: 26,
@@ -1041,12 +1039,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   uploadProgress: { fontSize: 13, fontWeight: "600" },
+  // ✅ paddingBottom removed from style — applied dynamically via insets.bottom
   bottomBar: {
     flexDirection: "row",
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingBottom: 24,
     borderTopWidth: 1,
     alignItems: "center",
   },

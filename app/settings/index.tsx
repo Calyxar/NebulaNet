@@ -1,5 +1,5 @@
 // app/settings/index.tsx ✅
-import { useAuth } from "@/hooks/useAuth"; // ✅ use hook, not provider directly
+import { useAuth } from "@/hooks/useAuth";
 import { useThemeStyles } from "@/hooks/useThemeStyles";
 import {
   closeSettings,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/routes/settingsRoutes";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React from "react";
@@ -67,7 +68,6 @@ function Row({
   onPressOverride?: () => void;
 }) {
   const { colors } = useTheme();
-
   const onPress = () => {
     if (onPressOverride) {
       onPressOverride();
@@ -83,7 +83,6 @@ function Row({
     }
     pushSettings(item.routeKey);
   };
-
   return (
     <TouchableOpacity
       activeOpacity={0.85}
@@ -110,7 +109,6 @@ function Row({
           color={item.danger ? colors.error : colors.primary}
         />
       </View>
-
       <View style={styles.rowText}>
         <Text
           style={[
@@ -126,7 +124,6 @@ function Row({
           </Text>
         )}
       </View>
-
       <View style={styles.rowRight}>
         {!!item.rightText && (
           <Text style={[styles.rowRightText, { color: colors.textSecondary }]}>
@@ -144,7 +141,7 @@ function Row({
 }
 
 export default function SettingsIndexScreen() {
-  const { user, profile, signOut, updateSettings } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const { theme, colors, isDark } = useTheme();
   const ts = useThemeStyles();
   const params = useLocalSearchParams<{ returnTo?: string }>();
@@ -162,20 +159,15 @@ export default function SettingsIndexScreen() {
           text: "Continue",
           onPress: async () => {
             try {
-              // ✅ Reset onboarding flag AND clear birthdate so _layout.tsx
-              // doesn't short-circuit past onboarding on the birthdate check.
-              await updateSettings({ onboarding_completed: false });
+              if (!user?.uid) throw new Error("Not logged in");
 
-              // Clear birthdate directly on the profile doc
-              const firestore = (
-                await import("@react-native-firebase/firestore")
-              ).default;
-              if (user?.uid) {
-                await firestore().collection("profiles").doc(user.uid).update({
-                  birthdate: firestore.FieldValue.delete(),
-                  age_group: firestore.FieldValue.delete(),
-                });
-              }
+              // ✅ Reset onboarding flag on the PROFILES doc — this is what
+              // _layout.tsx checks. Writing to user_settings alone does nothing.
+              await firestore().collection("profiles").doc(user.uid).update({
+                onboarding_completed: false,
+                birthdate: firestore.FieldValue.delete(),
+                age_group: firestore.FieldValue.delete(),
+              });
 
               router.replace("/(auth)/onboarding");
             } catch (e: any) {
@@ -343,7 +335,6 @@ export default function SettingsIndexScreen() {
             </Text>
           </View>
         </View>
-
         <TouchableOpacity
           style={[
             styles.logoBubble,
@@ -447,7 +438,6 @@ export default function SettingsIndexScreen() {
       </LinearGradient>
     );
   }
-
   return (
     <View style={[{ flex: 1 }, { backgroundColor: colors.background }]}>
       {content}

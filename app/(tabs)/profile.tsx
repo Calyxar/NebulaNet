@@ -40,13 +40,6 @@ function formatNumber(n: number) {
   return String(n);
 }
 
-function formatBirthdate(iso: string): string {
-  if (!iso) return "Not set";
-  const [year, month, day] = iso.split("-");
-  if (!year || !month || !day) return iso;
-  return `${month}/${day}/${year}`;
-}
-
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
   return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
@@ -202,9 +195,6 @@ export default function ProfileScreen() {
     await Promise.all([refetchStats(), refetchPosts(), refetchReposts()]);
     setRefreshing(false);
   };
-
-  const currentBirthdate = (profile as any)?.birthdate as string | null;
-  const currentAgeGroup = (profile as any)?.age_group as string | null;
 
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
@@ -427,38 +417,6 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-
-            {/* DOB card — only shown if birthdate is set */}
-            {!!currentBirthdate && (
-              <View
-                style={[
-                  styles.dobCard,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={16}
-                  color={colors.textTertiary}
-                />
-                <Text style={[styles.dobText, { color: colors.textTertiary }]}>
-                  Born {formatBirthdate(currentBirthdate)}
-                  {currentAgeGroup === "adult"
-                    ? " · Adult (18+)"
-                    : currentAgeGroup === "teen"
-                      ? " · Teen (13–17)"
-                      : ""}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => router.push("/profile/edit")}
-                  hitSlop={8}
-                >
-                  <Text style={[styles.dobEdit, { color: colors.primary }]}>
-                    Change
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
 
             {/* Tabs */}
             <View
@@ -881,18 +839,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  dobCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  dobText: { flex: 1, fontSize: 13 },
-  dobEdit: { fontSize: 13, fontWeight: "700" },
   tabsContainer: {
     flexDirection: "row",
     borderRadius: 22,
