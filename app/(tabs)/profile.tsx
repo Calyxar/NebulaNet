@@ -1,5 +1,4 @@
 // app/(tabs)/profile.tsx ✅
-import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
@@ -12,11 +11,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Dimensions,
   Image,
   Pressable,
   RefreshControl,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -54,11 +53,7 @@ type PostRow = {
   created_at: string;
   post_type?: string | null;
   reposted_at?: string;
-  original_user?: {
-    username: string | null;
-    full_name: string | null;
-    avatar_url: string | null;
-  } | null;
+  original_user?: { username: string | null; full_name: string | null; avatar_url: string | null } | null;
 };
 
 export default function ProfileScreen() {
@@ -69,10 +64,26 @@ export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
   const [refreshing, setRefreshing] = useState(false);
 
-  const bottomPad = useMemo(
-    () => getTabBarHeight(insets.bottom) + 12,
-    [insets.bottom],
-  );
+  // ✅ Animated scroll value — drives header fade
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  // Profile card is ~220px tall. Header username fades in after scrolling past it.
+  const HEADER_FADE_START = 160;
+  const HEADER_FADE_END = 220;
+
+  const headerUsernameOpacity = scrollY.interpolate({
+    inputRange: [HEADER_FADE_START, HEADER_FADE_END],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
+
+  const headerBgOpacity = scrollY.interpolate({
+    inputRange: [HEADER_FADE_START, HEADER_FADE_END],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
+
+  const bottomPad = useMemo(() => getTabBarHeight(insets.bottom) + 12, [insets.bottom]);
 
   const uid = user?.uid;
 
@@ -82,29 +93,11 @@ export default function ProfileScreen() {
     enabled: !!uid,
     queryFn: async () => {
       const [p, fo, fi] = await Promise.all([
-        firestore()
-          .collection("posts")
-          .where("user_id", "==", uid)
-          .count()
-          .get(),
-        firestore()
-          .collection("follows")
-          .where("following_id", "==", uid)
-          .where("status", "==", "accepted")
-          .count()
-          .get(),
-        firestore()
-          .collection("follows")
-          .where("follower_id", "==", uid)
-          .where("status", "==", "accepted")
-          .count()
-          .get(),
+        firestore().collection("posts").where("user_id", "==", uid).count().get(),
+        firestore().collection("follows").where("following_id", "==", uid).where("status", "==", "accepted").count().get(),
+        firestore().collection("follows").where("follower_id", "==", uid).where("status", "==", "accepted").count().get(),
       ]);
-      return {
-        posts: p.data().count,
-        followers: fo.data().count,
-        following: fi.data().count,
-      };
+      return { posts: p.data().count, followers: fo.data().count, following: fi.data().count };
     },
   });
 
@@ -113,20 +106,10 @@ export default function ProfileScreen() {
     queryKey: ["my-posts", uid],
     enabled: !!uid,
     queryFn: async () => {
-      const snap = await firestore()
-        .collection("posts")
-        .where("user_id", "==", uid)
-        .orderBy("created_at", "desc")
-        .get();
+      const snap = await firestore().collection("posts").where("user_id", "==", uid).orderBy("created_at", "desc").get();
       return snap.docs.map((d) => {
         const x = d.data() as any;
-        return {
-          id: d.id,
-          content: x.content ?? "",
-          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-          created_at: x.created_at ?? "",
-          post_type: x.post_type ?? null,
-        } as PostRow;
+        return { id: d.id, content: x.content ?? "", media_urls: Array.isArray(x.media_urls) ? x.media_urls : null, created_at: x.created_at ?? "", post_type: x.post_type ?? null } as PostRow;
       });
     },
   });
@@ -136,59 +119,30 @@ export default function ProfileScreen() {
     queryKey: ["my-reposts", uid],
     enabled: !!uid,
     queryFn: async () => {
-      const repostSnap = await firestore()
-        .collection("reposts")
-        .where("user_id", "==", uid)
-        .orderBy("created_at", "desc")
-        .limit(30)
-        .get();
+      const repostSnap = await firestore().collection("reposts").where("user_id", "==", uid).orderBy("created_at", "desc").limit(30).get();
       if (repostSnap.empty) return [];
       const postIds = repostSnap.docs.map((d) => (d.data() as any).post_id);
       const repostedAt: Record<string, string> = {};
-      repostSnap.docs.forEach((d) => {
-        const data = d.data() as any;
-        repostedAt[data.post_id] = data.created_at;
-      });
+      repostSnap.docs.forEach((d) => { const data = d.data() as any; repostedAt[data.post_id] = data.created_at; });
       const chunks: string[][] = [];
-      for (let i = 0; i < postIds.length; i += 10)
-        chunks.push(postIds.slice(i, i + 10));
+      for (let i = 0; i < postIds.length; i += 10) chunks.push(postIds.slice(i, i + 10));
       const postDocs: PostRow[] = [];
       for (const chunk of chunks) {
-        const snap = await firestore()
-          .collection("posts")
-          .where(firestore.FieldPath.documentId(), "in", chunk)
-          .get();
+        const snap = await firestore().collection("posts").where(firestore.FieldPath.documentId(), "in", chunk).get();
         snap.docs.forEach((d) => {
           const x = d.data() as any;
           postDocs.push({
-            id: d.id,
-            content: x.content ?? "",
-            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: x.created_at ?? "",
-            post_type: x.post_type ?? null,
-            reposted_at: repostedAt[d.id] ?? x.created_at ?? "",
-            original_user: x.user
-              ? {
-                  username: x.user.username ?? null,
-                  full_name: x.user.full_name ?? null,
-                  avatar_url: x.user.avatar_url ?? null,
-                }
-              : null,
+            id: d.id, content: x.content ?? "", media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: x.created_at ?? "", post_type: x.post_type ?? null, reposted_at: repostedAt[d.id] ?? x.created_at ?? "",
+            original_user: x.user ? { username: x.user.username ?? null, full_name: x.user.full_name ?? null, avatar_url: x.user.avatar_url ?? null } : null,
           });
         });
       }
-      return postDocs.sort(
-        (a, b) =>
-          new Date(b.reposted_at!).getTime() -
-          new Date(a.reposted_at!).getTime(),
-      );
+      return postDocs.sort((a, b) => new Date(b.reposted_at!).getTime() - new Date(a.reposted_at!).getTime());
     },
   });
 
-  const mediaPosts = useMemo(
-    () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
-    [posts],
-  );
+  const mediaPosts = useMemo(() => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0), [posts]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -205,242 +159,160 @@ export default function ProfileScreen() {
 
   return (
     <>
-      <StatusBar
-        barStyle={isDark ? "light-content" : "dark-content"}
-        backgroundColor="transparent"
-        translucent
-      />
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
+      <LinearGradient colors={gradientColors as any} locations={[0, 0.42, 1]} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          {/* Header */}
-          <AppHeader
-            title={profile?.username ? `@${profile.username}` : "Profile"}
-            backgroundColor="transparent"
-            right={
-              <TouchableOpacity
-                style={[
-                  styles.headerBtn,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-                onPress={() => router.push("/settings")}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name="settings-outline"
-                  size={20}
-                  color={colors.text}
-                />
-              </TouchableOpacity>
-            }
-          />
 
-          <ScrollView
+          {/* ✅ Animated sticky header */}
+          <View style={styles.header}>
+            {/* Animated background — fades in as profile card scrolls away */}
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: isDark ? colors.background : "#EEF4FF",
+                  opacity: headerBgOpacity,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.border,
+                },
+              ]}
+              pointerEvents="none"
+            />
+
+            <TouchableOpacity
+              style={[styles.headerBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => router.push("/notifications" as any)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="notifications-outline" size={20} color={colors.text} />
+            </TouchableOpacity>
+
+            <View style={styles.headerCenter}>
+              {/* Username fades in after scrolling past profile card */}
+              <Animated.Text
+                style={[styles.headerUsername, { color: colors.text, opacity: headerUsernameOpacity }]}
+                numberOfLines={1}
+              >
+                {profile?.username ? `@${profile.username}` : "Profile"}
+              </Animated.Text>
+              {!!(profile as any)?.is_founder && (
+                <Animated.View
+                  style={[styles.headerBadge, { backgroundColor: colors.primary + "20", opacity: headerUsernameOpacity }]}
+                >
+                  <Text style={[styles.headerBadgeText, { color: colors.primary }]}>Founder</Text>
+                </Animated.View>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.headerBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => router.push("/settings")}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Animated.ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: bottomPad }}
+            scrollEventThrottle={16}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              { useNativeDriver: true },
+            )}
             refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
-              />
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />
             }
           >
             {/* Profile card */}
-            <View
-              style={[
-                styles.profileCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
+            <View style={[styles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {/* Avatar + stats */}
               <View style={styles.topRow}>
-                <TouchableOpacity
-                  onPress={() => router.push("/profile/edit")}
-                  activeOpacity={0.9}
-                >
+                <TouchableOpacity onPress={() => router.push("/profile/edit")} activeOpacity={0.9}>
                   {avatarUrl ? (
                     <Image source={{ uri: avatarUrl }} style={styles.avatar} />
                   ) : (
-                    <View
-                      style={[
-                        styles.avatarFallback,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <Text style={styles.avatarFallbackText}>
-                        {(displayName[0] || "U").toUpperCase()}
-                      </Text>
+                    <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
+                      <Text style={styles.avatarFallbackText}>{(displayName[0] || "U").toUpperCase()}</Text>
                     </View>
                   )}
-                  <View
-                    style={[
-                      styles.editBadge,
-                      {
-                        backgroundColor: colors.primary,
-                        borderColor: colors.card,
-                      },
-                    ]}
-                  >
+                  <View style={[styles.editBadge, { backgroundColor: colors.primary, borderColor: colors.card }]}>
                     <Ionicons name="pencil" size={11} color="#fff" />
                   </View>
                 </TouchableOpacity>
 
                 <View style={styles.statsRow}>
-                  <Pressable
-                    style={styles.statItem}
-                    onPress={() => router.push(`/profile/followers` as any)}
-                  >
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(
-                        stats?.followers ??
-                          (profile as any)?.follower_count ??
-                          0,
-                      )}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Followers
-                    </Text>
+                  <Pressable style={styles.statItem} onPress={() => router.push(`/profile/followers` as any)}>
+                    <Text style={[styles.statValue, { color: colors.text }]}>{formatNumber(stats?.followers ?? (profile as any)?.follower_count ?? 0)}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Followers</Text>
                   </Pressable>
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(stats?.posts ?? 0)}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Posts
-                    </Text>
+                    <Text style={[styles.statValue, { color: colors.text }]}>{formatNumber(stats?.posts ?? 0)}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Posts</Text>
                   </View>
-                  <Pressable
-                    style={styles.statItem}
-                    onPress={() => router.push(`/profile/following` as any)}
-                  >
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(
-                        stats?.following ??
-                          (profile as any)?.following_count ??
-                          0,
-                      )}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Following
-                    </Text>
+                  <Pressable style={styles.statItem} onPress={() => router.push(`/profile/following` as any)}>
+                    <Text style={[styles.statValue, { color: colors.text }]}>{formatNumber(stats?.following ?? (profile as any)?.following_count ?? 0)}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Following</Text>
                   </Pressable>
                 </View>
               </View>
 
               {/* Name + badge */}
               <View style={styles.nameRow}>
-                <Text style={[styles.displayName, { color: colors.text }]}>
-                  {displayName}
-                </Text>
+                <Text style={[styles.displayName, { color: colors.text }]}>{displayName}</Text>
                 {!!(profile as any)?.is_founder && <FounderBadge />}
               </View>
 
               {/* Username */}
               {!!profile?.username && (
-                <Text
-                  style={[styles.username, { color: colors.textSecondary }]}
-                >
-                  @{profile.username}
-                </Text>
+                <Text style={[styles.username, { color: colors.textSecondary }]}>@{profile.username}</Text>
               )}
 
               {/* Bio */}
               {!!profile?.bio && (
-                <Text style={[styles.bio, { color: colors.textSecondary }]}>
-                  {profile.bio}
-                </Text>
+                <Text style={[styles.bio, { color: colors.textSecondary }]}>{profile.bio}</Text>
               )}
 
               {/* Location */}
               {!!(profile as any)?.location && (
                 <View style={styles.locationRow}>
-                  <Ionicons
-                    name="location-outline"
-                    size={14}
-                    color={colors.textTertiary}
-                  />
-                  <Text
-                    style={[
-                      styles.locationText,
-                      { color: colors.textTertiary },
-                    ]}
-                  >
-                    {(profile as any).location}
-                  </Text>
+                  <Ionicons name="location-outline" size={14} color={colors.textTertiary} />
+                  <Text style={[styles.locationText, { color: colors.textTertiary }]}>{(profile as any).location}</Text>
                 </View>
               )}
 
               {/* Action buttons */}
               <View style={styles.actionRow}>
                 <TouchableOpacity
-                  style={[
-                    styles.editBtn,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
+                  style={[styles.editBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={() => router.push("/profile/edit")}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.editBtnText, { color: colors.text }]}>
-                    Edit Profile
-                  </Text>
+                  <Text style={[styles.editBtnText, { color: colors.text }]}>Edit Profile</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[
-                    styles.shareBtn,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
+                  style={[styles.shareBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={() => shareSheetRef.current?.present()}
                   activeOpacity={0.85}
                 >
-                  <Ionicons
-                    name="share-outline"
-                    size={18}
-                    color={colors.text}
-                  />
+                  <Ionicons name="share-outline" size={18} color={colors.text} />
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Tabs */}
-            <View
-              style={[styles.tabsContainer, { backgroundColor: colors.card }]}
-            >
+            <View style={[styles.tabsContainer, { backgroundColor: colors.card }]}>
               {(["Post", "Activity", "Media"] as ProfileTab[]).map((tab) => {
                 const active = activeTab === tab;
                 return (
                   <TouchableOpacity
                     key={tab}
-                    style={[
-                      styles.tab,
-                      active && { backgroundColor: colors.primary },
-                    ]}
+                    style={[styles.tab, active && { backgroundColor: colors.primary }]}
                     onPress={() => setActiveTab(tab)}
                     activeOpacity={0.85}
                   >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        { color: colors.textTertiary },
-                        active && { color: "#fff", fontWeight: "800" },
-                      ]}
-                    >
+                    <Text style={[styles.tabText, { color: colors.textTertiary }, active && { color: "#fff", fontWeight: "800" }]}>
                       {tab}
                     </Text>
                   </TouchableOpacity>
@@ -450,9 +322,10 @@ export default function ProfileScreen() {
 
             {/* Tab content */}
             <View style={styles.contentSection}>
+
               {/* POSTS */}
-              {activeTab === "Post" &&
-                (posts && posts.length > 0 ? (
+              {activeTab === "Post" && (
+                posts && posts.length > 0 ? (
                   <View style={{ gap: 12 }}>
                     {posts.map((p) => {
                       const img = p.media_urls?.[0];
@@ -460,43 +333,19 @@ export default function ProfileScreen() {
                       return (
                         <TouchableOpacity
                           key={p.id}
-                          style={[
-                            styles.postCard,
-                            { backgroundColor: colors.card },
-                          ]}
+                          style={[styles.postCard, { backgroundColor: colors.card }]}
                           onPress={() => router.push(`/post/${p.id}` as any)}
                           activeOpacity={0.9}
                         >
                           {!!p.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {p.content}
-                            </Text>
+                            <Text style={[styles.postContent, { color: colors.text }]} numberOfLines={4}>{p.content}</Text>
                           )}
                           {!!img && (
-                            <View
-                              style={[
-                                styles.postMediaWrap,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Image
-                                source={{ uri: img }}
-                                style={styles.postMedia}
-                                resizeMode="cover"
-                              />
+                            <View style={[styles.postMediaWrap, { backgroundColor: colors.surface }]}>
+                              <Image source={{ uri: img }} style={styles.postMedia} resizeMode="cover" />
                               {isVid && (
                                 <View style={styles.videoOverlay}>
-                                  <Ionicons
-                                    name="play-circle"
-                                    size={32}
-                                    color="#fff"
-                                  />
+                                  <Ionicons name="play-circle" size={32} color="#fff" />
                                 </View>
                               )}
                             </View>
@@ -506,109 +355,51 @@ export default function ProfileScreen() {
                     })}
                   </View>
                 ) : (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="document-text-outline"
-                      size={40}
-                      color={colors.textTertiary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Posts Yet
-                    </Text>
-                    <Text
-                      style={[styles.emptyDesc, { color: colors.textTertiary }]}
-                    >
-                      Your posts will appear here.
-                    </Text>
+                  <View style={[styles.emptyCard, { backgroundColor: colors.card }]}>
+                    <Ionicons name="document-text-outline" size={40} color={colors.textTertiary} />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>No Posts Yet</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textTertiary }]}>Your posts will appear here.</Text>
                     <TouchableOpacity
-                      style={[
-                        styles.createPostBtn,
-                        { backgroundColor: colors.primary },
-                      ]}
+                      style={[styles.createPostBtn, { backgroundColor: colors.primary }]}
                       onPress={() => router.push("/create/post")}
                       activeOpacity={0.88}
                     >
                       <Text style={styles.createPostBtnText}>Create Post</Text>
                     </TouchableOpacity>
                   </View>
-                ))}
+                )
+              )}
 
               {/* ACTIVITY (reposts) */}
-              {activeTab === "Activity" &&
-                (reposts && reposts.length > 0 ? (
+              {activeTab === "Activity" && (
+                reposts && reposts.length > 0 ? (
                   <View style={{ gap: 12 }}>
                     {reposts.map((p) => {
                       const img = p.media_urls?.[0];
                       const isVid = isVideoUrl(img) || p.post_type === "video";
-                      const originalAuthor =
-                        p.original_user?.full_name ||
-                        p.original_user?.username ||
-                        "Unknown";
+                      const originalAuthor = p.original_user?.full_name || p.original_user?.username || "Unknown";
                       return (
                         <TouchableOpacity
                           key={p.id}
-                          style={[
-                            styles.postCard,
-                            { backgroundColor: colors.card },
-                          ]}
+                          style={[styles.postCard, { backgroundColor: colors.card }]}
                           onPress={() => router.push(`/post/${p.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 6,
-                              marginBottom: 8,
-                            }}
-                          >
-                            <Ionicons
-                              name="repeat-outline"
-                              size={14}
-                              color={colors.primary}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontWeight: "700",
-                                color: colors.primary,
-                              }}
-                            >
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <Ionicons name="repeat-outline" size={14} color={colors.primary} />
+                            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.primary }}>
                               Reposted · originally by @{originalAuthor}
                             </Text>
                           </View>
                           {!!p.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {p.content}
-                            </Text>
+                            <Text style={[styles.postContent, { color: colors.text }]} numberOfLines={4}>{p.content}</Text>
                           )}
                           {!!img && (
-                            <View
-                              style={[
-                                styles.postMediaWrap,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Image
-                                source={{ uri: img }}
-                                style={styles.postMedia}
-                                resizeMode="cover"
-                              />
+                            <View style={[styles.postMediaWrap, { backgroundColor: colors.surface }]}>
+                              <Image source={{ uri: img }} style={styles.postMedia} resizeMode="cover" />
                               {isVid && (
                                 <View style={styles.videoOverlay}>
-                                  <Ionicons
-                                    name="play-circle"
-                                    size={32}
-                                    color="#fff"
-                                  />
+                                  <Ionicons name="play-circle" size={32} color="#fff" />
                                 </View>
                               )}
                             </View>
@@ -618,128 +409,60 @@ export default function ProfileScreen() {
                     })}
                   </View>
                 ) : (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="repeat-outline"
-                      size={40}
-                      color={colors.textTertiary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Activity Yet
-                    </Text>
-                    <Text
-                      style={[styles.emptyDesc, { color: colors.textTertiary }]}
-                    >
-                      Posts you repost will appear here.
-                    </Text>
+                  <View style={[styles.emptyCard, { backgroundColor: colors.card }]}>
+                    <Ionicons name="repeat-outline" size={40} color={colors.textTertiary} />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>No Activity Yet</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textTertiary }]}>Posts you repost will appear here.</Text>
                   </View>
-                ))}
+                )
+              )}
 
               {/* MEDIA grid */}
-              {activeTab === "Media" &&
-                (mediaPosts.length > 0 ? (
-                  <View
-                    style={{
-                      gap: GRID_GAP,
-                      borderRadius: 18,
-                      overflow: "hidden",
-                    }}
-                  >
+              {activeTab === "Media" && (
+                mediaPosts.length > 0 ? (
+                  <View style={{ gap: GRID_GAP, borderRadius: 18, overflow: "hidden" }}>
                     {(() => {
                       const rows: PostRow[][] = [];
-                      for (let i = 0; i < mediaPosts.length; i += 3)
-                        rows.push(mediaPosts.slice(i, i + 3));
+                      for (let i = 0; i < mediaPosts.length; i += 3) rows.push(mediaPosts.slice(i, i + 3));
                       return rows.map((row, ri) => (
-                        <View
-                          key={ri}
-                          style={{ flexDirection: "row", gap: GRID_GAP }}
-                        >
+                        <View key={ri} style={{ flexDirection: "row", gap: GRID_GAP }}>
                           {row.map((post) => {
                             const img = post.media_urls![0];
-                            const isVid =
-                              isVideoUrl(img) || post.post_type === "video";
+                            const isVid = isVideoUrl(img) || post.post_type === "video";
                             return (
                               <TouchableOpacity
                                 key={post.id}
-                                style={{
-                                  width: CELL_SIZE,
-                                  height: CELL_SIZE,
-                                  backgroundColor: colors.surface,
-                                  overflow: "hidden",
-                                  position: "relative",
-                                }}
+                                style={{ width: CELL_SIZE, height: CELL_SIZE, backgroundColor: colors.surface, overflow: "hidden", position: "relative" }}
                                 activeOpacity={0.85}
-                                onPress={() =>
-                                  router.push(`/post/${post.id}` as any)
-                                }
+                                onPress={() => router.push(`/post/${post.id}` as any)}
                               >
-                                <Image
-                                  source={{ uri: img }}
-                                  style={{ width: "100%", height: "100%" }}
-                                  resizeMode="cover"
-                                />
+                                <Image source={{ uri: img }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                                 {isVid && (
-                                  <View
-                                    style={{
-                                      position: "absolute",
-                                      top: 6,
-                                      right: 6,
-                                      backgroundColor: "rgba(0,0,0,0.55)",
-                                      borderRadius: 8,
-                                      paddingHorizontal: 5,
-                                      paddingVertical: 3,
-                                    }}
-                                  >
-                                    <Ionicons
-                                      name="play"
-                                      size={10}
-                                      color="#fff"
-                                    />
+                                  <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 3 }}>
+                                    <Ionicons name="play" size={10} color="#fff" />
                                   </View>
                                 )}
                               </TouchableOpacity>
                             );
                           })}
-                          {row.length < 3 &&
-                            Array(3 - row.length)
-                              .fill(null)
-                              .map((_, i) => (
-                                <View
-                                  key={`sp-${i}`}
-                                  style={{
-                                    width: CELL_SIZE,
-                                    height: CELL_SIZE,
-                                    backgroundColor: "transparent",
-                                  }}
-                                />
-                              ))}
+                          {row.length < 3 && Array(3 - row.length).fill(null).map((_, i) => (
+                            <View key={`sp-${i}`} style={{ width: CELL_SIZE, height: CELL_SIZE, backgroundColor: "transparent" }} />
+                          ))}
                         </View>
                       ));
                     })()}
                   </View>
                 ) : (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="images-outline"
-                      size={40}
-                      color={colors.textTertiary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Media Yet
-                    </Text>
-                    <Text
-                      style={[styles.emptyDesc, { color: colors.textTertiary }]}
-                    >
-                      Photos and videos from your posts will appear here.
-                    </Text>
+                  <View style={[styles.emptyCard, { backgroundColor: colors.card }]}>
+                    <Ionicons name="images-outline" size={40} color={colors.textTertiary} />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>No Media Yet</Text>
+                    <Text style={[styles.emptyDesc, { color: colors.textTertiary }]}>Photos and videos from your posts will appear here.</Text>
                   </View>
-                ))}
+                )
+              )}
+
             </View>
-          </ScrollView>
+          </Animated.ScrollView>
         </SafeAreaView>
       </LinearGradient>
 
@@ -755,157 +478,53 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  profileCard: {
-    borderRadius: 22,
-    padding: 18,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  topRow: {
+  // ✅ Custom header — sits flush at top, username centered between two icon buttons
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 14,
-    gap: 16,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingTop: 14,
   },
+  headerCenter: { flex: 1, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 6 },
+  headerUsername: { fontSize: 17, fontWeight: "900", letterSpacing: -0.3 },
+  headerBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  headerBadgeText: { fontSize: 11, fontWeight: "800" },
+  headerBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  // ✅ Reduced marginTop so profile card sits closer to header with no gap
+  profileCard: { borderRadius: 22, padding: 18, marginHorizontal: 16, marginTop: 6, marginBottom: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 16, elevation: 2 },
+  topRow: { flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 16 },
   avatar: { width: 76, height: 76, borderRadius: 38 },
-  avatarFallback: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  avatarFallback: { width: 76, height: 76, borderRadius: 38, justifyContent: "center", alignItems: "center" },
   avatarFallbackText: { fontSize: 30, fontWeight: "800", color: "#fff" },
-  editBadge: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-  },
+  editBadge: { position: "absolute", bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
   statItem: { alignItems: "center" },
   statValue: { fontSize: 18, fontWeight: "900" },
   statLabel: { fontSize: 12, marginTop: 3, fontWeight: "700" },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 4,
-  },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   displayName: { fontSize: 17, fontWeight: "900" },
   username: { fontSize: 14, marginBottom: 6 },
   bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 8 },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 8,
-  },
+  locationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 8 },
   locationText: { fontSize: 13 },
   actionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
-  editBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 22,
-    alignItems: "center",
-    borderWidth: 1,
-  },
+  editBtn: { flex: 1, paddingVertical: 10, borderRadius: 22, alignItems: "center", borderWidth: 1 },
   editBtnText: { fontSize: 14, fontWeight: "800" },
-  shareBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  tabsContainer: {
-    flexDirection: "row",
-    borderRadius: 22,
-    padding: 5,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
-  },
+  shareBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  tabsContainer: { flexDirection: "row", borderRadius: 22, padding: 5, marginHorizontal: 16, marginBottom: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 14, elevation: 2 },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 18 },
   tabText: { fontSize: 13, fontWeight: "700" },
   contentSection: { paddingHorizontal: 16, paddingBottom: 32 },
-  postCard: {
-    borderRadius: 18,
-    padding: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 2,
-  },
+  postCard: { borderRadius: 18, padding: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 2 },
   postContent: { fontSize: 14, lineHeight: 20 },
-  postMediaWrap: {
-    width: "100%",
-    height: 180,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginTop: 10,
-    position: "relative",
-  },
+  postMediaWrap: { width: "100%", height: 180, borderRadius: 14, overflow: "hidden", marginTop: 10, position: "relative" },
   postMedia: { width: "100%", height: "100%" },
-  videoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  emptyCard: {
-    borderRadius: 22,
-    paddingVertical: 32,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: "900",
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  emptyDesc: {
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  createPostBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 999,
-  },
+  videoOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.3)" },
+  emptyCard: { borderRadius: 22, paddingVertical: 32, paddingHorizontal: 18, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 14, elevation: 2 },
+  emptyTitle: { fontSize: 17, fontWeight: "900", marginTop: 12, marginBottom: 6 },
+  emptyDesc: { fontSize: 13, textAlign: "center", lineHeight: 18, marginBottom: 16 },
+  createPostBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 999 },
   createPostBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });
