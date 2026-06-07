@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nebulanet.app",
-      "buildNumber": "1",
+      "buildNumber": "8",
       "associatedDomains": ["applinks:nebulanet.space"],
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification"],
@@ -37,7 +37,7 @@
     "android": {
       "googleServicesFile": "$GOOGLE_SERVICES_JSON",
       "package": "com.nebulanet.app",
-      "versionCode": 4,
+      "versionCode": 8,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -172,7 +172,11 @@
       "appUrl": "https://nebulanet.space",
       "enableAnalytics": false,
       "enableDebug": true,
-      "appVersion": "1.0.8"
+      "appVersion": "1.0.8",
+      "admob": {
+        "bannerId": "ca-app-pub-7224753372359384/3062448071",
+        "interstitialId": "ca-app-pub-7224753372359384/7354036555"
+      }
     },
     "experiments": {
       "typedRoutes": true,
