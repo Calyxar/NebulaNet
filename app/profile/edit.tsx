@@ -1,9 +1,12 @@
 // app/profile/edit.tsx ✅
+// ✅ FIXED: onSaved now invalidates profile query so DOB row updates immediately
+
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
+import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -62,7 +65,6 @@ function formatBirthdate(iso: string): string {
 }
 
 // ─── DOB Sheet ────────────────────────────────────────────────────────────────
-// Plain View overlay (NOT a Modal) so Android KAV pushes it up correctly.
 function BirthdateSheet({
   visible,
   uid,
@@ -132,26 +134,19 @@ function BirthdateSheet({
 
   const handleVerify = () => {
     setErrorMsg("");
-
-    // ✅ No birthdate on record — skip verify, go straight to new DOB step
     if (!currentBirthdate) {
       setStep("new");
       return;
     }
-
     if (!isValidDate(confirmMonth, confirmDay, confirmYear)) {
       setErrorMsg("Please enter a complete valid date.");
       return;
     }
-
     const entered = `${confirmYear.padStart(4, "0")}-${confirmMonth.padStart(2, "0")}-${confirmDay.padStart(2, "0")}`;
-
     if (entered !== currentBirthdate) {
-      // ✅ Inline error — no Alert that steals keyboard focus on Android
       setErrorMsg("Birthdate doesn't match our records. Please try again.");
       return;
     }
-
     setStep("new");
   };
 
@@ -161,7 +156,6 @@ function BirthdateSheet({
       setErrorMsg("Please enter a valid date of birth.");
       return;
     }
-
     const newBirthdateDate = new Date(
       parseInt(newYear),
       parseInt(newMonth) - 1,
@@ -175,7 +169,6 @@ function BirthdateSheet({
       setErrorMsg("This birthdate indicates under 13. Please contact support.");
       return;
     }
-
     if (currentAgeGroup === "adult" && newAgeGroup === "teen") {
       Alert.alert(
         "Age Change Detected",
@@ -190,7 +183,6 @@ function BirthdateSheet({
       );
       return;
     }
-
     await saveNewBirthdate(newBirthdateIso, newAgeGroup);
   };
 
@@ -212,14 +204,12 @@ function BirthdateSheet({
         } as any);
         return;
       }
-
       await firestore().collection("profiles").doc(uid).update({
         birthdate: birthdateIso,
         age_group: newAgeGroup,
         updated_at: new Date().toISOString(),
         updated_at_ts: firestore.FieldValue.serverTimestamp(),
       });
-
       await firestore()
         .collection("user_settings")
         .doc(uid)
@@ -230,7 +220,6 @@ function BirthdateSheet({
           },
           { merge: true },
         );
-
       handleClose();
       onSaved();
     } catch (err: any) {
@@ -410,7 +399,6 @@ function BirthdateSheet({
             </View>
           </View>
 
-          {/* Inline error — no Alert */}
           {!!errorMsg && (
             <View
               style={[
@@ -458,6 +446,8 @@ function BirthdateSheet({
 export default function EditProfileScreen() {
   const { profile, user, updateProfile: updateProfileMutation } = useAuth();
   const { colors, isDark } = useTheme();
+  // ✅ Added: query client for profile cache invalidation after DOB save
+  const qc = useQueryClient();
 
   const [formData, setFormData] = useState({
     full_name: profile?.full_name || "",
@@ -553,7 +543,6 @@ export default function EditProfileScreen() {
       );
       return;
     }
-
     try {
       const updates: any = {
         full_name: formData.full_name || null,
@@ -684,98 +673,66 @@ export default function EditProfileScreen() {
 
             {/* Profile fields */}
             <View style={[styles.formCard, { backgroundColor: colors.card }]}>
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.text }]}>Name</Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="person-outline"
-                    size={20}
-                    color={colors.textTertiary}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={formData.full_name}
-                    onChangeText={(t) =>
-                      setFormData({ ...formData, full_name: t })
-                    }
-                    placeholder="Enter your full name"
-                    placeholderTextColor={colors.placeholder}
-                    editable={!isLoading}
-                  />
+              {[
+                {
+                  label: "Name",
+                  field: "full_name",
+                  placeholder: "Enter your full name",
+                  icon: "person-outline",
+                  capitalize: "words" as const,
+                },
+                {
+                  label: "Username",
+                  field: "username",
+                  placeholder: "username",
+                  icon: "at",
+                  capitalize: "none" as const,
+                },
+                {
+                  label: "Location",
+                  field: "location",
+                  placeholder: "Let others know where you're based",
+                  icon: "location-outline",
+                  capitalize: "words" as const,
+                },
+              ].map(({ label, field, placeholder, icon, capitalize }) => (
+                <View key={field} style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>
+                    {label}
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={icon as any}
+                      size={20}
+                      color={colors.textTertiary}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={[styles.input, { color: colors.text }]}
+                      value={(formData as any)[field]}
+                      onChangeText={(t) =>
+                        setFormData({
+                          ...formData,
+                          [field]: field === "username" ? t.toLowerCase() : t,
+                        })
+                      }
+                      placeholder={placeholder}
+                      placeholderTextColor={colors.placeholder}
+                      autoCapitalize={capitalize}
+                      editable={!isLoading}
+                    />
+                  </View>
                 </View>
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.text }]}>
-                  Username
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="at"
-                    size={20}
-                    color={colors.textTertiary}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={formData.username}
-                    onChangeText={(t) =>
-                      setFormData({ ...formData, username: t.toLowerCase() })
-                    }
-                    placeholder="username"
-                    placeholderTextColor={colors.placeholder}
-                    autoCapitalize="none"
-                    editable={!isLoading}
-                  />
-                </View>
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.text }]}>
-                  Location
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={20}
-                    color={colors.textTertiary}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={formData.location}
-                    onChangeText={(t) =>
-                      setFormData({ ...formData, location: t })
-                    }
-                    placeholder="Let others know where you're based"
-                    placeholderTextColor={colors.placeholder}
-                    editable={!isLoading}
-                  />
-                </View>
-              </View>
+              ))}
+
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
                 <View
@@ -924,7 +881,7 @@ export default function EditProfileScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* DOB sheet — plain View overlay outside SafeAreaView so KAV works on Android */}
+      {/* DOB sheet */}
       {user?.uid && (
         <BirthdateSheet
           visible={showBirthdateSheet}
@@ -932,12 +889,14 @@ export default function EditProfileScreen() {
           currentBirthdate={currentBirthdate}
           currentAgeGroup={currentAgeGroup}
           onClose={() => setShowBirthdateSheet(false)}
-          onSaved={() =>
+          onSaved={() => {
+            // ✅ Invalidate profile cache so DOB row updates immediately without leaving the screen
+            qc.invalidateQueries({ queryKey: ["profile", user.uid] });
             Alert.alert(
               "Birthdate Updated",
               "Your birthdate has been updated successfully.",
-            )
-          }
+            );
+          }}
           colors={colors}
           isDark={isDark}
         />
@@ -1033,7 +992,6 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   continueButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
-  // DOB
   dobSectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1073,7 +1031,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   ageNoticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
-  // Sheet
   sheetKAV: { position: "absolute", bottom: 0, left: 0, right: 0 },
   sheet: {
     borderTopLeftRadius: 28,

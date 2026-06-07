@@ -1,4 +1,7 @@
 // app/_layout.tsx ✅
+// ✅ FIXED: removed hasRedirected ref — it was blocking redo onboarding redirect
+//           redirect logic now runs reactively whenever auth state changes
+
 import { useAuth } from "@/hooks/useAuth";
 import "@/lib/i18n";
 import {
@@ -76,45 +79,47 @@ function RootLayout() {
     hasCompletedOnboarding,
     profile,
   } = useAuth();
+
   const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
-  const hasRedirected = useRef(false);
+
+  // ✅ Track the last route we navigated to so we don't re-fire the same
+  // replace on every render. Using a string instead of a boolean ref means
+  // any change in destination (e.g. onboarding → home after completing it)
+  // will correctly re-navigate.
+  const lastRoute = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
-    hasRedirected.current = false;
-  }, [isReady]);
 
-  useEffect(() => {
-    if (!isReady) return;
-    if (hasRedirected.current) return;
+    // Determine destination
+    let destination: string;
+
     if (!user) {
-      hasRedirected.current = true;
-      router.replace("/(auth)/login");
-      return;
+      destination = "/(auth)/login";
+    } else if (!hasCompletedOnboarding) {
+      destination = "/(auth)/onboarding";
+    } else if (!(profile as any)?.birthdate) {
+      destination = "/(auth)/birthdate";
+    } else {
+      const ageGroup = (profile as any)?.age_group;
+      const parentalApproved = (profile as any)?.parental_approved;
+      if (ageGroup === "under_13" && !parentalApproved) {
+        destination = "/(auth)/parental-approval";
+      } else {
+        destination = "/(tabs)/home";
+      }
     }
-    if (!hasCompletedOnboarding) {
-      hasRedirected.current = true;
-      router.replace("/(auth)/onboarding");
-      return;
-    }
-    if (!(profile as any)?.birthdate) {
-      hasRedirected.current = true;
-      router.replace("/(auth)/birthdate" as any);
-      return;
-    }
-    const ageGroup = (profile as any)?.age_group;
-    const parentalApproved = (profile as any)?.parental_approved;
-    if (ageGroup === "under_13" && !parentalApproved) {
-      hasRedirected.current = true;
-      router.replace("/(auth)/parental-approval" as any);
-      return;
-    }
-    hasRedirected.current = true;
-    router.replace("/(tabs)/home");
+
+    // ✅ Only navigate if destination changed — prevents infinite re-renders
+    // but still re-fires when onboarding_completed flips back to false
+    if (lastRoute.current === destination) return;
+    lastRoute.current = destination;
+    router.replace(destination as any);
   }, [isReady, user, hasCompletedOnboarding, profile]);
 
+  // ✅ Reset lastRoute when user signs out so next login redirects correctly
   useEffect(() => {
-    if (!user) hasRedirected.current = false;
+    if (!user) lastRoute.current = null;
   }, [user]);
 
   return (
@@ -130,7 +135,6 @@ function RootLayout() {
         <Stack.Screen name="story/[id]" />
         <Stack.Screen name="community" />
         <Stack.Screen name="hashtag" />
-        {/* ✅ notifications is now a Stack screen, not a tab */}
         <Stack.Screen name="notifications" />
         <Stack.Screen name="chat" />
         <Stack.Screen name="boost/[postId]" />

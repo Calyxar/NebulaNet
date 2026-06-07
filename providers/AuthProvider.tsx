@@ -1,4 +1,8 @@
 // providers/AuthProvider.tsx ✅
+// ✅ FIXED: user_settings now uses a real-time Firestore listener instead of
+//           a one-time query — so hasCompletedOnboarding updates immediately
+//           when redo onboarding sets onboarding_completed: false
+
 import {
   useMutation,
   useQuery,
@@ -102,8 +106,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
+  // ✅ Real-time user_settings listener — replaces the useQuery one-time fetch.
+  // This means hasCompletedOnboarding updates the instant the Firestore doc
+  // changes, so redo onboarding and completeOnboarding both work correctly.
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
+
   const userId = user?.uid ?? null;
 
+  // ── Firebase Auth listener ─────────────────────────────
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(
       async (u: FirebaseAuthTypes.User | null) => {
@@ -176,6 +187,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
+  // ✅ Real-time listener for user_settings
+  useEffect(() => {
+    if (!userId) {
+      setUserSettings(null);
+      setIsUserSettingsLoading(false);
+      return;
+    }
+
+    setIsUserSettingsLoading(true);
+
+    const unsub = firestore()
+      .collection("user_settings")
+      .doc(userId)
+      .onSnapshot(
+        (snap) => {
+          if (snap.exists()) {
+            setUserSettings(snap.data() as UserSettings);
+          } else {
+            setUserSettings(null);
+          }
+          setIsUserSettingsLoading(false);
+        },
+        (err) => {
+          console.warn("user_settings listener error:", err);
+          setIsUserSettingsLoading(false);
+        },
+      );
+
+    return unsub;
+  }, [userId]);
+
+  // ── Profile query (one-time + cache invalidation) ──────
   const { data: profile, isLoading: isProfileLoading } = useQuery({
     queryKey: ["profile", userId],
     enabled: !!userId && hydrated,
@@ -186,22 +229,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const { data: userSettings, isLoading: isUserSettingsLoading } = useQuery({
-    queryKey: ["user-settings", userId],
-    enabled: !!userId && hydrated,
-    queryFn: async () => {
-      if (!userId) return null;
-      const snap = await firestore()
-        .collection("user_settings")
-        .doc(userId)
-        .get();
-      return snap.exists() ? (snap.data() as UserSettings) : null;
-    },
-  });
-
   const hasCompletedOnboarding = !!userSettings?.onboarding_completed;
   const themePreference = userSettings?.theme_preference ?? null;
 
+  // ── Mutations ──────────────────────────────────────────
   const login = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) =>
       auth().signInWithEmailAndPassword(email, password),
@@ -247,7 +278,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (updates.username) {
         const newUsername = updates.username;
         const newUsernameLc = newUsername.toLowerCase();
-
         await Promise.allSettled([
           (async () => {
             const snap = await firestore()
@@ -328,9 +358,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
           { merge: true },
         );
-      await qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+      // ✅ No need to invalidate query — real-time listener handles the update
     },
-    [userId, qc],
+    [userId],
   );
 
   const setThemePreference = useCallback(
@@ -345,10 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onboarding_completed: true,
       onboarding_completed_at: nowIso(),
     });
-    // ✅ Also refetch profile so _layout.tsx sees the freshly-written
-    // birthdate field without needing an app restart. birthdate.tsx writes
-    // directly to Firestore outside the updateProfile mutation, so the
-    // query cache won't know about it unless we force a refetch here.
+    // ✅ Refetch profile so _layout.tsx sees freshly-written birthdate field
     await qc.refetchQueries({ queryKey: ["profile", userId] });
   }, [updateSettings, qc, userId]);
 
@@ -399,7 +426,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       profile: profile ?? null,
-      userSettings: userSettings ?? null,
+      userSettings,
       isLoading: !hydrated,
       isProfileLoading,
       isUserSettingsLoading,

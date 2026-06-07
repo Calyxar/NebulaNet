@@ -1,5 +1,7 @@
-// app/hashtag/[tag].tsx — ✅ FIXED: simpler post cards, less confusing UI
+// app/hashtag/[tag].tsx ✅
+// ✅ Uses getPosts with hashtag filter — works with array-contains index
 import { PostCardSkeleton } from "@/components/Skeleton";
+import { getTrendingHashtags } from "@/lib/firestore/hashtags";
 import { getPosts, type Post } from "@/lib/firestore/posts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +48,7 @@ export default function HashtagScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [cursor, setCursor] = useState<{ lastDocId?: string } | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [postCount, setPostCount] = useState<number | null>(null);
 
   const cleanTag = tag?.trim().toLowerCase().replace(/^#/, "") ?? "";
 
@@ -66,6 +69,10 @@ export default function HashtagScreen() {
         );
         setHasMore(result.hasMore);
         setCursor(result.nextCursor ?? null);
+        // Set post count from first page
+        if (!append && !existingCursor) {
+          setPostCount(result.posts.length);
+        }
       } catch (e) {
         console.warn("HashtagScreen fetch error:", e);
       } finally {
@@ -75,6 +82,17 @@ export default function HashtagScreen() {
     },
     [cleanTag],
   );
+
+  // Also fetch actual count from hashtags collection
+  useEffect(() => {
+    if (!cleanTag) return;
+    getTrendingHashtags(100)
+      .then((tags) => {
+        const found = tags.find((t) => t.tag === cleanTag);
+        if (found) setPostCount(found.post_count);
+      })
+      .catch(() => {});
+  }, [cleanTag]);
 
   useEffect(() => {
     setPosts([]);
@@ -105,7 +123,6 @@ export default function HashtagScreen() {
         onPress={() => router.push(`/post/${item.id}` as any)}
         activeOpacity={0.88}
       >
-        {/* Author row */}
         <View style={styles.authorRow}>
           <TouchableOpacity
             onPress={() => username && router.push(`/user/${username}` as any)}
@@ -142,7 +159,6 @@ export default function HashtagScreen() {
           />
         </View>
 
-        {/* Content */}
         {!!item.content && (
           <Text
             style={[styles.content, { color: colors.text }]}
@@ -152,7 +168,6 @@ export default function HashtagScreen() {
           </Text>
         )}
 
-        {/* Media */}
         {!!media && (
           <View style={[styles.mediaWrap, { backgroundColor: colors.surface }]}>
             <Image
@@ -168,7 +183,6 @@ export default function HashtagScreen() {
           </View>
         )}
 
-        {/* Stats — clean and simple */}
         <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
           <View style={styles.stat}>
             <Ionicons
@@ -202,7 +216,7 @@ export default function HashtagScreen() {
               color={colors.textTertiary}
             />
             <Text style={[styles.statText, { color: colors.textTertiary }]}>
-              {item.share_count ?? 0}
+              {(item as any).repost_count ?? 0}
             </Text>
           </View>
           <Text style={[styles.tapHint, { color: colors.textTertiary }]}>
@@ -226,12 +240,34 @@ export default function HashtagScreen() {
       <Text style={[styles.hashtagTitle, { color: colors.text }]}>
         {cleanTag}
       </Text>
-      {posts.length > 0 && !loading && (
+      {postCount !== null && !loading && (
         <Text style={[styles.hashtagCount, { color: colors.textTertiary }]}>
-          {posts.length}
+          {postCount.toLocaleString()}
           {hasMore ? "+" : ""} posts
         </Text>
       )}
+      {/* ✅ Search this hashtag button */}
+      <TouchableOpacity
+        style={[
+          styles.searchHashtagBtn,
+          {
+            backgroundColor: colors.primary + "18",
+            borderColor: colors.primary + "40",
+          },
+        ]}
+        onPress={() =>
+          router.push({
+            pathname: "/(tabs)/explore",
+            params: { q: `#${cleanTag}` },
+          } as any)
+        }
+        activeOpacity={0.85}
+      >
+        <Ionicons name="search-outline" size={14} color={colors.primary} />
+        <Text style={[styles.searchHashtagText, { color: colors.primary }]}>
+          Search #{cleanTag}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -358,7 +394,18 @@ const styles = StyleSheet.create({
   },
   hashtagSymbol: { fontSize: 28, fontWeight: "900" },
   hashtagTitle: { fontSize: 22, fontWeight: "900", marginBottom: 4 },
-  hashtagCount: { fontSize: 13, fontWeight: "600" },
+  hashtagCount: { fontSize: 13, fontWeight: "600", marginBottom: 10 },
+  searchHashtagBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  searchHashtagText: { fontSize: 13, fontWeight: "700" },
   postCard: {
     borderRadius: 18,
     padding: 14,

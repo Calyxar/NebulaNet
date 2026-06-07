@@ -1,10 +1,11 @@
-// hooks/usePosts.ts — UPDATED ✅
+// hooks/usePosts.ts ✅
 // ✅ FIXED: useToggleLike onSettled no longer invalidates lists
 // ✅ FIXED: useToggleBookmark same fix — only invalidates detail, not lists
 // ✅ FIXED: useToggleBookmark writes to "saves" collection
 // ✅ FIXED: useToggleRepost added with optimistic update + cache invalidation
 // ✅ FIXED: repost_count added to optimistic post in useCreatePost
 // ✅ FIXED: useCurrentUserProfileSync — real-time feed patch on profile change
+// ✅ FIXED: useCreatePost onSettled invalidates my-posts and my-reposts so profile tab refreshes
 
 import { useAuth } from "@/hooks/useAuth";
 import { useSettings } from "@/hooks/useSettings";
@@ -206,7 +207,7 @@ export function useCreatePost() {
         like_count: 0,
         comment_count: 0,
         share_count: 0,
-        repost_count: 0, // ✅ fixed
+        repost_count: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         user: null,
@@ -244,6 +245,9 @@ export function useCreatePost() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: postKeys.lists() });
+      // ✅ Invalidate profile tab queries so new post shows in Posts + Media tabs
+      qc.invalidateQueries({ queryKey: ["my-posts"] });
+      qc.invalidateQueries({ queryKey: ["my-stats"] });
     },
   });
 }
@@ -295,6 +299,9 @@ export function useDeletePost() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: postKeys.lists() });
+      // ✅ Also refresh profile tab after delete
+      qc.invalidateQueries({ queryKey: ["my-posts"] });
+      qc.invalidateQueries({ queryKey: ["my-stats"] });
     },
   });
 }
@@ -329,12 +336,10 @@ export function useToggleLike() {
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
       await qc.cancelQueries({ queryKey: postKeys.lists() });
-
       const prevDetail = qc.getQueryData<Post>(postKeys.detail(vars.postId));
       const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
         queryKey: postKeys.lists(),
       });
-
       if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
           ...prevDetail,
@@ -342,7 +347,6 @@ export function useToggleLike() {
           like_count: (prevDetail.like_count ?? 0) + (vars.isLiked ? -1 : 1),
         });
       }
-
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>
@@ -361,7 +365,6 @@ export function useToggleLike() {
             { allPages: true },
           ),
       );
-
       return { prevDetail, prevLists };
     },
     onError: (_err, vars, ctx: any) => {
@@ -402,19 +405,16 @@ export function useToggleBookmark() {
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
       await qc.cancelQueries({ queryKey: postKeys.lists() });
-
       const prevDetail = qc.getQueryData<Post>(postKeys.detail(vars.postId));
       const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
         queryKey: postKeys.lists(),
       });
-
       if (prevDetail) {
         qc.setQueryData<Post>(postKeys.detail(vars.postId), {
           ...prevDetail,
           is_saved: !vars.isSaved,
         });
       }
-
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>
@@ -427,7 +427,6 @@ export function useToggleBookmark() {
             { allPages: true },
           ),
       );
-
       return { prevDetail, prevLists };
     },
     onError: (_err, vars, ctx: any) => {
@@ -484,6 +483,8 @@ export function useToggleRepost() {
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
       qc.invalidateQueries({ queryKey: postKeys.lists() });
+      // ✅ Refresh activity tab
+      qc.invalidateQueries({ queryKey: ["my-reposts"] });
     },
   });
 }
@@ -581,15 +582,12 @@ export function useCurrentUserProfileSync() {
 
   useEffect(() => {
     if (!uid) return;
-
     const unsub = firestore()
       .collection("profiles")
       .doc(uid)
       .onSnapshot((snap) => {
         if (!snap.exists) return;
         const data = snap.data() as any;
-
-        // ✅ Patch all feed list caches with updated username/name/avatar
         qc.setQueriesData<InfiniteData<PaginatedPosts>>(
           { queryKey: postKeys.lists() },
           (old) =>
@@ -616,7 +614,6 @@ export function useCurrentUserProfileSync() {
             ),
         );
       });
-
     return () => unsub();
   }, [uid, qc]);
 }
