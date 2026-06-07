@@ -1,4 +1,7 @@
 // app/settings/index.tsx ✅
+// ✅ FIXED: removed Redo Onboarding — replaced with Topics & Interests picker
+// ✅ FIXED: notifications row no longer crashes (lib/notifications.ts fixed)
+
 import { useAuth } from "@/hooks/useAuth";
 import { useThemeStyles } from "@/hooks/useThemeStyles";
 import {
@@ -11,9 +14,10 @@ import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
   Alert,
+  Modal,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -22,6 +26,29 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const INTERESTS = [
+  { id: "art", name: "Art", emoji: "🎨" },
+  { id: "gaming", name: "Gaming", emoji: "🎮" },
+  { id: "books", name: "Books", emoji: "📚" },
+  { id: "music", name: "Music", emoji: "🎵" },
+  { id: "fitness", name: "Fitness", emoji: "💪" },
+  { id: "food", name: "Food", emoji: "🍔" },
+  { id: "travel", name: "Travel", emoji: "✈️" },
+  { id: "movies", name: "Movies & TV", emoji: "🎬" },
+  { id: "wellness", name: "Wellness", emoji: "💆" },
+  { id: "fashion", name: "Fashion", emoji: "👗" },
+  { id: "environment", name: "Environment", emoji: "🌍" },
+  { id: "business", name: "Business", emoji: "💼" },
+  { id: "tech", name: "Tech", emoji: "📱" },
+  { id: "photography", name: "Photography", emoji: "📷" },
+  { id: "events", name: "Events", emoji: "🎉" },
+  { id: "podcasts", name: "Podcasts", emoji: "🎙️" },
+  { id: "startups", name: "Startups", emoji: "🚀" },
+  { id: "mindfulness", name: "Mindfulness", emoji: "🧘" },
+  { id: "inspiration", name: "Inspiration", emoji: "💡" },
+  { id: "sports", name: "Sports", emoji: "🏀" },
+];
 
 type SettingsRow = {
   title: string;
@@ -140,44 +167,161 @@ function Row({
   );
 }
 
+// ✅ Twitter-style Topics picker modal
+function TopicsModal({
+  visible,
+  userId,
+  onClose,
+  colors,
+}: {
+  visible: boolean;
+  userId: string;
+  onClose: () => void;
+  colors: any;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load existing interests when modal opens
+  React.useEffect(() => {
+    if (!visible || loaded) return;
+    firestore()
+      .collection("user_interests")
+      .doc(userId)
+      .get()
+      .then((snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          setSelected(Array.isArray(data.interests) ? data.interests : []);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [visible, userId, loaded]);
+
+  const toggle = (id: string) => {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
+    );
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await firestore()
+        .collection("user_interests")
+        .doc(userId)
+        .set(
+          {
+            user_id: userId,
+            interests: selected,
+            updated_at: new Date().toISOString(),
+          },
+          { merge: true },
+        );
+      onClose();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to save topics.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)" }}>
+        <View style={[styles.topicsModal, { backgroundColor: colors.card }]}>
+          <View style={styles.topicsHeader}>
+            <Text style={[styles.topicsTitle, { color: colors.text }]}>
+              Topics & Interests
+            </Text>
+            <Text style={[styles.topicsSub, { color: colors.textSecondary }]}>
+              Choose what you want to see in your feed. Select as many as you
+              like.
+            </Text>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.topicsGrid}
+            showsVerticalScrollIndicator={false}
+          >
+            {INTERESTS.map((interest) => {
+              const active = selected.includes(interest.id);
+              return (
+                <TouchableOpacity
+                  key={interest.id}
+                  style={[
+                    styles.topicChip,
+                    {
+                      backgroundColor: active ? colors.primary : colors.surface,
+                      borderColor: active ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => toggle(interest.id)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.topicEmoji}>{interest.emoji}</Text>
+                  <Text
+                    style={[
+                      styles.topicText,
+                      { color: active ? "#fff" : colors.text },
+                    ]}
+                  >
+                    {interest.name}
+                  </Text>
+                  {active && (
+                    <Ionicons name="checkmark" size={13} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.topicsFooter}>
+            <TouchableOpacity
+              style={[styles.topicsCancelBtn, { borderColor: colors.border }]}
+              onPress={onClose}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.topicsCancelText, { color: colors.text }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.topicsSaveBtn,
+                { backgroundColor: colors.primary, opacity: saving ? 0.6 : 1 },
+              ]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.88}
+            >
+              <Text style={styles.topicsSaveText}>
+                {saving ? "Saving…" : "Save"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function SettingsIndexScreen() {
   const { user, profile, signOut } = useAuth();
   const { theme, colors, isDark } = useTheme();
   const ts = useThemeStyles();
   const params = useLocalSearchParams<{ returnTo?: string }>();
+  const [showTopics, setShowTopics] = useState(false);
 
   const themeLabel =
     theme === "system" ? "SYSTEM" : theme === "dark" ? "DARK" : "LIGHT";
-
-  const handleRedoOnboarding = () => {
-    Alert.alert(
-      "Redo Onboarding",
-      "This will walk you through setup again. Your current profile data will be kept.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Continue",
-          onPress: async () => {
-            try {
-              if (!user?.uid) throw new Error("Not logged in");
-
-              // ✅ Reset onboarding flag on the PROFILES doc — this is what
-              // _layout.tsx checks. Writing to user_settings alone does nothing.
-              await firestore().collection("profiles").doc(user.uid).update({
-                onboarding_completed: false,
-                birthdate: firestore.FieldValue.delete(),
-                age_group: firestore.FieldValue.delete(),
-              });
-
-              router.replace("/(auth)/onboarding");
-            } catch (e: any) {
-              Alert.alert("Error", e?.message || "Failed to reset onboarding.");
-            }
-          },
-        },
-      ],
-    );
-  };
 
   const primary: SettingsRow[] = [
     {
@@ -208,9 +352,15 @@ export default function SettingsIndexScreen() {
 
   const personalization: SettingsRow[] = [
     {
+      title: "Topics & Interests",
+      description: "Customize what appears in your feed",
+      icon: "sparkles-outline",
+      onPress: () => setShowTopics(true),
+    },
+    {
       title: "Feed Preferences",
       description: "Sorting, density, filters",
-      icon: "sparkles-outline",
+      icon: "options-outline",
       routeKey: "feedPreferences",
     },
     {
@@ -247,12 +397,6 @@ export default function SettingsIndexScreen() {
       description: "Google, GitHub, and more",
       icon: "link-outline",
       routeKey: "linkedAccounts",
-    },
-    {
-      title: "Redo Onboarding",
-      description: "Update your profile setup and interests",
-      icon: "refresh-outline",
-      onPress: handleRedoOnboarding,
     },
   ];
 
@@ -427,21 +571,32 @@ export default function SettingsIndexScreen() {
     </SafeAreaView>
   );
 
-  if (!isDark) {
-    return (
-      <LinearGradient
-        colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
-        locations={[0, 0.45, 1]}
-        style={{ flex: 1 }}
-      >
-        {content}
-      </LinearGradient>
-    );
-  }
   return (
-    <View style={[{ flex: 1 }, { backgroundColor: colors.background }]}>
-      {content}
-    </View>
+    <>
+      {!isDark ? (
+        <LinearGradient
+          colors={["#DCEBFF", "#EEF4FF", "#FFFFFF"]}
+          locations={[0, 0.45, 1]}
+          style={{ flex: 1 }}
+        >
+          {content}
+        </LinearGradient>
+      ) : (
+        <View style={[{ flex: 1 }, { backgroundColor: colors.background }]}>
+          {content}
+        </View>
+      )}
+
+      {/* ✅ Topics & Interests modal — Twitter-style feed personalization */}
+      {!!user?.uid && (
+        <TopicsModal
+          visible={showTopics}
+          userId={user.uid}
+          onClose={() => setShowTopics(false)}
+          colors={colors}
+        />
+      )}
+    </>
   );
 }
 
@@ -518,4 +673,48 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
+  // Topics modal
+  topicsModal: {
+    flex: 1,
+    marginTop: 60,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  topicsHeader: { padding: 24, paddingBottom: 12 },
+  topicsTitle: { fontSize: 22, fontWeight: "900" },
+  topicsSub: { fontSize: 14, lineHeight: 20, marginTop: 6 },
+  topicsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
+  topicChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
+  topicEmoji: { fontSize: 16 },
+  topicText: { fontSize: 14, fontWeight: "600" },
+  topicsFooter: { flexDirection: "row", gap: 12, padding: 20, paddingTop: 8 },
+  topicsCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 24,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  topicsCancelText: { fontSize: 15, fontWeight: "700" },
+  topicsSaveBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 24,
+    alignItems: "center",
+  },
+  topicsSaveText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });

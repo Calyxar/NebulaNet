@@ -1,5 +1,11 @@
 // app/(auth)/onboarding.tsx ✅
+// ✅ REWRITTEN: Twitter-style onboarding
+// Steps: Welcome → Username → Topics → Avatar → Suggested Accounts → Birthdate
+// Topics: Big cards with Ionicons + category name
+// Suggested accounts: filtered by selected topics, follow inline
+
 import { useAuth } from "@/hooks/useAuth";
+import { useFollowActions } from "@/hooks/useFollowActions";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,15 +14,15 @@ import storage from "@react-native-firebase/storage";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -27,38 +33,40 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width: SCREEN_W } = Dimensions.get("window");
+const CARD_W = (SCREEN_W - 48 - 12) / 2; // 2 columns, 16px side padding, 12px gap
 
-const INTERESTS = [
-  { id: "art", name: "Art", emoji: "🎨" },
-  { id: "gaming", name: "Gaming", emoji: "🎮" },
-  { id: "books", name: "Books", emoji: "📚" },
-  { id: "music", name: "Music", emoji: "🎵" },
-  { id: "fitness", name: "Fitness", emoji: "💪" },
-  { id: "food", name: "Food", emoji: "🍔" },
-  { id: "travel", name: "Travel", emoji: "✈️" },
-  { id: "movies", name: "Movies & TV", emoji: "🎬" },
-  { id: "wellness", name: "Wellness", emoji: "💆" },
-  { id: "fashion", name: "Fashion", emoji: "👗" },
-  { id: "environment", name: "Environment", emoji: "🌍" },
-  { id: "business", name: "Business", emoji: "💼" },
-  { id: "tech", name: "Tech", emoji: "📱" },
-  { id: "photography", name: "Photography", emoji: "📷" },
-  { id: "events", name: "Events", emoji: "🎉" },
-  { id: "podcasts", name: "Podcasts", emoji: "🎙️" },
-  { id: "startups", name: "Startups", emoji: "🚀" },
-  { id: "mindfulness", name: "Mindfulness", emoji: "🧘" },
-  { id: "inspiration", name: "Inspiration", emoji: "💡" },
-  { id: "sports", name: "Sports", emoji: "🏀" },
-];
+// ── Topics ────────────────────────────────────────────────────────────────────
+const TOPICS = [
+  { id: "gaming", name: "Gaming", icon: "game-controller-outline" },
+  { id: "tech", name: "Tech", icon: "hardware-chip-outline" },
+  { id: "music", name: "Music", icon: "musical-notes-outline" },
+  { id: "movies", name: "Movies & TV", icon: "film-outline" },
+  { id: "sports", name: "Sports", icon: "football-outline" },
+  { id: "food", name: "Food", icon: "restaurant-outline" },
+  { id: "travel", name: "Travel", icon: "airplane-outline" },
+  { id: "art", name: "Art", icon: "color-palette-outline" },
+  { id: "fitness", name: "Fitness", icon: "barbell-outline" },
+  { id: "business", name: "Business", icon: "briefcase-outline" },
+  { id: "photography", name: "Photography", icon: "camera-outline" },
+  { id: "books", name: "Books", icon: "book-outline" },
+  { id: "wellness", name: "Wellness", icon: "heart-outline" },
+  { id: "fashion", name: "Fashion", icon: "shirt-outline" },
+  { id: "startups", name: "Startups", icon: "rocket-outline" },
+  { id: "mindfulness", name: "Mindfulness", icon: "leaf-outline" },
+  { id: "podcasts", name: "Podcasts", icon: "mic-outline" },
+  { id: "environment", name: "Environment", icon: "earth-outline" },
+  { id: "events", name: "Events", icon: "calendar-outline" },
+  { id: "inspiration", name: "Inspiration", icon: "bulb-outline" },
+] as const;
 
-// ✅ birthdate and congrats removed from STEPS — birthdate is its own screen,
-// congrats is shown inline here after interests are saved.
+type TopicId = (typeof TOPICS)[number]["id"];
+
 const STEPS = [
   "welcome",
-  "avatar",
   "username",
-  "interests",
-  "congrats",
+  "topics",
+  "avatar",
+  "suggestions",
 ] as const;
 type Step = (typeof STEPS)[number];
 
@@ -87,17 +95,202 @@ async function uploadAvatar(uid: string, uri: string): Promise<string> {
 }
 
 async function saveUserInterests(uid: string, interests: string[]) {
-  await db.collection("user_interests").doc(uid).set(
-    {
-      user_id: uid,
-      interests,
-      updated_at: nowIso(),
-      updated_at_ts: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true },
+  await db
+    .collection("user_interests")
+    .doc(uid)
+    .set(
+      {
+        user_id: uid,
+        interests,
+        updated_at: nowIso(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}
+
+// ── Progress bar ─────────────────────────────────────────────────────────────
+// Thin linear bar (like LinkedIn onboarding) — replaces step dots
+function ProgressBar({
+  current,
+  total,
+  colors,
+}: {
+  current: number;
+  total: number;
+  colors: any;
+}) {
+  const pct = Math.round(((current + 1) / total) * 100);
+  return (
+    <View style={{ flex: 1, marginHorizontal: 16 }}>
+      <View style={[styles.progressBarBg, { backgroundColor: colors.border }]}>
+        <View
+          style={[
+            styles.progressBarFill,
+            { width: `${pct}%` as any, backgroundColor: colors.primary },
+          ]}
+        />
+      </View>
+      <Text style={[styles.progressLabel, { color: colors.textTertiary }]}>
+        Step {current + 1} of {total}
+      </Text>
+    </View>
   );
 }
 
+// ── Topic card ────────────────────────────────────────────────────────────────
+function TopicCard({
+  topic,
+  selected,
+  onPress,
+  colors,
+}: {
+  topic: (typeof TOPICS)[number];
+  selected: boolean;
+  onPress: () => void;
+  colors: any;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.topicCard,
+        {
+          backgroundColor: selected ? colors.primary : colors.card,
+          borderColor: selected ? colors.primary : colors.border,
+          width: CARD_W,
+        },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.82}
+    >
+      <View
+        style={[
+          styles.topicIconCircle,
+          {
+            backgroundColor: selected
+              ? "rgba(255,255,255,0.2)"
+              : colors.primary + "18",
+          },
+        ]}
+      >
+        <Ionicons
+          name={topic.icon as any}
+          size={26}
+          color={selected ? "#fff" : colors.primary}
+        />
+      </View>
+      <Text
+        style={[styles.topicName, { color: selected ? "#fff" : colors.text }]}
+      >
+        {topic.name}
+      </Text>
+      {selected && (
+        <View style={styles.topicCheck}>
+          <Ionicons name="checkmark-circle" size={20} color="#fff" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ── Suggested account row ─────────────────────────────────────────────────────
+function SuggestedAccountRow({
+  profile,
+  colors,
+}: {
+  profile: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+    is_private: boolean;
+  };
+  colors: any;
+}) {
+  const { follow, unfollow, isFollowingBusy } = useFollowActions(
+    profile.id,
+    profile.is_private,
+  );
+  const [followed, setFollowed] = useState(false);
+
+  const name = profile.full_name || profile.username || "User";
+
+  return (
+    <View style={[styles.suggestRow, { borderBottomColor: colors.border }]}>
+      {profile.avatar_url ? (
+        <Image
+          source={{ uri: profile.avatar_url }}
+          style={styles.suggestAvatar}
+        />
+      ) : (
+        <View
+          style={[
+            styles.suggestAvatarFallback,
+            { backgroundColor: colors.primary },
+          ]}
+        >
+          <Text style={styles.suggestAvatarLetter}>
+            {(name[0] || "U").toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text
+          style={[styles.suggestName, { color: colors.text }]}
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        {!!profile.username && (
+          <Text
+            style={[styles.suggestHandle, { color: colors.textTertiary }]}
+            numberOfLines={1}
+          >
+            @{profile.username}
+          </Text>
+        )}
+      </View>
+      <TouchableOpacity
+        style={[
+          styles.followBtn,
+          {
+            backgroundColor: followed ? colors.surface : colors.primary,
+            borderColor: followed ? colors.border : colors.primary,
+          },
+        ]}
+        onPress={async () => {
+          if (followed) {
+            await unfollow();
+            setFollowed(false);
+          } else {
+            await follow();
+            setFollowed(true);
+          }
+        }}
+        disabled={isFollowingBusy}
+        activeOpacity={0.85}
+      >
+        {isFollowingBusy ? (
+          <ActivityIndicator
+            size={12}
+            color={followed ? colors.text : "#fff"}
+          />
+        ) : (
+          <Text
+            style={[
+              styles.followBtnText,
+              { color: followed ? colors.text : "#fff" },
+            ]}
+          >
+            {followed ? "Following" : "Follow"}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
   const { user, completeOnboarding, updateProfile } = useAuth();
   const { colors, isDark } = useTheme();
@@ -105,32 +298,111 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState<Step>("welcome");
   const [saving, setSaving] = useState(false);
 
-  // Avatar
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-
   // Username
   const [username, setUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "checking" | "available" | "taken" | "invalid"
   >("idle");
-  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Interests
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
-  const maxSelections = 20;
-  const progress = useMemo(
-    () => (selectedInterests.length / maxSelections) * 100,
-    [selectedInterests.length],
-  );
+  // Topics
+  const [selectedTopics, setSelectedTopics] = useState<TopicId[]>([]);
+
+  // Avatar
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  // Suggested accounts
+  const [suggested, setSuggested] = useState<any[]>([]);
+  const [loadingSuggested, setLoadingSuggested] = useState(false);
 
   const gradientColors = isDark
     ? ([colors.background, colors.background] as const)
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
-  const goToStep = (s: Step) => setStep(s);
+  const visibleSteps = ["username", "topics", "avatar", "suggestions"];
+  const currentDotIndex = visibleSteps.indexOf(step);
 
-  // ─── Avatar ───────────────────────────────────────────────
+  // ── Username ──────────────────────────────────────────────────────────────
+  const onUsernameChange = (val: string) => {
+    const cleaned = val.toLowerCase().replace(/[^a-z0-9_.]/g, "");
+    setUsername(cleaned);
+    setUsernameStatus("idle");
+    if (usernameTimer.current) clearTimeout(usernameTimer.current);
+    if (!cleaned || cleaned.length < 3) {
+      setUsernameStatus(cleaned.length > 0 ? "invalid" : "idle");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.]+$/.test(cleaned)) {
+      setUsernameStatus("invalid");
+      return;
+    }
+    setUsernameStatus("checking");
+    usernameTimer.current = setTimeout(async () => {
+      try {
+        const available = await checkUsernameAvailable(
+          cleaned,
+          user?.uid ?? "",
+        );
+        setUsernameStatus(available ? "available" : "taken");
+      } catch {
+        setUsernameStatus("idle");
+      }
+    }, 500);
+  };
+
+  const handleUsernameContinue = async () => {
+    if (!user?.uid) {
+      setStep("topics");
+      return;
+    }
+    if (
+      !username ||
+      usernameStatus === "taken" ||
+      usernameStatus === "invalid" ||
+      usernameStatus === "checking"
+    )
+      return;
+    setSaving(true);
+    try {
+      await db.collection("profiles").doc(user.uid).update({
+        username,
+        username_lc: username.toLowerCase(),
+        updated_at: nowIso(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn("Username save failed:", e);
+    } finally {
+      setSaving(false);
+    }
+    setStep("topics");
+  };
+
+  // ── Topics ────────────────────────────────────────────────────────────────
+  const toggleTopic = (id: TopicId) => {
+    setSelectedTopics((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+    );
+  };
+
+  const handleTopicsContinue = async () => {
+    if (!user?.uid) {
+      setStep("avatar");
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveUserInterests(user.uid, selectedTopics);
+    } catch (e) {
+      console.warn("Topics save failed:", e);
+    } finally {
+      setSaving(false);
+    }
+    setStep("avatar");
+  };
+
+  // ── Avatar ────────────────────────────────────────────────────────────────
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -145,14 +417,14 @@ export default function OnboardingScreen() {
       aspect: [1, 1],
       quality: 0.85,
     });
-    if (!result.canceled && result.assets?.[0]) {
+    if (!result.canceled && result.assets?.[0])
       setAvatarUri(result.assets[0].uri);
-    }
   };
 
   const handleAvatarContinue = async () => {
     if (!user?.uid || !avatarUri) {
-      goToStep("username");
+      setStep("suggestions");
+      fetchSuggested();
       return;
     }
     setUploadingAvatar(true);
@@ -168,332 +440,178 @@ export default function OnboardingScreen() {
     } finally {
       setUploadingAvatar(false);
     }
-    goToStep("username");
+    setStep("suggestions");
+    fetchSuggested();
   };
 
-  // ─── Username ─────────────────────────────────────────────
-  const onUsernameChange = (val: string) => {
-    const cleaned = val.toLowerCase().replace(/[^a-z0-9_.]/g, "");
-    setUsername(cleaned);
-    setUsernameStatus("idle");
-    if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current);
-    if (!cleaned || cleaned.length < 3) {
-      setUsernameStatus(cleaned.length > 0 ? "invalid" : "idle");
-      return;
-    }
-    if (!/^[a-zA-Z0-9_.]+$/.test(cleaned)) {
-      setUsernameStatus("invalid");
-      return;
-    }
-    setUsernameStatus("checking");
-    usernameCheckTimer.current = setTimeout(async () => {
-      try {
-        const available = await checkUsernameAvailable(
-          cleaned,
-          user?.uid ?? "",
-        );
-        setUsernameStatus(available ? "available" : "taken");
-      } catch {
-        setUsernameStatus("idle");
-      }
-    }, 500);
-  };
-
-  const handleUsernameContinue = async () => {
-    if (!user?.uid) {
-      goToStep("interests");
-      return;
-    }
-    if (!username || usernameStatus === "taken" || usernameStatus === "invalid")
-      return;
-    setSaving(true);
+  // ── Suggested accounts ────────────────────────────────────────────────────
+  const fetchSuggested = async () => {
+    if (!user?.uid) return;
+    setLoadingSuggested(true);
     try {
-      await db.collection("profiles").doc(user.uid).update({
-        username,
-        username_lc: username.toLowerCase(),
-        updated_at: nowIso(),
-        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+      // Fetch profiles with matching interests OR top follower count
+      const interestsSnap =
+        selectedTopics.length > 0
+          ? await firestore()
+              .collection("user_interests")
+              .where(
+                "interests",
+                "array-contains-any",
+                selectedTopics.slice(0, 10),
+              )
+              .limit(30)
+              .get()
+          : null;
+
+      const suggestedUids = new Set<string>();
+      interestsSnap?.docs.forEach((d) => {
+        const uid = (d.data() as any).user_id;
+        if (uid && uid !== user.uid) suggestedUids.add(uid);
       });
+
+      // Also fetch top users by follower count as fallback
+      const topSnap = await firestore()
+        .collection("profiles")
+        .orderBy("follower_count", "desc")
+        .limit(20)
+        .get();
+      topSnap.docs.forEach((d) => {
+        if (d.id !== user.uid) suggestedUids.add(d.id);
+      });
+
+      // Fetch profiles for all suggested uids
+      const uids = Array.from(suggestedUids).slice(0, 15);
+      if (!uids.length) {
+        setSuggested([]);
+        return;
+      }
+
+      const chunks: string[][] = [];
+      for (let i = 0; i < uids.length; i += 10)
+        chunks.push(uids.slice(i, i + 10));
+
+      const profiles: any[] = [];
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("profiles")
+          .where(firestore.FieldPath.documentId(), "in", chunk)
+          .get();
+        snap.docs.forEach((d) => profiles.push({ id: d.id, ...d.data() }));
+      }
+
+      setSuggested(profiles.slice(0, 10));
     } catch (e) {
-      console.warn("Username save failed:", e);
+      console.warn("fetchSuggested failed:", e);
+      setSuggested([]);
     } finally {
-      setSaving(false);
+      setLoadingSuggested(false);
     }
-    goToStep("interests");
   };
 
-  // ─── Interests ────────────────────────────────────────────
-  const toggleInterest = (id: string) => {
-    setSelectedInterests((prev) =>
-      prev.includes(id)
-        ? prev.filter((i) => i !== id)
-        : prev.length < maxSelections
-          ? [...prev, id]
-          : prev,
-    );
-  };
-
-  const handleInterestsContinue = async () => {
-    if (!user?.uid) {
-      router.replace("/(auth)/birthdate" as any);
-      return;
-    }
-    if (selectedInterests.length === 0) {
-      Alert.alert(
-        "Select Interests",
-        "Please select at least one interest, or tap Skip.",
-      );
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveUserInterests(user.uid, selectedInterests);
-    } catch (e) {
-      console.warn("Interests save failed:", e);
-    } finally {
-      setSaving(false);
-    }
-    // ✅ Go to birthdate screen — it calls completeOnboarding() and routes home
+  const handleFinish = async () => {
     router.replace("/(auth)/birthdate" as any);
   };
 
-  const handleSkipInterests = async () => {
-    if (!user?.uid) {
-      router.replace("/(auth)/birthdate" as any);
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveUserInterests(user.uid, []);
-    } catch {
-    } finally {
-      setSaving(false);
-    }
-    router.replace("/(auth)/birthdate" as any);
-  };
+  // ── RENDER ────────────────────────────────────────────────────────────────
 
-  // ─── Step indicator ───────────────────────────────────────
-  const visibleSteps = ["avatar", "username", "interests"];
-  const currentVisibleIndex = visibleSteps.indexOf(step);
-
-  const StepDots = () => (
-    <View style={styles.dotsRow}>
-      {visibleSteps.map((s, i) => (
-        <View
-          key={s}
-          style={[
-            styles.dot,
-            {
-              backgroundColor:
-                i <= currentVisibleIndex ? colors.primary : colors.border,
-              width: i === currentVisibleIndex ? 20 : 8,
-            },
-          ]}
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.5, 1]}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView
+        style={styles.container}
+        edges={["top", "left", "right", "bottom"]}
+      >
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor="transparent"
+          translucent
         />
-      ))}
-    </View>
+        {children}
+      </SafeAreaView>
+    </LinearGradient>
   );
-
-  // ─── RENDER ───────────────────────────────────────────────
 
   // WELCOME
   if (step === "welcome") {
     return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.5, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={styles.container}
-          edges={["top", "left", "right", "bottom"]}
-        >
-          <StatusBar
-            barStyle={isDark ? "light-content" : "dark-content"}
-            backgroundColor="transparent"
-            translucent
-          />
-          <View style={styles.welcomeContent}>
-            <View
-              style={[
-                styles.welcomeLogoWrap,
-                { backgroundColor: colors.primary + "18" },
-              ]}
-            >
-              <Text style={styles.welcomeLogoText}>🌌</Text>
-            </View>
-            <Text style={[styles.welcomeTitle, { color: colors.text }]}>
-              Welcome to{"\n"}NebulaNet
-            </Text>
-            <Text
-              style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}
-            >
-              Your space to share, connect, and discover what matters to you.
-            </Text>
-            <View style={styles.welcomeFeatures}>
-              {[
-                {
-                  icon: "people-outline",
-                  text: "Follow people you care about",
-                },
-                {
-                  icon: "trending-up-outline",
-                  text: "Discover trending content",
-                },
-                {
-                  icon: "chatbubble-outline",
-                  text: "Join communities and conversations",
-                },
-              ].map((f) => (
-                <View key={f.text} style={styles.welcomeFeatureRow}>
-                  <View
-                    style={[
-                      styles.welcomeFeatureIcon,
-                      { backgroundColor: colors.primary + "18" },
-                    ]}
-                  >
-                    <Ionicons
-                      name={f.icon as any}
-                      size={20}
-                      color={colors.primary}
-                    />
-                  </View>
-                  <Text
-                    style={[styles.welcomeFeatureText, { color: colors.text }]}
-                  >
-                    {f.text}
-                  </Text>
-                </View>
-              ))}
-            </View>
+      <Wrapper>
+        <View style={styles.welcomeContent}>
+          <View
+            style={[
+              styles.welcomeLogoWrap,
+              { backgroundColor: colors.primary + "18" },
+            ]}
+          >
+            <Text style={styles.welcomeLogoText}>🌌</Text>
           </View>
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-              onPress={() => goToStep("avatar")}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.primaryBtnText}>Get Started</Text>
-              <Ionicons name="arrow-forward" size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  // AVATAR
-  if (step === "avatar") {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.5, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={styles.container}
-          edges={["top", "left", "right", "bottom"]}
-        >
-          <StatusBar
-            barStyle={isDark ? "light-content" : "dark-content"}
-            backgroundColor="transparent"
-            translucent
-          />
-          <View style={styles.stepHeader}>
-            <StepDots />
-            <TouchableOpacity
-              onPress={() => goToStep("username")}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.skipText, { color: colors.textSecondary }]}>
-                Skip
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.stepContent}>
-            <Text style={[styles.stepTitle, { color: colors.text }]}>
-              Add a profile photo
-            </Text>
-            <Text
-              style={[styles.stepSubtitle, { color: colors.textSecondary }]}
-            >
-              Help people recognize you. You can change this later.
-            </Text>
-            <TouchableOpacity
-              style={styles.avatarPickerWrap}
-              onPress={pickAvatar}
-              activeOpacity={0.85}
-            >
-              {avatarUri ? (
-                <Image
-                  source={{ uri: avatarUri }}
-                  style={styles.avatarPreview}
-                />
-              ) : (
+          <Text style={[styles.welcomeTitle, { color: colors.text }]}>
+            Welcome to{"\n"}NebulaNet
+          </Text>
+          <Text
+            style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}
+          >
+            Your space to share, connect, and discover what matters to you.
+          </Text>
+          <View style={styles.welcomeFeatures}>
+            {[
+              { icon: "people-outline", text: "Follow people you care about" },
+              {
+                icon: "trending-up-outline",
+                text: "Discover trending content",
+              },
+              {
+                icon: "chatbubble-outline",
+                text: "Join communities and conversations",
+              },
+            ].map((f) => (
+              <View key={f.text} style={styles.welcomeFeatureRow}>
                 <View
                   style={[
-                    styles.avatarPlaceholder,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
+                    styles.welcomeFeatureIcon,
+                    { backgroundColor: colors.primary + "18" },
                   ]}
                 >
                   <Ionicons
-                    name="camera-outline"
-                    size={40}
+                    name={f.icon as any}
+                    size={20}
                     color={colors.primary}
                   />
-                  <Text
-                    style={[
-                      styles.avatarPlaceholderText,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    Tap to add photo
-                  </Text>
                 </View>
-              )}
-              {avatarUri && (
-                <View
-                  style={[
-                    styles.avatarEditBadge,
-                    { backgroundColor: colors.primary },
-                  ]}
+                <Text
+                  style={[styles.welcomeFeatureText, { color: colors.text }]}
                 >
-                  <Ionicons name="pencil" size={14} color="#fff" />
-                </View>
-              )}
-            </TouchableOpacity>
+                  {f.text}
+                </Text>
+              </View>
+            ))}
           </View>
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[
-                styles.primaryBtn,
-                {
-                  backgroundColor: uploadingAvatar
-                    ? colors.border
-                    : colors.primary,
-                },
-              ]}
-              onPress={handleAvatarContinue}
-              disabled={uploadingAvatar}
-              activeOpacity={0.9}
+        </View>
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
+            onPress={() => setStep("username")}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.primaryBtnText}>Get Started</Text>
+            <Ionicons name="arrow-forward" size={20} color="#fff" />
+          </TouchableOpacity>
+          {/* ✅ Skip setup — jumps straight to birthdate for users who want to skip */}
+          <TouchableOpacity
+            onPress={() => router.replace("/(auth)/birthdate" as any)}
+            activeOpacity={0.8}
+            style={{ alignItems: "center", paddingTop: 14 }}
+          >
+            <Text
+              style={[styles.skipSetupText, { color: colors.textTertiary }]}
             >
-              {uploadingAvatar ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.primaryBtnText}>
-                    {avatarUri ? "Continue" : "Skip for now"}
-                  </Text>
-                  <Ionicons name="arrow-forward" size={20} color="#fff" />
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+              Skip setup for now
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Wrapper>
     );
   }
 
@@ -509,11 +627,9 @@ export default function OnboardingScreen() {
     const statusColor =
       usernameStatus === "available"
         ? "#34C759"
-        : usernameStatus === "taken"
+        : usernameStatus === "taken" || usernameStatus === "invalid"
           ? "#FF3B30"
-          : usernameStatus === "invalid"
-            ? "#FF9500"
-            : colors.textTertiary;
+          : colors.textTertiary;
 
     const statusText =
       usernameStatus === "available"
@@ -527,247 +643,88 @@ export default function OnboardingScreen() {
               : "";
 
     return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.5, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={styles.container}
-          edges={["top", "left", "right", "bottom"]}
+      <Wrapper>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <StatusBar
-            barStyle={isDark ? "light-content" : "dark-content"}
-            backgroundColor="transparent"
-            translucent
-          />
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={styles.stepHeader}>
-              <TouchableOpacity
-                onPress={() => goToStep("avatar")}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="arrow-back" size={22} color={colors.text} />
-              </TouchableOpacity>
-              <StepDots />
-              <TouchableOpacity
-                onPress={() => goToStep("interests")}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[styles.skipText, { color: colors.textSecondary }]}
-                >
-                  Skip
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.stepContent}>
-              <Text style={[styles.stepTitle, { color: colors.text }]}>
-                Choose a username
-              </Text>
-              <Text
-                style={[styles.stepSubtitle, { color: colors.textSecondary }]}
-              >
-                This is how people will find and mention you.
-              </Text>
-              <View
-                style={[
-                  styles.usernameInputWrap,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor:
-                      usernameStatus === "available"
-                        ? "#34C759"
-                        : usernameStatus === "taken" ||
-                            usernameStatus === "invalid"
-                          ? "#FF3B30"
-                          : colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.usernameAt, { color: colors.textTertiary }]}
-                >
-                  @
-                </Text>
-                <TextInput
-                  style={[styles.usernameInput, { color: colors.text }]}
-                  placeholder="your_username"
-                  placeholderTextColor={colors.textTertiary}
-                  value={username}
-                  onChangeText={onUsernameChange}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={30}
-                  returnKeyType="done"
-                  onSubmitEditing={handleUsernameContinue}
-                />
-                {usernameStatus === "checking" && (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                )}
-                {usernameStatus === "available" && (
-                  <Ionicons name="checkmark-circle" size={22} color="#34C759" />
-                )}
-                {(usernameStatus === "taken" ||
-                  usernameStatus === "invalid") && (
-                  <Ionicons name="close-circle" size={22} color="#FF3B30" />
-                )}
-              </View>
-              {!!statusText && (
-                <Text style={[styles.usernameStatus, { color: statusColor }]}>
-                  {statusText}
-                </Text>
-              )}
-            </View>
-            <View style={styles.footer}>
-              <TouchableOpacity
-                style={[
-                  styles.primaryBtn,
-                  {
-                    backgroundColor: canContinue
-                      ? colors.primary
-                      : colors.border,
-                  },
-                ]}
-                onPress={handleUsernameContinue}
-                disabled={!canContinue}
-                activeOpacity={0.9}
-              >
-                {saving ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Text style={styles.primaryBtnText}>Continue</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#fff" />
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  // INTERESTS
-  if (step === "interests") {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.5, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={styles.container}
-          edges={["top", "left", "right", "bottom"]}
-        >
-          <StatusBar
-            barStyle={isDark ? "light-content" : "dark-content"}
-            backgroundColor="transparent"
-            translucent
-          />
           <View style={styles.stepHeader}>
+            <ProgressBar current={0} total={4} colors={colors} />
             <TouchableOpacity
-              onPress={() => goToStep("username")}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color={colors.text} />
-            </TouchableOpacity>
-            <StepDots />
-            <TouchableOpacity
-              onPress={handleSkipInterests}
-              disabled={saving}
+              onPress={() => setStep("topics")}
               activeOpacity={0.8}
             >
               <Text style={[styles.skipText, { color: colors.textSecondary }]}>
-                {saving ? "..." : "Skip"}
+                Skip
               </Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.interestsHeader}>
+          <View style={styles.stepContent}>
             <Text style={[styles.stepTitle, { color: colors.text }]}>
-              What are you into?
+              Choose a username
             </Text>
             <Text
               style={[styles.stepSubtitle, { color: colors.textSecondary }]}
             >
-              Pick your interests and we'll tailor your feed. Select as many as
-              you like.
+              This is how people will find and mention you on NebulaNet.
             </Text>
-            <View style={styles.progressRow}>
-              <Text style={[styles.progressText, { color: colors.text }]}>
-                {selectedInterests.length}/{maxSelections}
+            <View
+              style={[
+                styles.usernameInputWrap,
+                {
+                  backgroundColor: colors.card,
+                  borderColor:
+                    usernameStatus === "available"
+                      ? "#34C759"
+                      : usernameStatus === "taken" ||
+                          usernameStatus === "invalid"
+                        ? "#FF3B30"
+                        : colors.border,
+                },
+              ]}
+            >
+              <Text style={[styles.usernameAt, { color: colors.textTertiary }]}>
+                @
               </Text>
-              <View
-                style={[
-                  styles.progressBarBg,
-                  { backgroundColor: colors.border, flex: 1, marginLeft: 10 },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${progress}%`, backgroundColor: colors.primary },
-                  ]}
-                />
-              </View>
+              <TextInput
+                style={[styles.usernameInput, { color: colors.text }]}
+                placeholder="your_username"
+                placeholderTextColor={colors.textTertiary}
+                value={username}
+                onChangeText={onUsernameChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={30}
+                returnKeyType="done"
+                onSubmitEditing={handleUsernameContinue}
+                autoFocus
+              />
+              {usernameStatus === "checking" && (
+                <ActivityIndicator size="small" color={colors.primary} />
+              )}
+              {usernameStatus === "available" && (
+                <Ionicons name="checkmark-circle" size={22} color="#34C759" />
+              )}
+              {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                <Ionicons name="close-circle" size={22} color="#FF3B30" />
+              )}
             </View>
+            {!!statusText && (
+              <Text style={[styles.usernameStatus, { color: statusColor }]}>
+                {statusText}
+              </Text>
+            )}
           </View>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={styles.interestsGrid}
-            showsVerticalScrollIndicator={false}
-          >
-            {INTERESTS.map((interest) => {
-              const isSelected = selectedInterests.includes(interest.id);
-              return (
-                <TouchableOpacity
-                  key={interest.id}
-                  style={[
-                    styles.interestChip,
-                    {
-                      backgroundColor: isSelected
-                        ? colors.primary
-                        : colors.card,
-                      borderColor: isSelected ? colors.primary : colors.border,
-                    },
-                  ]}
-                  onPress={() => toggleInterest(interest.id)}
-                  activeOpacity={0.75}
-                  disabled={saving}
-                >
-                  <Text style={styles.interestEmoji}>{interest.emoji}</Text>
-                  <Text
-                    style={[
-                      styles.interestText,
-                      { color: isSelected ? "#fff" : colors.text },
-                    ]}
-                  >
-                    {interest.name}
-                  </Text>
-                  {isSelected && (
-                    <Ionicons name="checkmark" size={14} color="#fff" />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-          <View style={[styles.footer, { backgroundColor: "transparent" }]}>
+          <View style={styles.footer}>
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
                 {
-                  backgroundColor:
-                    selectedInterests.length === 0 || saving
-                      ? colors.border
-                      : colors.primary,
+                  backgroundColor: canContinue ? colors.primary : colors.border,
                 },
               ]}
-              onPress={handleInterestsContinue}
-              disabled={selectedInterests.length === 0 || saving}
+              onPress={handleUsernameContinue}
+              disabled={!canContinue}
               activeOpacity={0.9}
             >
               {saving ? (
@@ -780,124 +737,301 @@ export default function OnboardingScreen() {
               )}
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
-      </LinearGradient>
+        </KeyboardAvoidingView>
+      </Wrapper>
     );
   }
 
-  // CONGRATS — reachable if needed in future; currently flow goes through birthdate.tsx
-  return (
-    <LinearGradient
-      colors={gradientColors as any}
-      locations={[0, 0.5, 1]}
-      style={{ flex: 1 }}
-    >
-      <SafeAreaView
-        style={styles.container}
-        edges={["top", "left", "right", "bottom"]}
-      >
-        <StatusBar
-          barStyle={isDark ? "light-content" : "dark-content"}
-          backgroundColor="transparent"
-          translucent
-        />
-        <View style={styles.congratsContent}>
-          <View
-            style={[
-              styles.congratsIconWrap,
-              { backgroundColor: colors.primary + "18" },
-            ]}
+  // TOPICS
+  if (step === "topics") {
+    return (
+      <Wrapper>
+        <View style={styles.stepHeader}>
+          <TouchableOpacity
+            onPress={() => setStep("username")}
+            activeOpacity={0.85}
           >
-            <Text style={styles.congratsEmoji}>🎉</Text>
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <ProgressBar current={1} total={4} colors={colors} />
+          <TouchableOpacity
+            onPress={handleTopicsContinue}
+            disabled={saving}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.skipText, { color: colors.textSecondary }]}>
+              {saving ? "..." : "Skip"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.topicsHeaderWrap}>
+          <Text style={[styles.stepTitle, { color: colors.text }]}>
+            What are you into?
+          </Text>
+          <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+            Pick topics to personalize your feed. Select at least 3.
+          </Text>
+          <View style={styles.topicsCountRow}>
+            <View
+              style={[
+                styles.topicsCountBadge,
+                {
+                  backgroundColor: colors.primary + "18",
+                  borderColor: colors.primary + "30",
+                },
+              ]}
+            >
+              <Text style={[styles.topicsCountText, { color: colors.primary }]}>
+                {selectedTopics.length} selected
+              </Text>
+            </View>
           </View>
-          <Text style={[styles.congratsTitle, { color: colors.text }]}>
-            You're all set!
-          </Text>
-          <Text
-            style={[styles.congratsSubtitle, { color: colors.textSecondary }]}
+        </View>
+
+        <FlatList
+          data={TOPICS}
+          keyExtractor={(t) => t.id}
+          numColumns={2}
+          columnWrapperStyle={styles.topicsRow}
+          contentContainerStyle={styles.topicsGrid}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TopicCard
+              topic={item}
+              selected={selectedTopics.includes(item.id)}
+              onPress={() => toggleTopic(item.id)}
+              colors={colors}
+            />
+          )}
+        />
+
+        <View style={[styles.footer, { backgroundColor: "transparent" }]}>
+          <TouchableOpacity
+            style={[
+              styles.primaryBtn,
+              {
+                backgroundColor:
+                  selectedTopics.length >= 1 && !saving
+                    ? colors.primary
+                    : colors.border,
+              },
+            ]}
+            onPress={handleTopicsContinue}
+            disabled={selectedTopics.length === 0 || saving}
+            activeOpacity={0.9}
           >
-            Welcome to NebulaNet. Your feed is ready and tailored just for you.
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.primaryBtnText}>Continue</Text>
+                <Ionicons name="arrow-forward" size={20} color="#fff" />
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </Wrapper>
+    );
+  }
+
+  // AVATAR
+  if (step === "avatar") {
+    return (
+      <Wrapper>
+        <View style={styles.stepHeader}>
+          <TouchableOpacity
+            onPress={() => setStep("topics")}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <ProgressBar current={2} total={4} colors={colors} />
+          <TouchableOpacity
+            onPress={() => {
+              setStep("suggestions");
+              fetchSuggested();
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.skipText, { color: colors.textSecondary }]}>
+              Skip
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.stepContent}>
+          <Text style={[styles.stepTitle, { color: colors.text }]}>
+            Add a profile photo
           </Text>
-          {selectedInterests.length > 0 && (
-            <View style={styles.congratsInterestsWrap}>
-              <Text
+          <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+            Help people recognize you. You can always change this later.
+          </Text>
+          <TouchableOpacity
+            style={styles.avatarPickerWrap}
+            onPress={pickAvatar}
+            activeOpacity={0.85}
+          >
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+            ) : (
+              <View
                 style={[
-                  styles.congratsInterestsLabel,
-                  { color: colors.textTertiary },
+                  styles.avatarPlaceholder,
+                  { backgroundColor: colors.card, borderColor: colors.border },
                 ]}
               >
-                Your interests
-              </Text>
-              <View style={styles.congratsChips}>
-                {selectedInterests.slice(0, 6).map((id) => {
-                  const interest = INTERESTS.find((i) => i.id === id);
-                  if (!interest) return null;
-                  return (
-                    <View
-                      key={id}
-                      style={[
-                        styles.congratsChip,
-                        {
-                          backgroundColor: colors.primary + "18",
-                          borderColor: colors.primary + "30",
-                        },
-                      ]}
-                    >
-                      <Text style={styles.congratsChipEmoji}>
-                        {interest.emoji}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.congratsChipText,
-                          { color: colors.primary },
-                        ]}
-                      >
-                        {interest.name}
-                      </Text>
-                    </View>
-                  );
-                })}
-                {selectedInterests.length > 6 && (
-                  <View
-                    style={[
-                      styles.congratsChip,
-                      {
-                        backgroundColor: colors.primary + "18",
-                        borderColor: colors.primary + "30",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.congratsChipText,
-                        { color: colors.primary },
-                      ]}
-                    >
-                      +{selectedInterests.length - 6} more
-                    </Text>
-                  </View>
-                )}
+                <Ionicons
+                  name="camera-outline"
+                  size={44}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[
+                    styles.avatarPlaceholderText,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  Tap to add photo
+                </Text>
               </View>
-            </View>
-          )}
+            )}
+            {avatarUri && (
+              <View
+                style={[
+                  styles.avatarEditBadge,
+                  { backgroundColor: colors.primary },
+                ]}
+              >
+                <Ionicons name="pencil" size={14} color="#fff" />
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[
+              styles.primaryBtn,
+              {
+                backgroundColor: uploadingAvatar
+                  ? colors.border
+                  : colors.primary,
+              },
+            ]}
+            onPress={handleAvatarContinue}
+            disabled={uploadingAvatar}
+            activeOpacity={0.9}
+          >
+            {uploadingAvatar ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.primaryBtnText}>
+                  {avatarUri ? "Continue" : "Skip for now"}
+                </Text>
+                <Ionicons name="arrow-forward" size={20} color="#fff" />
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </Wrapper>
+    );
+  }
+
+  // SUGGESTIONS
+  if (step === "suggestions") {
+    return (
+      <Wrapper>
+        <View style={styles.stepHeader}>
+          <TouchableOpacity
+            onPress={() => setStep("avatar")}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <ProgressBar current={3} total={4} colors={colors} />
+          <TouchableOpacity onPress={handleFinish} activeOpacity={0.8}>
+            <Text style={[styles.skipText, { color: colors.textSecondary }]}>
+              Skip
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.suggestHeaderWrap]}>
+          <Text style={[styles.stepTitle, { color: colors.text }]}>
+            Who to follow
+          </Text>
+          <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
+            {selectedTopics.length > 0
+              ? "People who share your interests on NebulaNet."
+              : "Popular accounts on NebulaNet to get started."}
+          </Text>
+        </View>
+
+        {loadingSuggested ? (
+          <View style={styles.suggestLoading}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text
+              style={[
+                styles.suggestLoadingText,
+                { color: colors.textSecondary },
+              ]}
+            >
+              Finding people for you…
+            </Text>
+          </View>
+        ) : suggested.length > 0 ? (
+          <FlatList
+            data={suggested}
+            keyExtractor={(p) => p.id}
+            contentContainerStyle={styles.suggestList}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <SuggestedAccountRow
+                profile={{
+                  id: item.id,
+                  username: item.username ?? null,
+                  full_name: item.full_name ?? null,
+                  avatar_url: item.avatar_url ?? null,
+                  is_private: !!item.is_private,
+                }}
+                colors={colors}
+              />
+            )}
+          />
+        ) : (
+          <View style={styles.suggestEmpty}>
+            <Ionicons name="people-outline" size={48} color={colors.border} />
+            <Text
+              style={[styles.suggestEmptyText, { color: colors.textTertiary }]}
+            >
+              No suggestions yet — more people are joining every day!
+            </Text>
+          </View>
+        )}
+
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-            onPress={() => router.replace("/(tabs)/home")}
+            onPress={handleFinish}
             activeOpacity={0.9}
           >
-            <Text style={styles.primaryBtnText}>Explore NebulaNet</Text>
-            <Ionicons name="rocket-outline" size={20} color="#fff" />
+            <Text style={styles.primaryBtnText}>Continue</Text>
+            <Ionicons name="arrow-forward" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
-    </LinearGradient>
-  );
+      </Wrapper>
+    );
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  // Welcome
   welcomeContent: {
     flex: 1,
     paddingHorizontal: 28,
@@ -930,6 +1064,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   welcomeFeatureText: { fontSize: 15, fontWeight: "600", flex: 1 },
+
+  // Step header
   stepHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -937,9 +1073,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
   },
-  dotsRow: { flexDirection: "row", gap: 6, alignItems: "center" },
-  dot: { height: 8, borderRadius: 4 },
+  progressBarBg: {
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+    width: "100%",
+  },
+  progressBarFill: { height: 4, borderRadius: 2 },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 4,
+    textAlign: "center",
+  },
   skipText: { fontSize: 15, fontWeight: "600" },
+  skipSetupText: {
+    fontSize: 14,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+
+  // Step content
   stepContent: {
     flex: 1,
     paddingHorizontal: 28,
@@ -948,6 +1102,54 @@ const styles = StyleSheet.create({
   },
   stepTitle: { fontSize: 28, fontWeight: "900", lineHeight: 34 },
   stepSubtitle: { fontSize: 15, lineHeight: 22 },
+
+  // Username
+  usernameInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    height: 56,
+    gap: 8,
+    marginTop: 8,
+  },
+  usernameAt: { fontSize: 18, fontWeight: "700" },
+  usernameInput: { flex: 1, fontSize: 17, fontWeight: "600" },
+  usernameStatus: { fontSize: 13, fontWeight: "600", marginTop: 4 },
+
+  // Topics
+  topicsHeaderWrap: { paddingHorizontal: 20, paddingBottom: 8, gap: 6 },
+  topicsCountRow: { flexDirection: "row", marginTop: 4 },
+  topicsCountBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  topicsCountText: { fontSize: 13, fontWeight: "800" },
+  topicsGrid: { paddingHorizontal: 16, paddingBottom: 8 },
+  topicsRow: { gap: 12, marginBottom: 12 },
+  topicCard: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 16,
+    alignItems: "flex-start",
+    gap: 10,
+    position: "relative",
+    minHeight: 110,
+  },
+  topicIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topicName: { fontSize: 14, fontWeight: "800", lineHeight: 18 },
+  topicCheck: { position: "absolute", top: 10, right: 10 },
+
+  // Avatar
   avatarPickerWrap: {
     alignSelf: "center",
     marginTop: 24,
@@ -975,84 +1177,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  usernameInputWrap: {
+
+  // Suggestions
+  suggestHeaderWrap: { paddingHorizontal: 20, paddingBottom: 8, gap: 4 },
+  suggestList: { paddingHorizontal: 16, paddingBottom: 16 },
+  suggestRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1.5,
-    paddingHorizontal: 16,
-    height: 56,
-    gap: 8,
-    marginTop: 8,
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
   },
-  usernameAt: { fontSize: 18, fontWeight: "700" },
-  usernameInput: { flex: 1, fontSize: 17, fontWeight: "600" },
-  usernameStatus: { fontSize: 13, fontWeight: "600", marginTop: 4 },
-  interestsHeader: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
-  progressRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
-  progressText: { fontSize: 13, fontWeight: "700", minWidth: 44 },
-  progressBarBg: { height: 6, borderRadius: 3, overflow: "hidden" },
-  progressBarFill: { height: "100%", borderRadius: 3 },
-  interestsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  interestChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 24,
-    borderWidth: 1,
-  },
-  interestEmoji: { fontSize: 16 },
-  interestText: { fontSize: 14, fontWeight: "600" },
-  congratsContent: {
-    flex: 1,
-    paddingHorizontal: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 20,
-  },
-  congratsIconWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 30,
+  suggestAvatar: { width: 46, height: 46, borderRadius: 23 },
+  suggestAvatarFallback: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
   },
-  congratsEmoji: { fontSize: 56 },
-  congratsTitle: { fontSize: 32, fontWeight: "900", textAlign: "center" },
-  congratsSubtitle: { fontSize: 16, textAlign: "center", lineHeight: 24 },
-  congratsInterestsWrap: { width: "100%", gap: 10 },
-  congratsInterestsLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    textAlign: "center",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  congratsChips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
-  },
-  congratsChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  suggestAvatarLetter: { fontSize: 18, fontWeight: "900", color: "#fff" },
+  suggestName: { fontSize: 15, fontWeight: "800" },
+  suggestHandle: { fontSize: 13, marginTop: 2 },
+  followBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
+    minWidth: 90,
+    alignItems: "center",
   },
-  congratsChipEmoji: { fontSize: 14 },
-  congratsChipText: { fontSize: 13, fontWeight: "700" },
+  followBtnText: { fontSize: 13, fontWeight: "800" },
+  suggestLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  suggestLoadingText: { fontSize: 14, fontWeight: "600" },
+  suggestEmpty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 32,
+  },
+  suggestEmptyText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+
+  // Footer
   footer: { paddingHorizontal: 24, paddingVertical: 20 },
   primaryBtn: {
     flexDirection: "row",

@@ -1,10 +1,7 @@
 // app/(tabs)/explore.tsx
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
-import {
-  PostSearchSkeleton,
-  SearchRowSkeleton
-} from "@/components/Skeleton";
+import { PostSearchSkeleton, SearchRowSkeleton } from "@/components/Skeleton";
 import UserActionsSheet, {
   type UserActionsSheetRef,
 } from "@/components/UserActionsSheet";
@@ -1972,7 +1969,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   searchBar: {
-    flex: 1,
+    flex: 3,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
@@ -1994,9 +1991,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",

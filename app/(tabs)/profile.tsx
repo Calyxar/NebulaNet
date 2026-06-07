@@ -1,4 +1,5 @@
 // app/(tabs)/profile.tsx ✅
+import HashtagText from "@/components/HashtagText";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
@@ -20,7 +21,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import {
   SafeAreaView,
@@ -542,15 +543,18 @@ export default function ProfileScreen() {
                           activeOpacity={0.9}
                         >
                           {!!p.content && (
-                            <Text
+                            <HashtagText
+                              content={p.content}
                               style={[
                                 styles.postContent,
                                 { color: colors.text },
                               ]}
                               numberOfLines={4}
-                            >
-                              {p.content}
-                            </Text>
+                              hashtagColor={colors.primary}
+                              onPress={() =>
+                                router.push(`/post/${p.id}` as any)
+                              }
+                            />
                           )}
                           {!!img && (
                             <View

@@ -1,7 +1,9 @@
 // providers/AuthProvider.tsx ✅
-// ✅ FIXED: user_settings now uses a real-time Firestore listener instead of
-//           a one-time query — so hasCompletedOnboarding updates immediately
-//           when redo onboarding sets onboarding_completed: false
+// ✅ FIXED: birthdate is never wiped on app update — profileRef.set() only runs
+//           when profile does not exist (new user). Existing users use .update()
+//           so birthdate, age_group and all other fields are preserved.
+// ✅ FIXED: removed redo onboarding logic — onboarding only happens once at signup
+// ✅ FIXED: user_settings uses real-time onSnapshot listener
 
 import {
   useMutation,
@@ -105,10 +107,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
-
-  // ✅ Real-time user_settings listener — replaces the useQuery one-time fetch.
-  // This means hasCompletedOnboarding updates the instant the Firestore doc
-  // changes, so redo onboarding and completeOnboarding both work correctly.
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
 
@@ -126,7 +124,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           (u as any).id = u.uid;
-
           try {
             initRevenueCat(u.uid);
           } catch {}
@@ -136,7 +133,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const profileRef = firestore().collection("profiles").doc(u.uid);
           const profileSnap = await profileRef.get();
+
           if (!profileSnap.exists()) {
+            // ✅ Only runs for BRAND NEW users — never overwrites existing profile
+            // so birthdate, age_group, and all user data is always preserved on updates
             const baseUsername =
               u.email?.split("@")[0] ?? `user_${u.uid.slice(0, 8)}`;
             const t = nowIso();
@@ -159,6 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               updated_at_ts: firestore.FieldValue.serverTimestamp(),
             });
           }
+          // ✅ Existing users: profile doc is NEVER touched here
+          // birthdate, age_group, avatar, bio — all preserved on every app update
 
           const settingsRef = firestore()
             .collection("user_settings")
@@ -194,19 +196,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsUserSettingsLoading(false);
       return;
     }
-
     setIsUserSettingsLoading(true);
-
     const unsub = firestore()
       .collection("user_settings")
       .doc(userId)
       .onSnapshot(
         (snap) => {
-          if (snap.exists()) {
-            setUserSettings(snap.data() as UserSettings);
-          } else {
-            setUserSettings(null);
-          }
+          setUserSettings(snap.exists() ? (snap.data() as UserSettings) : null);
           setIsUserSettingsLoading(false);
         },
         (err) => {
@@ -214,11 +210,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsUserSettingsLoading(false);
         },
       );
-
     return unsub;
   }, [userId]);
 
-  // ── Profile query (one-time + cache invalidation) ──────
   const { data: profile, isLoading: isProfileLoading } = useQuery({
     queryKey: ["profile", userId],
     enabled: !!userId && hydrated,
@@ -232,7 +226,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasCompletedOnboarding = !!userSettings?.onboarding_completed;
   const themePreference = userSettings?.theme_preference ?? null;
 
-  // ── Mutations ──────────────────────────────────────────
   const login = useMutation<any, Error, EmailPasswordVars>({
     mutationFn: async ({ email, password }) =>
       auth().signInWithEmailAndPassword(email, password),
@@ -252,7 +245,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = useMutation<void, Error, Partial<Profile>>({
     mutationFn: async (updates) => {
       if (!userId) throw new Error("Not authenticated");
-
       if (updates.username) {
         const usernameLc = updates.username.toLowerCase();
         const snap = await firestore()
@@ -265,7 +257,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         updates.username_lc = usernameLc;
       }
-
       await firestore()
         .collection("profiles")
         .doc(userId)
@@ -274,7 +265,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           updated_at: nowIso(),
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
-
       if (updates.username) {
         const newUsername = updates.username;
         const newUsernameLc = newUsername.toLowerCase();
@@ -337,7 +327,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })(),
         ]);
       }
-
       await qc.invalidateQueries({ queryKey: ["profile", userId] });
     },
     onError: (err) => toast(`Profile update failed: ${err.message}`),
@@ -358,7 +347,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
           { merge: true },
         );
-      // ✅ No need to invalidate query — real-time listener handles the update
     },
     [userId],
   );
@@ -375,7 +363,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onboarding_completed: true,
       onboarding_completed_at: nowIso(),
     });
-    // ✅ Refetch profile so _layout.tsx sees freshly-written birthdate field
     await qc.refetchQueries({ queryKey: ["profile", userId] });
   }, [updateSettings, qc, userId]);
 
@@ -411,7 +398,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     Alert.alert(
       "Request Received",
-      "We've received your account deletion request. You'll receive an email with instructions to confirm deletion. Your account will be deleted within 30 days.",
+      "We've received your account deletion request. Your account will be deleted within 30 days.",
       [{ text: "OK" }],
     );
   }, [userId]);

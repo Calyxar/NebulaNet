@@ -1,6 +1,28 @@
-// lib/notifications.ts ✅ — FCM only, no Expo push tokens
+// lib/notifications.ts ✅
+// ✅ FIXED: added getNotificationsMuted / setNotificationsMuted using AsyncStorage
+//           so notifications.tsx no longer crashes on import
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+
+const MUTED_KEY = "nebulanet:notifications_muted";
+
+// ✅ These were missing — notifications.tsx imports them
+export async function getNotificationsMuted(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(MUTED_KEY);
+    return val === "true";
+  } catch {
+    return false;
+  }
+}
+
+export async function setNotificationsMuted(muted: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(MUTED_KEY, muted ? "true" : "false");
+  } catch {}
+}
 
 export function setupNotificationHandler() {
   Notifications.setNotificationHandler({
@@ -27,7 +49,6 @@ export async function setupNotificationChannels() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
     });
-
     await Notifications.setNotificationChannelAsync("messages", {
       name: "Messages",
       importance: Notifications.AndroidImportance.MAX,
@@ -38,7 +59,6 @@ export async function setupNotificationChannels() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
     });
-
     await Notifications.setNotificationChannelAsync("silent", {
       name: "Silent",
       importance: Notifications.AndroidImportance.LOW,
@@ -46,14 +66,11 @@ export async function setupNotificationChannels() {
       enableVibrate: false,
       showBadge: false,
     });
-
-    console.log("Notification channels created");
   } catch (error) {
     console.error("Error setting up notification channels:", error);
   }
 }
 
-// ✅ registerPushNotifications now just calls FCM registration from utils
 export async function registerPushNotifications(): Promise<void> {
   const { registerForPushNotificationsAsync } =
     await import("@/utils/pushNotifications");
@@ -70,14 +87,12 @@ export function setupNotificationListeners(
       onNotificationReceived?.(notification);
     },
   );
-
   const responseSub = Notifications.addNotificationResponseReceivedListener(
     (response) => {
       console.log("Notification tapped:", response);
       onNotificationTapped?.(response);
     },
   );
-
   return () => {
     receivedSub.remove();
     responseSub.remove();

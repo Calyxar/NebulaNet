@@ -3,6 +3,7 @@
 // ✅ Real-time profile sync — username/avatar updates reflect immediately
 // ✅ Route by user_id instead of username — fixes User Not Found
 
+import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -693,12 +694,13 @@ export default function HomeScreen() {
           ) : (
             <>
               {!!post.content && (
-                <Text
+                <HashtagText
+                  content={post.content}
                   style={[styles.content, { color: colors.text }]}
                   numberOfLines={6}
-                >
-                  {post.content}
-                </Text>
+                  hashtagColor={colors.primary}
+                  onPress={() => openPost(post.id)}
+                />
               )}
               {!!media &&
                 (video ? (

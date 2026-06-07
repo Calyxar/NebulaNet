@@ -1,6 +1,6 @@
 // app/post/[id].tsx
+import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
-import HashtagText from "@/components/post/HashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import PostOptionsSheet, {
@@ -572,10 +572,9 @@ export default function PostDetailScreen() {
               )}
               {!isPoll && !!post.content && (
                 <HashtagText
-                  text={post.content}
-                  style={
-                    [styles.postBody, { color: colors.textSecondary }] as any
-                  }
+                  content={post.content ?? ""}
+                  style={[styles.postBody, { color: colors.textSecondary }]}
+                  hashtagColor="#7c3aed"
                 />
               )}
               {isPoll && (post as any).poll && (
@@ -866,11 +865,12 @@ export default function PostDetailScreen() {
                               </Text>
                             </View>
                             <HashtagText
-                              text={c.content}
+                              content={c.content ?? ""}
                               style={StyleSheet.flatten([
                                 styles.commentText,
                                 { color: colors.textSecondary },
                               ])}
+                              hashtagColor="#7c3aed"
                             />
                             <TouchableOpacity
                               style={styles.commentLikeBtn}
