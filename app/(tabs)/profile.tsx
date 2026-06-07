@@ -135,7 +135,7 @@ export default function ProfileScreen() {
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", uid)
-        .orderBy("created_at_ts", "desc")
+        .orderBy("created_at", "desc")
         .get();
       return snap.docs.map((d) => {
         const x = d.data() as any;

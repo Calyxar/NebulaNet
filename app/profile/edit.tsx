@@ -307,7 +307,7 @@ function BirthdateSheet({
                       ).current?.focus();
                   }}
                   keyboardType="number-pad"
-                  placeholder="09"
+                  placeholder="MM"
                   placeholderTextColor={colors.textTertiary}
                   maxLength={2}
                   textAlign="center"
@@ -349,7 +349,7 @@ function BirthdateSheet({
                       ).current?.focus();
                   }}
                   keyboardType="number-pad"
-                  placeholder="28"
+                  placeholder="DD"
                   placeholderTextColor={colors.textTertiary}
                   maxLength={2}
                   textAlign="center"
@@ -386,7 +386,7 @@ function BirthdateSheet({
                     step === "confirm" ? setConfirmYear(n) : setNewYear(n);
                   }}
                   keyboardType="number-pad"
-                  placeholder="2004"
+                  placeholder="YYYY"
                   placeholderTextColor={colors.textTertiary}
                   maxLength={4}
                   textAlign="center"
