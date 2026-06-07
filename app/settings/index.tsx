@@ -209,17 +209,14 @@ function TopicsModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await firestore()
-        .collection("user_interests")
-        .doc(userId)
-        .set(
-          {
-            user_id: userId,
-            interests: selected,
-            updated_at: new Date().toISOString(),
-          },
-          { merge: true },
-        );
+      await firestore().collection("user_interests").doc(userId).set(
+        {
+          user_id: userId,
+          interests: selected,
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
       onClose();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to save topics.");
@@ -701,7 +698,13 @@ const styles = StyleSheet.create({
   },
   topicEmoji: { fontSize: 16 },
   topicText: { fontSize: 14, fontWeight: "600" },
-  topicsFooter: { flexDirection: "row", gap: 12, padding: 20, paddingTop: 8 },
+  topicsFooter: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 20,
+    paddingTop: 8,
+    paddingBottom: 40,
+  },
   topicsCancelBtn: {
     flex: 1,
     paddingVertical: 14,
