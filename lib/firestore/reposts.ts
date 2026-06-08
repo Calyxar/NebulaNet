@@ -67,8 +67,12 @@ export async function toggleRepost(
           }),
       );
     }
-
-    await Promise.all(writes);
+    try {
+      await Promise.all(writes);
+    } catch (e: any) {
+      console.error("[toggleRepost] write failed:", e?.code, e?.message);
+      throw e;
+    }
     return true;
   }
 }
