@@ -115,12 +115,35 @@ export function useFeedDensity() {
   return settings?.preferences?.feed_density ?? "normal";
 }
 
+async function getFollowingIds(uid: string): Promise<string[]> {
+  const snap = await firestore()
+    .collection("follows")
+    .where("follower_id", "==", uid)
+    .where("status", "==", "accepted")
+    .limit(500)
+    .get();
+  return snap.docs
+    .map((d) => (d.data() as any).following_id as string)
+    .filter(Boolean);
+}
+
+export function useFollowingIds() {
+  const uid = auth.currentUser?.uid;
+  return useQuery({
+    queryKey: ["following-ids", uid],
+    enabled: !!uid,
+    staleTime: 2 * 60 * 1000,
+    queryFn: () => getFollowingIds(uid!),
+  });
+}
+
 export function useInfiniteFeedPosts(
   activeTab: "for-you" | "following" | "my-community",
   opts?: { communityIds?: string[] },
 ) {
   const { userSettings } = useAuth();
   const { settings } = useSettings();
+  const { data: followingIds = [] } = useFollowingIds();
 
   const savedLanguage = (userSettings as any)?.language ?? null;
   const languageFilter =
@@ -146,7 +169,12 @@ export function useInfiniteFeedPosts(
 
   const filters: Omit<PostFilters, "cursor"> =
     activeTab === "following"
-      ? { ...base, visibility: "followers" }
+      ? {
+          ...base,
+          ...(followingIds.length > 0
+            ? { userIds: followingIds }
+            : { sortBy: "newest" }),
+        }
       : activeTab === "my-community"
         ? { ...base, communityIds: opts?.communityIds ?? [] }
         : base;

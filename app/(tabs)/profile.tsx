@@ -1,4 +1,9 @@
 // app/(tabs)/profile.tsx ✅
+// ✅ FIXED: Activity tab shows both simple reposts AND quote reposts
+// ✅ Simple reposts fetched from reposts collection
+// ✅ Quote reposts fetched from posts collection where quote_post_id exists
+// ✅ Both sorted by most recent, merged into one list
+
 import HashtagText from "@/components/HashtagText";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -34,6 +39,41 @@ const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
 
 type ProfileTab = "Post" | "Activity" | "Media";
 
+// ✅ Activity item — covers both simple reposts and quote reposts
+type ActivityItem = {
+  id: string;
+  type: "repost" | "quote";
+  content: string;
+  media_urls: string[] | null;
+  created_at: string;
+  post_type?: string | null;
+  // For simple reposts — the original post's author
+  original_user?: {
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+  // For quote reposts — the embedded quoted post
+  quoted_post?: {
+    id: string;
+    content: string | null;
+    user: {
+      username: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+  } | null;
+  activity_at: string; // used for sorting
+};
+
+type PostRow = {
+  id: string;
+  content: string;
+  media_urls: string[] | null;
+  created_at: string;
+  post_type?: string | null;
+};
+
 function formatNumber(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
@@ -47,32 +87,15 @@ const isVideoUrl = (url?: string | null) => {
   );
 };
 
-type PostRow = {
-  id: string;
-  content: string;
-  media_urls: string[] | null;
-  created_at: string;
-  post_type?: string | null;
-  reposted_at?: string;
-  original_user?: {
-    username: string | null;
-    full_name: string | null;
-    avatar_url: string | null;
-  } | null;
-};
-
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile } = useAuth();
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
   const [refreshing, setRefreshing] = useState(false);
 
-  // ✅ Animated scroll value — drives header fade
   const scrollY = useRef(new Animated.Value(0)).current;
-
-  // Profile card is ~220px tall. Header username fades in after scrolling past it.
   const HEADER_FADE_START = 160;
   const HEADER_FADE_END = 220;
 
@@ -81,7 +104,6 @@ export default function ProfileScreen() {
     outputRange: [0, 1],
     extrapolate: "clamp",
   });
-
   const headerBgOpacity = scrollY.interpolate({
     inputRange: [HEADER_FADE_START, HEADER_FADE_END],
     outputRange: [0, 1],
@@ -92,10 +114,9 @@ export default function ProfileScreen() {
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
   );
-
   const uid = user?.uid;
 
-  // ── Stats ─────────────────────────────────────────────────
+  // ── Stats ──────────────────────────────────────────────────────────────────
   const { data: stats, refetch: refetchStats } = useQuery({
     queryKey: ["my-stats", uid],
     enabled: !!uid,
@@ -127,7 +148,7 @@ export default function ProfileScreen() {
     },
   });
 
-  // ── Posts ─────────────────────────────────────────────────
+  // ── Posts ──────────────────────────────────────────────────────────────────
   const { data: posts, refetch: refetchPosts } = useQuery({
     queryKey: ["my-posts", uid],
     enabled: !!uid,
@@ -150,56 +171,99 @@ export default function ProfileScreen() {
     },
   });
 
-  // ── Reposts (Activity tab) ────────────────────────────────
-  const { data: reposts, refetch: refetchReposts } = useQuery({
+  // ── Activity: simple reposts + quote reposts merged ────────────────────────
+  const { data: activity, refetch: refetchActivity } = useQuery({
     queryKey: ["my-reposts", uid],
     enabled: !!uid,
-    queryFn: async () => {
-      const repostSnap = await firestore()
-        .collection("reposts")
-        .where("user_id", "==", uid)
-        .orderBy("created_at", "desc")
-        .limit(30)
-        .get();
-      if (repostSnap.empty) return [];
-      const postIds = repostSnap.docs.map((d) => (d.data() as any).post_id);
-      const repostedAt: Record<string, string> = {};
-      repostSnap.docs.forEach((d) => {
-        const data = d.data() as any;
-        repostedAt[data.post_id] = data.created_at;
-      });
-      const chunks: string[][] = [];
-      for (let i = 0; i < postIds.length; i += 10)
-        chunks.push(postIds.slice(i, i + 10));
-      const postDocs: PostRow[] = [];
-      for (const chunk of chunks) {
-        const snap = await firestore()
-          .collection("posts")
-          .where(firestore.FieldPath.documentId(), "in", chunk)
+    queryFn: async (): Promise<ActivityItem[]> => {
+      const items: ActivityItem[] = [];
+
+      // ── 1. Simple reposts from reposts collection ──────────────────────────
+      try {
+        const repostSnap = await firestore()
+          .collection("reposts")
+          .where("user_id", "==", uid)
+          .orderBy("created_at", "desc")
+          .limit(30)
           .get();
-        snap.docs.forEach((d) => {
+
+        if (!repostSnap.empty) {
+          const postIds = repostSnap.docs.map(
+            (d) => (d.data() as any).post_id as string,
+          );
+          const repostedAt: Record<string, string> = {};
+          repostSnap.docs.forEach((d) => {
+            const data = d.data() as any;
+            repostedAt[data.post_id] = data.created_at;
+          });
+
+          const chunks: string[][] = [];
+          for (let i = 0; i < postIds.length; i += 10)
+            chunks.push(postIds.slice(i, i + 10));
+
+          for (const chunk of chunks) {
+            const snap = await firestore()
+              .collection("posts")
+              .where(firestore.FieldPath.documentId(), "in", chunk)
+              .get();
+            snap.docs.forEach((d) => {
+              const x = d.data() as any;
+              items.push({
+                id: d.id,
+                type: "repost",
+                content: x.content ?? "",
+                media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+                created_at: x.created_at ?? "",
+                post_type: x.post_type ?? null,
+                original_user: x.user ?? null,
+                activity_at: repostedAt[d.id] ?? x.created_at ?? "",
+              });
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("[Activity] reposts fetch failed:", e);
+      }
+
+      // ── 2. Quote reposts from posts collection ─────────────────────────────
+      try {
+        const quoteSnap = await firestore()
+          .collection("posts")
+          .where("user_id", "==", uid)
+          .where("quote_post_id", "!=", null)
+          .orderBy("quote_post_id")
+          .orderBy("created_at", "desc")
+          .limit(20)
+          .get();
+
+        quoteSnap.docs.forEach((d) => {
           const x = d.data() as any;
-          postDocs.push({
+          if (!x.quote_post_id) return;
+          items.push({
             id: d.id,
+            type: "quote",
             content: x.content ?? "",
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
             created_at: x.created_at ?? "",
             post_type: x.post_type ?? null,
-            reposted_at: repostedAt[d.id] ?? x.created_at ?? "",
-            original_user: x.user
+            quoted_post: x.quote_post
               ? {
-                  username: x.user.username ?? null,
-                  full_name: x.user.full_name ?? null,
-                  avatar_url: x.user.avatar_url ?? null,
+                  id: x.quote_post_id,
+                  content: x.quote_post.content ?? null,
+                  user: x.quote_post.user ?? null,
                 }
-              : null,
+              : { id: x.quote_post_id, content: null, user: null },
+            activity_at: x.created_at ?? "",
           });
         });
+      } catch (e) {
+        console.warn("[Activity] quote reposts fetch failed:", e);
       }
-      return postDocs.sort(
+
+      // ── Sort merged list by most recent ────────────────────────────────────
+      return items.sort(
         (a, b) =>
-          new Date(b.reposted_at!).getTime() -
-          new Date(a.reposted_at!).getTime(),
+          new Date(b.activity_at).getTime() - new Date(a.activity_at).getTime(),
       );
     },
   });
@@ -211,7 +275,7 @@ export default function ProfileScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchStats(), refetchPosts(), refetchReposts()]);
+    await Promise.all([refetchStats(), refetchPosts(), refetchActivity()]);
     setRefreshing(false);
   };
 
@@ -235,9 +299,8 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          {/* ✅ Animated sticky header */}
+          {/* Animated sticky header */}
           <View style={styles.header}>
-            {/* Animated background — fades in as profile card scrolls away */}
             <Animated.View
               style={[
                 StyleSheet.absoluteFillObject,
@@ -250,7 +313,6 @@ export default function ProfileScreen() {
               ]}
               pointerEvents="none"
             />
-
             <TouchableOpacity
               style={[
                 styles.headerBtn,
@@ -265,9 +327,7 @@ export default function ProfileScreen() {
                 color={colors.text}
               />
             </TouchableOpacity>
-
             <View style={styles.headerCenter}>
-              {/* Username fades in after scrolling past profile card */}
               <Animated.Text
                 style={[
                   styles.headerUsername,
@@ -295,7 +355,6 @@ export default function ProfileScreen() {
                 </Animated.View>
               )}
             </View>
-
             <TouchableOpacity
               style={[
                 styles.headerBtn,
@@ -332,7 +391,6 @@ export default function ProfileScreen() {
                 { backgroundColor: colors.card, borderColor: colors.border },
               ]}
             >
-              {/* Avatar + stats */}
               <View style={styles.topRow}>
                 <TouchableOpacity
                   onPress={() => router.push("/profile/edit")}
@@ -413,15 +471,12 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              {/* Name + badge */}
               <View style={styles.nameRow}>
                 <Text style={[styles.displayName, { color: colors.text }]}>
                   {displayName}
                 </Text>
                 {!!(profile as any)?.is_founder && <FounderBadge />}
               </View>
-
-              {/* Username */}
               {!!profile?.username && (
                 <Text
                   style={[styles.username, { color: colors.textSecondary }]}
@@ -429,15 +484,11 @@ export default function ProfileScreen() {
                   @{profile.username}
                 </Text>
               )}
-
-              {/* Bio */}
               {!!profile?.bio && (
                 <Text style={[styles.bio, { color: colors.textSecondary }]}>
                   {profile.bio}
                 </Text>
               )}
-
-              {/* Location */}
               {!!(profile as any)?.location && (
                 <View style={styles.locationRow}>
                   <Ionicons
@@ -456,7 +507,6 @@ export default function ProfileScreen() {
                 </View>
               )}
 
-              {/* Action buttons */}
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={[
@@ -613,27 +663,26 @@ export default function ProfileScreen() {
                   </View>
                 ))}
 
-              {/* ACTIVITY (reposts) */}
+              {/* ACTIVITY — simple reposts + quote reposts */}
               {activeTab === "Activity" &&
-                (reposts && reposts.length > 0 ? (
+                (activity && activity.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {reposts.map((p) => {
-                      const img = p.media_urls?.[0];
-                      const isVid = isVideoUrl(img) || p.post_type === "video";
-                      const originalAuthor =
-                        p.original_user?.full_name ||
-                        p.original_user?.username ||
-                        "Unknown";
+                    {activity.map((item) => {
+                      const img = item.media_urls?.[0];
+                      const isVid =
+                        isVideoUrl(img) || item.post_type === "video";
+
                       return (
                         <TouchableOpacity
-                          key={p.id}
+                          key={`${item.type}-${item.id}`}
                           style={[
                             styles.postCard,
                             { backgroundColor: colors.card },
                           ]}
-                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
+                          {/* Activity label */}
                           <View
                             style={{
                               flexDirection: "row",
@@ -643,7 +692,11 @@ export default function ProfileScreen() {
                             }}
                           >
                             <Ionicons
-                              name="repeat-outline"
+                              name={
+                                item.type === "quote"
+                                  ? "chatbubble-ellipses-outline"
+                                  : "repeat-outline"
+                              }
                               size={14}
                               color={colors.primary}
                             />
@@ -654,10 +707,27 @@ export default function ProfileScreen() {
                                 color: colors.primary,
                               }}
                             >
-                              Reposted · originally by @{originalAuthor}
+                              {item.type === "quote"
+                                ? `Quoted · @${item.quoted_post?.user?.username ?? item.quoted_post?.user?.full_name ?? "someone"}`
+                                : `Reposted · @${item.original_user?.username ?? item.original_user?.full_name ?? "someone"}`}
                             </Text>
                           </View>
-                          {!!p.content && (
+
+                          {/* Quote repost — show user's comment above embedded card */}
+                          {item.type === "quote" && !!item.content && (
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text, marginBottom: 8 },
+                              ]}
+                              numberOfLines={4}
+                            >
+                              {item.content}
+                            </Text>
+                          )}
+
+                          {/* Simple repost — show original post content */}
+                          {item.type === "repost" && !!item.content && (
                             <Text
                               style={[
                                 styles.postContent,
@@ -665,9 +735,49 @@ export default function ProfileScreen() {
                               ]}
                               numberOfLines={4}
                             >
-                              {p.content}
+                              {item.content}
                             </Text>
                           )}
+
+                          {/* Quote repost — embedded quoted post card */}
+                          {item.type === "quote" && item.quoted_post && (
+                            <View
+                              style={[
+                                styles.quotedCard,
+                                {
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.surface,
+                                },
+                              ]}
+                            >
+                              {item.quoted_post.user && (
+                                <Text
+                                  style={[
+                                    styles.quotedAuthor,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  @
+                                  {item.quoted_post.user.username ??
+                                    item.quoted_post.user.full_name ??
+                                    "User"}
+                                </Text>
+                              )}
+                              {!!item.quoted_post.content && (
+                                <Text
+                                  style={[
+                                    styles.quotedContent,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                  numberOfLines={3}
+                                >
+                                  {item.quoted_post.content}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+
+                          {/* Media */}
                           {!!img && (
                             <View
                               style={[
@@ -710,7 +820,7 @@ export default function ProfileScreen() {
                     <Text
                       style={[styles.emptyDesc, { color: colors.textTertiary }]}
                     >
-                      Posts you repost will appear here.
+                      Posts you repost or quote will appear here.
                     </Text>
                   </View>
                 ))}
@@ -833,7 +943,6 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  // ✅ Custom header — sits flush at top, username centered between two icon buttons
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -860,7 +969,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  // ✅ Reduced marginTop so profile card sits closer to header with no gap
   profileCard: {
     borderRadius: 22,
     padding: 18,
@@ -977,6 +1085,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.3)",
   },
+  // ✅ Quote post embedded card styles
+  quotedCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 8,
+    gap: 4,
+  },
+  quotedAuthor: { fontSize: 12, fontWeight: "700" },
+  quotedContent: { fontSize: 13, lineHeight: 18 },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 32,

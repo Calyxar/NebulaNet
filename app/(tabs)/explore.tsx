@@ -64,9 +64,10 @@ const GRID_CELL =
   (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
 type ExploreCategory =
-  | "trending"
-  | "account"
-  | "post"
+  | "top"
+  | "latest"
+  | "people"
+  | "media"
   | "community"
   | "hashtag";
 
@@ -712,8 +713,7 @@ export default function ExploreScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [activeCategory, setActiveCategory] =
-    useState<ExploreCategory>("trending");
+  const [activeCategory, setActiveCategory] = useState<ExploreCategory>("top");
 
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>("safe");
@@ -766,9 +766,10 @@ export default function ExploreScreen() {
   });
 
   const categories: { key: ExploreCategory; label: string }[] = [
-    { key: "trending", label: "Trending" },
-    { key: "account", label: "Account" },
-    { key: "post", label: "Post" },
+    { key: "top", label: "Top" },
+    { key: "latest", label: "Latest" },
+    { key: "people", label: "People" },
+    { key: "media", label: "Media" },
     { key: "community", label: "Community" },
     { key: "hashtag", label: "Hashtag" },
   ];
@@ -866,19 +867,19 @@ export default function ExploreScreen() {
     return posts;
   }, [discoveryPosts, mediaFilter, safetyFilter]);
 
-  const shouldSearch =
-    activeCategory !== "trending" && activeCategory !== "hashtag";
+  const shouldSearch = activeCategory !== "hashtag";
 
   const searchType = useMemo(() => {
-    if (!shouldSearch) return null;
-    if (activeCategory === "account") return "account";
-    if (activeCategory === "post") return "post";
+    if (activeCategory === "people") return "account";
+    if (activeCategory === "latest") return "post";
+    if (activeCategory === "media") return "post";
+    if (activeCategory === "top") return "top";
     if (activeCategory === "community") return "community";
-    return null;
-  }, [activeCategory, shouldSearch]);
+    return "top";
+  }, [activeCategory]);
 
   const { data, isSearching, isIdle } = useSearch({
-    type: (searchType ?? "post") as any,
+    type: (searchType ?? "top") as any,
     query: searchQuery,
     minChars: 2,
     limit: 20,
@@ -917,7 +918,9 @@ export default function ExploreScreen() {
     isSearchFocused && !searchQuery.trim() && recents.length > 0;
 
   const filtersApplicable =
-    activeCategory === "trending" || activeCategory === "post";
+    activeCategory === "top" ||
+    activeCategory === "latest" ||
+    activeCategory === "media";
 
   return (
     <>
@@ -1107,11 +1110,11 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* ✅ TRENDING — engagement-based, no hashtags required */}
-            {activeCategory === "trending" && (
+            {/* ✅ TOP — engagement-based, no hashtags required */}
+            {activeCategory === "top" && (
               <>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                  Trending Now
+                  Top Posts
                 </Text>
 
                 {trendingLoading ? (
@@ -1405,7 +1408,7 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {activeCategory === "account" && (
+            {activeCategory === "people" && (
               <>
                 {isSearching && !isIdle ? (
                   <View
@@ -1490,7 +1493,7 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {activeCategory === "post" && (
+            {activeCategory === "latest" && (
               <>
                 {isSearching && !isIdle ? (
                   <View style={{ gap: 10 }}>
@@ -1695,6 +1698,40 @@ export default function ExploreScreen() {
                         ? "Try changing or clearing your filters."
                         : "Try a different keyword."
                     }
+                  />
+                )}
+              </>
+            )}
+
+            {activeCategory === "media" && (
+              <>
+                {isSearching && !isIdle ? (
+                  <GridSkeleton colors={colors} />
+                ) : isIdle ? (
+                  <EmptyState
+                    colors={colors}
+                    icon="search-outline"
+                    title="Start typing"
+                    subtitle="Search for posts with photos and videos."
+                  />
+                ) : filteredPosts.filter((p: any) => p.media_urls?.length > 0)
+                    .length > 0 ? (
+                  <DiscoveryGrid
+                    posts={filteredPosts
+                      .filter((p: any) => p.media_urls?.[0])
+                      .map((p: any) => ({
+                        id: p.id,
+                        media_url: p.media_urls[0],
+                        is_video: isVideoUrl(p.media_urls[0]),
+                      }))}
+                    colors={colors}
+                  />
+                ) : (
+                  <EmptyState
+                    colors={colors}
+                    icon="images-outline"
+                    title="No media found"
+                    subtitle="Try a different search term."
                   />
                 )}
               </>

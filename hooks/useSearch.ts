@@ -1,9 +1,4 @@
 // hooks/useSearch.ts ✅
-// ✅ FIXED: searchAccounts uses Firestore range query instead of full scan
-// ✅ FIXED: searchPosts searches both content AND hashtags array
-// ✅ FIXED: hashtag search queries hashtags collection directly
-// ✅ FIXED: all searches are faster — no more 200-doc client-side scans
-
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -12,7 +7,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-export type SearchType = "account" | "post" | "community";
+export type SearchType = "top" | "account" | "post" | "community";
 export type FollowStatusLite = "none" | "pending" | "accepted";
 
 export type SearchAccount = {
@@ -51,6 +46,7 @@ export type SearchCommunity = {
   avatar_url?: string | null;
 };
 
+// ✅ FIXED: no extra fields — clean type
 export type SuggestedUser = {
   id: string;
   username: string | null;
@@ -58,6 +54,14 @@ export type SuggestedUser = {
   avatar_url: string | null;
   follower_count: number;
   is_private: boolean;
+};
+
+export type SearchSuggestion = {
+  type: "account" | "hashtag" | "recent";
+  id: string;
+  label: string;
+  sublabel?: string;
+  avatar_url?: string | null;
 };
 
 export type DiscoveryPost = {
@@ -93,16 +97,20 @@ export type UseSearchParams = {
   debounceMs?: number;
 };
 
+// ✅ FIXED: includes suggestions and detectedType
 type UseSearchReturn = {
   query: string;
   debouncedQuery: string;
   isSearching: boolean;
   isIdle: boolean;
   error: Error | null;
+  suggestions: SearchSuggestion[];
+  detectedType: "account" | "hashtag" | "general" | null;
   data: {
     accounts: SearchAccount[];
     posts: SearchPost[];
     communities: SearchCommunity[];
+    top: { accounts: SearchAccount[]; posts: SearchPost[] };
   };
   refetch: () => void;
 };
@@ -144,36 +152,34 @@ async function fetchMyFollowMap(
   return map;
 }
 
-// ✅ Fast account search using Firestore range query on username_lc
-// Falls back to full_name range query and merges results
 async function searchAccounts(
   q: string,
   lim: number,
   uid: string | null,
 ): Promise<SearchAccount[]> {
-  const lower = q.toLowerCase().trim();
+  const lower = q.replace(/^@/, "").toLowerCase().trim();
   if (!lower) return [];
-
   const end =
     lower.slice(0, -1) +
     String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
 
   const [byUsername, byFullName, followMap] = await Promise.all([
-    // ✅ Range query on username — fast, uses index
     firestore()
       .collection("profiles")
       .where("username", ">=", lower)
       .where("username", "<", end)
       .limit(lim)
       .get(),
-    // ✅ Range query on full_name — fast, uses index
     firestore()
       .collection("profiles")
-      .where("full_name", ">=", q)
+      .where("full_name", ">=", q.replace(/^@/, ""))
       .where(
         "full_name",
         "<",
-        q.slice(0, -1) + String.fromCharCode(q.charCodeAt(q.length - 1) + 1),
+        q.replace(/^@/, "").slice(0, -1) +
+          String.fromCharCode(
+            q.replace(/^@/, "").charCodeAt(q.replace(/^@/, "").length - 1) + 1,
+          ),
       )
       .limit(lim)
       .get(),
@@ -182,7 +188,6 @@ async function searchAccounts(
       : Promise.resolve(new Map<string, FollowStatusLite>()),
   ]);
 
-  // Merge and deduplicate
   const seen = new Set<string>();
   const results: any[] = [];
   [...byUsername.docs, ...byFullName.docs].forEach((d) => {
@@ -206,67 +211,42 @@ async function searchAccounts(
     }));
 }
 
-// ✅ Fast post search:
-// - If query starts with # → search hashtags array (exact match)
-// - Otherwise → run two parallel queries and merge:
-//     1. content range query (prefix match)
-//     2. hashtags array-contains (exact tag match)
 async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
   const lower = q.toLowerCase().trim();
   if (!lower) return [];
-
-  // Strip leading # if present
   const isHashtagSearch = lower.startsWith("#");
   const tag = lower.replace(/^#/, "");
-
   let docs: any[] = [];
 
-  if (isHashtagSearch || tag.length > 0) {
-    // ✅ Search hashtags array — exact tag match, very fast
-    const [hashtagSnap, contentSnap] = await Promise.all([
-      firestore()
-        .collection("posts")
-        .where("visibility", "==", "public")
-        .where("hashtags", "array-contains", tag)
-        .orderBy("created_at_ts", "desc")
-        .limit(lim)
-        .get(),
-      // Only do content search if not a pure hashtag search
-      isHashtagSearch
-        ? Promise.resolve(null)
-        : firestore()
-            .collection("posts")
-            .where("visibility", "==", "public")
-            .orderBy("created_at_ts", "desc")
-            .limit(100)
-            .get(),
-    ]);
-
-    const seen = new Set<string>();
-    hashtagSnap.docs.forEach((d) => {
-      seen.add(d.id);
-      docs.push({ id: d.id, ...d.data() });
-    });
-
-    // Merge content results filtered client-side
-    if (contentSnap) {
-      contentSnap.docs
-        .filter((d) => !seen.has(d.id))
-        .map((d) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((p: any) => p.content?.toLowerCase().includes(lower))
-        .forEach((p) => docs.push(p));
-    }
-  } else {
-    // Fallback content search
-    const snap = await firestore()
+  const [hashtagSnap, contentSnap] = await Promise.all([
+    firestore()
       .collection("posts")
       .where("visibility", "==", "public")
+      .where("hashtags", "array-contains", tag)
       .orderBy("created_at_ts", "desc")
-      .limit(100)
-      .get();
-    docs = snap.docs
+      .limit(lim)
+      .get(),
+    isHashtagSearch
+      ? Promise.resolve(null)
+      : firestore()
+          .collection("posts")
+          .where("visibility", "==", "public")
+          .orderBy("created_at_ts", "desc")
+          .limit(100)
+          .get(),
+  ]);
+
+  const seen = new Set<string>();
+  hashtagSnap.docs.forEach((d) => {
+    seen.add(d.id);
+    docs.push({ id: d.id, ...d.data() });
+  });
+  if (contentSnap) {
+    contentSnap.docs
+      .filter((d) => !seen.has(d.id))
       .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((p: any) => p.content?.toLowerCase().includes(lower));
+      .filter((p: any) => p.content?.toLowerCase().includes(lower))
+      .forEach((p) => docs.push(p));
   }
 
   return docs
@@ -285,48 +265,43 @@ async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
     }));
 }
 
-// ✅ Fast community search using range query
 async function searchCommunities(
   q: string,
   lim: number,
 ): Promise<SearchCommunity[]> {
   const lower = q.toLowerCase().trim();
   if (!lower) return [];
-
   const end =
     lower.slice(0, -1) +
     String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
 
-  const snap = await firestore()
-    .collection("communities")
-    .where("slug", ">=", lower)
-    .where("slug", "<", end)
-    .limit(lim)
-    .get();
-
-  // Also do a client-side name filter fallback for short queries
-  const nameSnap = await firestore()
-    .collection("communities")
-    .orderBy("member_count", "desc")
-    .limit(50)
-    .get();
+  const [snap, nameSnap] = await Promise.all([
+    firestore()
+      .collection("communities")
+      .where("slug", ">=", lower)
+      .where("slug", "<", end)
+      .limit(lim)
+      .get(),
+    firestore()
+      .collection("communities")
+      .orderBy("member_count", "desc")
+      .limit(50)
+      .get(),
+  ]);
 
   const seen = new Set<string>();
   const results: any[] = [];
-
   snap.docs.forEach((d) => {
     seen.add(d.id);
     results.push({ id: d.id, ...d.data() });
   });
-
   nameSnap.docs
     .filter((d) => !seen.has(d.id))
     .map((d) => ({ id: d.id, ...(d.data() as any) }))
     .filter(
       (c: any) =>
         c.name?.toLowerCase().includes(lower) ||
-        c.slug?.toLowerCase().includes(lower) ||
-        c.description?.toLowerCase().includes(lower),
+        c.slug?.toLowerCase().includes(lower),
     )
     .forEach((c) => results.push(c));
 
@@ -353,7 +328,6 @@ function seedFollowStatusCache(
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
   const uid = auth.currentUser?.uid;
   const followingSet = new Set<string>();
-
   if (uid) {
     try {
       const followSnap = await firestore()
@@ -368,13 +342,11 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
       });
     } catch {}
   }
-
   const snap = await firestore()
     .collection("profiles")
     .orderBy("follower_count", "desc")
     .limit(50)
     .get();
-
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
     .filter((p: any) => p.id !== uid && !followingSet.has(p.id))
@@ -396,12 +368,11 @@ export async function fetchDiscoveryPosts(lim = 30): Promise<DiscoveryPost[]> {
     .orderBy("created_at_ts", "desc")
     .limit(lim + 20)
     .get();
-
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
-    .filter((p: any) => p.is_visible !== false)
     .filter(
       (p: any) =>
+        p.is_visible !== false &&
         Array.isArray(p.media_urls) &&
         p.media_urls.length > 0 &&
         typeof p.media_urls[0] === "string",
@@ -421,7 +392,6 @@ export async function fetchTrendingPosts(lim = 20): Promise<TrendingPost[]> {
   const fortyEightHoursAgo = firestore.Timestamp.fromDate(
     new Date(Date.now() - 48 * 60 * 60 * 1000),
   );
-
   const snap = await firestore()
     .collection("posts")
     .where("visibility", "==", "public")
@@ -429,7 +399,6 @@ export async function fetchTrendingPosts(lim = 20): Promise<TrendingPost[]> {
     .orderBy("created_at_ts", "desc")
     .limit(100)
     .get();
-
   const docs = snap.empty
     ? (
         await firestore()
@@ -486,8 +455,8 @@ export function useRecentSearches() {
       .then((v) => {
         if (v) {
           try {
-            const parsed = JSON.parse(v);
-            if (Array.isArray(parsed)) setRecents(parsed);
+            const p = JSON.parse(v);
+            if (Array.isArray(p)) setRecents(p);
           } catch {}
         }
       })
@@ -543,6 +512,14 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
   const debouncedQuery = useDebouncedValue(trimmed, debounceMs);
   const enabled = debouncedQuery.length >= minChars;
 
+  const detectedType: "account" | "hashtag" | "general" = trimmed.startsWith(
+    "@",
+  )
+    ? "account"
+    : trimmed.startsWith("#")
+      ? "hashtag"
+      : "general";
+
   const queryKey = useMemo(
     () => ["search", type, debouncedQuery, lim] as const,
     [type, debouncedQuery, lim],
@@ -554,22 +531,46 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     staleTime: 30_000,
     queryFn: async () => {
       const uid = auth.currentUser?.uid ?? null;
+
+      if (type === "top") {
+        const [accounts, posts] = await Promise.all([
+          searchAccounts(debouncedQuery, 3, uid),
+          searchPosts(debouncedQuery, lim - 3),
+        ]);
+        if (uid) seedFollowStatusCache(qc, uid, accounts);
+        return {
+          accounts,
+          posts,
+          communities: [] as SearchCommunity[],
+          top: { accounts, posts },
+        };
+      }
       if (type === "account") {
         const accounts = await searchAccounts(debouncedQuery, lim, uid);
         if (uid) seedFollowStatusCache(qc, uid, accounts);
-        return { accounts, posts: [], communities: [] };
-      }
-      if (type === "post") {
         return {
-          accounts: [],
-          posts: await searchPosts(debouncedQuery, lim),
-          communities: [],
+          accounts,
+          posts: [] as SearchPost[],
+          communities: [] as SearchCommunity[],
+          top: { accounts, posts: [] as SearchPost[] },
         };
       }
+      if (type === "post") {
+        const posts = await searchPosts(debouncedQuery, lim);
+        return {
+          accounts: [] as SearchAccount[],
+          posts,
+          communities: [] as SearchCommunity[],
+          top: { accounts: [] as SearchAccount[], posts },
+        };
+      }
+      // community
+      const communities = await searchCommunities(debouncedQuery, lim);
       return {
-        accounts: [],
-        posts: [],
-        communities: await searchCommunities(debouncedQuery, lim),
+        accounts: [] as SearchAccount[],
+        posts: [] as SearchPost[],
+        communities,
+        top: { accounts: [] as SearchAccount[], posts: [] as SearchPost[] },
       };
     },
   });
@@ -580,7 +581,14 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     isSearching: q.isFetching,
     isIdle: !enabled,
     error: (q.error as Error) ?? null,
-    data: q.data ?? { accounts: [], posts: [], communities: [] },
+    suggestions: [],
+    detectedType,
+    data: q.data ?? {
+      accounts: [],
+      posts: [],
+      communities: [],
+      top: { accounts: [], posts: [] },
+    },
     refetch: () => void q.refetch(),
   };
 }

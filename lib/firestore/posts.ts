@@ -71,6 +71,7 @@ export interface PostFilters {
   limit?: number;
   communitySlug?: string;
   communityIds?: string[];
+  userIds?: string[];
   username?: string;
   userId?: string;
   hashtag?: string;
@@ -399,6 +400,7 @@ export async function getPosts(
     limit = 20,
     communitySlug,
     communityIds,
+    userIds,
     username,
     userId,
     hashtag,
@@ -422,7 +424,11 @@ export async function getPosts(
 
   if (resolvedCommunityIds.length)
     q = q.where("community_id", "in", resolvedCommunityIds.slice(0, 10));
-  if (resolvedUserId) q = q.where("user_id", "==", resolvedUserId);
+  if (userIds && userIds.length > 0) {
+    q = q.where("user_id", "in", userIds.slice(0, 30));
+  } else if (resolvedUserId) {
+    q = q.where("user_id", "==", resolvedUserId);
+  }
   if (visibility) q = q.where("visibility", "==", visibility);
   if (hashtag)
     q = q.where(

@@ -1,7 +1,9 @@
-// app/(tabs)/home.tsx — UPDATED ✅
-// ✅ Bell notification button restored on home header
-// ✅ Real-time profile sync — username/avatar updates reflect immediately
-// ✅ Route by user_id instead of username — fixes User Not Found
+// app/(tabs)/home.tsx ✅
+// ✅ Quote repost cards show embedded quoted post
+// ✅ Reposted-by-you label on is_repost posts
+// ✅ Bell notification button
+// ✅ Real-time profile sync
+// ✅ Route by user_id
 
 import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
@@ -63,7 +65,6 @@ import {
 } from "react-native-safe-area-context";
 
 type FeedTab = "for-you" | "following" | "my-community";
-
 const AD_EVERY_N_POSTS = 5;
 
 const timeAgo = (iso: string) => {
@@ -79,13 +80,8 @@ const timeAgo = (iso: string) => {
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
-  return (
-    clean.endsWith(".mp4") ||
-    clean.endsWith(".mov") ||
-    clean.endsWith(".m4v") ||
-    clean.endsWith(".webm") ||
-    clean.endsWith(".mkv") ||
-    clean.endsWith(".avi")
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
   );
 };
 
@@ -96,14 +92,10 @@ const isVideoPost = (post: any) => {
 };
 
 const hasNSFWContent = (post: Post): boolean => {
-  const content = (post.content || "").toLowerCase();
-  const title = (post.title || "").toLowerCase();
-  const combined = `${content} ${title}`;
-  return (
-    combined.includes("#nsfw") ||
-    combined.includes("#spoiler") ||
-    combined.includes("# nsfw") ||
-    combined.includes("# spoiler")
+  const combined =
+    `${post.content || ""} ${(post as any).title || ""}`.toLowerCase();
+  return ["#nsfw", "#spoiler", "# nsfw", "# spoiler"].some((k) =>
+    combined.includes(k),
   );
 };
 
@@ -165,7 +157,6 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
   );
 }
 
-// Replace FeedBannerAd in home.tsx with this:
 function FeedBannerAd({ colors }: { colors: any }) {
   const [failed, setFailed] = useState(false);
   if (!BANNER_AD_UNIT_ID || failed) return null;
@@ -202,6 +193,81 @@ const adStyles = StyleSheet.create({
   },
 });
 
+// ✅ Embedded quoted post card — shown inside quote reposts
+function QuotedPostCard({
+  quotedPost,
+  colors,
+}: {
+  quotedPost: any;
+  colors: any;
+}) {
+  const author =
+    quotedPost?.user?.full_name || quotedPost?.user?.username || "User";
+  return (
+    <TouchableOpacity
+      style={[
+        styles.quotedCard,
+        { borderColor: colors.border, backgroundColor: colors.surface },
+      ]}
+      onPress={() =>
+        quotedPost?.id && router.push(`/post/${quotedPost.id}` as any)
+      }
+      activeOpacity={0.85}
+    >
+      <View style={styles.quotedHeader}>
+        {quotedPost?.user?.avatar_url ? (
+          <Image
+            source={{ uri: quotedPost.user.avatar_url }}
+            style={styles.quotedAvatar}
+          />
+        ) : (
+          <View
+            style={[
+              styles.quotedAvatarFallback,
+              { backgroundColor: colors.primary + "30" },
+            ]}
+          >
+            <Text
+              style={[styles.quotedAvatarLetter, { color: colors.primary }]}
+            >
+              {(author[0] || "U").toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text
+          style={[styles.quotedAuthor, { color: colors.text }]}
+          numberOfLines={1}
+        >
+          {author}
+        </Text>
+        {quotedPost?.user?.username && (
+          <Text
+            style={[styles.quotedHandle, { color: colors.textTertiary }]}
+            numberOfLines={1}
+          >
+            @{quotedPost.user.username}
+          </Text>
+        )}
+      </View>
+      {!!quotedPost?.content && (
+        <Text
+          style={[styles.quotedContent, { color: colors.textSecondary }]}
+          numberOfLines={3}
+        >
+          {quotedPost.content}
+        </Text>
+      )}
+      {quotedPost?.media_urls?.[0] && (
+        <Image
+          source={{ uri: quotedPost.media_urls[0] }}
+          style={styles.quotedMedia}
+          resizeMode="cover"
+        />
+      )}
+    </TouchableOpacity>
+  );
+}
+
 type FeedItem = Post | { __type: "ad"; id: string };
 
 export default function HomeScreen() {
@@ -212,10 +278,7 @@ export default function HomeScreen() {
   const { maybeShowInterstitial } = useInterstitialAd();
   const feedDensity = useFeedDensity();
 
-  // ✅ Real-time profile sync
   useCurrentUserProfileSync();
-
-  // ✅ Bell badge
   const unreadCount = useUnreadNotificationsCount();
 
   const mediaHeight = useMemo(
@@ -262,19 +325,17 @@ export default function HomeScreen() {
     () => data?.pages.flatMap((p) => p.posts) ?? [],
     [data],
   );
-
-  const filteredPosts = useMemo(() => {
-    if (showNSFW) return posts;
-    return posts.filter((post) => !hasNSFWContent(post));
-  }, [posts, showNSFW]);
+  const filteredPosts = useMemo(
+    () => (showNSFW ? posts : posts.filter((post) => !hasNSFWContent(post))),
+    [posts, showNSFW],
+  );
 
   const feedItems = useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
     filteredPosts.forEach((post, i) => {
       items.push(post);
-      if ((i + 1) % AD_EVERY_N_POSTS === 0) {
+      if ((i + 1) % AD_EVERY_N_POSTS === 0)
         items.push({ __type: "ad", id: `ad_${i}` });
-      }
     });
     return items;
   }, [filteredPosts]);
@@ -294,11 +355,11 @@ export default function HomeScreen() {
       const uid = s.user_id;
       const existing = map.get(uid);
       if (!existing) map.set(uid, s);
-      else {
-        const a = new Date(existing.created_at).getTime();
-        const b = new Date(s.created_at).getTime();
-        if (b > a) map.set(uid, s);
-      }
+      else if (
+        new Date(s.created_at).getTime() >
+        new Date(existing.created_at).getTime()
+      )
+        map.set(uid, s);
     }
     return Array.from(map.values()).sort(
       (a, b) =>
@@ -314,10 +375,9 @@ export default function HomeScreen() {
     );
   }, [communitySearch, myCommunities]);
 
-  const Header = useMemo(() => {
-    return (
+  const Header = useMemo(
+    () => (
       <>
-        {/* ✅ Bell button restored */}
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
@@ -560,24 +620,27 @@ export default function HomeScreen() {
           </View>
         )}
       </>
-    );
-  }, [
-    activeTab,
-    unreadCount,
-    colors,
-    isDark,
-    stories,
-    filteredCommunities,
-    communitySearch,
-  ]);
+    ),
+    [
+      activeTab,
+      unreadCount,
+      colors,
+      isDark,
+      stories,
+      filteredCommunities,
+      communitySearch,
+    ],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
-      if ("__type" in item && item.__type === "ad") {
+      if ("__type" in item && item.__type === "ad")
         return <FeedBannerAd colors={colors} />;
-      }
 
       const post = item as Post;
+      const isRepost = !!(post as any).is_repost;
+      const isQuote = !!(post as any).quote_post_id;
+      const quotedPost = (post as any).quote_post;
       const author = post.user?.full_name || post.user?.username || "User";
       const avatar = post.user?.avatar_url;
       const media = post.media_urls?.[0];
@@ -589,6 +652,10 @@ export default function HomeScreen() {
       const saveColor = saved ? colors.primary : colors.text;
       const repostCount = (post as any).repost_count ?? 0;
       const repostColor = repostCount > 0 ? colors.primary : colors.text;
+      const padding =
+        feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
+      const mb =
+        feedDensity === "compact" ? 6 : feedDensity === "relaxed" ? 18 : 12;
 
       return (
         <TouchableOpacity
@@ -599,23 +666,28 @@ export default function HomeScreen() {
             {
               backgroundColor: colors.card,
               shadowOpacity: isDark ? 0.22 : 0.05,
-              padding:
-                feedDensity === "compact"
-                  ? 10
-                  : feedDensity === "relaxed"
-                    ? 20
-                    : 14,
-              marginBottom:
-                feedDensity === "compact"
-                  ? 6
-                  : feedDensity === "relaxed"
-                    ? 18
-                    : 12,
+              padding,
+              marginBottom: mb,
             },
           ]}
         >
+          {/* ✅ Reposted-by-you label */}
+          {isRepost && (
+            <View style={styles.repostLabel}>
+              <Repeat2
+                size={13}
+                color={colors.textTertiary}
+                strokeWidth={2.5}
+              />
+              <Text
+                style={[styles.repostLabelText, { color: colors.textTertiary }]}
+              >
+                You reposted
+              </Text>
+            </View>
+          )}
+
           <View style={styles.cardTop}>
-            {/* ✅ Route by user_id — fixes User Not Found */}
             <TouchableOpacity
               style={styles.authorRow}
               onPress={() =>
@@ -702,7 +774,14 @@ export default function HomeScreen() {
                   onPress={() => openPost(post.id)}
                 />
               )}
+
+              {/* ✅ Embedded quoted post card for quote reposts */}
+              {isQuote && quotedPost && (
+                <QuotedPostCard quotedPost={quotedPost} colors={colors} />
+              )}
+
               {!!media &&
+                !isQuote &&
                 (video ? (
                   <VideoPlayer
                     uri={media}
@@ -748,7 +827,6 @@ export default function HomeScreen() {
                 {post.like_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -762,7 +840,6 @@ export default function HomeScreen() {
                 {post.comment_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -776,7 +853,6 @@ export default function HomeScreen() {
                 {repostCount}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -790,7 +866,6 @@ export default function HomeScreen() {
                 {post.share_count ?? 0}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={(e) => {
@@ -908,7 +983,6 @@ function SegBtn({
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -922,7 +996,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     flexShrink: 1,
   },
-  // ✅ Bell button styles
   bellWrap: {
     width: 44,
     height: 44,
@@ -1038,6 +1111,14 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+  // ✅ Repost label
+  repostLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 6,
+  },
+  repostLabelText: { fontSize: 12, fontWeight: "600" },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -1055,6 +1136,29 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
+  // ✅ Quoted post card
+  quotedCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 10,
+    gap: 6,
+  },
+  quotedHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  quotedAvatar: { width: 18, height: 18, borderRadius: 9 },
+  quotedAvatarFallback: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quotedAvatarLetter: { fontSize: 9, fontWeight: "900" },
+  quotedAuthor: { fontSize: 13, fontWeight: "700", flexShrink: 1 },
+  quotedHandle: { fontSize: 12, flexShrink: 1 },
+  quotedContent: { fontSize: 13, lineHeight: 18 },
+  quotedMedia: { width: "100%", height: 120, borderRadius: 10, marginTop: 4 },
   mediaWrap: {
     width: "100%",
     borderRadius: 18,
@@ -1063,31 +1167,6 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   media: { width: "100%", height: "100%" },
-  videoBadge: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  videoBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-  playOverlay: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    width: 56,
-    height: 56,
-    marginLeft: -28,
-    marginTop: -28,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
   actions: {
     flexDirection: "row",
     alignItems: "center",

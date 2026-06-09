@@ -212,6 +212,7 @@ export default function PostDetailScreen() {
       setIsReposted(newStatus);
       qc.invalidateQueries({ queryKey: postKeys.detail(post.id) });
       qc.invalidateQueries({ queryKey: postKeys.lists() });
+      qc.invalidateQueries({ queryKey: ["my-reposts"] });
     } catch (e: any) {
       console.error("[repost] code:", e?.code, "msg:", e?.message);
       Alert.alert(
@@ -223,7 +224,7 @@ export default function PostDetailScreen() {
 
   const handleQuoteRepost = () => {
     if (!post) return;
-    router.push(`/post/create?quote=${post.id}` as any);
+    router.push(`/create/quote?postId=${post.id}` as any);
   };
 
   const handleShareComplete = async () => {
