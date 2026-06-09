@@ -1,4 +1,4 @@
-// hooks/useSearch.ts ✅
+// hooks/useSearch.ts ✅ with media filtering
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type SearchType = "top" | "account" | "post" | "community";
 export type FollowStatusLite = "none" | "pending" | "accepted";
+export type MediaFilterType = "all" | "images" | "videos" | "gifs";
 
 export type SearchAccount = {
   id: string;
@@ -46,7 +47,6 @@ export type SearchCommunity = {
   avatar_url?: string | null;
 };
 
-// ✅ FIXED: no extra fields — clean type
 export type SuggestedUser = {
   id: string;
   username: string | null;
@@ -95,9 +95,9 @@ export type UseSearchParams = {
   limit?: number;
   minChars?: number;
   debounceMs?: number;
+  mediaType?: MediaFilterType; // ✅ NEW: add media filtering
 };
 
-// ✅ FIXED: includes suggestions and detectedType
 type UseSearchReturn = {
   query: string;
   debouncedQuery: string;
@@ -120,6 +120,26 @@ function tsToIso(ts: any): string {
   if (ts?.toDate) return ts.toDate().toISOString();
   if (ts?.seconds) return new Date(ts.seconds * 1000).toISOString();
   return new Date(ts).toISOString();
+}
+
+// ✅ Helper functions for media type detection
+function isVideoUrl(url?: string | null | undefined): boolean {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
+  );
+}
+
+function isImageUrl(url?: string | null | undefined): boolean {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["jpg", "jpeg", "png", "webp"].some((e) => clean.endsWith(`.${e}`));
+}
+
+function isGifUrl(url?: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.split("?")[0].toLowerCase().endsWith(".gif");
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
@@ -211,7 +231,12 @@ async function searchAccounts(
     }));
 }
 
-async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
+// ✅ UPDATED searchPosts with media filtering
+async function searchPosts(
+  q: string,
+  lim: number,
+  mediaType: MediaFilterType = "all",
+): Promise<SearchPost[]> {
   const lower = q.toLowerCase().trim();
   if (!lower) return [];
   const isHashtagSearch = lower.startsWith("#");
@@ -249,7 +274,7 @@ async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
       .forEach((p) => docs.push(p));
   }
 
-  return docs
+  let results = docs
     .filter((p: any) => p.is_visible !== false)
     .slice(0, lim)
     .map((p: any) => ({
@@ -263,6 +288,23 @@ async function searchPosts(q: string, lim: number): Promise<SearchPost[]> {
       visibility: p.visibility ?? "public",
       user: p.user ?? null,
     }));
+
+  // ✅ NEW: Apply media filtering
+  if (mediaType === "images") {
+    results = results.filter((p) =>
+      p.media_urls?.some((url: string) => isImageUrl(url)),
+    );
+  } else if (mediaType === "videos") {
+    results = results.filter((p) =>
+      p.media_urls?.some((url: string) => isVideoUrl(url)),
+    );
+  } else if (mediaType === "gifs") {
+    results = results.filter((p) =>
+      p.media_urls?.some((url: string) => isGifUrl(url)),
+    );
+  }
+
+  return results;
 }
 
 async function searchCommunities(
@@ -499,6 +541,7 @@ export function useRecentSearches() {
   return { recents, add, remove, clear };
 }
 
+// ✅ UPDATED useSearch hook with mediaType support
 export function useSearch(params: UseSearchParams): UseSearchReturn {
   const {
     type,
@@ -506,6 +549,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     limit: lim = 20,
     minChars = 2,
     debounceMs = 350,
+    mediaType = "all", // ✅ NEW: add mediaType parameter
   } = params;
   const qc = useQueryClient();
   const trimmed = (rawQuery ?? "").trim();
@@ -521,8 +565,8 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
       : "general";
 
   const queryKey = useMemo(
-    () => ["search", type, debouncedQuery, lim] as const,
-    [type, debouncedQuery, lim],
+    () => ["search", type, debouncedQuery, lim, mediaType] as const,
+    [type, debouncedQuery, lim, mediaType],
   );
 
   const q = useQuery({
@@ -535,7 +579,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
       if (type === "top") {
         const [accounts, posts] = await Promise.all([
           searchAccounts(debouncedQuery, 3, uid),
-          searchPosts(debouncedQuery, lim - 3),
+          searchPosts(debouncedQuery, lim - 3, mediaType), // ✅ Pass mediaType
         ]);
         if (uid) seedFollowStatusCache(qc, uid, accounts);
         return {
@@ -556,7 +600,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
         };
       }
       if (type === "post") {
-        const posts = await searchPosts(debouncedQuery, lim);
+        const posts = await searchPosts(debouncedQuery, lim, mediaType); // ✅ Pass mediaType
         return {
           accounts: [] as SearchAccount[],
           posts,

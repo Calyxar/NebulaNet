@@ -1,7 +1,13 @@
 // components/Skeleton.tsx — UPDATED ✅ dark mode support
 import { useTheme } from "@/providers/ThemeProvider";
 import React, { useEffect, useRef } from "react";
-import { Animated, StyleSheet, View, type ViewStyle } from "react-native";
+import {
+  Animated,
+  Dimensions,
+  StyleSheet,
+  View,
+  type ViewStyle,
+} from "react-native";
 
 export function Skeleton({ style }: { style?: ViewStyle }) {
   const { isDark } = useTheme();
@@ -209,6 +215,33 @@ export function ProfilePostsSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
+export function GridSkeleton({ colors }: { colors: any }) {
+  const { isDark } = useTheme();
+  const bgColor = isDark ? "#2C2C2E" : "#E5E7EB";
+
+  return (
+    <View style={gridStyles.gridWrap}>
+      {Array(3)
+        .fill(null)
+        .map((_, ri) => (
+          <View key={ri} style={gridStyles.gridRow}>
+            {Array(3)
+              .fill(null)
+              .map((_, ci) => (
+                <View
+                  key={ci}
+                  style={[
+                    gridStyles.gridCell,
+                    { backgroundColor: bgColor, opacity: 0.5 },
+                  ]}
+                />
+              ))}
+          </View>
+        ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     borderRadius: 22,
@@ -313,4 +346,14 @@ const styles = StyleSheet.create({
   convName: { height: 14, width: "40%", borderRadius: 7 },
   convTime: { height: 11, width: 40, borderRadius: 6 },
   convPreview: { height: 12, width: "70%", borderRadius: 6 },
+});
+
+const gridStyles = StyleSheet.create({
+  gridWrap: { gap: 2, borderRadius: 22, overflow: "hidden" },
+  gridRow: { flexDirection: "row", gap: 2 },
+  gridCell: {
+    width: (Dimensions.get("window").width - 36 - 4) / 3,
+    height: (Dimensions.get("window").width - 36 - 4) / 3,
+    borderRadius: 12,
+  },
 });

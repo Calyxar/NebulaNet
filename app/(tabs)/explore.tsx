@@ -880,10 +880,14 @@ export default function ExploreScreen() {
 
   const { data, isSearching, isIdle } = useSearch({
     type: (searchType ?? "top") as any,
-    query: searchQuery,
+    query: shouldSearch ? searchQuery : "",
     minChars: 2,
     limit: 20,
     debounceMs: 350,
+    mediaType:
+      activeCategory === "media" || activeCategory === "latest"
+        ? mediaFilter
+        : "all",
   });
 
   const accounts = (data as any)?.accounts ?? [];
