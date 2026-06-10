@@ -120,7 +120,7 @@ export default function UserProfileScreen() {
           .collection("profiles")
           .doc(username)
           .get();
-        if (!snap.exists()) return null;
+        if (!snap.exists) return null;
         const d = snap.data() as any;
         return {
           id: snap.id,
@@ -237,8 +237,7 @@ export default function UserProfileScreen() {
         .collection("profiles")
         .doc(target!.id)
         .get();
-      if (!snap.exists())
-        return { hide_followers: false, hide_following: false };
+      if (!snap.exists) return { hide_followers: false, hide_following: false };
       const d = snap.data() as any;
       return {
         hide_followers: d.hide_followers === true,
@@ -286,6 +285,8 @@ export default function UserProfileScreen() {
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", target!.id)
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
         .get();
       return snap.docs.map((d) => {
         const x = d.data() as any;
