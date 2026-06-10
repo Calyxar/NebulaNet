@@ -217,7 +217,7 @@ async function resolveUserIdFromUsername(
 
 async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
   const snap = await firestore().collection("profiles").doc(uid).get();
-  if (!snap.exists()) return null;
+  if (!snap.exists) return null;
   const d = snap.data() as any;
   return {
     id: uid,
@@ -234,7 +234,7 @@ async function getCommunitySnapshot(
     .collection("communities")
     .doc(communityId)
     .get();
-  if (!snap.exists()) return null;
+  if (!snap.exists) return null;
   const d = snap.data() as any;
   return {
     id: communityId,
@@ -532,7 +532,7 @@ export async function getPostById(id: string): Promise<Post | null> {
   const clean = id?.trim();
   if (!clean) return null;
   const snap = await firestore().collection("posts").doc(clean).get();
-  if (!snap.exists()) return null;
+  if (!snap.exists) return null;
   const d = snap.data() as any;
   if (d.is_visible === false) return null;
   const viewerId = auth.currentUser?.uid ?? "";
@@ -651,7 +651,7 @@ export async function updatePost(
   const uid = viewer.uid;
   const refDoc = firestore().collection("posts").doc(postId);
   const snap = await refDoc.get();
-  if (!snap.exists()) return null;
+  if (!snap.exists) return null;
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
 
@@ -692,7 +692,7 @@ export async function deletePost(postId: string): Promise<boolean> {
   const uid = viewer.uid;
   const refDoc = firestore().collection("posts").doc(postId);
   const snap = await refDoc.get();
-  if (!snap.exists()) return false;
+  if (!snap.exists) return false;
   const d = snap.data() as any;
   if (d.user_id !== uid) throw new Error("Not allowed");
 
