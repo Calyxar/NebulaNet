@@ -272,10 +272,13 @@ export function useCreatePost() {
       );
     },
     onSettled: () => {
+      const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.lists() });
       // ✅ Invalidate profile tab queries so new post shows in Posts + Media tabs
-      qc.invalidateQueries({ queryKey: ["my-posts"] });
-      qc.invalidateQueries({ queryKey: ["my-stats"] });
+      if (uid) {
+        qc.invalidateQueries({ queryKey: ["my-posts"] });
+        qc.invalidateQueries({ queryKey: ["my-stats"] });
+      }
     },
   });
 }
@@ -326,10 +329,13 @@ export function useDeletePost() {
       });
     },
     onSettled: () => {
+      const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.lists() });
       // ✅ Also refresh profile tab after delete
-      qc.invalidateQueries({ queryKey: ["my-posts"] });
-      qc.invalidateQueries({ queryKey: ["my-stats"] });
+      if (uid) {
+        qc.invalidateQueries({ queryKey: ["my-posts"] });
+        qc.invalidateQueries({ queryKey: ["my-stats"] });
+      }
     },
   });
 }
