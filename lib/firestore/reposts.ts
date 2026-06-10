@@ -1,4 +1,3 @@
-// lib/firestore/reposts.ts ✅
 import { auth } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
@@ -6,9 +5,7 @@ export async function toggleRepost(
   postId: string,
   isReposted: boolean,
 ): Promise<boolean> {
-  console.log("🔁 toggleRepost called", { postId, isReposted }); // ✅ diagnostic
   const uid = auth.currentUser?.uid;
-  console.log("🔁 uid:", uid); // ✅ diagnostic
   if (!uid) throw new Error("Not authenticated");
 
   const repostRef = firestore().collection("reposts").doc(`${uid}_${postId}`);
@@ -70,14 +67,7 @@ export async function toggleRepost(
       );
     }
 
-    try {
-      await Promise.all(writes);
-      console.log("🔁 repost write SUCCESS"); // ✅ diagnostic
-    } catch (e: any) {
-      console.error("[toggleRepost] write failed:", e?.code, e?.message);
-      throw e;
-    }
-
+    await Promise.all(writes);
     return true;
   }
 }
@@ -89,7 +79,7 @@ export async function getRepostStatus(postId: string): Promise<boolean> {
     .collection("reposts")
     .doc(`${uid}_${postId}`)
     .get();
-  return snap.exists();
+  return !!snap.exists;
 }
 
 export async function getUserReposts(

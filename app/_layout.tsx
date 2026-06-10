@@ -13,7 +13,9 @@ import {
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import messaging from "@react-native-firebase/messaging";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Notifications from "expo-notifications";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
@@ -35,10 +37,27 @@ function ThemeSync() {
 
 function PushNotificationSetup() {
   const { user } = useAuth();
+
   useEffect(() => {
     setupNotificationHandler();
     setupNotificationChannels();
-    if (user?.uid) registerPushNotifications();
+
+    // ✅ onMessage set up ONCE here, not inside registerForPushNotificationsAsync
+    const unsubscribeMessage = messaging().onMessage(async (remoteMessage) => {
+      const title = remoteMessage.notification?.title;
+      const body = remoteMessage.notification?.body;
+      if (!title && !body) return;
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: title ?? "NebulaNet",
+          body: body ?? "",
+          sound: "notification.wav",
+          data: remoteMessage.data ?? {},
+        },
+        trigger: null,
+      });
+    });
+
     const cleanup = setupNotificationListeners(
       (notification) => {
         console.log("Notification received:", notification);
@@ -65,8 +84,18 @@ function PushNotificationSetup() {
         }
       },
     );
-    return cleanup;
+
+    return () => {
+      unsubscribeMessage();
+      cleanup();
+    };
+  }, []); // ✅ runs once only
+
+  // ✅ Register FCM token separately when user changes
+  useEffect(() => {
+    if (user?.uid) registerPushNotifications();
   }, [user?.uid]);
+
   return null;
 }
 
@@ -82,16 +111,11 @@ function RootLayout() {
 
   const isReady = !isLoading && !isUserSettingsLoading && !isProfileLoading;
 
-  // ✅ Track the last route we navigated to so we don't re-fire the same
-  // replace on every render. Using a string instead of a boolean ref means
-  // any change in destination (e.g. onboarding → home after completing it)
-  // will correctly re-navigate.
   const lastRoute = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
 
-    // Determine destination
     let destination: string;
 
     if (!user) {
@@ -110,14 +134,11 @@ function RootLayout() {
       }
     }
 
-    // ✅ Only navigate if destination changed — prevents infinite re-renders
-    // but still re-fires when onboarding_completed flips back to false
     if (lastRoute.current === destination) return;
     lastRoute.current = destination;
     router.replace(destination as any);
   }, [isReady, user, hasCompletedOnboarding, profile]);
 
-  // ✅ Reset lastRoute when user signs out so next login redirects correctly
   useEffect(() => {
     if (!user) lastRoute.current = null;
   }, [user]);

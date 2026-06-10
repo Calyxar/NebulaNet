@@ -95,18 +95,15 @@ async function uploadAvatar(uid: string, uri: string): Promise<string> {
 }
 
 async function saveUserInterests(uid: string, interests: string[]) {
-  await db
-    .collection("user_interests")
-    .doc(uid)
-    .set(
-      {
-        user_id: uid,
-        interests,
-        updated_at: nowIso(),
-        updated_at_ts: firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+  await db.collection("user_interests").doc(uid).set(
+    {
+      user_id: uid,
+      interests,
+      updated_at: nowIso(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
 
 // ── Progress bar ─────────────────────────────────────────────────────────────
@@ -509,6 +506,11 @@ export default function OnboardingScreen() {
   };
 
   const handleFinish = async () => {
+    if (user?.uid) {
+      try {
+        await completeOnboarding();
+      } catch {}
+    }
     router.replace("/(auth)/birthdate" as any);
   };
 

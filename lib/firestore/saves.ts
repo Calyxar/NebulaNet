@@ -1,5 +1,3 @@
-// lib/firestore/saves.ts — FIREBASE ✅
-
 import { auth, db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
@@ -17,6 +15,7 @@ export async function toggleSavePost(postId: string, isSaved: boolean) {
       {
         user_id: uid,
         post_id: postId,
+        saved_at: new Date().toISOString(),
         created_at_ts: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },

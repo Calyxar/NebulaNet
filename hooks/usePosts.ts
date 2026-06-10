@@ -1,12 +1,3 @@
-// hooks/usePosts.ts ✅
-// ✅ FIXED: useToggleLike onSettled no longer invalidates lists
-// ✅ FIXED: useToggleBookmark same fix — only invalidates detail, not lists
-// ✅ FIXED: useToggleBookmark writes to "saves" collection
-// ✅ FIXED: useToggleRepost added with optimistic update + cache invalidation
-// ✅ FIXED: repost_count added to optimistic post in useCreatePost
-// ✅ FIXED: useCurrentUserProfileSync — real-time feed patch on profile change
-// ✅ FIXED: useCreatePost onSettled invalidates my-posts and my-reposts so profile tab refreshes
-
 import { useAuth } from "@/hooks/useAuth";
 import { useSettings } from "@/hooks/useSettings";
 import { auth, db } from "@/lib/firebase";
@@ -274,10 +265,9 @@ export function useCreatePost() {
     onSettled: () => {
       const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.lists() });
-      // ✅ Invalidate profile tab queries so new post shows in Posts + Media tabs
       if (uid) {
-        qc.invalidateQueries({ queryKey: ["my-posts"] });
-        qc.invalidateQueries({ queryKey: ["my-stats"] });
+        qc.invalidateQueries({ queryKey: ["user-posts", uid] });
+        qc.invalidateQueries({ queryKey: ["user-stats", uid] });
       }
     },
   });
@@ -331,10 +321,9 @@ export function useDeletePost() {
     onSettled: () => {
       const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.lists() });
-      // ✅ Also refresh profile tab after delete
       if (uid) {
-        qc.invalidateQueries({ queryKey: ["my-posts"] });
-        qc.invalidateQueries({ queryKey: ["my-stats"] });
+        qc.invalidateQueries({ queryKey: ["user-posts", uid] });
+        qc.invalidateQueries({ queryKey: ["user-stats", uid] });
       }
     },
   });
@@ -471,7 +460,11 @@ export function useToggleBookmark() {
       });
     },
     onSettled: (_data, _err, vars) => {
+      const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+      if (uid) {
+        qc.invalidateQueries({ queryKey: ["saved-posts", uid] });
+      }
     },
   });
 }
@@ -515,10 +508,12 @@ export function useToggleRepost() {
       });
     },
     onSettled: (_data, _err, vars) => {
+      const uid = auth.currentUser?.uid;
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
       qc.invalidateQueries({ queryKey: postKeys.lists() });
-      // ✅ Refresh activity tab
-      qc.invalidateQueries({ queryKey: ["my-reposts"] });
+      if (uid) {
+        qc.invalidateQueries({ queryKey: ["user-reposts", uid] });
+      }
     },
   });
 }
@@ -609,7 +604,6 @@ export function useIncrementShareCount() {
   });
 }
 
-// ✅ Real-time listener — patches feed cache when current user's profile changes
 export function useCurrentUserProfileSync() {
   const qc = useQueryClient();
   const uid = auth.currentUser?.uid;
