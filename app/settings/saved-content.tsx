@@ -54,11 +54,14 @@ export default function SavedContentScreen() {
   const savedQuery = useQuery({
     queryKey: ["saved-posts", user?.uid],
     enabled: !!user && activeTab === "saved",
+    staleTime: 0,
+    gcTime: 0,
     queryFn: async (): Promise<SavedItem[]> => {
       if (!user) return [];
       const snap = await db
         .collection("saves")
         .where("user_id", "==", user.uid)
+        .orderBy("saved_at", "desc")
         .get();
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
