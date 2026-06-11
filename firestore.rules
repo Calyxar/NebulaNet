@@ -129,6 +129,12 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
+    match /community_moderators/{modId} {
+  allow read: if signedIn();
+  allow create: if signedIn() && request.resource.data.user_id == uid();
+  allow delete: if signedIn() && resource.data.user_id == uid();
+}
+
     match /user_settings/{userId} {
       allow read: if isSelf(userId);
       allow write: if isSelf(userId);

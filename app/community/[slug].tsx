@@ -109,7 +109,9 @@ export default function CommunityScreen() {
 
   const [isJoined, setIsJoined] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
-  const [activeTab, setActiveTab] = useState<"feed" | "members" | "rules" | "media">("feed");
+  const [activeTab, setActiveTab] = useState<
+    "feed" | "members" | "rules" | "media"
+  >("feed");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -171,12 +173,14 @@ export default function CommunityScreen() {
 
       if (user?.uid) {
         const [memberSnap, modSnap] = await Promise.all([
-          db.collection("community_members")
+          db
+            .collection("community_members")
             .where("community_id", "==", c.id)
             .where("user_id", "==", user.uid)
             .limit(1)
             .get(),
-          db.collection("community_moderators")
+          db
+            .collection("community_moderators")
             .where("community_id", "==", c.id)
             .where("user_id", "==", user.uid)
             .limit(1)
@@ -196,13 +200,25 @@ export default function CommunityScreen() {
 
       const [postsTyped, rulesTyped, membersTyped] = await Promise.all([
         canViewPrivate
-          ? db.collection("posts").where("community_id", "==", c.id).get()
-              .then((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[])
+          ? db
+              .collection("posts")
+              .where("community_id", "==", c.id)
+              .get()
+              .then(
+                (snap) =>
+                  snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[],
+              )
           : Promise.resolve([] as Post[]),
 
         canViewPrivate
-          ? db.collection("community_rules").where("community_id", "==", c.id).get()
-              .then((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Rule[])
+          ? db
+              .collection("community_rules")
+              .where("community_id", "==", c.id)
+              .get()
+              .then(
+                (snap) =>
+                  snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Rule[],
+              )
           : Promise.resolve([] as Rule[]),
 
         canViewPrivate
@@ -249,9 +265,15 @@ export default function CommunityScreen() {
     async (delta: number) => {
       if (!community?.id) return;
       try {
-        const current = typeof community.member_count === "number" ? community.member_count : 0;
+        const current =
+          typeof community.member_count === "number"
+            ? community.member_count
+            : 0;
         const next = Math.max(0, current + delta);
-        await db.collection("communities").doc(community.id).update({ member_count: next });
+        await db
+          .collection("communities")
+          .doc(community.id)
+          .update({ member_count: next });
         setCommunity((prev) => (prev ? { ...prev, member_count: next } : prev));
       } catch {
         // ignore
@@ -305,7 +327,13 @@ export default function CommunityScreen() {
     } finally {
       setJoining(false);
     }
-  }, [community?.id, community?.owner_id, user?.uid, loadCommunity, bumpMemberCount]);
+  }, [
+    community?.id,
+    community?.owner_id,
+    user?.uid,
+    loadCommunity,
+    bumpMemberCount,
+  ]);
 
   const confirmDeleteCommunity = useCallback(() => {
     if (!community?.id || !community?.slug) return;
@@ -324,7 +352,8 @@ export default function CommunityScreen() {
               Alert.alert("Deleted", "Community deleted successfully.");
               router.replace("/(tabs)/explore");
             } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : "Failed to delete community.";
+              const msg =
+                e instanceof Error ? e.message : "Failed to delete community.";
               Alert.alert("Error", msg);
             } finally {
               setDeletingCommunity(false);
@@ -389,7 +418,10 @@ export default function CommunityScreen() {
                 <View
                   style={[
                     styles.avatar,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
                   ]}
                 >
                   <Text style={{ color: colors.primary, fontWeight: "900" }}>
@@ -398,7 +430,10 @@ export default function CommunityScreen() {
                 </View>
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.author, { color: colors.text }]} numberOfLines={1}>
+                <Text
+                  style={[styles.author, { color: colors.text }]}
+                  numberOfLines={1}
+                >
                   {name}
                 </Text>
                 <Text style={[styles.time, { color: colors.textTertiary }]}>
@@ -406,17 +441,26 @@ export default function CommunityScreen() {
                 </Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.textTertiary}
+            />
           </View>
 
           {!!item.content && (
-            <Text style={[styles.content, { color: colors.text }]} numberOfLines={6}>
+            <Text
+              style={[styles.content, { color: colors.text }]}
+              numberOfLines={6}
+            >
               {item.content}
             </Text>
           )}
 
           {!!firstMedia && (
-            <View style={[styles.mediaWrap, { backgroundColor: colors.surface }]}>
+            <View
+              style={[styles.mediaWrap, { backgroundColor: colors.surface }]}
+            >
               <Image source={{ uri: firstMedia }} style={styles.mediaHero} />
               {isVideoUrl(firstMedia) && (
                 <View style={styles.playOverlay}>
@@ -455,7 +499,10 @@ export default function CommunityScreen() {
             backgroundColor: colors.surface,
           }}
         >
-          <Image source={{ uri: item.url }} style={{ width: "100%", height: "100%" }} />
+          <Image
+            source={{ uri: item.url }}
+            style={{ width: "100%", height: "100%" }}
+          />
           {isVideo && (
             <View style={styles.mediaBadge}>
               <Ionicons name="videocam" size={14} color="#fff" />
@@ -469,7 +516,10 @@ export default function CommunityScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "left", "right"]}>
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: colors.background }}
+        edges={["top", "left", "right"]}
+      >
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -479,7 +529,10 @@ export default function CommunityScreen() {
 
   if (!community) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "left", "right"]}>
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: colors.background }}
+        edges={["top", "left", "right"]}
+      >
         <View style={styles.center}>
           <Text style={{ color: colors.text }}>Community not found</Text>
         </View>
@@ -490,38 +543,116 @@ export default function CommunityScreen() {
   const showPrivatePill = normalizeBool(community.is_private);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top", "left", "right"]}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      edges={["top", "left", "right"]}
+    >
       <AppHeader
         backgroundColor={colors.background}
         leftWide={
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => router.back()}
-              style={[styles.iconCircle, { backgroundColor: colors.card, shadowOpacity: isDark ? 0.22 : 0.06 }]}
+              style={[
+                styles.iconCircle,
+                {
+                  backgroundColor: colors.card,
+                  shadowOpacity: isDark ? 0.22 : 0.06,
+                },
+              ]}
             >
               <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
 
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+              <Text
+                style={[styles.headerTitle, { color: colors.text }]}
+                numberOfLines={1}
+              >
                 {community.name}
               </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 4,
+                }}
+              >
                 {!!memberCountLabel && (
-                  <Text style={{ color: colors.textTertiary, fontWeight: "800", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: colors.textTertiary,
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
                     {memberCountLabel}
                   </Text>
                 )}
                 {showPrivatePill && (
-                  <View style={[styles.privatePill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Ionicons name="lock-closed" size={12} color={colors.primary} />
-                    <Text style={{ color: colors.primary, fontWeight: "900", fontSize: 12 }}>Private</Text>
+                  <View
+                    style={[
+                      styles.privatePill,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="lock-closed"
+                      size={12}
+                      color={colors.primary}
+                    />
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontWeight: "900",
+                        fontSize: 12,
+                      }}
+                    >
+                      Private
+                    </Text>
                   </View>
                 )}
               </View>
+              {!!community.image_url && (
+                <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
+                  <Image
+                    source={{ uri: community.image_url }}
+                    style={[
+                      styles.hero,
+                      {
+                        height: heroHeight,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
+
               {!!community.description && (
-                <Text style={[styles.headerSub, { color: colors.textTertiary }]} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.headerSub,
+                    {
+                      color: colors.textTertiary,
+                      paddingHorizontal: 14,
+                      paddingBottom: 10,
+                    },
+                  ]}
+                >
                   {community.description}
                 </Text>
               )}
@@ -535,9 +666,21 @@ export default function CommunityScreen() {
                 onPress={isJoined ? leaveCommunity : joinCommunity}
                 disabled={joining}
                 activeOpacity={0.85}
-                style={[styles.joinBtn, { backgroundColor: isJoined ? colors.card : colors.primary, borderColor: colors.border }]}
+                style={[
+                  styles.joinBtn,
+                  {
+                    backgroundColor: isJoined ? colors.card : colors.primary,
+                    borderColor: colors.border,
+                  },
+                ]}
               >
-                <Text style={{ color: isJoined ? colors.primary : "#fff", fontWeight: "900", fontSize: 12 }}>
+                <Text
+                  style={{
+                    color: isJoined ? colors.primary : "#fff",
+                    fontWeight: "900",
+                    fontSize: 12,
+                  }}
+                >
                   {joining ? "..." : isJoined ? "Joined" : "Join"}
                 </Text>
               </TouchableOpacity>
@@ -547,18 +690,30 @@ export default function CommunityScreen() {
                 onPress={confirmDeleteCommunity}
                 disabled={deletingCommunity}
                 activeOpacity={0.85}
-                style={[styles.manageBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.manageBtn,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
               >
                 <Ionicons name="trash-outline" size={16} color="#EF4444" />
               </TouchableOpacity>
             )}
             {canManage && (
               <TouchableOpacity
-                onPress={() => router.push(`/community/${community.slug}/manage` as any)}
+                onPress={() =>
+                  router.push(`/community/${community.slug}/manage` as any)
+                }
                 activeOpacity={0.85}
-                style={[styles.manageBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.manageBtn,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
               >
-                <Ionicons name="settings-outline" size={16} color={colors.text} />
+                <Ionicons
+                  name="settings-outline"
+                  size={16}
+                  color={colors.text}
+                />
               </TouchableOpacity>
             )}
           </View>
@@ -569,20 +724,51 @@ export default function CommunityScreen() {
         <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
           <Image
             source={{ uri: community.image_url }}
-            style={[styles.hero, { height: heroHeight, backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.hero,
+              {
+                height: heroHeight,
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+              },
+            ]}
           />
         </View>
       )}
 
       {isLocked ? (
-        <View style={[styles.lockedContainer, { paddingBottom: 20 + insets.bottom }]}>
-          <View style={[styles.lockIcon, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.lockedContainer,
+            { paddingBottom: 20 + insets.bottom },
+          ]}
+        >
+          <View
+            style={[
+              styles.lockIcon,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
             <Ionicons name="lock-closed" size={28} color={colors.primary} />
           </View>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "900", marginTop: 12 }}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: 18,
+              fontWeight: "900",
+              marginTop: 12,
+            }}
+          >
             This community is private
           </Text>
-          <Text style={{ color: colors.textTertiary, marginTop: 8, textAlign: "center", lineHeight: 20 }}>
+          <Text
+            style={{
+              color: colors.textTertiary,
+              marginTop: 8,
+              textAlign: "center",
+              lineHeight: 20,
+            }}
+          >
             Join to view posts, members, rules, and media.
           </Text>
           <TouchableOpacity
@@ -602,7 +788,11 @@ export default function CommunityScreen() {
           <View
             style={[
               styles.tabsWrap,
-              { backgroundColor: colors.card, borderColor: colors.border, shadowOpacity: isDark ? 0.22 : 0.05 },
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                shadowOpacity: isDark ? 0.22 : 0.05,
+              },
             ]}
           >
             {(["feed", "members", "rules", "media"] as const).map((t) => {
@@ -612,9 +802,18 @@ export default function CommunityScreen() {
                   key={t}
                   onPress={() => setActiveTab(t)}
                   activeOpacity={0.85}
-                  style={[styles.tabBtn, active && { backgroundColor: colors.primary }]}
+                  style={[
+                    styles.tabBtn,
+                    active && { backgroundColor: colors.primary },
+                  ]}
                 >
-                  <Text style={{ color: active ? "#fff" : colors.textTertiary, fontWeight: "900", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: active ? "#fff" : colors.textTertiary,
+                      fontWeight: "900",
+                      fontSize: 12,
+                    }}
+                  >
                     {t.toUpperCase()}
                   </Text>
                 </TouchableOpacity>
@@ -627,12 +826,25 @@ export default function CommunityScreen() {
               data={posts}
               keyExtractor={(i) => i.id}
               renderItem={renderPost}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-              contentContainerStyle={{ padding: 14, paddingBottom: 14 + insets.bottom }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                />
+              }
+              contentContainerStyle={{
+                padding: 14,
+                paddingBottom: 14 + insets.bottom,
+              }}
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.centerPad}>
-                  <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>No posts yet.</Text>
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "800" }}
+                  >
+                    No posts yet.
+                  </Text>
                 </View>
               }
             />
@@ -643,31 +855,79 @@ export default function CommunityScreen() {
               data={members}
               keyExtractor={(i) => i.user_id}
               renderItem={({ item }) => {
-                const name = item.profile?.full_name || item.profile?.username || "Member";
+                const name =
+                  item.profile?.full_name || item.profile?.username || "Member";
                 return (
-                  <View style={[styles.rowCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View
+                    style={[
+                      styles.rowCard,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
                     {item.profile?.avatar_url ? (
-                      <Image source={{ uri: item.profile.avatar_url }} style={styles.memberAvatar} />
+                      <Image
+                        source={{ uri: item.profile.avatar_url }}
+                        style={styles.memberAvatar}
+                      />
                     ) : (
-                      <View style={[styles.memberAvatar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                        <Text style={{ color: colors.primary, fontWeight: "900" }}>{safeFirstLetter(name)}</Text>
+                      <View
+                        style={[
+                          styles.memberAvatar,
+                          {
+                            backgroundColor: colors.surface,
+                            borderColor: colors.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{ color: colors.primary, fontWeight: "900" }}
+                        >
+                          {safeFirstLetter(name)}
+                        </Text>
                       </View>
                     )}
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>{name}</Text>
-                      <Text style={[styles.rowSub, { color: colors.textTertiary }]} numberOfLines={1}>
-                        {item.profile?.username ? `@${item.profile.username}` : " "}
+                      <Text
+                        style={[styles.rowTitle, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {name}
+                      </Text>
+                      <Text
+                        style={[styles.rowSub, { color: colors.textTertiary }]}
+                        numberOfLines={1}
+                      >
+                        {item.profile?.username
+                          ? `@${item.profile.username}`
+                          : " "}
                       </Text>
                     </View>
                   </View>
                 );
               }}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-              contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 14 + insets.bottom }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                />
+              }
+              contentContainerStyle={{
+                padding: 14,
+                gap: 10,
+                paddingBottom: 14 + insets.bottom,
+              }}
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.centerPad}>
-                  <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>No members found.</Text>
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "800" }}
+                  >
+                    No members found.
+                  </Text>
                 </View>
               }
             />
@@ -678,21 +938,52 @@ export default function CommunityScreen() {
               data={rules}
               keyExtractor={(i) => i.id}
               renderItem={({ item }) => (
-                <View style={[styles.rowCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.rowCard,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowTitle, { color: colors.text }]}>{item.title}</Text>
+                    <Text style={[styles.rowTitle, { color: colors.text }]}>
+                      {item.title}
+                    </Text>
                     {!!item.description && (
-                      <Text style={[styles.ruleBody, { color: colors.textTertiary }]}>{item.description}</Text>
+                      <Text
+                        style={[
+                          styles.ruleBody,
+                          { color: colors.textTertiary },
+                        ]}
+                      >
+                        {item.description}
+                      </Text>
                     )}
                   </View>
                 </View>
               )}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-              contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 14 + insets.bottom }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                />
+              }
+              contentContainerStyle={{
+                padding: 14,
+                gap: 10,
+                paddingBottom: 14 + insets.bottom,
+              }}
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.centerPad}>
-                  <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>No rules set.</Text>
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "800" }}
+                  >
+                    No rules set.
+                  </Text>
                 </View>
               }
             />
@@ -704,13 +995,27 @@ export default function CommunityScreen() {
               keyExtractor={(i) => `${i.postId}:${i.url}`}
               numColumns={3}
               columnWrapperStyle={{ gap: 10 }}
-              contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 14 + insets.bottom }}
+              contentContainerStyle={{
+                padding: 14,
+                gap: 10,
+                paddingBottom: 14 + insets.bottom,
+              }}
               renderItem={renderMedia}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                />
+              }
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.centerPad}>
-                  <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>No media yet.</Text>
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "800" }}
+                  >
+                    No media yet.
+                  </Text>
                 </View>
               }
             />
@@ -724,32 +1029,175 @@ export default function CommunityScreen() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   centerPad: { paddingVertical: 28, alignItems: "center" },
-  iconCircle: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowRadius: 16, elevation: 2 },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    elevation: 2,
+  },
   headerTitle: { fontSize: 18, fontWeight: "900" },
   headerSub: { marginTop: 6, fontSize: 12.5, fontWeight: "700" },
-  privatePill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
-  joinBtn: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, alignItems: "center", justifyContent: "center", minWidth: 86 },
-  manageBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  privatePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  joinBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 86,
+  },
+  manageBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   hero: { width: "100%", borderRadius: 18, borderWidth: 1 },
-  tabsWrap: { marginHorizontal: 14, marginTop: 6, marginBottom: 12, borderRadius: 24, borderWidth: 1, padding: 6, flexDirection: "row", gap: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowRadius: 16, elevation: 2 },
-  tabBtn: { flex: 1, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  postCard: { borderRadius: 22, borderWidth: 1, padding: 14, marginBottom: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowRadius: 16, elevation: 2 },
-  postTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  authorRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  tabsWrap: {
+    marginHorizontal: 14,
+    marginTop: 6,
+    marginBottom: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 6,
+    flexDirection: "row",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  tabBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  postTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  authorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
   author: { fontSize: 14, fontWeight: "900" },
   time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
-  content: { fontSize: 14, lineHeight: 20, marginBottom: 10, fontWeight: "600" },
-  mediaWrap: { width: "100%", height: 220, borderRadius: 18, overflow: "hidden", position: "relative" },
+  content: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 10,
+    fontWeight: "600",
+  },
+  mediaWrap: {
+    width: "100%",
+    height: 220,
+    borderRadius: 18,
+    overflow: "hidden",
+    position: "relative",
+  },
   mediaHero: { width: "100%", height: "100%" },
-  playOverlay: { position: "absolute", top: "50%", left: "50%", marginLeft: -22, marginTop: -22, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.35)", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
-  rowCard: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 },
-  memberAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  playOverlay: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -22,
+    marginTop: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  rowCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  memberAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
   rowTitle: { fontSize: 14, fontWeight: "900" },
   rowSub: { fontSize: 12, fontWeight: "800", marginTop: 3 },
   ruleBody: { marginTop: 8, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
-  mediaBadge: { position: "absolute", right: 8, bottom: 8, backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 },
-  lockedContainer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
-  lockIcon: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", borderWidth: 1 },
-  lockJoinBtn: { marginTop: 16, borderRadius: 16, paddingHorizontal: 18, paddingVertical: 12 },
+  mediaBadge: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  lockedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  lockIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  lockJoinBtn: {
+    marginTop: 16,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
 });
