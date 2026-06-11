@@ -1,4 +1,3 @@
-// app/(tabs)/explore.tsx
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { PostSearchSkeleton, SearchRowSkeleton } from "@/components/Skeleton";
@@ -10,11 +9,13 @@ import { useFollowActions, useFollowStatus } from "@/hooks/useFollowActions";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import {
   fetchDiscoveryPosts,
+  fetchSuggestedCommunities,
   fetchSuggestedUsers,
   fetchTrendingPosts,
   useRecentSearches,
   useSearch,
   type DiscoveryPost,
+  type SearchCommunity,
   type SuggestedUser,
   type TrendingPost,
 } from "@/hooks/useSearch";
@@ -399,12 +400,14 @@ function SuggestedUserRow({
   colors,
   showBorder = true,
   onOpenMenu,
+  onDismiss,
 }: {
   user: SuggestedUser;
   idx: number;
   colors: any;
   showBorder?: boolean;
   onOpenMenu?: () => void;
+  onDismiss?: () => void;
 }) {
   const { follow, unfollow, isFollowingBusy } = useFollowActions(
     u.id,
@@ -466,6 +469,18 @@ function SuggestedUserRow({
       </TouchableOpacity>
 
       <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        {onDismiss && (
+          <TouchableOpacity
+            onPress={onDismiss}
+            activeOpacity={0.85}
+            style={[
+              styles.menuBtn,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="close" size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={() => (isFollowing ? unfollow() : follow())}
           disabled={isFollowingBusy}
@@ -518,6 +533,66 @@ function SuggestedUserRow({
         )}
       </View>
     </View>
+  );
+}
+
+function CommunityRow({
+  community: c,
+  idx,
+  colors,
+}: {
+  community: SearchCommunity;
+  idx: number;
+  colors: any;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      style={[
+        styles.row,
+        idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
+      ]}
+      onPress={() => router.push(`/community/${c.slug}`)}
+    >
+      {c.image_url ? (
+        <Image
+          source={{ uri: c.image_url }}
+          style={[styles.communityAvatar, { backgroundColor: colors.surface }]}
+        />
+      ) : (
+        <View
+          style={[styles.communityBadge, { backgroundColor: colors.surface }]}
+        >
+          <Ionicons name="people" size={18} color={colors.primary} />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text
+          style={[styles.rowTitle, { color: colors.text }]}
+          numberOfLines={1}
+        >
+          {c.name}
+        </Text>
+        <Text
+          style={[styles.rowSubtitle, { color: colors.textTertiary }]}
+          numberOfLines={1}
+        >
+          {c.member_count
+            ? `${c.member_count.toLocaleString()} members`
+            : (c.description ?? "")}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={[
+          styles.followBtn,
+          { backgroundColor: colors.primary, borderColor: colors.primary },
+        ]}
+        onPress={() => router.push(`/community/${c.slug}`)}
+        activeOpacity={0.85}
+      >
+        <Text style={[styles.followBtnText, { color: "#fff" }]}>Join</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
@@ -723,17 +798,23 @@ export default function ExploreScreen() {
   const actionsSheetRef = useRef<UserActionsSheetRef>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // Trending posts (engagement-based)
   const [trendingPosts, setTrendingPosts] = useState<TrendingPost[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
-
-  // Hashtags (kept for hashtag tab)
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>(
     [],
   );
 
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
+  const [allSuggested, setAllSuggested] = useState<SuggestedUser[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [suggestedLoading, setSuggestedLoading] = useState(true);
+
+  const [suggestedCommunities, setSuggestedCommunities] = useState<
+    SearchCommunity[]
+  >([]);
+  const [suggestedCommunitiesLoading, setSuggestedCommunitiesLoading] =
+    useState(true);
+
   const [discoveryPosts, setDiscoveryPosts] = useState<DiscoveryPost[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
 
@@ -822,7 +903,6 @@ export default function ExploreScreen() {
     return count;
   }, [mediaFilter, safetyFilter]);
 
-  // ✅ Engagement-based trending
   useEffect(() => {
     setTrendingLoading(true);
     fetchTrendingPosts(20)
@@ -831,7 +911,6 @@ export default function ExploreScreen() {
       .finally(() => setTrendingLoading(false));
   }, []);
 
-  // Hashtags for hashtag tab only
   useEffect(() => {
     getTrendingHashtags(15)
       .then(setTrendingHashtags)
@@ -840,11 +919,41 @@ export default function ExploreScreen() {
 
   useEffect(() => {
     setSuggestedLoading(true);
-    fetchSuggestedUsers(8)
-      .then(setSuggestedUsers)
+    fetchSuggestedUsers(20)
+      .then((users) => {
+        setAllSuggested(users);
+        setSuggestedUsers(users.slice(0, 8));
+      })
       .catch((e) => console.warn("fetchSuggestedUsers failed:", e))
       .finally(() => setSuggestedLoading(false));
   }, [user?.id]);
+
+  useEffect(() => {
+    setSuggestedCommunitiesLoading(true);
+    fetchSuggestedCommunities(5)
+      .then(setSuggestedCommunities)
+      .catch(() => {})
+      .finally(() => setSuggestedCommunitiesLoading(false));
+  }, [user?.id]);
+
+  const handleDismissSuggested = useCallback(
+    (id: string) => {
+      setDismissedIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      setSuggestedUsers((prev) => {
+        const filtered = prev.filter((u) => u.id !== id);
+        const shownIds = new Set(filtered.map((u) => u.id));
+        const replacement = allSuggested.find(
+          (u) => !shownIds.has(u.id) && u.id !== id && !dismissedIds.has(u.id),
+        );
+        return replacement ? [...filtered, replacement] : filtered;
+      });
+    },
+    [allSuggested, dismissedIds],
+  );
 
   useEffect(() => {
     setDiscoveryLoading(true);
@@ -1114,7 +1223,6 @@ export default function ExploreScreen() {
               { paddingBottom: bottomPad },
             ]}
           >
-            {/* ✅ TOP — engagement-based, no hashtags required */}
             {activeCategory === "top" && (
               <>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -1376,10 +1484,69 @@ export default function ExploreScreen() {
                         user={u}
                         idx={idx}
                         colors={colors}
+                        onDismiss={() => handleDismissSuggested(u.id)}
                         onOpenMenu={() => {
                           setSelectedUser(u);
                           actionsSheetRef.current?.snapToIndex(0);
                         }}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
+                  Communities you might like
+                </Text>
+
+                {suggestedCommunitiesLoading ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {Array(3)
+                      .fill(null)
+                      .map((_, i) => (
+                        <View
+                          key={i}
+                          style={
+                            i !== 0
+                              ? [
+                                  styles.rowBorder,
+                                  { borderTopColor: colors.border },
+                                ]
+                              : undefined
+                          }
+                        >
+                          <SearchRowSkeleton />
+                        </View>
+                      ))}
+                  </View>
+                ) : suggestedCommunities.length > 0 ? (
+                  <View
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: colors.card,
+                        shadowOpacity: isDark ? 0.22 : 0.05,
+                      },
+                    ]}
+                  >
+                    {suggestedCommunities.map((c, idx) => (
+                      <CommunityRow
+                        key={c.id}
+                        community={c}
+                        idx={idx}
+                        colors={colors}
                       />
                     ))}
                   </View>
@@ -1443,12 +1610,50 @@ export default function ExploreScreen() {
                       ))}
                   </View>
                 ) : isIdle ? (
-                  <EmptyState
-                    colors={colors}
-                    icon="search-outline"
-                    title="Start typing"
-                    subtitle="Type at least 2 characters to search accounts."
-                  />
+                  suggestedUsers.length > 0 ? (
+                    <View
+                      style={[
+                        styles.card,
+                        {
+                          backgroundColor: colors.card,
+                          shadowOpacity: isDark ? 0.22 : 0.05,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sectionTitle,
+                          {
+                            color: colors.text,
+                            paddingHorizontal: 14,
+                            paddingTop: 10,
+                          },
+                        ]}
+                      >
+                        Who to follow
+                      </Text>
+                      {suggestedUsers.slice(0, 5).map((u, idx) => (
+                        <SuggestedUserRow
+                          key={u.id}
+                          user={u}
+                          idx={idx}
+                          colors={colors}
+                          onDismiss={() => handleDismissSuggested(u.id)}
+                          onOpenMenu={() => {
+                            setSelectedUser(u);
+                            actionsSheetRef.current?.snapToIndex(0);
+                          }}
+                        />
+                      ))}
+                    </View>
+                  ) : (
+                    <EmptyState
+                      colors={colors}
+                      icon="people-outline"
+                      title="Find people to follow"
+                      subtitle="Type at least 2 characters to search accounts."
+                    />
+                  )
                 ) : accounts.length > 0 ? (
                   <View
                     style={[
@@ -1772,12 +1977,45 @@ export default function ExploreScreen() {
                       ))}
                   </View>
                 ) : isIdle ? (
-                  <EmptyState
-                    colors={colors}
-                    icon="search-outline"
-                    title="Start typing"
-                    subtitle="Type at least 2 characters to search communities."
-                  />
+                  suggestedCommunities.length > 0 ? (
+                    <View
+                      style={[
+                        styles.card,
+                        {
+                          backgroundColor: colors.card,
+                          shadowOpacity: isDark ? 0.22 : 0.05,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sectionTitle,
+                          {
+                            color: colors.text,
+                            paddingHorizontal: 14,
+                            paddingTop: 10,
+                          },
+                        ]}
+                      >
+                        Communities you might like
+                      </Text>
+                      {suggestedCommunities.map((c, idx) => (
+                        <CommunityRow
+                          key={c.id}
+                          community={c}
+                          idx={idx}
+                          colors={colors}
+                        />
+                      ))}
+                    </View>
+                  ) : (
+                    <EmptyState
+                      colors={colors}
+                      icon="people-circle-outline"
+                      title="Discover communities"
+                      subtitle="Type at least 2 characters to search communities."
+                    />
+                  )
                 ) : communities.length > 0 ? (
                   <View
                     style={[
@@ -1990,7 +2228,6 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
-
   headerLeftWide: {
     flexDirection: "row",
     alignItems: "center",
@@ -2055,7 +2292,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
-
   segmentScrollContent: { flexDirection: "row", gap: 6, padding: 6 },
   segmentWrap: {
     marginHorizontal: 18,
@@ -2074,7 +2310,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segmentText: { fontSize: 13, fontWeight: "700" },
-
   recentOverlay: { zIndex: 100 },
   recentPanel: {
     borderRadius: 22,
@@ -2116,7 +2351,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
@@ -2124,7 +2358,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   content: { paddingHorizontal: 18, paddingTop: 14 },
-
   card: {
     borderRadius: 22,
     paddingVertical: 6,
@@ -2150,7 +2383,6 @@ const styles = StyleSheet.create({
   rowBorder: { borderTopWidth: 1 },
   rowTitle: { fontSize: 14.5, fontWeight: "900" },
   rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
-
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: {
     width: 42,
@@ -2160,7 +2392,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: { fontSize: 16, fontWeight: "900" },
-
   communityBadge: {
     width: 42,
     height: 42,
@@ -2169,7 +2400,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   communityAvatar: { width: 42, height: 42, borderRadius: 21 },
-
   hashtagBadge: {
     width: 42,
     height: 42,
@@ -2178,7 +2408,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   hashtagSymbol: { fontSize: 22, fontWeight: "900" },
-
   followBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -2189,7 +2418,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   followBtnText: { fontSize: 13, fontWeight: "900" },
-
   menuBtn: {
     width: 32,
     height: 32,
@@ -2198,7 +2426,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-
   nsfwBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: 8,
@@ -2213,7 +2440,6 @@ const styles = StyleSheet.create({
     color: "#EF4444",
     letterSpacing: 0.5,
   },
-
   postCard: {
     borderRadius: 22,
     padding: 14,
@@ -2282,7 +2508,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.25)",
   },
-
   gridWrap: { gap: GRID_GAP, borderRadius: 22, overflow: "hidden" },
   gridRow: { flexDirection: "row", gap: GRID_GAP },
   gridCell: { width: GRID_CELL, height: GRID_CELL, overflow: "hidden" },
@@ -2304,26 +2529,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 3,
   },
-
-  trendingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  trendingLeft: { flex: 1, minWidth: 0 },
-  trendingCategory: { fontSize: 12, fontWeight: "600", marginBottom: 3 },
-  trendingTopic: { fontSize: 15, fontWeight: "900" },
-  trendingMore: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
   emptyWrap: {
     borderRadius: 22,
     paddingVertical: 26,

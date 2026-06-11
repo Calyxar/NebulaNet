@@ -1,4 +1,3 @@
-// hooks/useSearch.ts ✅ with media filtering
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -45,6 +44,7 @@ export type SearchCommunity = {
   description: string | null;
   image_url?: string | null;
   avatar_url?: string | null;
+  member_count?: number;
 };
 
 export type SuggestedUser = {
@@ -95,7 +95,7 @@ export type UseSearchParams = {
   limit?: number;
   minChars?: number;
   debounceMs?: number;
-  mediaType?: MediaFilterType; // ✅ NEW: add media filtering
+  mediaType?: MediaFilterType;
 };
 
 type UseSearchReturn = {
@@ -122,7 +122,6 @@ function tsToIso(ts: any): string {
   return new Date(ts).toISOString();
 }
 
-// ✅ Helper functions for media type detection
 function isVideoUrl(url?: string | null | undefined): boolean {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
@@ -231,7 +230,6 @@ async function searchAccounts(
     }));
 }
 
-// ✅ UPDATED searchPosts with media filtering
 async function searchPosts(
   q: string,
   lim: number,
@@ -289,7 +287,6 @@ async function searchPosts(
       user: p.user ?? null,
     }));
 
-  // ✅ NEW: Apply media filtering
   if (mediaType === "images") {
     results = results.filter((p) =>
       p.media_urls?.some((url: string) => isImageUrl(url)),
@@ -354,6 +351,7 @@ async function searchCommunities(
     description: c.description ?? null,
     image_url: c.image_url ?? null,
     avatar_url: c.avatar_url ?? null,
+    member_count: c.member_count ?? 0,
   }));
 }
 
@@ -370,6 +368,7 @@ function seedFollowStatusCache(
 export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
   const uid = auth.currentUser?.uid;
   const followingSet = new Set<string>();
+
   if (uid) {
     try {
       const followSnap = await firestore()
@@ -384,22 +383,142 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
       });
     } catch {}
   }
-  const snap = await firestore()
+
+  const suggestedIds = new Set<string>();
+
+  // Topic-based suggestions first
+  if (uid) {
+    try {
+      const interestsSnap = await firestore()
+        .collection("user_interests")
+        .doc(uid)
+        .get();
+      const interests: string[] = (interestsSnap.exists as unknown as boolean)
+        ? ((interestsSnap.data() as any)?.interests ?? [])
+        : [];
+
+      if (interests.length > 0) {
+        const matchSnap = await firestore()
+          .collection("user_interests")
+          .where("interests", "array-contains-any", interests.slice(0, 10))
+          .limit(30)
+          .get();
+        matchSnap.docs.forEach((d) => {
+          const matchUid = (d.data() as any).user_id;
+          if (matchUid && matchUid !== uid && !followingSet.has(matchUid)) {
+            suggestedIds.add(matchUid);
+          }
+        });
+      }
+    } catch {}
+  }
+
+  // Fallback: top users by follower count
+  const topSnap = await firestore()
     .collection("profiles")
     .orderBy("follower_count", "desc")
     .limit(50)
     .get();
-  return snap.docs
+  topSnap.docs.forEach((d) => {
+    if (d.id !== uid && !followingSet.has(d.id)) suggestedIds.add(d.id);
+  });
+
+  const ids = Array.from(suggestedIds).slice(0, lim * 2);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i + 10));
+
+  const profiles: SuggestedUser[] = [];
+  for (const chunk of chunks) {
+    const snap = await firestore()
+      .collection("profiles")
+      .where(firestore.FieldPath.documentId(), "in", chunk)
+      .get();
+    snap.docs.forEach((d) => {
+      const p = d.data() as any;
+      profiles.push({
+        id: d.id,
+        username: p.username ?? null,
+        full_name: p.full_name ?? null,
+        avatar_url: p.avatar_url ?? null,
+        follower_count: p.follower_count ?? 0,
+        is_private: !!p.is_private,
+      });
+    });
+  }
+
+  return profiles.slice(0, lim);
+}
+
+export async function fetchSuggestedCommunities(
+  lim = 5,
+): Promise<SearchCommunity[]> {
+  const uid = auth.currentUser?.uid;
+
+  // Get communities user has already joined
+  const joinedSet = new Set<string>();
+  if (uid) {
+    try {
+      const memberSnap = await firestore()
+        .collection("community_members")
+        .where("user_id", "==", uid)
+        .get();
+      memberSnap.docs.forEach((d) => {
+        const communityId = (d.data() as any).community_id;
+        if (communityId) joinedSet.add(communityId);
+      });
+    } catch {}
+  }
+
+  // Get user interests
+  let interests: string[] = [];
+  if (uid) {
+    try {
+      const interestsSnap = await firestore()
+        .collection("user_interests")
+        .doc(uid)
+        .get();
+      interests = (interestsSnap.exists as unknown as boolean)
+        ? ((interestsSnap.data() as any)?.interests ?? [])
+        : [];
+    } catch {}
+  }
+
+  // Fetch top communities by member count
+  const snap = await firestore()
+    .collection("communities")
+    .orderBy("member_count", "desc")
+    .limit(50)
+    .get();
+
+  const communities = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }) as any)
-    .filter((p: any) => p.id !== uid && !followingSet.has(p.id))
+    .filter((c: any) => !joinedSet.has(c.id));
+
+  // Score by interest match + member count
+  const scored = communities.map((c: any) => {
+    let score = c.member_count ?? 0;
+    if (interests.length > 0) {
+      const nameAndDesc =
+        `${c.name ?? ""} ${c.description ?? ""}`.toLowerCase();
+      const matches = interests.filter((i) =>
+        nameAndDesc.includes(i.toLowerCase()),
+      );
+      score += matches.length * 1000;
+    }
+    return { c, score };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score)
     .slice(0, lim)
-    .map((p: any) => ({
-      id: p.id,
-      username: p.username ?? null,
-      full_name: p.full_name ?? null,
-      avatar_url: p.avatar_url ?? null,
-      follower_count: p.follower_count ?? 0,
-      is_private: !!p.is_private,
+    .map(({ c }) => ({
+      id: c.id,
+      name: c.name ?? "",
+      slug: c.slug ?? "",
+      description: c.description ?? null,
+      image_url: c.image_url ?? null,
+      avatar_url: c.avatar_url ?? null,
+      member_count: c.member_count ?? 0,
     }));
 }
 
@@ -541,7 +660,6 @@ export function useRecentSearches() {
   return { recents, add, remove, clear };
 }
 
-// ✅ UPDATED useSearch hook with mediaType support
 export function useSearch(params: UseSearchParams): UseSearchReturn {
   const {
     type,
@@ -549,7 +667,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     limit: lim = 20,
     minChars = 2,
     debounceMs = 350,
-    mediaType = "all", // ✅ NEW: add mediaType parameter
+    mediaType = "all",
   } = params;
   const qc = useQueryClient();
   const trimmed = (rawQuery ?? "").trim();
@@ -579,7 +697,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
       if (type === "top") {
         const [accounts, posts] = await Promise.all([
           searchAccounts(debouncedQuery, 3, uid),
-          searchPosts(debouncedQuery, lim - 3, mediaType), // ✅ Pass mediaType
+          searchPosts(debouncedQuery, lim - 3, mediaType),
         ]);
         if (uid) seedFollowStatusCache(qc, uid, accounts);
         return {
@@ -600,7 +718,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
         };
       }
       if (type === "post") {
-        const posts = await searchPosts(debouncedQuery, lim, mediaType); // ✅ Pass mediaType
+        const posts = await searchPosts(debouncedQuery, lim, mediaType);
         return {
           accounts: [] as SearchAccount[],
           posts,
@@ -608,7 +726,6 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
           top: { accounts: [] as SearchAccount[], posts },
         };
       }
-      // community
       const communities = await searchCommunities(debouncedQuery, lim);
       return {
         accounts: [] as SearchAccount[],
