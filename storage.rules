@@ -22,8 +22,8 @@ service firebase.storage {
     function contentTypeOk() {
       return request.resource.contentType.matches('image/.*')
         || request.resource.contentType.matches('video/.*')
-        || request.resource.contentType.matches('application/pdf')
-        || request.resource.contentType.matches('application/octet-stream');
+        || request.resource.contentType.matches('audio/.*')
+        || request.resource.contentType.matches('application/.*');
     }
 
     /* ---- avatars/uid/... and other folder/uid/... paths ---- */

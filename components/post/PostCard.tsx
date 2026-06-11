@@ -113,10 +113,14 @@ export default function PostCard(props: PostCardProps) {
   }, [onVisible]);
 
   useEffect(() => {
+    if (!user?.uid) {
+      setIsReposted(false);
+      return;
+    }
     getRepostStatus(id)
       .then(setIsReposted)
-      .catch(() => {});
-  }, [id]);
+      .catch(() => setIsReposted(false));
+  }, [id, user?.uid]);
 
   useEffect(() => {
     setRepostCount(reposts);
