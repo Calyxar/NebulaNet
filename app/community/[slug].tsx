@@ -1,4 +1,4 @@
-// app/community/[slug].tsx — COMPLETED + UPDATED ✅
+// app/community/[slug].tsx
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
@@ -143,7 +143,8 @@ export default function CommunityScreen() {
       membersSnap.docs.map(async (d) => {
         const data = d.data() as any;
         const pSnap = await db.collection("profiles").doc(data.user_id).get();
-        const p = pSnap.exists() ? (pSnap.data() as any) : null;
+        // ✅ FIX: use data() instead of exists which has a bug
+        const p = (pSnap.data() as any) ?? null;
         return {
           user_id: data.user_id,
           joined_at: data.joined_at ?? null,
@@ -172,23 +173,28 @@ export default function CommunityScreen() {
       const ownerId = c.owner_id ?? null;
 
       if (user?.uid) {
-        const [memberSnap, modSnap] = await Promise.all([
-          db
-            .collection("community_members")
-            .where("community_id", "==", c.id)
-            .where("user_id", "==", user.uid)
-            .limit(1)
-            .get(),
-          db
-            .collection("community_moderators")
-            .where("community_id", "==", c.id)
-            .where("user_id", "==", user.uid)
-            .limit(1)
-            .get(),
-        ]);
-
-        joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
-        moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
+        try {
+          const [memberSnap, modSnap] = await Promise.all([
+            db
+              .collection("community_members")
+              .where("community_id", "==", c.id)
+              .where("user_id", "==", user.uid)
+              .limit(1)
+              .get(),
+            db
+              .collection("community_moderators")
+              .where("community_id", "==", c.id)
+              .where("user_id", "==", user.uid)
+              .limit(1)
+              .get(),
+          ]);
+          joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
+          moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
+        } catch {
+          // rules not yet deployed — fallback to owner check only
+          joined = !!ownerId && ownerId === user.uid;
+          moderator = joined;
+        }
       }
 
       setIsJoined(joined);
@@ -209,7 +215,6 @@ export default function CommunityScreen() {
                   snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[],
               )
           : Promise.resolve([] as Post[]),
-
         canViewPrivate
           ? db
               .collection("community_rules")
@@ -220,7 +225,6 @@ export default function CommunityScreen() {
                   snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Rule[],
               )
           : Promise.resolve([] as Rule[]),
-
         canViewPrivate
           ? fetchMembersSafe(c.id)
           : Promise.resolve([] as Member[]),
@@ -626,36 +630,7 @@ export default function CommunityScreen() {
                   </View>
                 )}
               </View>
-              {!!community.image_url && (
-                <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
-                  <Image
-                    source={{ uri: community.image_url }}
-                    style={[
-                      styles.hero,
-                      {
-                        height: heroHeight,
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-              )}
-
-              {!!community.description && (
-                <Text
-                  style={[
-                    styles.headerSub,
-                    {
-                      color: colors.textTertiary,
-                      paddingHorizontal: 14,
-                      paddingBottom: 10,
-                    },
-                  ]}
-                >
-                  {community.description}
-                </Text>
-              )}
+              {/* ✅ NO image or description here — moved below header */}
             </View>
           </View>
         }
@@ -720,8 +695,11 @@ export default function CommunityScreen() {
         }
       />
 
+      {/* ✅ Hero image — ONLY here, not inside header */}
       {!!community.image_url && (
-        <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
+        <View
+          style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6 }}
+        >
           <Image
             source={{ uri: community.image_url }}
             style={[
@@ -734,6 +712,22 @@ export default function CommunityScreen() {
             ]}
           />
         </View>
+      )}
+
+      {/* ✅ Description — below hero image, not inside header */}
+      {!!community.description && (
+        <Text
+          style={[
+            styles.headerSub,
+            {
+              color: colors.textTertiary,
+              paddingHorizontal: 14,
+              paddingBottom: 8,
+            },
+          ]}
+        >
+          {community.description}
+        </Text>
       )}
 
       {isLocked ? (
@@ -784,7 +778,6 @@ export default function CommunityScreen() {
         </View>
       ) : (
         <>
-          {/* Tabs */}
           <View
             style={[
               styles.tabsWrap,
@@ -1041,7 +1034,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   headerTitle: { fontSize: 18, fontWeight: "900" },
-  headerSub: { marginTop: 6, fontSize: 12.5, fontWeight: "700" },
+  headerSub: { fontSize: 12.5, fontWeight: "700", marginTop: 2 },
   privatePill: {
     flexDirection: "row",
     alignItems: "center",

@@ -12,12 +12,17 @@ export async function toggleRepost(
   const postRef = firestore().collection("posts").doc(postId);
 
   if (isReposted) {
-    await Promise.all([
-      repostRef.delete(),
-      postRef.update({
-        repost_count: firestore.FieldValue.increment(-1),
-      }),
-    ]);
+    const existing = await repostRef.get();
+    if (!existing.data()) return false;
+
+    await firestore().runTransaction(async (tx) => {
+      const postDoc = await tx.get(postRef);
+      const current = postDoc.data()?.repost_count ?? 0;
+      tx.delete(repostRef);
+      tx.update(postRef, {
+        repost_count: Math.max(0, current - 1),
+      });
+    });
     return false;
   } else {
     const [postSnap, senderSnap] = await Promise.all([
@@ -79,7 +84,7 @@ export async function getRepostStatus(postId: string): Promise<boolean> {
     .collection("reposts")
     .doc(`${uid}_${postId}`)
     .get();
-  return !!snap.exists;
+  return snap.data() !== undefined;
 }
 
 export async function getUserReposts(

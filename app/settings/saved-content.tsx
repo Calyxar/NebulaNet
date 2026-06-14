@@ -67,12 +67,12 @@ export default function SavedContentScreen() {
         snap.docs.map(async (d) => {
           const data = d.data() as any;
           const pSnap = await db.collection("posts").doc(data.post_id).get();
-          if (!pSnap.exists) return null;
           const post = pSnap.data() as any;
+          if (!post) return null;
           const aSnap = post.user_id
             ? await db.collection("profiles").doc(post.user_id).get()
             : null;
-          const author = aSnap?.exists ? (aSnap.data() as any) : null;
+          const author = aSnap?.data() ?? null;
           return {
             id: d.id,
             post_id: data.post_id,

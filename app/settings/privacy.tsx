@@ -133,6 +133,9 @@ export default function PrivacyScreen() {
   const [hideBirthday, setHideBirthdayState] = useState<boolean>(
     !!(profile as any)?.hide_birthday,
   );
+  const [showActivity, setShowActivityState] = useState<boolean>(
+    (profile as any)?.show_activity_publicly !== false,
+  );
 
   useEffect(() => {
     if (profile) {
@@ -171,6 +174,11 @@ export default function PrivacyScreen() {
   const handleHideBirthday = async (val: boolean) => {
     setHideBirthdayState(val);
     await saveProfileFlag("hide_birthday", val);
+  };
+
+  const handleShowActivity = async (val: boolean) => {
+    setShowActivityState(val);
+    await saveProfileFlag("show_activity_publicly", val);
   };
 
   // Local persisted state for everything else
@@ -320,6 +328,14 @@ export default function PrivacyScreen() {
           toggle: true,
           toggleValue: p5.value,
           onToggle: p5.setValue,
+        },
+        {
+          title: "Show Activity Publicly",
+          description: "Let others see your reposts, quotes and likes",
+          icon: "pulse-outline",
+          toggle: true,
+          toggleValue: showActivity,
+          onToggle: handleShowActivity,
         },
         {
           // ✅ Firestore-backed

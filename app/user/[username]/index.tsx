@@ -47,7 +47,11 @@ type UserProfile = {
   is_private?: boolean | null;
   is_founder?: boolean | null;
 };
-type PrivacyFlags = { hide_followers: boolean; hide_following: boolean };
+type PrivacyFlags = {
+  hide_followers: boolean;
+  hide_following: boolean;
+  show_activity_publicly: boolean;
+};
 type UserStats = { posts: number; followers: number; following: number };
 type PostRow = {
   id: string;
@@ -237,11 +241,17 @@ export default function UserProfileScreen() {
         .collection("profiles")
         .doc(target!.id)
         .get();
-      if (!snap.exists) return { hide_followers: false, hide_following: false };
+      if (!snap.exists)
+        return {
+          hide_followers: false,
+          hide_following: false,
+          show_activity_publicly: false,
+        };
       const d = snap.data() as any;
       return {
         hide_followers: d.hide_followers === true,
         hide_following: d.hide_following === true,
+        show_activity_publicly: d.show_activity_publicly !== false,
       } as PrivacyFlags;
     },
   });

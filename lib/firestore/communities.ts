@@ -83,8 +83,9 @@ export async function fetchCommunityById(
   id: string,
 ): Promise<Community | null> {
   const snap = await db.collection("communities").doc(id).get();
-  if (!snap.exists) return null;
-  return docToCommunity(snap.data(), snap.id);
+  const data = snap.data();
+  if (!data) return null;
+  return docToCommunity(data, snap.id);
 }
 
 export async function fetchCommunityBySlug(
@@ -220,12 +221,17 @@ export async function createCommunity(
 
 export async function updateCommunity(
   communityId: string,
-  updates: Partial<Pick<Community, "name" | "description" | "image_url" | "slug">>,
+  updates: Partial<
+    Pick<Community, "name" | "description" | "image_url" | "slug">
+  >,
 ): Promise<void> {
-  await db.collection("communities").doc(communityId).update({
-    ...updates,
-    updated_at: firestore.FieldValue.serverTimestamp(),
-  });
+  await db
+    .collection("communities")
+    .doc(communityId)
+    .update({
+      ...updates,
+      updated_at: firestore.FieldValue.serverTimestamp(),
+    });
 }
 
 /* =========================================================

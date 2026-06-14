@@ -1,7 +1,7 @@
-// app/community/create.tsx — ✅ COMPLETED + UPDATED (create + auto-join + invalidate My Community)
-
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
+import { uploadFile } from "@/lib/firestore/storage";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,18 +35,19 @@ function slugify(input: string) {
 export default function CreateCommunityScreen() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [imageUri, setImageUri] = useState<string | null>(null);
-
   const [isSaving, setIsSaving] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
-  const canCreate = useMemo(() => {
-    return name.trim().length >= 3 && slug.trim().length >= 3 && !isSaving;
-  }, [name, slug, isSaving]);
+  const canCreate = useMemo(
+    () => name.trim().length >= 3 && slug.trim().length >= 3 && !isSaving,
+    [name, slug, isSaving],
+  );
 
   const onNameChange = (v: string) => {
     setName(v);
@@ -64,20 +65,19 @@ export default function CreateCommunityScreen() {
       Alert.alert("Permission required", "Please allow photo permissions.");
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1],
     });
-
     if (result.canceled || !result.assets?.length) return;
     setImageUri(result.assets[0].uri);
   };
 
-  const removeImage = () => setImageUri(null);
-
   const createCommunity = async () => {
-    if (!user?.id) {
+    // ✅ FIX: user?.uid not user?.id
+    if (!user?.uid || !auth.currentUser) {
       Alert.alert("Not logged in", "Please log in again.");
       return;
     }
@@ -109,33 +109,39 @@ export default function CreateCommunityScreen() {
         return;
       }
 
-      // ✅ Create the community document
+      // ✅ Upload image to Firebase Storage if selected
+      let image_url: string | null = null;
+      if (imageUri) {
+        const result = await uploadFile(imageUri, "community", "image", {
+          compressImages: true,
+          maxWidth: 800,
+          maxHeight: 800,
+          quality: 0.85,
+        });
+        if (result.success && result.url) {
+          image_url = result.url;
+        }
+      }
+
       const communityRef = await db.collection("communities").add({
         slug: s,
         name: n,
         description: description.trim() || null,
-        image_url: imageUri || null,
+        image_url,
         is_private: false,
-        owner_id: auth.currentUser!.uid,
+        owner_id: auth.currentUser.uid,
         member_count: 1,
         created_at: firestore.FieldValue.serverTimestamp(),
         updated_at: firestore.FieldValue.serverTimestamp(),
       });
-      const data = { id: communityRef.id, slug: s };
 
-      // ✅ Auto-join creator so "My Community" shows it immediately
-      try {
-        await db.collection("community_members").add({
-          community_id: data.id,
-          user_id: auth.currentUser!.uid,
-          role: "owner",
-          joined_at: firestore.FieldValue.serverTimestamp(),
-        });
-      } catch (e) {
-        console.warn("Auto-join failed:", e);
-      }
+      await db.collection("community_members").add({
+        community_id: communityRef.id,
+        user_id: auth.currentUser.uid,
+        role: "owner",
+        joined_at: firestore.FieldValue.serverTimestamp(),
+      });
 
-      // ✅ Refresh cached community lists so Home updates without restart
       queryClient.invalidateQueries({ queryKey: ["my-communities", user.uid] });
       queryClient.invalidateQueries({ queryKey: ["my-communities"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
@@ -143,7 +149,7 @@ export default function CreateCommunityScreen() {
       Alert.alert("Created!", "Your community is ready.", [
         {
           text: "Go to community",
-          onPress: () => router.replace(`/community/${data.slug}`),
+          onPress: () => router.replace(`/community/${s}`),
         },
       ]);
     } catch (e: any) {
@@ -154,20 +160,32 @@ export default function CreateCommunityScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView
         style={styles.safe}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {/* Header */}
-        <View style={styles.header}>
+        <View
+          style={[
+            styles.header,
+            {
+              borderBottomColor: colors.border,
+              backgroundColor: colors.background,
+            },
+          ]}
+        >
           <TouchableOpacity
-            style={styles.backBtn}
+            style={[
+              styles.backBtn,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
             onPress={() => router.back()}
           >
-            <Ionicons name="arrow-back" size={22} color="#111827" />
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Community</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Create Community
+          </Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -175,23 +193,36 @@ export default function CreateCommunityScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Card */}
-          <View style={styles.card}>
-            <Text style={styles.label}>Community name</Text>
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.label, { color: colors.text }]}>
+              Community name
+            </Text>
             <TextInput
               value={name}
               onChangeText={onNameChange}
               placeholder="e.g., Nebula Gamers"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
+              placeholderTextColor={colors.textTertiary}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
               maxLength={60}
             />
 
             <View style={{ height: 12 }} />
 
-            <Text style={styles.label}>Slug</Text>
-            <Text style={styles.helper}>
-              This is your URL:{" "}
+            <Text style={[styles.label, { color: colors.text }]}>Slug</Text>
+            <Text style={[styles.helper, { color: colors.textTertiary }]}>
+              URL:{" "}
               <Text style={{ fontWeight: "800" }}>
                 /community/{slug || "your-slug"}
               </Text>
@@ -200,82 +231,121 @@ export default function CreateCommunityScreen() {
               value={slug}
               onChangeText={onSlugChange}
               placeholder="e.g., nebula-gamers"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
+              placeholderTextColor={colors.textTertiary}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
               autoCapitalize="none"
               maxLength={50}
             />
 
             <View style={{ height: 12 }} />
 
-            <Text style={styles.label}>Description</Text>
+            <Text style={[styles.label, { color: colors.text }]}>
+              Description
+            </Text>
             <TextInput
               value={description}
               onChangeText={setDescription}
               placeholder="What is this community about?"
-              placeholderTextColor="#9CA3AF"
-              style={[styles.input, styles.textarea]}
+              placeholderTextColor={colors.textTertiary}
+              style={[
+                styles.input,
+                styles.textarea,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
               multiline
               textAlignVertical="top"
               maxLength={240}
             />
-            <Text style={styles.counter}>{description.length}/240</Text>
+            <Text style={[styles.counter, { color: colors.textTertiary }]}>
+              {description.length}/240
+            </Text>
 
             <View style={{ height: 16 }} />
 
-            <Text style={styles.label}>Community image (optional)</Text>
+            <Text style={[styles.label, { color: colors.text }]}>
+              Community image (optional)
+            </Text>
             {imageUri ? (
               <View style={styles.imageRow}>
                 <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.helper} numberOfLines={2}>
-                    Image selected. (We'll upload to Storage later.)
-                  </Text>
-                  <View
-                    style={{ flexDirection: "row", gap: 10, marginTop: 10 }}
+                <View style={{ flex: 1, gap: 8 }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.smallBtn,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={pickImage}
                   >
-                    <TouchableOpacity
-                      style={styles.smallBtn}
-                      onPress={pickImage}
-                    >
-                      <Ionicons
-                        name="image-outline"
-                        size={16}
-                        color="#111827"
-                      />
-                      <Text style={styles.smallBtnText}>Change</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.smallBtn, styles.smallBtnDanger]}
-                      onPress={removeImage}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={16}
-                        color="#B91C1C"
-                      />
-                      <Text style={[styles.smallBtnText, { color: "#B91C1C" }]}>
-                        Remove
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                    <Ionicons
+                      name="image-outline"
+                      size={16}
+                      color={colors.text}
+                    />
+                    <Text style={[styles.smallBtnText, { color: colors.text }]}>
+                      Change
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.smallBtn,
+                      { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+                    ]}
+                    onPress={() => setImageUri(null)}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#B91C1C" />
+                    <Text style={[styles.smallBtnText, { color: "#B91C1C" }]}>
+                      Remove
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <TouchableOpacity
-                style={styles.pickBtn}
+                style={[
+                  styles.pickBtn,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
                 onPress={pickImage}
                 activeOpacity={0.9}
               >
-                <Ionicons name="image-outline" size={18} color="#111827" />
-                <Text style={styles.pickBtnText}>Choose an image</Text>
+                <Ionicons
+                  name="image-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+                <Text style={[styles.pickBtnText, { color: colors.primary }]}>
+                  Choose an image
+                </Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Footer CTA */}
           <TouchableOpacity
-            style={[styles.cta, !canCreate && styles.ctaDisabled]}
+            style={[
+              styles.cta,
+              {
+                backgroundColor: canCreate
+                  ? colors.primary
+                  : colors.primary + "60",
+              },
+            ]}
             disabled={!canCreate}
             onPress={createCommunity}
             activeOpacity={0.9}
@@ -284,11 +354,6 @@ export default function CreateCommunityScreen() {
               {isSaving ? "Creating..." : "Create community"}
             </Text>
           </TouchableOpacity>
-
-          <Text style={styles.note}>
-            Next: we'll add Storage upload, memberships, and proper permissions
-            (RLS).
-          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -296,7 +361,7 @@ export default function CreateCommunityScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F6F7FB" },
+  safe: { flex: 1 },
   header: {
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -304,73 +369,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#ECEEF3",
-    backgroundColor: "#F6F7FB",
   },
   backBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#ECEEF3",
   },
   headerTitle: {
     flex: 1,
     textAlign: "center",
     fontSize: 16,
     fontWeight: "900",
-    color: "#111827",
   },
-  content: { padding: 14, paddingBottom: 24 },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#ECEEF3",
-    borderRadius: 16,
-    padding: 14,
-  },
-  label: { fontSize: 13, fontWeight: "900", color: "#111827", marginBottom: 6 },
-  helper: { fontSize: 12, color: "#6B7280", marginBottom: 8 },
+  content: { padding: 14, paddingBottom: 32 },
+  card: { borderWidth: 1, borderRadius: 16, padding: 14 },
+  label: { fontSize: 13, fontWeight: "900", marginBottom: 6 },
+  helper: { fontSize: 12, marginBottom: 8 },
   input: {
-    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
     fontSize: 14,
-    color: "#111827",
   },
   textarea: { minHeight: 110, paddingTop: 12 },
-  counter: { marginTop: 8, fontSize: 12, color: "#9CA3AF", textAlign: "right" },
+  counter: { marginTop: 8, fontSize: 12, textAlign: "right" },
   pickBtn: {
     marginTop: 6,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
-  pickBtnText: { fontWeight: "800", color: "#111827" },
+  pickBtnText: { fontWeight: "800" },
   imageRow: {
     flexDirection: "row",
     gap: 12,
     marginTop: 6,
     alignItems: "center",
   },
-  imagePreview: {
-    width: 90,
-    height: 90,
-    borderRadius: 14,
-    backgroundColor: "#F3F4F6",
-  },
+  imagePreview: { width: 90, height: 90, borderRadius: 14 },
   smallBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -378,21 +422,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
     borderRadius: 999,
-    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
   },
-  smallBtnDanger: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
-  smallBtnText: { fontWeight: "900", color: "#111827", fontSize: 12 },
+  smallBtnText: { fontWeight: "900", fontSize: 12 },
   cta: {
     marginTop: 14,
     height: 52,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#7C3AED",
   },
-  ctaDisabled: { backgroundColor: "#C7B7F6" },
   ctaText: { color: "#FFFFFF", fontWeight: "900", fontSize: 15 },
-  note: { marginTop: 10, fontSize: 12, color: "#6B7280", textAlign: "center" },
 });
