@@ -130,10 +130,17 @@ service cloud.firestore {
     }
 
     match /community_moderators/{modId} {
-  allow read: if signedIn();
-  allow create: if signedIn() && request.resource.data.user_id == uid();
-  allow delete: if signedIn() && resource.data.user_id == uid();
-}
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
+    }
+
+    match /community_rules/{ruleId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn();
+      allow delete: if signedIn();
+    }
 
     match /user_settings/{userId} {
       allow read: if isSelf(userId);
