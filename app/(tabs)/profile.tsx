@@ -1,8 +1,7 @@
-// app/(tabs)/profile.tsx ✅
-// ✅ FIXED: Activity tab shows both simple reposts AND quote reposts
-// ✅ Simple reposts fetched from reposts collection
-// ✅ Quote reposts fetched from posts collection where quote_post_id exists
-// ✅ Both sorted by most recent, merged into one list
+// app/(tabs)/profile.tsx ✅ FIXED
+// Fix 1: my-posts query uses orderBy("created_at_ts") to match existing index
+// Fix 2: my-reposts query uses staleTime:0 + gcTime:0 to bypass stale cache
+// Fix 3: reposts query drops orderBy entirely and sorts client-side (safest)
 
 import HashtagText from "@/components/HashtagText";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -39,7 +38,6 @@ const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
 
 type ProfileTab = "Post" | "Activity" | "Media";
 
-// ✅ Activity item — covers both simple reposts and quote reposts
 type ActivityItem = {
   id: string;
   type: "repost" | "quote";
@@ -47,13 +45,11 @@ type ActivityItem = {
   media_urls: string[] | null;
   created_at: string;
   post_type?: string | null;
-  // For simple reposts — the original post's author
   original_user?: {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
   } | null;
-  // For quote reposts — the embedded quoted post
   quoted_post?: {
     id: string;
     content: string | null;
@@ -63,7 +59,7 @@ type ActivityItem = {
       avatar_url: string | null;
     } | null;
   } | null;
-  activity_at: string; // used for sorting
+  activity_at: string;
 };
 
 type PostRow = {
@@ -78,6 +74,15 @@ function formatNumber(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
+}
+
+function tsToIso(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  if (typeof v?.seconds === "number")
+    return new Date(v.seconds * 1000).toISOString();
+  return new Date().toISOString();
 }
 
 const isVideoUrl = (url?: string | null) => {
@@ -120,6 +125,7 @@ export default function ProfileScreen() {
   const { data: stats, refetch: refetchStats } = useQuery({
     queryKey: ["my-stats", uid],
     enabled: !!uid,
+    staleTime: 60_000,
     queryFn: async () => {
       const [p, fo, fi] = await Promise.all([
         firestore()
@@ -152,11 +158,13 @@ export default function ProfileScreen() {
   const { data: posts, refetch: refetchPosts } = useQuery({
     queryKey: ["my-posts", uid],
     enabled: !!uid,
+    staleTime: 30_000,
     queryFn: async () => {
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", uid)
-        .orderBy("created_at", "desc")
+        // ✅ FIX 1: use created_at_ts to match the existing Firestore index
+        .orderBy("created_at_ts", "desc")
         .get();
       return snap.docs.map((d) => {
         const x = d.data() as any;
@@ -164,7 +172,7 @@ export default function ProfileScreen() {
           id: d.id,
           content: x.content ?? "",
           media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-          created_at: x.created_at ?? "",
+          created_at: tsToIso(x.created_at_ts ?? x.created_at),
           post_type: x.post_type ?? null,
         } as PostRow;
       });
@@ -175,28 +183,37 @@ export default function ProfileScreen() {
   const { data: activity, refetch: refetchActivity } = useQuery({
     queryKey: ["my-reposts", uid],
     enabled: !!uid,
+    // ✅ FIX 2: no cache — always fetch fresh so stale empty cache doesn't block
+    staleTime: 0,
+    gcTime: 0,
     queryFn: async (): Promise<ActivityItem[]> => {
       const items: ActivityItem[] = [];
 
-      // ── 1. Simple reposts from reposts collection ──────────────────────────
+      // ── 1. Simple reposts ──────────────────────────────────────────────────
       try {
+        // ✅ FIX 3: no orderBy — fetch all user's reposts and sort client-side
+        // This avoids the composite index requirement entirely
         const repostSnap = await firestore()
           .collection("reposts")
           .where("user_id", "==", uid)
-          .orderBy("created_at", "desc")
-          .limit(30)
+          .limit(50)
           .get();
 
         if (!repostSnap.empty) {
-          const postIds = repostSnap.docs.map(
-            (d) => (d.data() as any).post_id as string,
-          );
+          const postIds: string[] = [];
           const repostedAt: Record<string, string> = {};
+
           repostSnap.docs.forEach((d) => {
             const data = d.data() as any;
-            repostedAt[data.post_id] = data.created_at;
+            if (data.post_id) {
+              postIds.push(data.post_id);
+              repostedAt[data.post_id] = tsToIso(
+                data.created_at ?? data.created_at_ts,
+              );
+            }
           });
 
+          // Fetch the actual post docs in batches of 10
           const chunks: string[][] = [];
           for (let i = 0; i < postIds.length; i += 10)
             chunks.push(postIds.slice(i, i + 10));
@@ -213,10 +230,11 @@ export default function ProfileScreen() {
                 type: "repost",
                 content: x.content ?? "",
                 media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-                created_at: x.created_at ?? "",
+                created_at: tsToIso(x.created_at_ts ?? x.created_at),
                 post_type: x.post_type ?? null,
                 original_user: x.user ?? null,
-                activity_at: repostedAt[d.id] ?? x.created_at ?? "",
+                activity_at:
+                  repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at),
               });
             });
           }
@@ -225,61 +243,61 @@ export default function ProfileScreen() {
         console.warn("[Activity] reposts fetch failed:", e);
       }
 
-      // ── 2. Quote reposts from posts collection ─────────────────────────────────
+      // ── 2. Quote reposts ───────────────────────────────────────────────────
       try {
+        // ✅ FIX 3: no orderBy on quote_post_id — just filter client-side
         const quoteSnap = await firestore()
           .collection("posts")
           .where("user_id", "==", uid)
-          .where("quote_post_id", "!=", null)
-          .orderBy("quote_post_id")
-          .orderBy("created_at", "desc")
-          .limit(20)
+          .orderBy("created_at_ts", "desc")
+          .limit(50)
           .get();
 
         await Promise.all(
-          quoteSnap.docs.map(async (d) => {
-            const x = d.data() as any;
-            if (!x.quote_post_id) return;
+          quoteSnap.docs
+            .filter((d) => !!(d.data() as any).quote_post_id)
+            .map(async (d) => {
+              const x = d.data() as any;
+              if (!x.quote_post_id) return;
 
-            // ✅ fetch quoted post content since it's not embedded in the doc
-            let quotedContent: string | null = x.quote_post?.content ?? null;
-            let quotedUser = x.quote_post?.user ?? null;
+              let quotedContent: string | null = x.quote_post?.content ?? null;
+              let quotedUser = x.quote_post?.user ?? null;
 
-            if (!quotedContent) {
-              try {
-                const quotedSnap = await firestore()
-                  .collection("posts")
-                  .doc(x.quote_post_id)
-                  .get();
-                const quotedData = quotedSnap.data() as any;
-                if (quotedData) {
-                  quotedContent = quotedData.content ?? null;
-                  quotedUser = quotedData.user ?? null;
-                }
-              } catch {}
-            }
+              if (!quotedContent) {
+                try {
+                  const quotedSnap = await firestore()
+                    .collection("posts")
+                    .doc(x.quote_post_id)
+                    .get();
+                  const quotedData = quotedSnap.data() as any;
+                  if (quotedData) {
+                    quotedContent = quotedData.content ?? null;
+                    quotedUser = quotedData.user ?? null;
+                  }
+                } catch {}
+              }
 
-            items.push({
-              id: d.id,
-              type: "quote",
-              content: x.content ?? "",
-              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-              created_at: x.created_at ?? "",
-              post_type: x.post_type ?? null,
-              quoted_post: {
-                id: x.quote_post_id,
-                content: quotedContent,
-                user: quotedUser,
-              },
-              activity_at: x.created_at ?? "",
-            });
-          }),
+              items.push({
+                id: d.id,
+                type: "quote",
+                content: x.content ?? "",
+                media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+                created_at: tsToIso(x.created_at_ts ?? x.created_at),
+                post_type: x.post_type ?? null,
+                quoted_post: {
+                  id: x.quote_post_id,
+                  content: quotedContent,
+                  user: quotedUser,
+                },
+                activity_at: tsToIso(x.created_at_ts ?? x.created_at),
+              });
+            }),
         );
       } catch (e) {
         console.warn("[Activity] quote reposts fetch failed:", e);
       }
 
-      // ── Sort merged list by most recent ────────────────────────────────────
+      // Sort merged list newest first
       return items.sort(
         (a, b) =>
           new Date(b.activity_at).getTime() - new Date(a.activity_at).getTime(),
@@ -682,7 +700,7 @@ export default function ProfileScreen() {
                   </View>
                 ))}
 
-              {/* ACTIVITY — simple reposts + quote reposts */}
+              {/* ACTIVITY */}
               {activeTab === "Activity" &&
                 (activity && activity.length > 0 ? (
                   <View style={{ gap: 12 }}>
@@ -701,7 +719,6 @@ export default function ProfileScreen() {
                           onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          {/* Activity label */}
                           <View
                             style={{
                               flexDirection: "row",
@@ -732,7 +749,6 @@ export default function ProfileScreen() {
                             </Text>
                           </View>
 
-                          {/* Quote repost — show user's comment above embedded card */}
                           {item.type === "quote" && !!item.content && (
                             <Text
                               style={[
@@ -745,7 +761,6 @@ export default function ProfileScreen() {
                             </Text>
                           )}
 
-                          {/* Simple repost — show original post content */}
                           {item.type === "repost" && !!item.content && (
                             <Text
                               style={[
@@ -758,7 +773,6 @@ export default function ProfileScreen() {
                             </Text>
                           )}
 
-                          {/* Quote repost — embedded quoted post card */}
                           {item.type === "quote" && item.quoted_post && (
                             <View
                               style={[
@@ -796,7 +810,6 @@ export default function ProfileScreen() {
                             </View>
                           )}
 
-                          {/* Media */}
                           {!!img && (
                             <View
                               style={[
@@ -1104,7 +1117,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.3)",
   },
-  // ✅ Quote post embedded card styles
   quotedCard: {
     borderRadius: 12,
     borderWidth: 1,

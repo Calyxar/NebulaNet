@@ -1,4 +1,9 @@
-// app/community/[slug].tsx
+// app/community/[slug].tsx — FIXED ✅
+// Fix 1: Members now show username AND joined date
+// Fix 2: fetchMembersSafe guards pSnap.exists() properly
+// Fix 3: Media grid falls back to camelCase mediaUrls + added debug
+// Fix 4: See create-post screen (paste that file separately)
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
@@ -50,7 +55,9 @@ type Post = {
   user_id: string;
   community_id: string | null;
   content: string | null;
+  // FIX 3: accept both snake_case and camelCase
   media_urls: string[] | null;
+  mediaUrls?: string[] | null;
   created_at: string;
   profile: ProfileMini | null;
 };
@@ -83,6 +90,26 @@ const formatTimeAgo = (iso: string) => {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
+};
+
+// FIX 1: formats joined_at whether it's a Firestore Timestamp or ISO string
+const formatJoinedDate = (joined_at: any): string | null => {
+  if (!joined_at) return null;
+  try {
+    // @react-native-firebase Timestamps have .toDate()
+    const date =
+      typeof joined_at?.toDate === "function"
+        ? joined_at.toDate()
+        : new Date(joined_at);
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return null;
+  }
 };
 
 function normalizeBool(v: any): boolean {
@@ -134,30 +161,43 @@ export default function CommunityScreen() {
     return { id: d.id, ...d.data() } as unknown as Community;
   }, []);
 
+  // FIX 2: properly guard pSnap.exists before calling .data()
   const fetchMembersSafe = useCallback(async (communityId: string) => {
     const membersSnap = await db
       .collection("community_members")
       .where("community_id", "==", communityId)
       .get();
+
     const memberProfiles = await Promise.all(
       membersSnap.docs.map(async (d) => {
         const data = d.data() as any;
-        const pSnap = await db.collection("profiles").doc(data.user_id).get();
-        // ✅ FIX: use data() instead of exists which has a bug
-        const p = (pSnap.data() as any) ?? null;
-        return {
-          user_id: data.user_id,
-          joined_at: data.joined_at ?? null,
-          profile: p
-            ? {
-                username: p.username,
-                full_name: p.full_name ?? null,
-                avatar_url: p.avatar_url ?? null,
-              }
-            : null,
-        };
+        try {
+          const pSnap = await db.collection("profiles").doc(data.user_id).get();
+          // ✅ FIX 2: use .exists (not .exists()) for @react-native-firebase
+          const p = pSnap.exists() ? (pSnap.data() as any) : null;
+          return {
+            user_id: data.user_id,
+            // ✅ FIX 1: preserve the raw joined_at value (Timestamp or string)
+            joined_at: data.joined_at ?? null,
+            profile: p
+              ? {
+                  username: p.username ?? null,
+                  full_name: p.full_name ?? null,
+                  avatar_url: p.avatar_url ?? null,
+                }
+              : null,
+          };
+        } catch {
+          // profile fetch failed — still show member with user_id
+          return {
+            user_id: data.user_id,
+            joined_at: data.joined_at ?? null,
+            profile: null,
+          };
+        }
       }),
     );
+
     return memberProfiles as Member[];
   }, []);
 
@@ -191,7 +231,6 @@ export default function CommunityScreen() {
           joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
           moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
         } catch {
-          // rules not yet deployed — fallback to owner check only
           joined = !!ownerId && ownerId === user.uid;
           moderator = joined;
         }
@@ -209,6 +248,7 @@ export default function CommunityScreen() {
           ? db
               .collection("posts")
               .where("community_id", "==", c.id)
+              .orderBy("created_at", "desc")
               .get()
               .then(
                 (snap) =>
@@ -234,9 +274,14 @@ export default function CommunityScreen() {
       setRules(rulesTyped);
       setMembers(membersTyped);
 
+      // FIX 3: fall back to camelCase field name if snake_case is empty
       const grid: MediaGridItem[] = [];
       postsTyped.forEach((p) => {
-        (p.media_urls ?? []).forEach((url) => {
+        const urls: string[] =
+          (p.media_urls && p.media_urls.length > 0
+            ? p.media_urls
+            : (p as any).mediaUrls) ?? [];
+        urls.forEach((url) => {
           grid.push({
             postId: p.id,
             url,
@@ -245,6 +290,25 @@ export default function CommunityScreen() {
         });
       });
       setMedia(grid);
+
+      // ── TEMP DEBUG — remove once media is confirmed working ──
+      if (__DEV__) {
+        console.log(
+          "[Media Debug] posts with media:",
+          postsTyped
+            .filter(
+              (p) =>
+                (p.media_urls?.length ?? 0) > 0 ||
+                ((p as any).mediaUrls?.length ?? 0) > 0,
+            )
+            .map((p) => ({
+              id: p.id,
+              media_urls: p.media_urls,
+              mediaUrls: (p as any).mediaUrls,
+            })),
+        );
+        console.log("[Media Debug] grid items:", grid.length);
+      }
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load community");
     } finally {
@@ -399,7 +463,8 @@ export default function CommunityScreen() {
     ({ item }: { item: Post }) => {
       const name = item.profile?.full_name || item.profile?.username || "User";
       const avatar = item.profile?.avatar_url;
-      const firstMedia = item.media_urls?.[0] ?? null;
+      const firstMedia =
+        item.media_urls?.[0] ?? (item as any).mediaUrls?.[0] ?? null;
 
       return (
         <TouchableOpacity
@@ -630,7 +695,6 @@ export default function CommunityScreen() {
                   </View>
                 )}
               </View>
-              {/* ✅ NO image or description here — moved below header */}
             </View>
           </View>
         }
@@ -695,7 +759,6 @@ export default function CommunityScreen() {
         }
       />
 
-      {/* ✅ Hero image — ONLY here, not inside header */}
       {!!community.image_url && (
         <View
           style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6 }}
@@ -714,7 +777,6 @@ export default function CommunityScreen() {
         </View>
       )}
 
-      {/* ✅ Description — below hero image, not inside header */}
       {!!community.description && (
         <Text
           style={[
@@ -848,8 +910,16 @@ export default function CommunityScreen() {
               data={members}
               keyExtractor={(i) => i.user_id}
               renderItem={({ item }) => {
-                const name =
-                  item.profile?.full_name || item.profile?.username || "Member";
+                // FIX 1: show username AND joined date
+                const displayName =
+                  item.profile?.full_name ||
+                  item.profile?.username ||
+                  "Unknown Member";
+                const username = item.profile?.username
+                  ? `@${item.profile.username}`
+                  : null;
+                const joinedDate = formatJoinedDate(item.joined_at);
+
                 return (
                   <View
                     style={[
@@ -878,25 +948,43 @@ export default function CommunityScreen() {
                         <Text
                           style={{ color: colors.primary, fontWeight: "900" }}
                         >
-                          {safeFirstLetter(name)}
+                          {safeFirstLetter(displayName)}
                         </Text>
                       </View>
                     )}
                     <View style={{ flex: 1, minWidth: 0 }}>
+                      {/* Display name (full_name or username) */}
                       <Text
                         style={[styles.rowTitle, { color: colors.text }]}
                         numberOfLines={1}
                       >
-                        {name}
+                        {displayName}
                       </Text>
-                      <Text
-                        style={[styles.rowSub, { color: colors.textTertiary }]}
-                        numberOfLines={1}
-                      >
-                        {item.profile?.username
-                          ? `@${item.profile.username}`
-                          : " "}
-                      </Text>
+                      {/* @username — only shown if different from displayName */}
+                      {username && username !== displayName && (
+                        <Text
+                          style={[
+                            styles.rowSub,
+                            { color: colors.textTertiary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {username}
+                        </Text>
+                      )}
+                      {/* Joined date */}
+                      {joinedDate && (
+                        <Text
+                          style={{
+                            color: colors.textTertiary,
+                            fontSize: 11,
+                            fontWeight: "700",
+                            marginTop: 3,
+                          }}
+                        >
+                          Joined {joinedDate}
+                        </Text>
+                      )}
                     </View>
                   </View>
                 );

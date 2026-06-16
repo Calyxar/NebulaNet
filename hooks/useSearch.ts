@@ -1,3 +1,9 @@
+// hooks/useSearch.ts — ✅ FIXED
+// Fix 1: fetchSuggestedCommunities returns is_joined (not just filters out joined)
+// Fix 2: searchCommunities returns is_joined for search results
+// Fix 3: Media search is Twitter-style — searches by title, hashtag, or #tag
+//        and only returns posts that actually have media attached
+
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -45,6 +51,7 @@ export type SearchCommunity = {
   image_url?: string | null;
   avatar_url?: string | null;
   member_count?: number;
+  is_joined?: boolean; // ✅ FIX 1: joined state
 };
 
 export type SuggestedUser = {
@@ -96,7 +103,7 @@ export type UseSearchParams = {
   minChars?: number;
   debounceMs?: number;
   mediaType?: MediaFilterType;
-  mediaOnly?: boolean; // ✅ NEW — forces media-specific Firestore query
+  mediaOnly?: boolean;
 };
 
 type UseSearchReturn = {
@@ -231,86 +238,122 @@ async function searchAccounts(
     }));
 }
 
+// ✅ FIX 3: Twitter-style media search
+// - Searches by title, hashtag array, or #tag prefix in query
+// - Only returns posts that have media attached
+// - Falls back to general content scan when no query matches hashtags
 async function searchPosts(
   q: string,
   lim: number,
   mediaType: MediaFilterType = "all",
-  mediaOnly = false, // ✅ NEW
+  mediaOnly = false,
 ): Promise<SearchPost[]> {
   const lower = q.toLowerCase().trim();
   if (!lower) return [];
+
+  // Strip leading # for hashtag searches
   const isHashtagSearch = lower.startsWith("#");
   const tag = lower.replace(/^#/, "");
+
   let docs: any[] = [];
-
-  const [hashtagSnap, contentSnap, mediaSnap] = await Promise.all([
-    // Always search by hashtag
-    firestore()
-      .collection("posts")
-      .where("visibility", "==", "public")
-      .where("hashtags", "array-contains", tag)
-      .orderBy("created_at_ts", "desc")
-      .limit(lim)
-      .get(),
-
-    // General content scan — skip when mediaOnly or hashtag-only search
-    isHashtagSearch || mediaOnly
-      ? Promise.resolve(null)
-      : firestore()
-          .collection("posts")
-          .where("visibility", "==", "public")
-          .orderBy("created_at_ts", "desc")
-          .limit(100)
-          .get(),
-
-    // ✅ NEW: media-specific query — only runs when mediaOnly === true
-    mediaOnly
-      ? firestore()
-          .collection("posts")
-          .where("visibility", "==", "public")
-          .where("post_type", "in", ["image", "video", "mixed", "gif"])
-          .limit(200)
-          .get()
-      : Promise.resolve(null),
-  ]);
-
   const seen = new Set<string>();
 
-  // Hashtag matches
-  hashtagSnap.docs.forEach((d) => {
-    seen.add(d.id);
-    docs.push({ id: d.id, ...d.data() });
-  });
+  if (mediaOnly) {
+    // ── Twitter-style media search ──────────────────────────────────────────
+    // Step 1: search by hashtag match (exact array-contains)
+    try {
+      const hashtagSnap = await firestore()
+        .collection("posts")
+        .where("visibility", "==", "public")
+        .where("hashtags", "array-contains", tag)
+        .orderBy("created_at_ts", "desc")
+        .limit(lim * 2)
+        .get();
 
-  // General content/title matches
-  if (contentSnap) {
-    contentSnap.docs
-      .filter((d) => !seen.has(d.id))
-      .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      // ✅ FIX: search by title AND content
-      .filter(
-        (p: any) =>
-          p.content?.toLowerCase().includes(lower) ||
-          p.title?.toLowerCase().includes(lower),
-      )
-      .forEach((p) => {
-        seen.add(p.id);
-        docs.push(p);
+      hashtagSnap.docs.forEach((d) => {
+        const p = { id: d.id, ...(d.data() as any) };
+        // ✅ Only include posts that actually have media
+        if (
+          Array.isArray(p.media_urls) &&
+          p.media_urls.length > 0 &&
+          !seen.has(d.id)
+        ) {
+          seen.add(d.id);
+          docs.push(p);
+        }
       });
-  }
+    } catch {}
 
-  // ✅ NEW: media post matches
-  if (mediaSnap) {
-    mediaSnap.docs
-      .filter((d) => !seen.has(d.id))
-      .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter(
-        (p: any) =>
-          p.content?.toLowerCase().includes(lower) ||
-          p.title?.toLowerCase().includes(lower) ||
-          (p.hashtags as string[] | undefined)?.includes(tag),
-      )
-      .forEach((p) => docs.push(p));
+    // Step 2: search by title or content containing the query
+    // (same as Twitter — typing "cats" shows media posts about cats)
+    try {
+      const contentSnap = await firestore()
+        .collection("posts")
+        .where("visibility", "==", "public")
+        .orderBy("created_at_ts", "desc")
+        .limit(300)
+        .get();
+
+      contentSnap.docs
+        .filter((d) => !seen.has(d.id))
+        .forEach((d) => {
+          const p = { id: d.id, ...(d.data() as any) };
+          const hasMedia =
+            Array.isArray(p.media_urls) && p.media_urls.length > 0;
+          if (!hasMedia) return; // ✅ media-only filter
+
+          const titleMatch = p.title?.toLowerCase().includes(lower);
+          const contentMatch = p.content?.toLowerCase().includes(lower);
+          const tagMatch = (p.hashtags as string[] | undefined)?.some((h) =>
+            h.toLowerCase().includes(tag),
+          );
+
+          if (titleMatch || contentMatch || tagMatch) {
+            seen.add(d.id);
+            docs.push(p);
+          }
+        });
+    } catch {}
+  } else {
+    // ── Standard post search (Latest tab, Top tab) ──────────────────────────
+    const [hashtagSnap, contentSnap] = await Promise.all([
+      firestore()
+        .collection("posts")
+        .where("visibility", "==", "public")
+        .where("hashtags", "array-contains", tag)
+        .orderBy("created_at_ts", "desc")
+        .limit(lim)
+        .get(),
+
+      isHashtagSearch
+        ? Promise.resolve(null)
+        : firestore()
+            .collection("posts")
+            .where("visibility", "==", "public")
+            .orderBy("created_at_ts", "desc")
+            .limit(100)
+            .get(),
+    ]);
+
+    hashtagSnap.docs.forEach((d) => {
+      seen.add(d.id);
+      docs.push({ id: d.id, ...d.data() });
+    });
+
+    if (contentSnap) {
+      contentSnap.docs
+        .filter((d) => !seen.has(d.id))
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter(
+          (p: any) =>
+            p.content?.toLowerCase().includes(lower) ||
+            p.title?.toLowerCase().includes(lower),
+        )
+        .forEach((p) => {
+          seen.add(p.id);
+          docs.push(p);
+        });
+    }
   }
 
   let results = docs
@@ -328,6 +371,7 @@ async function searchPosts(
       user: p.user ?? null,
     }));
 
+  // Apply media type filter on top of results
   if (mediaType === "images") {
     results = results.filter((p) =>
       p.media_urls?.some((url: string) => isImageUrl(url)),
@@ -345,6 +389,7 @@ async function searchPosts(
   return results;
 }
 
+// ✅ FIX 2: returns is_joined for search results
 async function searchCommunities(
   q: string,
   lim: number,
@@ -354,6 +399,8 @@ async function searchCommunities(
   const end =
     lower.slice(0, -1) +
     String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
+
+  const uid = auth.currentUser?.uid ?? null;
 
   const [snap, nameSnap] = await Promise.all([
     firestore()
@@ -385,7 +432,28 @@ async function searchCommunities(
     )
     .forEach((c) => results.push(c));
 
-  return results.slice(0, lim).map((c: any) => ({
+  const sliced = results.slice(0, lim);
+
+  // ✅ FIX 2: check membership so the button shows "Joined" correctly
+  const joinedSet = new Set<string>();
+  if (uid && sliced.length > 0) {
+    try {
+      const ids = sliced.map((c) => c.id);
+      for (let i = 0; i < ids.length; i += 10) {
+        const batch = ids.slice(i, i + 10);
+        const memberSnap = await firestore()
+          .collection("community_members")
+          .where("community_id", "in", batch)
+          .where("user_id", "==", uid)
+          .get();
+        memberSnap.docs.forEach((d) =>
+          joinedSet.add((d.data() as any).community_id),
+        );
+      }
+    } catch {}
+  }
+
+  return sliced.map((c: any) => ({
     id: c.id,
     name: c.name ?? "",
     slug: c.slug ?? "",
@@ -393,6 +461,7 @@ async function searchCommunities(
     image_url: c.image_url ?? null,
     avatar_url: c.avatar_url ?? null,
     member_count: c.member_count ?? 0,
+    is_joined: joinedSet.has(c.id), // ✅
   }));
 }
 
@@ -427,14 +496,12 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
 
   const suggestedIds = new Set<string>();
 
-  // ✅ Topic-based suggestions from onboarding interests
   if (uid) {
     try {
       const interestsSnap = await firestore()
         .collection("user_interests")
         .doc(uid)
         .get();
-      // ✅ FIX: use data() instead of exists
       const interestsData = interestsSnap.data() as any;
       const interests: string[] = interestsData?.interests ?? [];
 
@@ -454,7 +521,6 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
     } catch {}
   }
 
-  // Fallback: top users by follower count
   const topSnap = await firestore()
     .collection("profiles")
     .orderBy("follower_count", "desc")
@@ -490,22 +556,32 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
   return profiles.slice(0, lim);
 }
 
+// ✅ FIX 1: keeps joined communities in the list and marks them is_joined: true
+// instead of filtering them out entirely (so users can see what they've joined)
 export async function fetchSuggestedCommunities(
   lim = 5,
 ): Promise<SearchCommunity[]> {
   const uid = auth.currentUser?.uid;
 
+  // Build joined set (including owned)
   const joinedSet = new Set<string>();
   if (uid) {
     try {
-      const memberSnap = await firestore()
-        .collection("community_members")
-        .where("user_id", "==", uid)
-        .get();
+      const [memberSnap, ownedSnap] = await Promise.all([
+        firestore()
+          .collection("community_members")
+          .where("user_id", "==", uid)
+          .get(),
+        firestore()
+          .collection("communities")
+          .where("owner_id", "==", uid)
+          .get(),
+      ]);
       memberSnap.docs.forEach((d) => {
         const communityId = (d.data() as any).community_id;
         if (communityId) joinedSet.add(communityId);
       });
+      ownedSnap.docs.forEach((d) => joinedSet.add(d.id));
     } catch {}
   }
 
@@ -516,7 +592,6 @@ export async function fetchSuggestedCommunities(
         .collection("user_interests")
         .doc(uid)
         .get();
-      // ✅ FIX: use data() instead of exists
       const interestsData = interestsSnap.data() as any;
       interests = interestsData?.interests ?? [];
     } catch {}
@@ -528,9 +603,7 @@ export async function fetchSuggestedCommunities(
     .limit(50)
     .get();
 
-  const communities = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }) as any)
-    .filter((c: any) => !joinedSet.has(c.id));
+  const communities = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as any);
 
   const scored = communities.map((c: any) => {
     let score = c.member_count ?? 0;
@@ -556,6 +629,7 @@ export async function fetchSuggestedCommunities(
       image_url: c.image_url ?? null,
       avatar_url: c.avatar_url ?? null,
       member_count: c.member_count ?? 0,
+      is_joined: joinedSet.has(c.id), // ✅ FIX 1
     }));
 }
 
@@ -705,7 +779,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     minChars = 2,
     debounceMs = 350,
     mediaType = "all",
-    mediaOnly = false, // ✅ NEW
+    mediaOnly = false,
   } = params;
   const qc = useQueryClient();
   const trimmed = (rawQuery ?? "").trim();
@@ -756,7 +830,6 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
         };
       }
       if (type === "post") {
-        // ✅ pass mediaOnly to searchPosts
         const posts = await searchPosts(
           debouncedQuery,
           lim,

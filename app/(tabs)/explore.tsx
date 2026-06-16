@@ -536,6 +536,7 @@ function SuggestedUserRow({
   );
 }
 
+// ✅ FIX: CommunityRow now shows "Joined" vs "Join" based on is_joined
 function CommunityRow({
   community: c,
   idx,
@@ -545,6 +546,8 @@ function CommunityRow({
   idx: number;
   colors: any;
 }) {
+  const isJoined = !!c.is_joined;
+
   return (
     <TouchableOpacity
       activeOpacity={0.85}
@@ -582,15 +585,26 @@ function CommunityRow({
             : (c.description ?? "")}
         </Text>
       </View>
+      {/* ✅ FIX: dynamic joined state */}
       <TouchableOpacity
         style={[
           styles.followBtn,
-          { backgroundColor: colors.primary, borderColor: colors.primary },
+          {
+            backgroundColor: isJoined ? colors.surface : colors.primary,
+            borderColor: isJoined ? colors.border : colors.primary,
+          },
         ]}
         onPress={() => router.push(`/community/${c.slug}`)}
         activeOpacity={0.85}
       >
-        <Text style={[styles.followBtnText, { color: "#fff" }]}>Join</Text>
+        <Text
+          style={[
+            styles.followBtnText,
+            { color: isJoined ? colors.text : "#fff" },
+          ]}
+        >
+          {isJoined ? "Joined" : "Join"}
+        </Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -926,15 +940,16 @@ export default function ExploreScreen() {
       })
       .catch((e) => console.warn("fetchSuggestedUsers failed:", e))
       .finally(() => setSuggestedLoading(false));
-  }, [user?.id]);
+  }, [user?.uid]);
 
+  // ✅ FIX: re-fetch when user changes so is_joined is accurate
   useEffect(() => {
     setSuggestedCommunitiesLoading(true);
     fetchSuggestedCommunities(5)
       .then(setSuggestedCommunities)
       .catch(() => {})
       .finally(() => setSuggestedCommunitiesLoading(false));
-  }, [user?.id]);
+  }, [user?.uid]);
 
   const handleDismissSuggested = useCallback(
     (id: string) => {
@@ -2027,64 +2042,14 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
+                    {/* ✅ FIX: use CommunityRow here too so is_joined works */}
                     {communities.map((c: any, idx: number) => (
-                      <TouchableOpacity
+                      <CommunityRow
                         key={c.id}
-                        activeOpacity={0.85}
-                        style={[
-                          styles.row,
-                          idx !== 0 && [
-                            styles.rowBorder,
-                            { borderTopColor: colors.border },
-                          ],
-                        ]}
-                        onPress={() => router.push(`/community/${c.slug}`)}
-                      >
-                        {c.image_url ? (
-                          <Image
-                            source={{ uri: c.image_url }}
-                            style={[
-                              styles.communityAvatar,
-                              { backgroundColor: colors.surface },
-                            ]}
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.communityBadge,
-                              { backgroundColor: colors.surface },
-                            ]}
-                          >
-                            <Ionicons
-                              name="people"
-                              size={18}
-                              color={colors.primary}
-                            />
-                          </View>
-                        )}
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text
-                            style={[styles.rowTitle, { color: colors.text }]}
-                            numberOfLines={1}
-                          >
-                            {c.name}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.rowSubtitle,
-                              { color: colors.textTertiary },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {c.description || `@${c.slug}` || "Community"}
-                          </Text>
-                        </View>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
-                      </TouchableOpacity>
+                        community={c}
+                        idx={idx}
+                        colors={colors}
+                      />
                     ))}
                   </View>
                 ) : (
