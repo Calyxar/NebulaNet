@@ -97,6 +97,7 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   system_updates: true,
   account_activity: true,
   quiet_hours: null,
+  reposts: true,
 };
 
 const DEFAULT_SECURITY: SecuritySettings = {

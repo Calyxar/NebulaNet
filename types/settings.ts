@@ -50,6 +50,7 @@ export interface NotificationSettings {
   system_updates: boolean;
   account_activity: boolean;
   quiet_hours: { start: string; end: string } | null;
+  reposts: boolean;
 }
 
 export interface SecuritySettings {

@@ -225,7 +225,7 @@ export default function ProfileScreen() {
         console.warn("[Activity] reposts fetch failed:", e);
       }
 
-      // ── 2. Quote reposts from posts collection ─────────────────────────────
+      // ── 2. Quote reposts from posts collection ─────────────────────────────────
       try {
         const quoteSnap = await firestore()
           .collection("posts")
@@ -236,26 +236,45 @@ export default function ProfileScreen() {
           .limit(20)
           .get();
 
-        quoteSnap.docs.forEach((d) => {
-          const x = d.data() as any;
-          if (!x.quote_post_id) return;
-          items.push({
-            id: d.id,
-            type: "quote",
-            content: x.content ?? "",
-            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: x.created_at ?? "",
-            post_type: x.post_type ?? null,
-            quoted_post: x.quote_post
-              ? {
-                  id: x.quote_post_id,
-                  content: x.quote_post.content ?? null,
-                  user: x.quote_post.user ?? null,
+        await Promise.all(
+          quoteSnap.docs.map(async (d) => {
+            const x = d.data() as any;
+            if (!x.quote_post_id) return;
+
+            // ✅ fetch quoted post content since it's not embedded in the doc
+            let quotedContent: string | null = x.quote_post?.content ?? null;
+            let quotedUser = x.quote_post?.user ?? null;
+
+            if (!quotedContent) {
+              try {
+                const quotedSnap = await firestore()
+                  .collection("posts")
+                  .doc(x.quote_post_id)
+                  .get();
+                const quotedData = quotedSnap.data() as any;
+                if (quotedData) {
+                  quotedContent = quotedData.content ?? null;
+                  quotedUser = quotedData.user ?? null;
                 }
-              : { id: x.quote_post_id, content: null, user: null },
-            activity_at: x.created_at ?? "",
-          });
-        });
+              } catch {}
+            }
+
+            items.push({
+              id: d.id,
+              type: "quote",
+              content: x.content ?? "",
+              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+              created_at: x.created_at ?? "",
+              post_type: x.post_type ?? null,
+              quoted_post: {
+                id: x.quote_post_id,
+                content: quotedContent,
+                user: quotedUser,
+              },
+              activity_at: x.created_at ?? "",
+            });
+          }),
+        );
       } catch (e) {
         console.warn("[Activity] quote reposts fetch failed:", e);
       }

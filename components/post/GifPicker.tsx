@@ -7,16 +7,16 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    FlatList,
-    Image,
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Image,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -141,7 +141,7 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
               backgroundColor: colors.surface,
             },
           ]}
-          onPress={() => onSelect(item.url)}
+          onPress={() => onSelect(item.preview)}
           activeOpacity={0.85}
         >
           <Image

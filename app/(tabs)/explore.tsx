@@ -997,6 +997,7 @@ export default function ExploreScreen() {
       activeCategory === "media" || activeCategory === "latest"
         ? mediaFilter
         : "all",
+    mediaOnly: activeCategory === "media",
   });
 
   const accounts = (data as any)?.accounts ?? [];

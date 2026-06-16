@@ -96,6 +96,7 @@ export type UseSearchParams = {
   minChars?: number;
   debounceMs?: number;
   mediaType?: MediaFilterType;
+  mediaOnly?: boolean; // ✅ NEW — forces media-specific Firestore query
 };
 
 type UseSearchReturn = {
@@ -234,6 +235,7 @@ async function searchPosts(
   q: string,
   lim: number,
   mediaType: MediaFilterType = "all",
+  mediaOnly = false, // ✅ NEW
 ): Promise<SearchPost[]> {
   const lower = q.toLowerCase().trim();
   if (!lower) return [];
@@ -241,7 +243,8 @@ async function searchPosts(
   const tag = lower.replace(/^#/, "");
   let docs: any[] = [];
 
-  const [hashtagSnap, contentSnap] = await Promise.all([
+  const [hashtagSnap, contentSnap, mediaSnap] = await Promise.all([
+    // Always search by hashtag
     firestore()
       .collection("posts")
       .where("visibility", "==", "public")
@@ -249,7 +252,9 @@ async function searchPosts(
       .orderBy("created_at_ts", "desc")
       .limit(lim)
       .get(),
-    isHashtagSearch
+
+    // General content scan — skip when mediaOnly or hashtag-only search
+    isHashtagSearch || mediaOnly
       ? Promise.resolve(null)
       : firestore()
           .collection("posts")
@@ -257,18 +262,54 @@ async function searchPosts(
           .orderBy("created_at_ts", "desc")
           .limit(100)
           .get(),
+
+    // ✅ NEW: media-specific query — only runs when mediaOnly === true
+    mediaOnly
+      ? firestore()
+          .collection("posts")
+          .where("visibility", "==", "public")
+          .where("post_type", "in", ["image", "video", "mixed", "gif"])
+          .limit(200)
+          .get()
+      : Promise.resolve(null),
   ]);
 
   const seen = new Set<string>();
+
+  // Hashtag matches
   hashtagSnap.docs.forEach((d) => {
     seen.add(d.id);
     docs.push({ id: d.id, ...d.data() });
   });
+
+  // General content/title matches
   if (contentSnap) {
     contentSnap.docs
       .filter((d) => !seen.has(d.id))
       .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((p: any) => p.content?.toLowerCase().includes(lower))
+      // ✅ FIX: search by title AND content
+      .filter(
+        (p: any) =>
+          p.content?.toLowerCase().includes(lower) ||
+          p.title?.toLowerCase().includes(lower),
+      )
+      .forEach((p) => {
+        seen.add(p.id);
+        docs.push(p);
+      });
+  }
+
+  // ✅ NEW: media post matches
+  if (mediaSnap) {
+    mediaSnap.docs
+      .filter((d) => !seen.has(d.id))
+      .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter(
+        (p: any) =>
+          p.content?.toLowerCase().includes(lower) ||
+          p.title?.toLowerCase().includes(lower) ||
+          (p.hashtags as string[] | undefined)?.includes(tag),
+      )
       .forEach((p) => docs.push(p));
   }
 
@@ -386,16 +427,16 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
 
   const suggestedIds = new Set<string>();
 
-  // Topic-based suggestions first
+  // ✅ Topic-based suggestions from onboarding interests
   if (uid) {
     try {
       const interestsSnap = await firestore()
         .collection("user_interests")
         .doc(uid)
         .get();
-      const interests: string[] = (interestsSnap.exists as unknown as boolean)
-        ? ((interestsSnap.data() as any)?.interests ?? [])
-        : [];
+      // ✅ FIX: use data() instead of exists
+      const interestsData = interestsSnap.data() as any;
+      const interests: string[] = interestsData?.interests ?? [];
 
       if (interests.length > 0) {
         const matchSnap = await firestore()
@@ -454,7 +495,6 @@ export async function fetchSuggestedCommunities(
 ): Promise<SearchCommunity[]> {
   const uid = auth.currentUser?.uid;
 
-  // Get communities user has already joined
   const joinedSet = new Set<string>();
   if (uid) {
     try {
@@ -469,7 +509,6 @@ export async function fetchSuggestedCommunities(
     } catch {}
   }
 
-  // Get user interests
   let interests: string[] = [];
   if (uid) {
     try {
@@ -477,13 +516,12 @@ export async function fetchSuggestedCommunities(
         .collection("user_interests")
         .doc(uid)
         .get();
-      interests = (interestsSnap.exists as unknown as boolean)
-        ? ((interestsSnap.data() as any)?.interests ?? [])
-        : [];
+      // ✅ FIX: use data() instead of exists
+      const interestsData = interestsSnap.data() as any;
+      interests = interestsData?.interests ?? [];
     } catch {}
   }
 
-  // Fetch top communities by member count
   const snap = await firestore()
     .collection("communities")
     .orderBy("member_count", "desc")
@@ -494,7 +532,6 @@ export async function fetchSuggestedCommunities(
     .map((d) => ({ id: d.id, ...d.data() }) as any)
     .filter((c: any) => !joinedSet.has(c.id));
 
-  // Score by interest match + member count
   const scored = communities.map((c: any) => {
     let score = c.member_count ?? 0;
     if (interests.length > 0) {
@@ -668,6 +705,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     minChars = 2,
     debounceMs = 350,
     mediaType = "all",
+    mediaOnly = false, // ✅ NEW
   } = params;
   const qc = useQueryClient();
   const trimmed = (rawQuery ?? "").trim();
@@ -683,8 +721,8 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
       : "general";
 
   const queryKey = useMemo(
-    () => ["search", type, debouncedQuery, lim, mediaType] as const,
-    [type, debouncedQuery, lim, mediaType],
+    () => ["search", type, debouncedQuery, lim, mediaType, mediaOnly] as const,
+    [type, debouncedQuery, lim, mediaType, mediaOnly],
   );
 
   const q = useQuery({
@@ -697,7 +735,7 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
       if (type === "top") {
         const [accounts, posts] = await Promise.all([
           searchAccounts(debouncedQuery, 3, uid),
-          searchPosts(debouncedQuery, lim - 3, mediaType),
+          searchPosts(debouncedQuery, lim - 3, mediaType, false),
         ]);
         if (uid) seedFollowStatusCache(qc, uid, accounts);
         return {
@@ -718,7 +756,13 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
         };
       }
       if (type === "post") {
-        const posts = await searchPosts(debouncedQuery, lim, mediaType);
+        // ✅ pass mediaOnly to searchPosts
+        const posts = await searchPosts(
+          debouncedQuery,
+          lim,
+          mediaType,
+          mediaOnly,
+        );
         return {
           accounts: [] as SearchAccount[],
           posts,

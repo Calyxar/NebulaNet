@@ -162,9 +162,10 @@ export function useInfiniteFeedPosts(
     activeTab === "following"
       ? {
           ...base,
+          // ✅ If user follows nobody show empty rather than all posts
           ...(followingIds.length > 0
             ? { userIds: followingIds }
-            : { sortBy: "newest" }),
+            : { userIds: ["__no_results__"] }),
         }
       : activeTab === "my-community"
         ? { ...base, communityIds: opts?.communityIds ?? [] }
@@ -492,9 +493,12 @@ export function useToggleRepost() {
                   ? p
                   : {
                       ...p,
-                      repost_count:
+                      // ✅ FIX: never go below 0
+                      repost_count: Math.max(
+                        0,
                         ((p as any).repost_count ?? 0) +
-                        (vars.isReposted ? -1 : 1),
+                          (vars.isReposted ? -1 : 1),
+                      ),
                     },
               ),
             { allPages: true },

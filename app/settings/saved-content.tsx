@@ -1,6 +1,4 @@
-// app/settings/saved-content.tsx — UPDATED ✅ dark mode
-// ✅ FIXED: reads from "saves" collection (was "saved_posts") to match useToggleBookmark
-
+// app/settings/saved-content.tsx
 import { useAuth } from "@/hooks/useAuth";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -67,11 +65,13 @@ export default function SavedContentScreen() {
         snap.docs.map(async (d) => {
           const data = d.data() as any;
           const pSnap = await db.collection("posts").doc(data.post_id).get();
+          // ✅ FIX: use data() instead of exists
           const post = pSnap.data() as any;
           if (!post) return null;
           const aSnap = post.user_id
             ? await db.collection("profiles").doc(post.user_id).get()
             : null;
+          // ✅ FIX: use data() instead of exists
           const author = aSnap?.data() ?? null;
           return {
             id: d.id,
@@ -99,6 +99,8 @@ export default function SavedContentScreen() {
   const hiddenQuery = useQuery({
     queryKey: ["hidden-posts", user?.uid],
     enabled: !!user && activeTab === "hidden",
+    staleTime: 0,
+    gcTime: 0,
     queryFn: async (): Promise<HiddenItem[]> => {
       if (!user) return [];
       const hSnap = await db
@@ -109,12 +111,14 @@ export default function SavedContentScreen() {
         hSnap.docs.map(async (d) => {
           const data = d.data() as any;
           const pSnap = await db.collection("posts").doc(data.post_id).get();
-          if (!pSnap.exists) return null;
+          // ✅ FIX: use data() instead of exists
           const post = pSnap.data() as any;
+          if (!post) return null;
           const aSnap = post.user_id
             ? await db.collection("profiles").doc(post.user_id).get()
             : null;
-          const author = aSnap?.exists ? (aSnap.data() as any) : null;
+          // ✅ FIX: use data() instead of exists
+          const author = aSnap?.data() ?? null;
           return {
             id: d.id,
             post_id: data.post_id,
@@ -349,7 +353,7 @@ export default function SavedContentScreen() {
           renderItem={renderSaved}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
-          refreshing={savedQuery.isLoading}
+          refreshing={savedQuery.isFetching}
           onRefresh={savedQuery.refetch}
           ListEmptyComponent={
             <Empty
@@ -365,7 +369,7 @@ export default function SavedContentScreen() {
           renderItem={renderHidden}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.list}
-          refreshing={hiddenQuery.isLoading}
+          refreshing={hiddenQuery.isFetching}
           onRefresh={hiddenQuery.refetch}
           ListEmptyComponent={
             <Empty
@@ -411,7 +415,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 12 },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 12,
+  },
   circleBtn: {
     width: 44,
     height: 44,
@@ -433,7 +442,12 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 2,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 18 },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 18,
+  },
   tabText: { fontSize: 13, fontWeight: "800" },
   sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 18 },
   sectionText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.4 },
@@ -493,5 +507,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  footer: { marginTop: 6, marginBottom: 10, fontSize: 12, textAlign: "center" },
+  footer: {
+    marginTop: 6,
+    marginBottom: 10,
+    fontSize: 12,
+    textAlign: "center",
+  },
 });

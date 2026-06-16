@@ -1,7 +1,4 @@
 // app/user/[username]/index.tsx
-// ✅ FIXED: ShareSheet moved outside SafeAreaView so it overlays the full screen
-// ✅ FIXED: Activity tab now shows actual reposts
-// ✅ FIXED: UID-based profile lookup support
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -47,12 +44,15 @@ type UserProfile = {
   is_private?: boolean | null;
   is_founder?: boolean | null;
 };
+
 type PrivacyFlags = {
   hide_followers: boolean;
   hide_following: boolean;
   show_activity_publicly: boolean;
 };
+
 type UserStats = { posts: number; followers: number; following: number };
+
 type PostRow = {
   id: string;
   content: string;
@@ -60,19 +60,44 @@ type PostRow = {
   created_at: string;
   post_type?: string | null;
 };
+
 type RepostRow = {
   id: string;
+  type: "repost";
   content: string;
   media_urls: string[] | null;
   created_at: string;
   post_type?: string | null;
   reposted_at: string;
+  sort_at: string;
   original_user: {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
   } | null;
 };
+
+type QuoteRow = {
+  id: string;
+  type: "quote";
+  content: string;
+  media_urls: string[] | null;
+  created_at: string;
+  post_type?: string | null;
+  sort_at: string;
+  quoted_post: {
+    id: string;
+    content: string | null;
+    user: {
+      username: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+  } | null;
+};
+
+type ActivityRow = RepostRow | QuoteRow;
+
 type FollowEdge = {
   follower_id: string;
   following_id: string;
@@ -85,11 +110,13 @@ const profileTabs = ["Activity", "Post", "Tagged", "Media"] as const;
 function Skeleton({ style }: { style: any }) {
   return <View style={[styles.skel, style]} />;
 }
+
 function formatNumber(num: number) {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return String(num);
 }
+
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
   return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
@@ -100,8 +127,6 @@ const isVideoUrl = (url?: string | null) => {
 export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
-
-  // ✅ Detect Firebase UID routes (28 char alphanumeric)
   const isUid = !!raw && raw.length === 28 && /^[a-zA-Z0-9]+$/.test(raw);
 
   const { colors, isDark } = useTheme();
@@ -112,13 +137,13 @@ export default function UserProfileScreen() {
   const [activeTab, setActiveTab] =
     useState<(typeof profileTabs)[number]>("Post");
 
+  // ── Profile ────────────────────────────────────────────────────────────────
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", raw],
     enabled: !!raw,
     staleTime: 30_000,
     gcTime: 60_000,
     queryFn: async () => {
-      // ✅ Support lookups by Firebase UID
       if (isUid) {
         const snap = await firestore()
           .collection("profiles")
@@ -137,8 +162,6 @@ export default function UserProfileScreen() {
           is_founder: d.is_founder ?? false,
         } as UserProfile;
       }
-
-      // ✅ Username lookup
       const snap = await firestore()
         .collection("profiles")
         .where("username", "==", username)
@@ -167,6 +190,7 @@ export default function UserProfileScreen() {
   const { data: isMuted } = useMuteStatus(target?.id ?? "");
   const muteMutation = useToggleMute(target?.id ?? "");
 
+  // ── Follow edge ────────────────────────────────────────────────────────────
   const { data: followEdge, isLoading: loadingEdge } = useQuery({
     queryKey: ["follow-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
@@ -189,6 +213,7 @@ export default function UserProfileScreen() {
   const isFollowing = !!followEdge && followEdge.status === "accepted";
   const isRequested = !!followEdge && followEdge.status === "pending";
 
+  // ── Block edge ─────────────────────────────────────────────────────────────
   const { data: blockEdge } = useQuery({
     queryKey: ["block-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
@@ -233,6 +258,7 @@ export default function UserProfileScreen() {
     return isFollowing;
   }, [target?.id, isMe, isPrivate, isFollowing]);
 
+  // ── Privacy flags ──────────────────────────────────────────────────────────
   const { data: privacyFlags } = useQuery({
     queryKey: ["profile-privacy-flags", target?.id, user?.uid],
     enabled: !!target?.id && !isMe,
@@ -245,7 +271,7 @@ export default function UserProfileScreen() {
         return {
           hide_followers: false,
           hide_following: false,
-          show_activity_publicly: false,
+          show_activity_publicly: true,
         };
       const d = snap.data() as any;
       return {
@@ -256,6 +282,10 @@ export default function UserProfileScreen() {
     },
   });
 
+  const canViewActivity =
+    isMe || privacyFlags?.show_activity_publicly !== false;
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", target?.id],
     enabled: !!target?.id,
@@ -288,6 +318,7 @@ export default function UserProfileScreen() {
     },
   });
 
+  // ── Posts ──────────────────────────────────────────────────────────────────
   const { data: posts, isLoading: loadingPosts } = useQuery({
     queryKey: ["user-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
@@ -311,11 +342,11 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ✅ NEW: query reposts for Activity tab
+  // ── Simple reposts ─────────────────────────────────────────────────────────
   const { data: reposts, isLoading: loadingReposts } = useQuery({
     queryKey: ["user-reposts", target?.id],
-    enabled: !!target?.id && canViewPosts,
-    queryFn: async () => {
+    enabled: !!target?.id && canViewPosts && canViewActivity,
+    queryFn: async (): Promise<RepostRow[]> => {
       const repostSnap = await firestore()
         .collection("reposts")
         .where("user_id", "==", target!.id)
@@ -332,11 +363,9 @@ export default function UserProfileScreen() {
         repostedAt[data.post_id] = data.created_at;
       });
 
-      // Fetch posts in chunks of 10 (Firestore `in` limit)
       const chunks: string[][] = [];
-      for (let i = 0; i < postIds.length; i += 10) {
+      for (let i = 0; i < postIds.length; i += 10)
         chunks.push(postIds.slice(i, i + 10));
-      }
 
       const postDocs: RepostRow[] = [];
       for (const chunk of chunks) {
@@ -346,13 +375,16 @@ export default function UserProfileScreen() {
           .get();
         snap.docs.forEach((d) => {
           const x = d.data() as any;
+          const at = repostedAt[d.id] ?? x.created_at ?? "";
           postDocs.push({
             id: d.id,
+            type: "repost",
             content: x.content ?? "",
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
             created_at: x.created_at ?? "",
             post_type: x.post_type ?? null,
-            reposted_at: repostedAt[d.id] ?? x.created_at ?? "",
+            reposted_at: at,
+            sort_at: at,
             original_user: x.user
               ? {
                   username: x.user.username ?? null,
@@ -365,17 +397,81 @@ export default function UserProfileScreen() {
       }
 
       return postDocs.sort(
-        (a, b) =>
-          new Date(b.reposted_at).getTime() - new Date(a.reposted_at).getTime(),
+        (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
       );
     },
   });
+
+  // ── Quote reposts ──────────────────────────────────────────────────────────
+  const { data: quoteReposts } = useQuery({
+    queryKey: ["user-quote-reposts", target?.id],
+    enabled: !!target?.id && canViewPosts && canViewActivity,
+    queryFn: async (): Promise<QuoteRow[]> => {
+      const quoteSnap = await firestore()
+        .collection("posts")
+        .where("user_id", "==", target!.id)
+        .where("quote_post_id", "!=", null)
+        .orderBy("quote_post_id")
+        .orderBy("created_at", "desc")
+        .limit(20)
+        .get();
+
+      const results: QuoteRow[] = [];
+      await Promise.all(
+        quoteSnap.docs.map(async (d) => {
+          const x = d.data() as any;
+          if (!x.quote_post_id) return;
+
+          let quotedContent: string | null = x.quote_post?.content ?? null;
+          let quotedUser = x.quote_post?.user ?? null;
+
+          if (!quotedContent) {
+            try {
+              const quotedSnap = await firestore()
+                .collection("posts")
+                .doc(x.quote_post_id)
+                .get();
+              const quotedData = quotedSnap.data() as any;
+              if (quotedData) {
+                quotedContent = quotedData.content ?? null;
+                quotedUser = quotedData.user ?? null;
+              }
+            } catch {}
+          }
+
+          results.push({
+            id: d.id,
+            type: "quote",
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: x.created_at ?? "",
+            post_type: x.post_type ?? null,
+            sort_at: x.created_at ?? "",
+            quoted_post: {
+              id: x.quote_post_id,
+              content: quotedContent,
+              user: quotedUser,
+            },
+          });
+        }),
+      );
+      return results;
+    },
+  });
+
+  // ── Merged activity ────────────────────────────────────────────────────────
+  const allActivity = useMemo((): ActivityRow[] => {
+    return [...(reposts ?? []), ...(quoteReposts ?? [])].sort(
+      (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
+    );
+  }, [reposts, quoteReposts]);
 
   const mediaPosts = useMemo(
     () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
     [posts],
   );
 
+  // ── Follow mutation ────────────────────────────────────────────────────────
   const followMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
@@ -606,6 +702,7 @@ export default function UserProfileScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
         <View style={[styles.header, { backgroundColor: "transparent" }]}>
           <TouchableOpacity
             style={[
@@ -653,6 +750,7 @@ export default function UserProfileScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Profile card */}
           <View
             style={[
               styles.profileCard,
@@ -896,6 +994,7 @@ export default function UserProfileScreen() {
             )}
           </View>
 
+          {/* Tabs */}
           <View
             style={[styles.tabsContainer, { backgroundColor: colors.card }]}
           >
@@ -926,10 +1025,31 @@ export default function UserProfileScreen() {
           </View>
 
           <View style={styles.contentSection}>
-            {/* ✅ ACTIVITY — shows actual reposts */}
+            {/* ── ACTIVITY ── */}
             {activeTab === "Activity" && (
               <>
-                {loadingReposts ? (
+                {!canViewActivity ? (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={40}
+                      color={colors.primary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      Activity is Private
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      @{target.username} has set their activity to private.
+                    </Text>
+                  </View>
+                ) : loadingReposts ? (
                   <View style={{ gap: 12 }}>
                     {Array.from({ length: 3 }).map((_, i) => (
                       <View
@@ -953,25 +1073,23 @@ export default function UserProfileScreen() {
                       </View>
                     ))}
                   </View>
-                ) : reposts && reposts.length > 0 ? (
+                ) : allActivity.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {reposts.map((p) => {
-                      const img = p.media_urls?.[0];
-                      const isVid = isVideoUrl(img) || p.post_type === "video";
-                      const originalAuthor =
-                        p.original_user?.full_name ||
-                        p.original_user?.username ||
-                        "Unknown";
+                    {allActivity.map((item) => {
+                      const img = item.media_urls?.[0];
+                      const isVid =
+                        isVideoUrl(img) || item.post_type === "video";
                       return (
                         <TouchableOpacity
-                          key={p.id}
+                          key={`${item.type}-${item.id}`}
                           style={[
                             styles.postCard,
                             { backgroundColor: colors.card },
                           ]}
-                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
+                          {/* Label */}
                           <View
                             style={{
                               flexDirection: "row",
@@ -981,7 +1099,11 @@ export default function UserProfileScreen() {
                             }}
                           >
                             <Ionicons
-                              name="repeat-outline"
+                              name={
+                                item.type === "quote"
+                                  ? "chatbubble-ellipses-outline"
+                                  : "repeat-outline"
+                              }
                               size={14}
                               color={colors.primary}
                             />
@@ -992,10 +1114,27 @@ export default function UserProfileScreen() {
                                 color: colors.primary,
                               }}
                             >
-                              Reposted · originally by @{originalAuthor}
+                              {item.type === "quote"
+                                ? `Quoted · @${(item as QuoteRow).quoted_post?.user?.username ?? "someone"}`
+                                : `Reposted · @${(item as RepostRow).original_user?.username ?? (item as RepostRow).original_user?.full_name ?? "someone"}`}
                             </Text>
                           </View>
-                          {!!p.content && (
+
+                          {/* Quote comment (user's words) */}
+                          {item.type === "quote" && !!item.content && (
+                            <Text
+                              style={[
+                                styles.postContent,
+                                { color: colors.text, marginBottom: 8 },
+                              ]}
+                              numberOfLines={4}
+                            >
+                              {item.content}
+                            </Text>
+                          )}
+
+                          {/* Simple repost — original content */}
+                          {item.type === "repost" && !!item.content && (
                             <Text
                               style={[
                                 styles.postContent,
@@ -1003,9 +1142,58 @@ export default function UserProfileScreen() {
                               ]}
                               numberOfLines={4}
                             >
-                              {p.content}
+                              {item.content}
                             </Text>
                           )}
+
+                          {/* Embedded quoted post card — Twitter style */}
+                          {item.type === "quote" &&
+                            (item as QuoteRow).quoted_post && (
+                              <View
+                                style={[
+                                  styles.quotedCard,
+                                  {
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.surface,
+                                  },
+                                ]}
+                              >
+                                {(item as QuoteRow).quoted_post?.user && (
+                                  <Text
+                                    style={[
+                                      styles.quotedAuthor,
+                                      { color: colors.textSecondary },
+                                    ]}
+                                  >
+                                    @
+                                    {(item as QuoteRow).quoted_post?.user
+                                      ?.username ?? "User"}
+                                  </Text>
+                                )}
+                                {!!(item as QuoteRow).quoted_post?.content ? (
+                                  <Text
+                                    style={[
+                                      styles.quotedContent,
+                                      { color: colors.textSecondary },
+                                    ]}
+                                    numberOfLines={3}
+                                  >
+                                    {(item as QuoteRow).quoted_post?.content}
+                                  </Text>
+                                ) : (
+                                  <Text
+                                    style={[
+                                      styles.quotedContent,
+                                      { color: colors.textTertiary },
+                                    ]}
+                                  >
+                                    Post unavailable
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+
+                          {/* Media */}
                           {!!img && (
                             <View
                               style={[
@@ -1043,7 +1231,7 @@ export default function UserProfileScreen() {
                       color={colors.textTertiary}
                     />
                     <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Reposts Yet
+                      No Activity Yet
                     </Text>
                     <Text
                       style={[
@@ -1051,15 +1239,17 @@ export default function UserProfileScreen() {
                         { color: colors.textTertiary },
                       ]}
                     >
-                      Posts{" "}
-                      {isMe ? "you repost" : `@${target.username} reposts`} will
-                      appear here.
+                      {isMe
+                        ? "Posts you repost or quote"
+                        : `Posts @${target.username} reposts or quotes`}{" "}
+                      will appear here.
                     </Text>
                   </View>
                 )}
               </>
             )}
 
+            {/* ── POSTS ── */}
             {activeTab === "Post" && (
               <>
                 {!canViewPosts ? (
@@ -1178,13 +1368,14 @@ export default function UserProfileScreen() {
                         { color: colors.textTertiary },
                       ]}
                     >
-                      This user hasn't posted anything yet
+                      This user hasn't posted anything yet.
                     </Text>
                   </View>
                 )}
               </>
             )}
 
+            {/* ── TAGGED ── */}
             {activeTab === "Tagged" && (
               <View
                 style={[styles.emptyCard, { backgroundColor: colors.card }]}
@@ -1203,11 +1394,12 @@ export default function UserProfileScreen() {
                     { color: colors.textTertiary },
                   ]}
                 >
-                  Posts where this user is tagged will appear here
+                  Posts where this user is tagged will appear here.
                 </Text>
               </View>
             )}
 
+            {/* ── MEDIA ── */}
             {activeTab === "Media" && (
               <>
                 {!canViewPosts ? (
@@ -1350,7 +1542,7 @@ export default function UserProfileScreen() {
                         { color: colors.textTertiary },
                       ]}
                     >
-                      Photos and videos from posts will appear here
+                      Photos and videos from posts will appear here.
                     </Text>
                   </View>
                 )}
@@ -1416,7 +1608,6 @@ export default function UserProfileScreen() {
         )}
       </SafeAreaView>
 
-      {/* ✅ ShareSheet outside SafeAreaView so it overlays full screen */}
       <ShareSheet
         ref={shareSheetRef}
         title="Share Profile"
@@ -1562,6 +1753,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.3)",
   },
+  quotedCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 8,
+    gap: 4,
+  },
+  quotedAuthor: { fontSize: 12, fontWeight: "700" },
+  quotedContent: { fontSize: 13, lineHeight: 18 },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 32,

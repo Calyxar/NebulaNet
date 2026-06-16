@@ -34,10 +34,8 @@ function getNotificationTitle(type: string, senderName: string): string {
   if (type === "message") return senderName + " sent you a message";
   if (type === "story_like") return senderName + " liked your story";
   if (type === "story_comment") return senderName + " commented on your story";
-  if (type === "community_invite")
-    return senderName + " invited you to a community";
-  if (type === "join_request")
-    return senderName + " wants to join your community";
+  if (type === "community_invite") return senderName + " invited you to a community";
+  if (type === "join_request") return senderName + " wants to join your community";
   return "New notification from NebulaNet";
 }
 
@@ -59,54 +57,28 @@ function getNotificationBody(type: string, text?: string | null): string {
 
 function buildParentalEmailHtml(childUsername: string, code: string): string {
   const lines: string[] = [];
-  lines.push(
-    '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
-  );
+  lines.push('<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">');
   lines.push('<div style="text-align: center; margin-bottom: 32px;">');
-  lines.push(
-    '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
-  );
+  lines.push('<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>');
   lines.push('<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>');
   lines.push('</div>');
   lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>');
-  lines.push(
-    '<strong style="color: #fff;">' +
-      childUsername +
-      '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>',
-  );
-  lines.push(
-    '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
-  );
-  lines.push(
-    '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
-  );
-  lines.push(
-    '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + '</div>',
-  );
-  lines.push(
-    '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
-  );
+  lines.push('<strong style="color: #fff;">' + childUsername + '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>');
+  lines.push('<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">');
+  lines.push('<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>');
+  lines.push('<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + '</div>');
+  lines.push('<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>');
   lines.push('</div>');
-  lines.push(
-    '<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
-      childUsername +
-      ' to complete account setup.</p>',
-  );
-  lines.push(
-    '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
-  );
-  lines.push(
-    '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
-  );
+  lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' + childUsername + ' to complete account setup.</p>');
+  lines.push('<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">');
+  lines.push('<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>');
   lines.push('</div>');
-  lines.push(
-    '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
-  );
+  lines.push('<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>');
   lines.push('</div>');
   return lines.join('\n');
 }
 
-// ✅ UPDATED: FCM push notifications via Firebase Admin SDK
+// ✅ UPDATED: checks user notification preferences + fixed sound
 export const sendPushNotification = onDocumentCreated(
   "notifications/{notifId}",
   async (event) => {
@@ -121,16 +93,54 @@ export const sendPushNotification = onDocumentCreated(
     if (senderId && senderId === receiverId) return;
 
     try {
-      const profileSnap = await db.collection("profiles").doc(receiverId).get();
+      // ✅ Fetch profile + user settings in parallel
+      const [profileSnap, settingsSnap] = await Promise.all([
+        db.collection("profiles").doc(receiverId).get(),
+        db.collection("user_settings").doc(receiverId).get(),
+      ]);
+
       if (!profileSnap.exists) return;
       const profile = profileSnap.data() as Record<string, unknown>;
-
-      // ✅ Use fcm_token instead of push_token
       const fcmToken = (profile?.fcm_token as string) ?? null;
       if (!fcmToken) {
         console.log("No FCM token for", receiverId);
         return;
       }
+
+      // ✅ Check per-type notification preferences
+      const userSettings = settingsSnap.exists
+        ? (settingsSnap.data() as Record<string, unknown>)
+        : null;
+      const notifPrefs =
+        (userSettings?.notifications as Record<string, unknown>) ?? {};
+
+      const typeEnabled = (() => {
+        if (type === "like") return notifPrefs.likes !== false;
+        if (type === "comment") return notifPrefs.comments !== false;
+        if (type === "follow" || type === "follow_request")
+          return notifPrefs.follows !== false;
+        if (type === "message") return notifPrefs.direct_messages !== false;
+        if (type === "mention") return notifPrefs.mentions !== false;
+        if (type === "repost") return notifPrefs.reposts !== false;
+        if (type === "story_like" || type === "story_comment")
+          return notifPrefs.likes !== false;
+        return true;
+      })();
+
+      if (!typeEnabled) {
+        console.log("Notification type", type, "disabled for", receiverId);
+        return;
+      }
+
+      // ✅ Check sound preference
+      const soundPref =
+        (userSettings?.notification_sound as string) ?? "default";
+      const channelId =
+        soundPref === "silent"
+          ? "silent"
+          : type === "message"
+            ? "messages"
+            : "default";
 
       let senderName = "Someone";
       if (senderId) {
@@ -145,26 +155,24 @@ export const sendPushNotification = onDocumentCreated(
       const title = getNotificationTitle(type, senderName);
       const body = getNotificationBody(type, text);
 
-      // ✅ Send via Firebase Admin SDK
       const message = {
         token: fcmToken,
-        notification: {
-          title,
-          body,
-        },
+        notification: { title, body },
         android: {
           notification: {
-            channelId: type === "message" ? "messages" : "default",
-            sound: "notification",
+            channelId,
+            // ✅ FIX: use "default" instead of "notification" to avoid missing file errors
+            sound: soundPref === "silent" ? undefined : "default",
             priority: "high" as const,
-            defaultVibrateTimings: true,
+            defaultVibrateTimings: soundPref !== "silent",
           },
           priority: "high" as const,
         },
         apns: {
           payload: {
             aps: {
-              sound: "notification.wav",
+              // ✅ FIX: use "default" instead of "notification.wav"
+              sound: soundPref === "silent" ? undefined : "default",
               badge: 1,
             },
           },
@@ -179,18 +187,20 @@ export const sendPushNotification = onDocumentCreated(
       };
 
       const response = await getMessaging().send(message);
-      console.log("FCM sent to", receiverId, "type=", type, "msgId=", response);
+      console.log(
+        "FCM sent to", receiverId,
+        "type=", type,
+        "channel=", channelId,
+        "sound=", soundPref,
+        "msgId=", response,
+      );
     } catch (err: any) {
       console.error("sendPushNotification error:", String(err));
-      // ✅ Clean up invalid tokens automatically
       if (
         err?.code === "messaging/registration-token-not-registered" ||
         err?.code === "messaging/invalid-registration-token"
       ) {
-        await db
-          .collection("profiles")
-          .doc(receiverId)
-          .update({ fcm_token: null });
+        await db.collection("profiles").doc(receiverId).update({ fcm_token: null });
         console.log("Cleared invalid FCM token for", receiverId);
       }
     }
@@ -209,14 +219,8 @@ export const onFollowCreated = onDocumentCreated(
     if (!followerId || !followingId) return;
     try {
       await Promise.all([
-        db
-          .collection("profiles")
-          .doc(followerId)
-          .update({ following_count: FieldValue.increment(1) }),
-        db
-          .collection("profiles")
-          .doc(followingId)
-          .update({ follower_count: FieldValue.increment(1) }),
+        db.collection("profiles").doc(followerId).update({ following_count: FieldValue.increment(1) }),
+        db.collection("profiles").doc(followingId).update({ follower_count: FieldValue.increment(1) }),
       ]);
     } catch (err) {
       console.error("onFollowCreated error:", String(err));
@@ -239,14 +243,8 @@ export const onFollowUpdated = onDocumentUpdated(
     const delta = isAccepted ? 1 : -1;
     try {
       await Promise.all([
-        db
-          .collection("profiles")
-          .doc(followerId)
-          .update({ following_count: FieldValue.increment(delta) }),
-        db
-          .collection("profiles")
-          .doc(followingId)
-          .update({ follower_count: FieldValue.increment(delta) }),
+        db.collection("profiles").doc(followerId).update({ following_count: FieldValue.increment(delta) }),
+        db.collection("profiles").doc(followingId).update({ follower_count: FieldValue.increment(delta) }),
       ]);
     } catch (err) {
       console.error("onFollowUpdated error:", String(err));
@@ -266,14 +264,8 @@ export const onFollowDeleted = onDocumentDeleted(
     if (!followerId || !followingId) return;
     try {
       await Promise.all([
-        db
-          .collection("profiles")
-          .doc(followerId)
-          .update({ following_count: FieldValue.increment(-1) }),
-        db
-          .collection("profiles")
-          .doc(followingId)
-          .update({ follower_count: FieldValue.increment(-1) }),
+        db.collection("profiles").doc(followerId).update({ following_count: FieldValue.increment(-1) }),
+        db.collection("profiles").doc(followingId).update({ follower_count: FieldValue.increment(-1) }),
       ]);
     } catch (err) {
       console.error("onFollowDeleted error:", String(err));
@@ -289,18 +281,12 @@ export const handleAccountDeletion = onDocumentCreated(
     if (!snap) return;
     try {
       await db.collection("profiles").doc(userId).delete();
-      await db
-        .collection("user_settings")
-        .doc(userId)
-        .set(
-          { deleted_at: new Date().toISOString(), cleanup_processed: true },
-          { merge: true },
-        );
+      await db.collection("user_settings").doc(userId).set(
+        { deleted_at: new Date().toISOString(), cleanup_processed: true },
+        { merge: true },
+      );
       await auth.deleteUser(userId).catch(() => void 0);
-      await snap.ref.update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-      });
+      await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
     } catch (err) {
       await snap.ref.update({ status: "failed", error: String(err) });
     }
@@ -335,19 +321,8 @@ export const handleBoostCreated = onDocumentCreated(
       const userRecord = await auth.getUser(userId);
       const email = userRecord.email;
       if (!email) return;
-      console.log(
-        "Boost confirmation for",
-        email,
-        ": post",
-        boost.post_id,
-        boost.duration_days,
-        "days $",
-        boost.total_amount,
-      );
-      await snap.ref.update({
-        email_sent: true,
-        email_sent_at: new Date().toISOString(),
-      });
+      console.log("Boost confirmation for", email, ": post", boost.post_id, boost.duration_days, "days $", boost.total_amount);
+      await snap.ref.update({ email_sent: true, email_sent_at: new Date().toISOString() });
     } catch (err) {
       console.error("Boost email error:", String(err));
     }
@@ -378,29 +353,20 @@ export const sendParentalVerificationEmail = https.onCall(
   async (req) => {
     const { parentEmail, childUserId, childUsername } = req.data;
     if (!parentEmail || !childUserId) {
-      throw new https.HttpsError(
-        "invalid-argument",
-        "Missing required fields.",
-      );
+      throw new https.HttpsError("invalid-argument", "Missing required fields.");
     }
-
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-
-    await db
-      .collection("parental_verifications")
-      .doc(childUserId)
-      .set({
-        parent_email: parentEmail,
-        child_user_id: childUserId,
-        child_username: childUsername ?? null,
-        code,
-        expires_at: expiresAt.toISOString(),
-        expires_at_ts: FieldValue.serverTimestamp(),
-        verified: false,
-        created_at: new Date().toISOString(),
-      });
-
+    await db.collection("parental_verifications").doc(childUserId).set({
+      parent_email: parentEmail,
+      child_user_id: childUserId,
+      child_username: childUsername ?? null,
+      code,
+      expires_at: expiresAt.toISOString(),
+      expires_at_ts: FieldValue.serverTimestamp(),
+      verified: false,
+      created_at: new Date().toISOString(),
+    });
     const emailResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -414,13 +380,11 @@ export const sendParentalVerificationEmail = https.onCall(
         html: buildParentalEmailHtml(childUsername ?? "Your child", code),
       }),
     });
-
     const result = (await emailResponse.json()) as Record<string, unknown>;
     if (!emailResponse.ok) {
       console.error("Resend error:", result);
       throw new https.HttpsError("internal", "Failed to send email.");
     }
-
     console.log("Parental verification email sent to", parentEmail);
     return { success: true, message: "Verification code sent." };
   },
@@ -431,50 +395,29 @@ export const verifyParentalCode = https.onCall(
   async (req) => {
     const { childUserId, code } = req.data;
     if (!childUserId || !code) {
-      throw new https.HttpsError(
-        "invalid-argument",
-        "Missing required fields.",
-      );
+      throw new https.HttpsError("invalid-argument", "Missing required fields.");
     }
-
     const docRef = db.collection("parental_verifications").doc(childUserId);
     const snap = await docRef.get();
     if (!snap.exists) {
-      throw new https.HttpsError(
-        "not-found",
-        "Verification request not found.",
-      );
+      throw new https.HttpsError("not-found", "Verification request not found.");
     }
-
     const data = snap.data() as Record<string, unknown>;
     const storedCode = data.code as string;
     const expiresAt = new Date(data.expires_at as string);
-
     if (new Date() > expiresAt) {
-      throw new https.HttpsError(
-        "deadline-exceeded",
-        "Verification code has expired.",
-      );
+      throw new https.HttpsError("deadline-exceeded", "Verification code has expired.");
     }
-
     if (storedCode !== code) {
-      throw new https.HttpsError(
-        "unauthenticated",
-        "Invalid verification code.",
-      );
+      throw new https.HttpsError("unauthenticated", "Invalid verification code.");
     }
-
-    await docRef.update({
-      verified: true,
-      verified_at: new Date().toISOString(),
-    });
+    await docRef.update({ verified: true, verified_at: new Date().toISOString() });
     await db.collection("profiles").doc(childUserId).update({
       parental_approved: true,
       parental_email: data.parent_email,
       updated_at: new Date().toISOString(),
       updated_at_ts: FieldValue.serverTimestamp(),
     });
-
     return { success: true };
   },
 );
@@ -486,75 +429,45 @@ export const moderatePostContent = onDocumentCreated(
     if (!snap) return;
     const post = snap.data() as Record<string, unknown>;
     const postId = event.params.postId;
-
     if (post.is_nsfw === true) return;
-
-    const content =
-      ((post.content as string) ?? "") + " " + ((post.title as string) ?? "");
+    const content = ((post.content as string) ?? "") + " " + ((post.title as string) ?? "");
     const mediaUrls = (post.media_urls as string[]) ?? [];
     const userId = post.user_id as string;
-
     let shouldFlag = false;
     let flagReason = "";
-
     const EXPLICIT_WORDS = [
-      "porn",
-      "nude",
-      "naked",
-      "xxx",
-      "nsfw",
-      "onlyfans",
-      "sex tape",
-      "adult content",
-      "explicit",
-      "18+",
-      "hentai",
-  
-    "lewd",
-      "slutty",
-      "horny",
-      "masturbat",
-      "genitals",
+      "porn", "nude", "naked", "xxx", "nsfw", "onlyfans", "sex tape",
+      "adult content", "explicit", "18+", "hentai", "lewd", "slutty",
+      "horny", "masturbat", "genitals",
     ];
-
     const lower = content.toLowerCase();
     const textMatch = EXPLICIT_WORDS.find((w) => lower.includes(w));
     if (textMatch) {
       shouldFlag = true;
       flagReason = "explicit_text:" + textMatch;
     }
-
     if (!shouldFlag && mediaUrls.length > 0) {
       try {
         const imageUrl = mediaUrls.find(
-          (u) =>
-            !u.includes(".mp4") &&
-            !u.includes(".mov") &&
-            !u.includes(".m4v") &&
-            !u.includes(".webm"),
+          (u) => !u.includes(".mp4") && !u.includes(".mov") &&
+            !u.includes(".m4v") && !u.includes(".webm"),
         );
-
         if (imageUrl) {
           const visionRes = await fetch(
-            "https://vision.googleapis.com/v1/images:annotate?key=" +
-              googleCloudApiKey.value(),
+            "https://vision.googleapis.com/v1/images:annotate?key=" + googleCloudApiKey.value(),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                requests: [
-                  {
-                    image: { source: { imageUri: imageUrl } },
-                    features: [{ type: "SAFE_SEARCH_DETECTION" }],
-                  },
-                ],
+                requests: [{
+                  image: { source: { imageUri: imageUrl } },
+                  features: [{ type: "SAFE_SEARCH_DETECTION" }],
+                }],
               }),
             },
           );
-
           const visionData = (await visionRes.json()) as any;
           const safeSearch = visionData?.responses?.[0]?.safeSearchAnnotation;
-
           if (safeSearch) {
             const flagLevels = ["LIKELY", "VERY_LIKELY"];
             if (
@@ -564,18 +477,10 @@ export const moderatePostContent = onDocumentCreated(
             ) {
               shouldFlag = true;
               flagReason = [
-                flagLevels.includes(safeSearch.adult)
-                  ? "adult:" + safeSearch.adult
-                  : "",
-                flagLevels.includes(safeSearch.racy)
-                  ? "racy:" + safeSearch.racy
-                  : "",
-                flagLevels.includes(safeSearch.violence)
-                  ? "violence:" + safeSearch.violence
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(",");
+                flagLevels.includes(safeSearch.adult) ? "adult:" + safeSearch.adult : "",
+                flagLevels.includes(safeSearch.racy) ? "racy:" + safeSearch.racy : "",
+                flagLevels.includes(safeSearch.violence) ? "violence:" + safeSearch.violence : "",
+              ].filter(Boolean).join(",");
             }
           }
         }
@@ -583,7 +488,6 @@ export const moderatePostContent = onDocumentCreated(
         console.error("Vision API error:", String(err));
       }
     }
-
     if (shouldFlag) {
       await snap.ref.update({
         is_nsfw: true,
@@ -591,7 +495,6 @@ export const moderatePostContent = onDocumentCreated(
         nsfw_flag_reason: flagReason,
         nsfw_detected_at: new Date().toISOString(),
       });
-
       await db.collection("content_violations").add({
         post_id: postId,
         user_id: userId,
@@ -603,12 +506,7 @@ export const moderatePostContent = onDocumentCreated(
         action_taken: "nsfw_flagged",
         reviewed: false,
       });
-
-      const violationsSnap = await db
-        .collection("content_violations")
-        .where("user_id", "==", userId)
-        .get();
-
+      const violationsSnap = await db.collection("content_violations").where("user_id", "==", userId).get();
       if (violationsSnap.size >= 3) {
         await db.collection("profiles").doc(userId).update({
           content_violation_count: violationsSnap.size,
@@ -617,7 +515,6 @@ export const moderatePostContent = onDocumentCreated(
           updated_at_ts: FieldValue.serverTimestamp(),
         });
       }
-
       console.log("Post", postId, "auto-flagged NSFW:", flagReason);
     }
   },

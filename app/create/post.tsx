@@ -1,5 +1,6 @@
-// app/create/post.tsx ✅ — with NSFW toggle + explicit text pre-scan
+// app/create/post.tsx
 import GifPicker from "@/components/post/GifPicker";
+import { useCommunities } from "@/hooks/useCommunities";
 import { useCreatePost } from "@/hooks/usePosts";
 import { auth } from "@/lib/firebase";
 import { extractHashtags } from "@/lib/firestore/hashtags";
@@ -24,7 +25,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// ✅ added useSafeAreaInsets
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -232,6 +232,103 @@ function LocationPicker({
   );
 }
 
+// ✅ Community picker modal
+function CommunityPickerModal({
+  visible,
+  communities,
+  onSelect,
+  onClose,
+  colors,
+}: {
+  visible: boolean;
+  communities: any[];
+  onSelect: (c: { id: string; name: string; slug: string }) => void;
+  onClose: () => void;
+  colors: any;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        style={lpStyles.overlay}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={[lpStyles.sheet, { backgroundColor: colors.card }]}>
+        <View style={[lpStyles.handle, { backgroundColor: colors.border }]} />
+        <Text style={[lpStyles.title, { color: colors.text }]}>
+          Post to Community
+        </Text>
+        {communities.length === 0 ? (
+          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+            Join a community first to post there.
+          </Text>
+        ) : (
+          <FlatList
+            data={communities}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            style={{ maxHeight: 360 }}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[
+                  lpStyles.resultRow,
+                  { borderTopColor: colors.border },
+                  index === 0 && { borderTopWidth: 0 },
+                ]}
+                onPress={() => {
+                  onSelect({ id: item.id, name: item.name, slug: item.slug });
+                  onClose();
+                }}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    lpStyles.pinCircle,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  {item.image_url ? (
+                    <Image
+                      source={{ uri: item.image_url }}
+                      style={{ width: 34, height: 34, borderRadius: 17 }}
+                    />
+                  ) : (
+                    <Ionicons name="people" size={16} color={colors.primary} />
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={[lpStyles.mainText, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                  {!!item.description && (
+                    <Text
+                      style={[
+                        lpStyles.secondaryText,
+                        { color: colors.textTertiary },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.description}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 const lpStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
   sheet: {
@@ -285,10 +382,10 @@ const lpStyles = StyleSheet.create({
 
 export default function CreatePostScreen() {
   const { colors, isDark } = useTheme();
-  // ✅ get safe area insets for bottom bar
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const createPostMutation = useCreatePost();
+  const { myCommunities } = useCommunities();
 
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
@@ -302,6 +399,13 @@ export default function CreatePostScreen() {
     place_id: string;
   } | null>(null);
   const [isNsfw, setIsNsfw] = useState(false);
+  // ✅ Community selection state
+  const [selectedCommunity, setSelectedCommunity] = useState<{
+    id: string;
+    name: string;
+    slug: string;
+  } | null>(null);
+  const [showCommunityPicker, setShowCommunityPicker] = useState(false);
 
   const isPosting = createPostMutation.isPending;
 
@@ -412,7 +516,7 @@ export default function CreatePostScreen() {
       finalIsNsfw = true;
       Alert.alert(
         "Content Warning",
-        "Your post contains content that has been automatically marked as NSFW. It will only be shown to users who have enabled adult content.",
+        "Your post contains content that has been automatically marked as NSFW.",
         [{ text: "OK" }],
       );
     }
@@ -436,6 +540,7 @@ export default function CreatePostScreen() {
         visibility,
         location: location ?? undefined,
         is_nsfw: finalIsNsfw,
+        community_id: selectedCommunity?.id ?? undefined, // ✅ community
       } as any);
       router.back();
     } catch (e: any) {
@@ -613,24 +718,54 @@ export default function CreatePostScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* ✅ Community picker button */}
                 <TouchableOpacity
-                  style={[styles.communityPill, { borderColor: colors.border }]}
-                  onPress={() =>
-                    Alert.alert(
-                      "Communities",
-                      "Community selection coming soon.",
-                    )
-                  }
+                  style={[
+                    styles.communityPill,
+                    {
+                      borderColor: selectedCommunity
+                        ? colors.primary
+                        : colors.border,
+                      backgroundColor: selectedCommunity
+                        ? colors.primary + "18"
+                        : "transparent",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    },
+                  ]}
+                  onPress={() => setShowCommunityPicker(true)}
                   disabled={isPosting}
                 >
+                  {selectedCommunity && (
+                    <Ionicons name="people" size={13} color={colors.primary} />
+                  )}
                   <Text
                     style={[
                       styles.communityPillText,
-                      { color: colors.textSecondary },
+                      {
+                        color: selectedCommunity
+                          ? colors.primary
+                          : colors.textSecondary,
+                      },
                     ]}
+                    numberOfLines={1}
                   >
-                    Community
+                    {selectedCommunity ? selectedCommunity.name : "Community"}
                   </Text>
+                  {selectedCommunity && (
+                    <TouchableOpacity
+                      onPress={() => setSelectedCommunity(null)}
+                      hitSlop={8}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={14}
+                        color={colors.primary}
+                      />
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -799,8 +934,7 @@ export default function CreatePostScreen() {
                 <Ionicons name="warning-outline" size={16} color="#EF4444" />
                 <Text style={[styles.nsfwBannerText, { color: "#EF4444" }]}>
                   This post will only be visible to users who have enabled adult
-                  content in their settings. Falsely marking content may result
-                  in account action.
+                  content in their settings.
                 </Text>
               </View>
             )}
@@ -825,7 +959,6 @@ export default function CreatePostScreen() {
             <View style={{ height: 120 }} />
           </ScrollView>
 
-          {/* ✅ paddingBottom uses insets.bottom so buttons clear the gesture nav bar */}
           <View
             style={[
               styles.bottomBar,
@@ -885,6 +1018,14 @@ export default function CreatePostScreen() {
         visible={showLocationPicker}
         onSelect={(place) => setLocation(place)}
         onClose={() => setShowLocationPicker(false)}
+        colors={colors}
+      />
+      {/* ✅ Community picker */}
+      <CommunityPickerModal
+        visible={showCommunityPicker}
+        communities={myCommunities}
+        onSelect={(c) => setSelectedCommunity(c)}
+        onClose={() => setShowCommunityPicker(false)}
         colors={colors}
       />
     </>
@@ -976,6 +1117,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 6,
+    maxWidth: 140,
   },
   communityPillText: { fontSize: 13, fontWeight: "500" },
   optionsCard: {
@@ -1039,7 +1181,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   uploadProgress: { fontSize: 13, fontWeight: "600" },
-  // ✅ paddingBottom removed from style — applied dynamically via insets.bottom
   bottomBar: {
     flexDirection: "row",
     gap: 12,
