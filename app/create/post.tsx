@@ -1,4 +1,8 @@
-// app/create/post.tsx
+// app/create/post.tsx ✅ FIXED
+// Fix 1: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
+// Fix 2: Google Places URL uses URLSearchParams (no pipe encoding issues)
+// Fix 3: Places API error surfaced to user instead of silently returning empty
+
 import GifPicker from "@/components/post/GifPicker";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useCreatePost } from "@/hooks/usePosts";
@@ -73,6 +77,7 @@ function containsExplicitText(text: string): boolean {
   return EXPLICIT_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+// ✅ FIX 1 & 2: LocationPicker with KeyboardAvoidingView + proper Places URL
 function LocationPicker({
   visible,
   onSelect,
@@ -87,20 +92,41 @@ function LocationPicker({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = async (text: string) => {
     if (text.length < 2) {
       setResults([]);
+      setApiError("");
       return;
     }
     setLoading(true);
+    setApiError("");
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${PLACES_API_KEY}&types=(cities)|establishment`;
-      const res = await fetch(url);
+      // ✅ FIX 2: URLSearchParams handles encoding correctly — no pipe issues
+      const params = new URLSearchParams({
+        input: text,
+        key: PLACES_API_KEY,
+      });
+      const res = await fetch(
+        `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`,
+      );
       const json = await res.json();
-      setResults(json.predictions ?? []);
+
+      // ✅ FIX 3: surface API errors to user
+      if (json.status === "REQUEST_DENIED") {
+        setApiError(
+          "Location search unavailable — check API key configuration.",
+        );
+        setResults([]);
+      } else if (json.status === "ZERO_RESULTS") {
+        setResults([]);
+      } else {
+        setResults(json.predictions ?? []);
+      }
     } catch {
+      setApiError("Network error. Check your connection and try again.");
       setResults([]);
     } finally {
       setLoading(false);
@@ -116,6 +142,7 @@ function LocationPicker({
   const handleClose = () => {
     setQuery("");
     setResults([]);
+    setApiError("");
     onClose();
   };
 
@@ -131,108 +158,126 @@ function LocationPicker({
         activeOpacity={1}
         onPress={handleClose}
       />
-      <View style={[lpStyles.sheet, { backgroundColor: colors.card }]}>
-        <View style={[lpStyles.handle, { backgroundColor: colors.border }]} />
-        <Text style={[lpStyles.title, { color: colors.text }]}>
-          Add Location
-        </Text>
-        <View
-          style={[
-            lpStyles.searchRow,
-            { backgroundColor: colors.surface, borderColor: colors.border },
-          ]}
-        >
-          <Ionicons name="search" size={18} color={colors.textTertiary} />
-          <TextInput
-            style={[lpStyles.searchInput, { color: colors.text }]}
-            placeholder="Search places..."
-            placeholderTextColor={colors.textTertiary}
-            value={query}
-            onChangeText={handleChange}
-            autoFocus
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          {!!query && (
-            <TouchableOpacity
-              onPress={() => {
-                setQuery("");
-                setResults([]);
-              }}
-            >
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color={colors.textTertiary}
-              />
-            </TouchableOpacity>
-          )}
-        </View>
-        {loading && (
-          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
-            Searching...
+      {/* ✅ FIX 1: KeyboardAvoidingView lifts the sheet above the keyboard */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "position" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <View style={[lpStyles.sheet, { backgroundColor: colors.card }]}>
+          <View style={[lpStyles.handle, { backgroundColor: colors.border }]} />
+          <Text style={[lpStyles.title, { color: colors.text }]}>
+            Add Location
           </Text>
-        )}
-        {!loading && query.length >= 2 && results.length === 0 && (
-          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
-            No results found.
-          </Text>
-        )}
-        <FlatList
-          data={results}
-          keyExtractor={(item) => item.place_id}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              style={[
-                lpStyles.resultRow,
-                { borderTopColor: colors.border },
-                index === 0 && { borderTopWidth: 0 },
-              ]}
-              onPress={() => {
-                onSelect({
-                  name: item.structured_formatting.main_text,
-                  place_id: item.place_id,
-                });
-                handleClose();
-              }}
-              activeOpacity={0.85}
-            >
-              <View
-                style={[
-                  lpStyles.pinCircle,
-                  { backgroundColor: colors.primary + "18" },
-                ]}
+          <View
+            style={[
+              lpStyles.searchRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="search" size={18} color={colors.textTertiary} />
+            <TextInput
+              style={[lpStyles.searchInput, { color: colors.text }]}
+              placeholder="Search places..."
+              placeholderTextColor={colors.textTertiary}
+              value={query}
+              onChangeText={handleChange}
+              autoFocus
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              onSubmitEditing={() => search(query)}
+            />
+            {!!query && (
+              <TouchableOpacity
+                onPress={() => {
+                  setQuery("");
+                  setResults([]);
+                  setApiError("");
+                }}
               >
-                <Ionicons name="location" size={16} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  style={[lpStyles.mainText, { color: colors.text }]}
-                  numberOfLines={1}
-                >
-                  {item.structured_formatting.main_text}
-                </Text>
-                <Text
-                  style={[
-                    lpStyles.secondaryText,
-                    { color: colors.textTertiary },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {item.structured_formatting.secondary_text}
-                </Text>
-              </View>
-            </TouchableOpacity>
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={colors.textTertiary}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {loading && (
+            <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+              Searching...
+            </Text>
           )}
-          style={{ maxHeight: 320 }}
-        />
-      </View>
+          {!!apiError && (
+            <Text style={[lpStyles.hint, { color: "#EF4444" }]}>
+              {apiError}
+            </Text>
+          )}
+          {!loading &&
+            !apiError &&
+            query.length >= 2 &&
+            results.length === 0 && (
+              <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+                No results found.
+              </Text>
+            )}
+
+          <FlatList
+            data={results}
+            keyExtractor={(item) => item.place_id}
+            keyboardShouldPersistTaps="handled"
+            style={{ maxHeight: 280 }}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[
+                  lpStyles.resultRow,
+                  { borderTopColor: colors.border },
+                  index === 0 && { borderTopWidth: 0 },
+                ]}
+                onPress={() => {
+                  onSelect({
+                    name: item.structured_formatting.main_text,
+                    place_id: item.place_id,
+                  });
+                  handleClose();
+                }}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    lpStyles.pinCircle,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  <Ionicons name="location" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={[lpStyles.mainText, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {item.structured_formatting.main_text}
+                  </Text>
+                  <Text
+                    style={[
+                      lpStyles.secondaryText,
+                      { color: colors.textTertiary },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.structured_formatting.secondary_text}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-// ✅ Community picker modal
 function CommunityPickerModal({
   visible,
   communities,
@@ -399,7 +444,6 @@ export default function CreatePostScreen() {
     place_id: string;
   } | null>(null);
   const [isNsfw, setIsNsfw] = useState(false);
-  // ✅ Community selection state
   const [selectedCommunity, setSelectedCommunity] = useState<{
     id: string;
     name: string;
@@ -540,7 +584,7 @@ export default function CreatePostScreen() {
         visibility,
         location: location ?? undefined,
         is_nsfw: finalIsNsfw,
-        community_id: selectedCommunity?.id ?? undefined, // ✅ community
+        community_id: selectedCommunity?.id ?? undefined,
       } as any);
       router.back();
     } catch (e: any) {
@@ -719,7 +763,6 @@ export default function CreatePostScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* ✅ Community picker button */}
                 <TouchableOpacity
                   style={[
                     styles.communityPill,
@@ -1020,7 +1063,6 @@ export default function CreatePostScreen() {
         onClose={() => setShowLocationPicker(false)}
         colors={colors}
       />
-      {/* ✅ Community picker */}
       <CommunityPickerModal
         visible={showCommunityPicker}
         communities={myCommunities}

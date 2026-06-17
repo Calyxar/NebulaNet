@@ -4,7 +4,9 @@
 // ✅ Bell notification button
 // ✅ Real-time profile sync
 // ✅ Route by user_id
+// ✅ AnnouncementCard shown at top of For You feed
 
+import AnnouncementCard from "@/components/feed/AnnouncementCard";
 import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
 import AppHeader from "@/components/navigation/AppHeader";
@@ -193,7 +195,6 @@ const adStyles = StyleSheet.create({
   },
 });
 
-// ✅ Embedded quoted post card — shown inside quote reposts
 function QuotedPostCard({
   quotedPost,
   colors,
@@ -513,6 +514,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* ✅ Announcement card — only shown on For You tab */}
+        {activeTab === "for-you" && <AnnouncementCard />}
+
         {activeTab === "my-community" && (
           <View
             style={[
@@ -671,7 +675,6 @@ export default function HomeScreen() {
             },
           ]}
         >
-          {/* ✅ Reposted-by-you label */}
           {isRepost && (
             <View style={styles.repostLabel}>
               <Repeat2
@@ -775,7 +778,6 @@ export default function HomeScreen() {
                 />
               )}
 
-              {/* ✅ Embedded quoted post card for quote reposts */}
               {isQuote && quotedPost && (
                 <QuotedPostCard quotedPost={quotedPost} colors={colors} />
               )}
@@ -1111,7 +1113,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-  // ✅ Repost label
   repostLabel: {
     flexDirection: "row",
     alignItems: "center",
@@ -1136,7 +1137,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  // ✅ Quoted post card
   quotedCard: {
     borderRadius: 14,
     borderWidth: 1,

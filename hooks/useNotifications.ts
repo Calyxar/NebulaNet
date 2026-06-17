@@ -1,13 +1,16 @@
-// hooks/useNotifications.ts — React Native Firebase ✅
-// ✅ FIXED: Migrated from web SDK to React Native Firebase
-// ✅ FIXED: All queries, listeners, and mutations use React Native Firebase
+// hooks/useNotifications.ts ✅ FIXED
+// Fix 1: reads notification_sound from user_settings before playing sound
+// Fix 2: respects "silent", "vibrate", and "default" preferences
+// Fix 3: reads muted state from AsyncStorage before showing notification
+// Fix 4: sets up separate Android channels for each sound mode
 
+import { getNotificationsMuted } from "@/lib/notifications";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Audio } from "expo-av";
 import * as Notifications from "expo-notifications";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 
 export interface Notification {
@@ -46,6 +49,8 @@ export interface Notification {
   story?: { id: string; content: string | null };
 }
 
+type SoundPref = "default" | "vibrate" | "silent";
+
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
   if (ts?.toDate) return ts.toDate().toISOString();
@@ -65,19 +70,147 @@ Notifications.setNotificationHandler({
 export function useNotifications() {
   const queryClient = useQueryClient();
   const initialisedRef = useRef(false);
+  // ✅ FIX 1: track sound preference in state so it's always current
+  const [soundPref, setSoundPref] = useState<SoundPref>("default");
+  const soundPrefRef = useRef<SoundPref>("default");
 
+  // ✅ FIX 1: load sound preference from Firestore when user changes
+  useEffect(() => {
+    const unsub = auth().onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const snap = await firestore()
+          .collection("user_settings")
+          .doc(user.uid)
+          .get();
+        const pref: SoundPref =
+          (snap.data() as any)?.notification_sound ?? "default";
+        setSoundPref(pref);
+        soundPrefRef.current = pref;
+      } catch {}
+
+      // Also listen for real-time changes to sound preference
+      return firestore()
+        .collection("user_settings")
+        .doc(user.uid)
+        .onSnapshot((snap) => {
+          const pref: SoundPref =
+            (snap.data() as any)?.notification_sound ?? "default";
+          setSoundPref(pref);
+          soundPrefRef.current = pref;
+        });
+    });
+    return () => unsub();
+  }, []);
+
+  // ✅ FIX 4: set up Android channels for each sound mode
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== "granted") return;
+
+        if (Platform.OS === "android") {
+          // Default channel — sound + vibration
+          await Notifications.setNotificationChannelAsync("default", {
+            name: "Default",
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#7C3AED",
+            sound: "notification.wav",
+            enableVibrate: true,
+          });
+
+          // Vibrate-only channel — no sound
+          await Notifications.setNotificationChannelAsync("vibrate-only", {
+            name: "Vibrate Only",
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 400, 200, 400],
+            enableVibrate: true,
+            sound: undefined, // no sound
+          });
+
+          // Silent channel — no sound, no vibration
+          await Notifications.setNotificationChannelAsync("silent", {
+            name: "Silent",
+            importance: Notifications.AndroidImportance.LOW,
+            enableVibrate: false,
+            sound: undefined,
+          });
+        }
+      } catch {}
+    };
+    init();
+  }, []);
+
+  // ✅ FIX 2: play sound only when pref is "default"
   const playNotificationSound = useCallback(async () => {
+    if (soundPrefRef.current !== "default") return;
     try {
       const soundObject = new Audio.Sound();
       await soundObject.loadAsync(require("@/assets/sounds/notification.wav"));
       await soundObject.playAsync();
-      setTimeout(() => soundObject.unloadAsync(), 1000);
+      setTimeout(() => soundObject.unloadAsync(), 1500);
     } catch {}
   }, []);
 
+  // ✅ FIX 2 & 3: check mute + sound pref before showing notification
   const showLocalNotification = useCallback(
     async (title: string, body: string, data?: any) => {
       try {
+        // Check mute state first
+        const isMuted = await getNotificationsMuted();
+        if (isMuted) return;
+
+        const pref = soundPrefRef.current;
+
+        if (pref === "silent") {
+          // Show notification visually but no sound or vibration
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title,
+              body,
+              data: data ?? {},
+              sound: false,
+              badge: 1,
+            },
+            trigger: null,
+            ...(Platform.OS === "android" &&
+              ({
+                android: { channelId: "silent" },
+              } as any)),
+          });
+          return;
+        }
+
+        if (pref === "vibrate") {
+          // Vibrate only — no sound file
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title,
+              body,
+              data: data ?? {},
+              sound: false,
+              badge: 1,
+            },
+            trigger: null,
+            ...(Platform.OS === "android" &&
+              ({
+                android: { channelId: "vibrate-only" },
+              } as any)),
+          });
+          // Trigger vibration manually on iOS (Android channel handles it)
+          if (Platform.OS === "ios") {
+            const { default: ReactNativeHapticFeedback } =
+              await import("react-native-haptic-feedback").catch(() => ({
+                default: null,
+              }));
+            ReactNativeHapticFeedback?.trigger?.("notificationSuccess");
+          }
+          return;
+        }
+
+        // Default — sound + vibration
         await Notifications.scheduleNotificationAsync({
           content: {
             title,
@@ -87,33 +220,17 @@ export function useNotifications() {
             badge: 1,
           },
           trigger: null,
+          ...(Platform.OS === "android" &&
+            ({
+              android: { channelId: "default" },
+            } as any)),
         });
+        // Also play in-app sound
         await playNotificationSound();
       } catch {}
     },
     [playNotificationSound],
   );
-
-  useEffect(() => {
-    const init = async () => {
-      try {
-        if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Default",
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#7C3AED",
-            sound: "notification.wav",
-            enableVibrate: true,
-          });
-        }
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== "granted")
-          console.log("Notification permissions not granted");
-      } catch {}
-    };
-    init();
-  }, []);
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -208,9 +325,7 @@ export function useNotifications() {
         await firestore()
           .collection("notifications")
           .doc(notificationId)
-          .update({
-            is_read: true,
-          });
+          .update({ is_read: true });
       } else {
         const snap = await firestore()
           .collection("notifications")
@@ -425,6 +540,7 @@ export function useNotifications() {
     notifications: notificationsQuery.data ?? [],
     isLoading: notificationsQuery.isLoading,
     unreadCount,
+    soundPref,
     markAsRead,
     deleteNotification,
     clearAllNotifications,

@@ -1,6 +1,9 @@
-// lib/firestore/posts.ts ✅
-// ✅ FIXED: repost_count added to Post interface, docToPost, and createPost
-// ✅ FIXED: getRepostFeedItems merges reposts into feed on first page
+// lib/firestore/posts.ts ✅ FIXED
+// Fix 1: getPosts batches userIds in chunks of 10 (Firestore in-operator limit)
+//         and merges results — fixes empty following feed for users with >10 follows
+// Fix 2: getRepostFeedItems uses orderBy("created_at","desc") not created_at_ts
+//         to match the existing reposts index
+// Fix 3: following feed adds visibility filter so private posts don't leak
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth } from "@/lib/firebase";
@@ -95,6 +98,7 @@ export type CreatePostData = {
   community_id?: string;
   visibility: PostVisibility;
   location?: PostLocation;
+  is_nsfw?: boolean;
 };
 
 export type UpdatePostData = {
@@ -334,16 +338,18 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
 
 /* =========================================================
    REPOST FEED ITEMS
-   ✅ Fetches posts the current user has reposted so they
-   appear in their own feed with a "Reposted" label.
+   ✅ FIX 2: use orderBy("created_at","desc") to match the
+   existing reposts index (not created_at_ts which has no index)
 ========================================================= */
 
 async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
   try {
+    // ✅ FIX 2: was orderBy("created_at_ts") — no index exists for that
+    // reposts collection only has: user_id ASC + created_at DESC
     const repostSnap = await firestore()
       .collection("reposts")
       .where("user_id", "==", uid)
-      .orderBy("created_at_ts", "desc")
+      .orderBy("created_at", "desc")
       .limit(limit)
       .get();
 
@@ -375,7 +381,6 @@ async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
           is_saved: false,
           is_owned: data.user_id === uid,
         });
-        // ✅ Tag so feed card can render "Reposted" label
         (p as any).is_repost = true;
         (p as any).reposted_at = repostedAtMap[d.id] ?? p.created_at;
         postDocs.push(p);
@@ -384,14 +389,83 @@ async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
 
     return postDocs;
   } catch (e) {
-    console.error("[getRepostFeedItems] error:", e);
+    console.warn("[getRepostFeedItems] error:", e);
     return [];
   }
 }
 
 /* =========================================================
-   GET POSTS
+   GET POSTS — FOLLOWING FEED FIX
+   ✅ FIX 1: Firestore "in" operator only supports 10 items.
+   When userIds > 10 we batch into multiple queries and merge.
 ========================================================= */
+
+async function getPostsForUserIds(
+  userIds: string[],
+  sortBy: "newest" | "popular" | "trending",
+  limit: number,
+  cursor: PostFilters["cursor"],
+): Promise<FirebaseFirestoreTypes.QueryDocumentSnapshot[]> {
+  // ✅ FIX 1: batch into chunks of 10
+  const batches = chunk(userIds, 10);
+
+  // For cursor pagination with batched queries we fetch more and slice
+  const fetchLimit = limit + 20;
+
+  const allDocs: FirebaseFirestoreTypes.QueryDocumentSnapshot[] = [];
+
+  await Promise.all(
+    batches.map(async (batch) => {
+      let q: FirebaseFirestoreTypes.Query = firestore()
+        .collection("posts")
+        .where("user_id", "in", batch)
+        // ✅ FIX 3: only show public + followers posts in following feed
+        .where("visibility", "in", ["public", "followers"]);
+
+      if (sortBy === "trending") {
+        const weekAgo = firestore.Timestamp.fromDate(
+          new Date(Date.now() - 7 * 86400000),
+        );
+        q = q
+          .where("created_at_ts", ">=", weekAgo)
+          .orderBy("created_at_ts", "desc");
+      } else if (sortBy === "popular") {
+        q = q.orderBy("like_count", "desc").orderBy("created_at_ts", "desc");
+      } else {
+        q = q.orderBy("created_at_ts", "desc");
+      }
+
+      // Cursor pagination — apply to each batch
+      if (cursor?.lastDocId) {
+        try {
+          const lastSnap = await firestore()
+            .collection("posts")
+            .doc(cursor.lastDocId)
+            .get();
+          if (lastSnap.exists()) q = q.startAfter(lastSnap);
+        } catch {}
+      }
+
+      const snap = await q.limit(fetchLimit).get();
+      allDocs.push(...snap.docs);
+    }),
+  );
+
+  // Sort merged results from all batches
+  allDocs.sort((a, b) => {
+    const aData = a.data() as any;
+    const bData = b.data() as any;
+    if (sortBy === "popular") {
+      const diff = (bData.like_count ?? 0) - (aData.like_count ?? 0);
+      if (diff !== 0) return diff;
+    }
+    const aTs = aData.created_at_ts?.seconds ?? 0;
+    const bTs = bData.created_at_ts?.seconds ?? 0;
+    return bTs - aTs;
+  });
+
+  return allDocs.slice(0, limit + 10);
+}
 
 export async function getPosts(
   filters: PostFilters = {},
@@ -420,13 +494,50 @@ export async function getPosts(
   if (username && !resolvedUserId)
     resolvedUserId = await resolveUserIdFromUsername(username);
 
+  const viewerId = auth.currentUser?.uid ?? "";
+
+  // ✅ FIX 1: following feed — batch userIds queries
+  if (userIds && userIds.length > 0) {
+    // Filter out the sentinel value used when following nobody
+    const realIds = userIds.filter((id) => id !== "__no_results__");
+    if (realIds.length === 0) {
+      return { posts: [], total: 0, hasMore: false, nextCursor: null };
+    }
+
+    const docs = await getPostsForUserIds(realIds, sortBy, limit, cursor);
+    const raw = docs
+      .map((d) => docToPost(d.id, d.data()))
+      .filter((p) => p.is_visible !== false)
+      .slice(0, limit);
+
+    const ids = raw.map((p) => p.id);
+    const { liked, saved } = viewerId
+      ? await fetchMyLikeSaveFlags(viewerId, ids)
+      : { liked: new Set<string>(), saved: new Set<string>() };
+
+    const posts = raw.map((p) =>
+      docToPost(p.id, p, {
+        is_liked: viewerId ? liked.has(p.id) : false,
+        is_saved: viewerId ? saved.has(p.id) : false,
+        is_owned: viewerId ? p.user_id === viewerId : false,
+      }),
+    );
+
+    const last = docs[docs.length - 1];
+    return {
+      posts,
+      total: -1,
+      hasMore: docs.length >= limit,
+      nextCursor: last ? { lastDocId: last.id } : null,
+    };
+  }
+
+  // ── Standard single-query path (for-you, community, user profile) ──────────
   let q: FirebaseFirestoreTypes.Query = firestore().collection("posts");
 
   if (resolvedCommunityIds.length)
     q = q.where("community_id", "in", resolvedCommunityIds.slice(0, 10));
-  if (userIds && userIds.length > 0) {
-    q = q.where("user_id", "in", userIds.slice(0, 30));
-  } else if (resolvedUserId) {
+  if (resolvedUserId) {
     q = q.where("user_id", "==", resolvedUserId);
   }
   if (visibility) q = q.where("visibility", "==", visibility);
@@ -461,7 +572,6 @@ export async function getPosts(
   }
 
   const snap = await q.limit(limit + 10).get();
-  const viewerId = auth.currentUser?.uid ?? "";
   const raw = snap.docs
     .map((d) => docToPost(d.id, d.data()))
     .filter((p) => p.is_visible !== false)
@@ -479,18 +589,14 @@ export async function getPosts(
     }),
   );
 
-  // ✅ On the first page only, merge in posts the viewer has reposted.
-  // Pagination pages skip this to avoid duplicates.
+  // On first page only, merge in reposted posts for the viewer
   let merged = posts;
   if (viewerId && !cursor && !resolvedUserId && !resolvedCommunityIds.length) {
     const repostItems = await getRepostFeedItems(viewerId, limit);
-
-    // Deduplicate — don't show a post twice if the user both owns and reposted it
     const ownPostIds = new Set(posts.map((p) => p.id));
     const newReposts = repostItems.filter((r) => !ownPostIds.has(r.id));
 
     if (newReposts.length > 0) {
-      // Apply like/save flags to the repost items
       const repostIds = newReposts.map((p) => p.id);
       const { liked: rLiked, saved: rSaved } = await fetchMyLikeSaveFlags(
         viewerId,
@@ -502,7 +608,6 @@ export async function getPosts(
         is_saved: rSaved.has(p.id),
       }));
 
-      // Sort combined feed: use reposted_at for reposts, created_at for originals
       merged = [...posts, ...flaggedReposts].sort((a, b) => {
         const aTime = (a as any).reposted_at ?? a.created_at;
         const bTime = (b as any).reposted_at ?? b.created_at;
@@ -611,6 +716,7 @@ export async function createPost(
       language: detectedLanguage ?? "en",
       location: postData.location ?? null,
       hashtags,
+      is_nsfw: postData.is_nsfw ?? false,
       like_count: 0,
       comment_count: 0,
       repost_count: 0,
@@ -630,7 +736,7 @@ export async function createPost(
   }
 
   const createdSnap = await refDoc.get();
-  if (!createdSnap.exists()) return null;
+  if (!createdSnap.exists) return null;
   return docToPost(createdSnap.id, createdSnap.data(), {
     is_owned: true,
     is_liked: false,
@@ -678,7 +784,7 @@ export async function updatePost(
     updated_at_ts: firestore.FieldValue.serverTimestamp(),
   });
   const updated = await refDoc.get();
-  if (!updated.exists()) return null;
+  if (!updated.exists) return null;
   return docToPost(updated.id, updated.data(), { is_owned: true });
 }
 

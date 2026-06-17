@@ -1,7 +1,6 @@
-// components/post/GifPicker.tsx ✅
-// Klipy GIF search + trending (Tenor replacement — same API structure)
-// Free API: https://klipy.com → sign up → get key
-// Add to .env: EXPO_PUBLIC_KLIPY_API_KEY=your_key_here
+// components/post/GifPicker.tsx ✅ GIPHY
+// Replaces Klipy with Giphy API
+// Add to .env: EXPO_PUBLIC_GIPHY_API_KEY=your_key_here
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,49 +19,54 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const KLIPY_KEY = process.env.EXPO_PUBLIC_KLIPY_API_KEY ?? "";
-const KLIPY_BASE = "https://g.klipy.co/api/v1";
+const GIPHY_KEY = process.env.EXPO_PUBLIC_GIPHY_API_KEY ?? "";
+const GIPHY_BASE = "https://api.giphy.com/v1/gifs";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const COL = 2;
 const GAP = 6;
 const CELL_W = (SCREEN_W - 32 - GAP) / COL;
 
-interface KlipyResult {
+interface GiphyResult {
   id: string;
-  url: string;
-  preview: string;
+  url: string; // full GIF url (for sending)
+  preview: string; // downsized preview (for display)
   width: number;
   height: number;
+  title: string;
 }
 
-async function fetchKlipy(
-  endpoint: string,
+function parseGiphy(item: any): GiphyResult {
+  const images = item.images ?? {};
+  // Use downsized_medium for display (good quality, reasonable size)
+  const display =
+    images.downsized_medium ?? images.fixed_width ?? images.original ?? {};
+  // Use downsized for the actual URL sent (smaller file)
+  const send = images.downsized ?? images.fixed_width ?? images.original ?? {};
+  return {
+    id: item.id,
+    url: send.url ?? "",
+    preview: display.url ?? send.url ?? "",
+    width: Number(display.width ?? 200),
+    height: Number(display.height ?? 200),
+    title: item.title ?? "",
+  };
+}
+
+async function fetchGiphy(
+  endpoint: "trending" | "search",
   params: Record<string, string>,
-): Promise<KlipyResult[]> {
+): Promise<GiphyResult[]> {
   const qs = new URLSearchParams({
-    api_key: KLIPY_KEY,
+    api_key: GIPHY_KEY,
     limit: "24",
+    rating: "g",
     ...params,
   }).toString();
-  const res = await fetch(`${KLIPY_BASE}/${endpoint}?${qs}`);
+  const res = await fetch(`${GIPHY_BASE}/${endpoint}?${qs}`);
+  if (!res.ok) throw new Error(`Giphy ${res.status}`);
   const json = await res.json();
-
-  return (json.results ?? json.data ?? [])
-    .map((r: any) => {
-      // Klipy mirrors Tenor's media_formats structure
-      const files = r.files ?? r.media_formats ?? {};
-      const gif = files.gif ?? files.mediumgif ?? files.tinygif ?? {};
-      const nano = files.nanogif ?? files.tinygif ?? gif;
-      return {
-        id: r.id ?? r.slug ?? Math.random().toString(),
-        url: gif.url ?? r.url ?? "",
-        preview: nano.url ?? gif.url ?? r.url ?? "",
-        width: gif.dims?.[0] ?? gif.width ?? 200,
-        height: gif.dims?.[1] ?? gif.height ?? 200,
-      };
-    })
-    .filter((r: KlipyResult) => !!r.url);
+  return (json.data ?? []).map(parseGiphy).filter((r: GiphyResult) => !!r.url);
 }
 
 interface Props {
@@ -75,16 +79,19 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<KlipyResult[]>([]);
+  const [results, setResults] = useState<GiphyResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadTrending = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
-      const data = await fetchKlipy("gifs/trending", {});
+      const data = await fetchGiphy("trending", {});
       setResults(data);
-    } catch {
+    } catch (e: any) {
+      setError("Couldn't load trending GIFs.");
       setResults([]);
     } finally {
       setLoading(false);
@@ -98,10 +105,13 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
         return;
       }
       setLoading(true);
+      setError("");
       try {
-        const data = await fetchKlipy("gifs/search", { q });
+        const data = await fetchGiphy("search", { q });
         setResults(data);
+        if (data.length === 0) setError(`No GIFs found for "${q}"`);
       } catch {
+        setError("Search failed. Try again.");
         setResults([]);
       } finally {
         setLoading(false);
@@ -113,18 +123,20 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
   useEffect(() => {
     if (visible) {
       setQuery("");
+      setError("");
       loadTrending();
     }
   }, [visible, loadTrending]);
 
   const handleQueryChange = (text: string) => {
     setQuery(text);
+    setError("");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => search(text), 400);
   };
 
   const renderItem = useCallback(
-    ({ item, index }: { item: KlipyResult; index: number }) => {
+    ({ item, index }: { item: GiphyResult; index: number }) => {
       const aspectRatio = item.width / Math.max(item.height, 1);
       const cellH = Math.min(
         Math.max(Math.round(CELL_W / aspectRatio), 80),
@@ -141,7 +153,10 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
               backgroundColor: colors.surface,
             },
           ]}
-          onPress={() => onSelect(item.preview)}
+          onPress={() => {
+            onSelect(item.url);
+            onClose();
+          }}
           activeOpacity={0.85}
         >
           <Image
@@ -152,7 +167,7 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
         </TouchableOpacity>
       );
     },
-    [onSelect, colors],
+    [onSelect, onClose, colors],
   );
 
   return (
@@ -183,7 +198,7 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
             </TouchableOpacity>
           </View>
 
-          {/* Search */}
+          {/* Search bar */}
           <View
             style={[
               styles.searchBar,
@@ -200,12 +215,16 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
               autoCorrect={false}
               autoCapitalize="none"
               returnKeyType="search"
-              onSubmitEditing={() => search(query)}
+              onSubmitEditing={() => {
+                if (debounceRef.current) clearTimeout(debounceRef.current);
+                search(query);
+              }}
             />
             {!!query && (
               <TouchableOpacity
                 onPress={() => {
                   setQuery("");
+                  setError("");
                   loadTrending();
                 }}
                 activeOpacity={0.85}
@@ -220,26 +239,24 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
           </View>
 
           <Text style={[styles.poweredBy, { color: colors.textTertiary }]}>
-            Powered by Klipy
+            Powered by GIPHY
           </Text>
         </View>
 
-        {/* Grid */}
+        {/* Content */}
         {loading ? (
-          <View style={styles.loadingWrap}>
+          <View style={styles.centerWrap}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
-        ) : results.length === 0 ? (
-          <View style={styles.emptyWrap}>
+        ) : error && results.length === 0 ? (
+          <View style={styles.centerWrap}>
             <Ionicons
               name="images-outline"
               size={40}
               color={colors.textTertiary}
             />
             <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
-              {query
-                ? `No GIFs found for "${query}"`
-                : "No trending GIFs right now"}
+              {error}
             </Text>
           </View>
         ) : (
@@ -251,6 +268,22 @@ export default function GifPicker({ visible, onSelect, onClose }: Props) {
             contentContainerStyle={styles.grid}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={styles.centerWrap}>
+                <Ionicons
+                  name="images-outline"
+                  size={40}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={[styles.emptyText, { color: colors.textTertiary }]}
+                >
+                  {query
+                    ? `No GIFs found for "${query}"`
+                    : "No trending GIFs right now"}
+                </Text>
+              </View>
+            }
           />
         )}
       </View>
@@ -301,13 +334,13 @@ const styles = StyleSheet.create({
   grid: { padding: 16, gap: GAP },
   cell: { borderRadius: 12, overflow: "hidden", marginBottom: GAP },
   cellImg: { width: "100%", height: "100%" },
-  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
-  emptyWrap: {
+  centerWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
     gap: 12,
+    marginTop: 60,
   },
   emptyText: { fontSize: 14, fontWeight: "600", textAlign: "center" },
 });

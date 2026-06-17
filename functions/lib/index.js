@@ -18,6 +18,9 @@ const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)();
 const resendApiKey = (0, params_1.defineSecret)("RESEND_API_KEY");
 const googleCloudApiKey = (0, params_1.defineSecret)("GOOGLE_CLOUD_VISION_API_KEY");
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 function getNotificationTitle(type, senderName) {
     if (type === "follow")
         return senderName + " started following you";
@@ -71,32 +74,97 @@ function getNotificationBody(type, text) {
     return "";
 }
 function buildParentalEmailHtml(childUsername, code) {
-    const lines = [];
-    lines.push('<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">');
-    lines.push('<div style="text-align: center; margin-bottom: 32px;">');
-    lines.push('<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>');
-    lines.push('<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>');
-    lines.push('</div>');
-    lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>');
-    lines.push('<strong style="color: #fff;">' +
-        childUsername +
-        '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>');
-    lines.push('<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">');
-    lines.push('<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>');
-    lines.push('<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + '</div>');
-    lines.push('<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>');
-    lines.push('</div>');
-    lines.push('<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
-        childUsername +
-        ' to complete account setup.</p>');
-    lines.push('<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">');
-    lines.push('<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>');
-    lines.push('</div>');
-    lines.push('<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>');
-    lines.push('</div>');
-    return lines.join('\n');
+    return [
+        '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
+        '<div style="text-align: center; margin-bottom: 32px;">',
+        '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
+        '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
+        "</div>",
+        '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
+        '<strong style="color: #fff;">' +
+            childUsername +
+            '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>',
+        '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
+        '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
+        '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' +
+            code +
+            "</div>",
+        '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
+        "</div>",
+        '<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
+            childUsername +
+            " to complete account setup.</p>",
+        '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
+        '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
+        "</div>",
+        '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
+        "</div>",
+    ].join("\n");
 }
-// ✅ UPDATED: FCM push notifications via Firebase Admin SDK
+// ✅ NEW: data export email HTML
+/**
+ * Build HTML for data export email.
+ */
+function buildDataExportEmailHtml(displayName, stats) {
+    return ('<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;">' +
+        '<div style="text-align: center; margin-bottom: 32px;">' +
+        '<h1 style="font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;">' +
+        'NebulaNet</h1>' +
+        '<p style="color: #8892A4; margin: 0; font-size: 14px;">Your Data Export</p>' +
+        '</div>' +
+        '<p style="color: #CBD5E1; line-height: 1.6; font-size: 15px;">' +
+        'Hi <strong style="color: #fff;">' + displayName + '</strong>,<br/><br/>' +
+        'Your NebulaNet data export is attached to this email as a JSON file.' +
+        ' It contains your profile, posts, comments, and activity.' +
+        '</p>' +
+        '<div style="background: #121726; border: 1px solid #1E2A3A; ' +
+        'border-radius: 16px; padding: 20px; margin: 24px 0;">' +
+        '<p style="color: #8892A4; font-size: 12px; font-weight: 700; ' +
+        'letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;">' +
+        'Export Summary</p>' +
+        '<table style="width: 100%; border-collapse: collapse;">' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Posts</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.posts + '</td></tr>' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Comments</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.comments + '</td></tr>' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Liked Posts</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.likes + '</td></tr>' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Followers</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.followers + '</td></tr>' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Following</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.following + '</td></tr>' +
+        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
+        'Communities</td><td style="color: #8A7CFA; font-weight: 700; ' +
+        'text-align: right; font-size: 14px;">' + stats.communities + '</td></tr>' +
+        '</table>' +
+        '</div>' +
+        '<div style="background: rgba(138,124,250,0.1); border: 1px solid ' +
+        'rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; ' +
+        'margin-bottom: 24px;">' +
+        '<p style="color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;">' +
+        'Your full data is in the attached <strong>.json</strong> file. ' +
+        'Open it with any text editor or JSON viewer.' +
+        '</p>' +
+        '</div>' +
+        '<p style="color: #CBD5E1; font-size: 13px; line-height: 1.6;">' +
+        'If you did not request this export, you can safely ignore this email. ' +
+        'Your account has not been affected.' +
+        '</p>' +
+        '<p style="color: #3D4E63; font-size: 12px; text-align: center; ' +
+        'margin-top: 28px;">' +
+        'NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA; ' +
+        'text-decoration: none;">nebulanet.space</a>' +
+        '</p>' +
+        '</div>');
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// PUSH NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
 exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications/{notifId}", async (event) => {
     const snap = event.data;
     if (!snap)
@@ -111,16 +179,49 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
     if (senderId && senderId === receiverId)
         return;
     try {
-        const profileSnap = await db.collection("profiles").doc(receiverId).get();
+        const [profileSnap, settingsSnap] = await Promise.all([
+            db.collection("profiles").doc(receiverId).get(),
+            db.collection("user_settings").doc(receiverId).get(),
+        ]);
         if (!profileSnap.exists)
             return;
         const profile = profileSnap.data();
-        // ✅ Use fcm_token instead of push_token
         const fcmToken = profile?.fcm_token ?? null;
         if (!fcmToken) {
             console.log("No FCM token for", receiverId);
             return;
         }
+        const userSettings = settingsSnap.exists
+            ? settingsSnap.data()
+            : null;
+        const notifPrefs = userSettings?.notifications ?? {};
+        const typeEnabled = (() => {
+            if (type === "like")
+                return notifPrefs.likes !== false;
+            if (type === "comment")
+                return notifPrefs.comments !== false;
+            if (type === "follow" || type === "follow_request")
+                return notifPrefs.follows !== false;
+            if (type === "message")
+                return notifPrefs.direct_messages !== false;
+            if (type === "mention")
+                return notifPrefs.mentions !== false;
+            if (type === "repost")
+                return notifPrefs.reposts !== false;
+            if (type === "story_like" || type === "story_comment")
+                return notifPrefs.likes !== false;
+            return true;
+        })();
+        if (!typeEnabled) {
+            console.log("Notification type", type, "disabled for", receiverId);
+            return;
+        }
+        const soundPref = userSettings?.notification_sound ?? "default";
+        const channelId = soundPref === "silent"
+            ? "silent"
+            : type === "message"
+                ? "messages"
+                : "default";
         let senderName = "Someone";
         if (senderId) {
             const senderSnap = await db.collection("profiles").doc(senderId).get();
@@ -132,26 +233,22 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         }
         const title = getNotificationTitle(type, senderName);
         const body = getNotificationBody(type, text);
-        // ✅ Send via Firebase Admin SDK
         const message = {
             token: fcmToken,
-            notification: {
-                title,
-                body,
-            },
+            notification: { title, body },
             android: {
                 notification: {
-                    channelId: type === "message" ? "messages" : "default",
-                    sound: "notification",
+                    channelId,
+                    sound: soundPref === "silent" ? undefined : "default",
                     priority: "high",
-                    defaultVibrateTimings: true,
+                    defaultVibrateTimings: soundPref !== "silent",
                 },
                 priority: "high",
             },
             apns: {
                 payload: {
                     aps: {
-                        sound: "notification.wav",
+                        sound: soundPref === "silent" ? undefined : "default",
                         badge: 1,
                     },
                 },
@@ -165,11 +262,10 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
             },
         };
         const response = await (0, messaging_1.getMessaging)().send(message);
-        console.log("FCM sent to", receiverId, "type=", type, "msgId=", response);
+        console.log("FCM sent to", receiverId, "type=", type, "channel=", channelId, "sound=", soundPref, "msgId=", response);
     }
     catch (err) {
         console.error("sendPushNotification error:", String(err));
-        // ✅ Clean up invalid tokens automatically
         if (err?.code === "messaging/registration-token-not-registered" ||
             err?.code === "messaging/invalid-registration-token") {
             await db
@@ -180,6 +276,9 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         }
     }
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// FOLLOW COUNTERS
+// ─────────────────────────────────────────────────────────────────────────────
 exports.onFollowCreated = (0, firestore_2.onDocumentCreated)("follows/{followId}", async (event) => {
     const snap = event.data;
     if (!snap)
@@ -264,6 +363,9 @@ exports.onFollowDeleted = (0, firestore_2.onDocumentDeleted)("follows/{followId}
         console.error("onFollowDeleted error:", String(err));
     }
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// ACCOUNT DELETION
+// ─────────────────────────────────────────────────────────────────────────────
 exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_deletion_requests/{userId}", async (event) => {
     const userId = event.params.userId;
     const snap = event.data;
@@ -285,22 +387,150 @@ exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_dele
         await snap.ref.update({ status: "failed", error: String(err) });
     }
 });
-exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)("data_export_requests/{userId}", async (event) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA EXPORT — ✅ FIXED: now collects all data and emails it via Resend
+// ─────────────────────────────────────────────────────────────────────────────
+exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: "data_export_requests/{userId}", secrets: [resendApiKey] }, async (event) => {
     const userId = event.params.userId;
     const snap = event.data;
     if (!snap)
         return;
+    const requestData = snap.data();
+    const requestedEmail = requestData.email;
     try {
-        const exportData = {};
-        const profile = await db.collection("profiles").doc(userId).get();
-        if (profile.exists)
-            exportData.profile = profile.data();
-        await snap.ref.update({ status: "completed", export: exportData });
+        await snap.ref.update({ status: "processing" });
+        // 1. Collect all user data in parallel
+        const [profileSnap, postsSnap, commentsSnap, likesSnap, savesSnap, repostsSnap, followersSnap, followingSnap, notificationsSnap, settingsSnap, communitiesSnap,] = await Promise.all([
+            db.collection("profiles").doc(userId).get(),
+            db.collection("posts").where("user_id", "==", userId).limit(500).get(),
+            db
+                .collection("comments")
+                .where("user_id", "==", userId)
+                .limit(500)
+                .get(),
+            db.collection("likes").where("user_id", "==", userId).limit(1000).get(),
+            db.collection("saves").where("user_id", "==", userId).limit(500).get(),
+            db
+                .collection("reposts")
+                .where("user_id", "==", userId)
+                .limit(500)
+                .get(),
+            db
+                .collection("follows")
+                .where("following_id", "==", userId)
+                .where("status", "==", "accepted")
+                .limit(1000)
+                .get(),
+            db
+                .collection("follows")
+                .where("follower_id", "==", userId)
+                .where("status", "==", "accepted")
+                .limit(1000)
+                .get(),
+            db
+                .collection("notifications")
+                .where("receiver_id", "==", userId)
+                .limit(200)
+                .get(),
+            db.collection("user_settings").doc(userId).get(),
+            db
+                .collection("community_members")
+                .where("user_id", "==", userId)
+                .limit(100)
+                .get(),
+        ]);
+        // 2. Resolve email — prefer Auth record over request field
+        let emailToSend = requestedEmail ?? "";
+        try {
+            const userRecord = await auth.getUser(userId);
+            if (userRecord.email)
+                emailToSend = userRecord.email;
+        }
+        catch { }
+        if (!emailToSend) {
+            await snap.ref.update({
+                status: "failed",
+                error: "No email address found for user.",
+            });
+            return;
+        }
+        // 3. Build export object
+        const profile = profileSnap.exists ? profileSnap.data() : {};
+        const exportData = {
+            exported_at: new Date().toISOString(),
+            profile,
+            posts: postsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+            comments: commentsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+            liked_post_ids: likesSnap.docs.map((d) => d.data().post_id),
+            saved_post_ids: savesSnap.docs.map((d) => d.data().post_id),
+            reposted_post_ids: repostsSnap.docs.map((d) => d.data().post_id),
+            followers_count: followersSnap.size,
+            following_count: followingSnap.size,
+            community_ids: communitiesSnap.docs.map((d) => d.data().community_id),
+            settings: settingsSnap.exists ? settingsSnap.data() : {},
+            notifications_count: notificationsSnap.size,
+        };
+        const username = profile?.username ?? userId;
+        const displayName = profile?.full_name || username;
+        const exportJson = JSON.stringify(exportData, null, 2);
+        const dateStr = new Date().toISOString().split("T")[0];
+        // 4. Send email with JSON attachment via Resend
+        const emailRes = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+                Authorization: "Bearer " + resendApiKey.value(),
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                from: "NebulaNet <noreply@nebulanet.space>",
+                to: [emailToSend],
+                subject: "Your NebulaNet Data Export",
+                html: buildDataExportEmailHtml(displayName, {
+                    posts: exportData.posts.length,
+                    comments: exportData.comments.length,
+                    likes: exportData.liked_post_ids.length,
+                    followers: exportData.followers_count,
+                    following: exportData.following_count,
+                    communities: exportData.community_ids.length,
+                }),
+                attachments: [
+                    {
+                        filename: "nebulanet-data-" + username + "-" + dateStr + ".json",
+                        content: Buffer.from(exportJson).toString("base64"),
+                    },
+                ],
+            }),
+        });
+        const result = (await emailRes.json());
+        if (!emailRes.ok) {
+            console.error("Resend error:", result);
+            await snap.ref.update({
+                status: "failed",
+                error: "Email send failed: " + JSON.stringify(result),
+            });
+            return;
+        }
+        await snap.ref.update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+            email_sent_to: emailToSend,
+            resend_id: result.id ?? null,
+            summary: {
+                posts: exportData.posts.length,
+                comments: exportData.comments.length,
+                likes: exportData.liked_post_ids.length,
+            },
+        });
+        console.log("Data export sent to", emailToSend, "for user", userId);
     }
     catch (err) {
+        console.error("generateUserDataExport error:", String(err));
         await snap.ref.update({ status: "failed", error: String(err) });
     }
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOST
+// ─────────────────────────────────────────────────────────────────────────────
 exports.handleBoostCreated = (0, firestore_2.onDocumentCreated)("boosts/{boostId}", async (event) => {
     const snap = event.data;
     if (!snap)
@@ -322,6 +552,9 @@ exports.handleBoostCreated = (0, firestore_2.onDocumentCreated)("boosts/{boostId
         console.error("Boost email error:", String(err));
     }
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMUNITY DELETION
+// ─────────────────────────────────────────────────────────────────────────────
 exports.deleteCommunity = v2_1.https.onCall({ region: "us-central1" }, async (req) => {
     const { communityId } = req.data;
     const uid = req.auth?.uid;
@@ -340,6 +573,9 @@ exports.deleteCommunity = v2_1.https.onCall({ region: "us-central1" }, async (re
     await communityRef.delete();
     return { success: true, message: "Community deleted successfully" };
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// PARENTAL VERIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
 exports.sendParentalVerificationEmail = v2_1.https.onCall({ region: "us-central1", secrets: [resendApiKey] }, async (req) => {
     const { parentEmail, childUserId, childUsername } = req.data;
     if (!parentEmail || !childUserId) {
@@ -412,6 +648,9 @@ exports.verifyParentalCode = v2_1.https.onCall({ region: "us-central1" }, async 
     });
     return { success: true };
 });
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTENT MODERATION
+// ─────────────────────────────────────────────────────────────────────────────
 exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "posts/{postId}", secrets: [googleCloudApiKey] }, async (event) => {
     const snap = event.data;
     if (!snap)

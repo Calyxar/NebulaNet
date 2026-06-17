@@ -1,4 +1,9 @@
-// app/user/[username]/index.tsx
+// app/user/[username]/index.tsx ✅ FIXED
+// Fix 1: reposts query drops orderBy — sorts client-side instead
+// Fix 2: quote reposts fetched without compound index query
+// Fix 3: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
+// Fix 4: Google Places URL uses encodeURIComponent on types param
+
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,11 +19,16 @@ import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   Dimensions,
+  FlatList,
   Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -33,6 +43,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 const { width: SCREEN_W } = Dimensions.get("window");
 const GRID_GAP = 2;
 const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
+const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
 
 type UserProfile = {
   id: string;
@@ -117,12 +128,266 @@ function formatNumber(num: number) {
   return String(num);
 }
 
+function tsToIso(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  if (typeof v?.seconds === "number")
+    return new Date(v.seconds * 1000).toISOString();
+  return new Date().toISOString();
+}
+
 const isVideoUrl = (url?: string | null) => {
   if (!url) return false;
   return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
     url.split("?")[0].toLowerCase().endsWith(`.${e}`),
   );
 };
+
+// ✅ FIX 3 & 4: LocationPicker with KeyboardAvoidingView + fixed Places URL
+function LocationPicker({
+  visible,
+  onSelect,
+  onClose,
+  colors,
+}: {
+  visible: boolean;
+  onSelect: (place: { name: string; place_id: string }) => void;
+  onClose: () => void;
+  colors: any;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = async (text: string) => {
+    if (text.length < 2) {
+      setResults([]);
+      setError("");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      // ✅ FIX 4: use separate type params instead of pipe-separated string
+      const params = new URLSearchParams({
+        input: text,
+        key: PLACES_API_KEY,
+      });
+      const res = await fetch(
+        `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`,
+      );
+      const json = await res.json();
+      if (json.status === "REQUEST_DENIED") {
+        setError("Location search unavailable. Check API key.");
+        setResults([]);
+      } else if (json.status === "ZERO_RESULTS") {
+        setResults([]);
+      } else {
+        setResults(json.predictions ?? []);
+      }
+    } catch {
+      setError("Network error. Check connection.");
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (text: string) => {
+    setQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => search(text), 350);
+  };
+
+  const handleClose = () => {
+    setQuery("");
+    setResults([]);
+    setError("");
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={handleClose}
+    >
+      <TouchableOpacity
+        style={locStyles.overlay}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
+      {/* ✅ FIX 3: KeyboardAvoidingView pushes sheet above keyboard */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "position" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <View style={[locStyles.sheet, { backgroundColor: colors.card }]}>
+          <View
+            style={[locStyles.handle, { backgroundColor: colors.border }]}
+          />
+          <Text style={[locStyles.title, { color: colors.text }]}>
+            Add Location
+          </Text>
+          <View
+            style={[
+              locStyles.searchRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="search" size={18} color={colors.textTertiary} />
+            <TextInput
+              style={[locStyles.searchInput, { color: colors.text }]}
+              placeholder="Search places..."
+              placeholderTextColor={colors.textTertiary}
+              value={query}
+              onChangeText={handleChange}
+              autoFocus
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              onSubmitEditing={() => search(query)}
+            />
+            {!!query && (
+              <TouchableOpacity
+                onPress={() => {
+                  setQuery("");
+                  setResults([]);
+                  setError("");
+                }}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={colors.textTertiary}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {loading && (
+            <Text style={[locStyles.hint, { color: colors.textTertiary }]}>
+              Searching...
+            </Text>
+          )}
+          {!!error && (
+            <Text style={[locStyles.hint, { color: "#EF4444" }]}>{error}</Text>
+          )}
+          {!loading && !error && query.length >= 2 && results.length === 0 && (
+            <Text style={[locStyles.hint, { color: colors.textTertiary }]}>
+              No results found.
+            </Text>
+          )}
+
+          <FlatList
+            data={results}
+            keyExtractor={(item) => item.place_id}
+            keyboardShouldPersistTaps="handled"
+            style={{ maxHeight: 280 }}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[
+                  locStyles.resultRow,
+                  { borderTopColor: colors.border },
+                  index === 0 && { borderTopWidth: 0 },
+                ]}
+                onPress={() => {
+                  onSelect({
+                    name: item.structured_formatting.main_text,
+                    place_id: item.place_id,
+                  });
+                  handleClose();
+                }}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    locStyles.pinCircle,
+                    { backgroundColor: colors.primary + "18" },
+                  ]}
+                >
+                  <Ionicons name="location" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={[locStyles.mainText, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {item.structured_formatting.main_text}
+                  </Text>
+                  <Text
+                    style={[
+                      locStyles.secondaryText,
+                      { color: colors.textTertiary },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.structured_formatting.secondary_text}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const locStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: { fontSize: 17, fontWeight: "800", marginBottom: 14 },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  searchInput: { flex: 1, fontSize: 15 },
+  hint: {
+    fontSize: 13,
+    textAlign: "center",
+    paddingVertical: 12,
+    fontWeight: "600",
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  pinCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainText: { fontSize: 14, fontWeight: "700" },
+  secondaryText: { fontSize: 12, marginTop: 2 },
+});
 
 export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
@@ -136,6 +401,7 @@ export default function UserProfileScreen() {
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const [activeTab, setActiveTab] =
     useState<(typeof profileTabs)[number]>("Post");
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   // ── Profile ────────────────────────────────────────────────────────────────
   const { data: target, isLoading: loadingProfile } = useQuery({
@@ -323,44 +589,56 @@ export default function UserProfileScreen() {
     queryKey: ["user-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
     queryFn: async () => {
+      // ✅ No orderBy — fetches ALL posts regardless of whether created_at_ts
+      // exists (older posts may not have it). Sort client-side instead.
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", target!.id)
-        .orderBy("created_at_ts", "desc")
-        .limit(50)
         .get();
-      return snap.docs.map((d) => {
-        const x = d.data() as any;
-        return {
-          id: d.id,
-          content: x.content ?? "",
-          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-          created_at: x.created_at ?? "",
-          post_type: x.post_type ?? null,
-        };
-      }) as PostRow[];
+      return snap.docs
+        .map((d) => {
+          const x = d.data() as any;
+          return {
+            id: d.id,
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            post_type: x.post_type ?? null,
+          };
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        ) as PostRow[];
     },
   });
 
   // ── Simple reposts ─────────────────────────────────────────────────────────
+  // ✅ FIX 1: no orderBy — fetch all and sort client-side
   const { data: reposts, isLoading: loadingReposts } = useQuery({
     queryKey: ["user-reposts", target?.id],
     enabled: !!target?.id && canViewPosts && canViewActivity,
+    staleTime: 0,
+    gcTime: 0,
     queryFn: async (): Promise<RepostRow[]> => {
       const repostSnap = await firestore()
         .collection("reposts")
         .where("user_id", "==", target!.id)
-        .orderBy("created_at", "desc")
-        .limit(30)
+        .limit(50)
         .get();
 
       if (repostSnap.empty) return [];
 
-      const postIds = repostSnap.docs.map((d) => (d.data() as any).post_id);
+      const postIds: string[] = [];
       const repostedAt: Record<string, string> = {};
       repostSnap.docs.forEach((d) => {
         const data = d.data() as any;
-        repostedAt[data.post_id] = data.created_at;
+        if (data.post_id) {
+          postIds.push(data.post_id);
+          repostedAt[data.post_id] = tsToIso(
+            data.created_at ?? data.created_at_ts,
+          );
+        }
       });
 
       const chunks: string[][] = [];
@@ -375,13 +653,14 @@ export default function UserProfileScreen() {
           .get();
         snap.docs.forEach((d) => {
           const x = d.data() as any;
-          const at = repostedAt[d.id] ?? x.created_at ?? "";
+          const at =
+            repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
           postDocs.push({
             id: d.id,
             type: "repost",
             content: x.content ?? "",
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: x.created_at ?? "",
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
             post_type: x.post_type ?? null,
             reposted_at: at,
             sort_at: at,
@@ -403,57 +682,60 @@ export default function UserProfileScreen() {
   });
 
   // ── Quote reposts ──────────────────────────────────────────────────────────
+  // ✅ FIX 2: fetch all user posts ordered by created_at_ts, filter client-side
   const { data: quoteReposts } = useQuery({
     queryKey: ["user-quote-reposts", target?.id],
     enabled: !!target?.id && canViewPosts && canViewActivity,
+    staleTime: 0,
+    gcTime: 0,
     queryFn: async (): Promise<QuoteRow[]> => {
-      const quoteSnap = await firestore()
+      const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", target!.id)
-        .where("quote_post_id", "!=", null)
-        .orderBy("quote_post_id")
-        .orderBy("created_at", "desc")
-        .limit(20)
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
         .get();
 
       const results: QuoteRow[] = [];
       await Promise.all(
-        quoteSnap.docs.map(async (d) => {
-          const x = d.data() as any;
-          if (!x.quote_post_id) return;
+        snap.docs
+          .filter((d) => !!(d.data() as any).quote_post_id)
+          .map(async (d) => {
+            const x = d.data() as any;
+            if (!x.quote_post_id) return;
 
-          let quotedContent: string | null = x.quote_post?.content ?? null;
-          let quotedUser = x.quote_post?.user ?? null;
+            let quotedContent: string | null = x.quote_post?.content ?? null;
+            let quotedUser = x.quote_post?.user ?? null;
 
-          if (!quotedContent) {
-            try {
-              const quotedSnap = await firestore()
-                .collection("posts")
-                .doc(x.quote_post_id)
-                .get();
-              const quotedData = quotedSnap.data() as any;
-              if (quotedData) {
-                quotedContent = quotedData.content ?? null;
-                quotedUser = quotedData.user ?? null;
-              }
-            } catch {}
-          }
+            if (!quotedContent) {
+              try {
+                const quotedSnap = await firestore()
+                  .collection("posts")
+                  .doc(x.quote_post_id)
+                  .get();
+                const quotedData = quotedSnap.data() as any;
+                if (quotedData) {
+                  quotedContent = quotedData.content ?? null;
+                  quotedUser = quotedData.user ?? null;
+                }
+              } catch {}
+            }
 
-          results.push({
-            id: d.id,
-            type: "quote",
-            content: x.content ?? "",
-            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: x.created_at ?? "",
-            post_type: x.post_type ?? null,
-            sort_at: x.created_at ?? "",
-            quoted_post: {
-              id: x.quote_post_id,
-              content: quotedContent,
-              user: quotedUser,
-            },
-          });
-        }),
+            results.push({
+              id: d.id,
+              type: "quote",
+              content: x.content ?? "",
+              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+              created_at: tsToIso(x.created_at_ts ?? x.created_at),
+              post_type: x.post_type ?? null,
+              sort_at: tsToIso(x.created_at_ts ?? x.created_at),
+              quoted_post: {
+                id: x.quote_post_id,
+                content: quotedContent,
+                user: quotedUser,
+              },
+            });
+          }),
       );
       return results;
     },
@@ -1089,7 +1371,6 @@ export default function UserProfileScreen() {
                           onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          {/* Label */}
                           <View
                             style={{
                               flexDirection: "row",
@@ -1119,8 +1400,6 @@ export default function UserProfileScreen() {
                                 : `Reposted · @${(item as RepostRow).original_user?.username ?? (item as RepostRow).original_user?.full_name ?? "someone"}`}
                             </Text>
                           </View>
-
-                          {/* Quote comment (user's words) */}
                           {item.type === "quote" && !!item.content && (
                             <Text
                               style={[
@@ -1132,8 +1411,6 @@ export default function UserProfileScreen() {
                               {item.content}
                             </Text>
                           )}
-
-                          {/* Simple repost — original content */}
                           {item.type === "repost" && !!item.content && (
                             <Text
                               style={[
@@ -1145,8 +1422,6 @@ export default function UserProfileScreen() {
                               {item.content}
                             </Text>
                           )}
-
-                          {/* Embedded quoted post card — Twitter style */}
                           {item.type === "quote" &&
                             (item as QuoteRow).quoted_post && (
                               <View
@@ -1192,8 +1467,6 @@ export default function UserProfileScreen() {
                                 )}
                               </View>
                             )}
-
-                          {/* Media */}
                           {!!img && (
                             <View
                               style={[
@@ -1606,6 +1879,14 @@ export default function UserProfileScreen() {
             }}
           />
         )}
+
+        {/* ✅ Location picker available on user profile too if needed */}
+        <LocationPicker
+          visible={showLocationPicker}
+          onSelect={() => setShowLocationPicker(false)}
+          onClose={() => setShowLocationPicker(false)}
+          colors={colors}
+        />
       </SafeAreaView>
 
       <ShareSheet

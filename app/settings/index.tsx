@@ -1,6 +1,7 @@
 // app/settings/index.tsx ✅
 // ✅ FIXED: removed Redo Onboarding — replaced with Topics & Interests picker
 // ✅ FIXED: notifications row no longer crashes (lib/notifications.ts fixed)
+// ✅ ADDED: Download Your Data option in Account section
 
 import { useAuth } from "@/hooks/useAuth";
 import { useThemeStyles } from "@/hooks/useThemeStyles";
@@ -183,7 +184,6 @@ function TopicsModal({
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Load existing interests when modal opens
   React.useEffect(() => {
     if (!visible || loaded) return;
     firestore()
@@ -316,9 +316,60 @@ export default function SettingsIndexScreen() {
   const ts = useThemeStyles();
   const params = useLocalSearchParams<{ returnTo?: string }>();
   const [showTopics, setShowTopics] = useState(false);
+  const [requestingData, setRequestingData] = useState(false);
 
   const themeLabel =
     theme === "system" ? "SYSTEM" : theme === "dark" ? "DARK" : "LIGHT";
+
+  // ✅ Request data export via Cloud Function
+  const handleDownloadData = async () => {
+    if (!user?.uid || !user?.email) {
+      Alert.alert(
+        "Error",
+        "You must be signed in with an email to request your data.",
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Download Your Data",
+      `We'll compile your NebulaNet data and send it to ${user.email}. This may take a few minutes.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Request Export",
+          onPress: async () => {
+            setRequestingData(true);
+            try {
+              // Create a request doc — Cloud Function picks it up
+              await firestore()
+                .collection("data_export_requests")
+                .doc(user.uid)
+                .set({
+                  user_id: user.uid,
+                  email: user.email,
+                  status: "pending",
+                  requested_at: new Date().toISOString(),
+                  requested_at_ts: firestore.FieldValue.serverTimestamp(),
+                });
+
+              Alert.alert(
+                "Request Submitted",
+                `Your data export has been queued. You'll receive an email at ${user.email} within a few minutes.`,
+              );
+            } catch (e: any) {
+              Alert.alert(
+                "Error",
+                e?.message || "Failed to submit request. Try again.",
+              );
+            } finally {
+              setRequestingData(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const primary: SettingsRow[] = [
     {
@@ -344,6 +395,13 @@ export default function SettingsIndexScreen() {
       description: "Push + email preferences",
       icon: "notifications-outline",
       routeKey: "notifications",
+    },
+    // ✅ NEW: Download your data
+    {
+      title: "Download Your Data",
+      description: "Get a copy of your posts, profile, and activity",
+      icon: "download-outline",
+      onPress: handleDownloadData,
     },
   ];
 
@@ -584,7 +642,6 @@ export default function SettingsIndexScreen() {
         </View>
       )}
 
-      {/* ✅ Topics & Interests modal — Twitter-style feed personalization */}
       {!!user?.uid && (
         <TopicsModal
           visible={showTopics}
@@ -670,7 +727,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
-  // Topics modal
   topicsModal: {
     flex: 1,
     marginTop: 60,

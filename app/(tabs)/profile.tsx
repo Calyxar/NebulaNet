@@ -160,22 +160,27 @@ export default function ProfileScreen() {
     enabled: !!uid,
     staleTime: 30_000,
     queryFn: async () => {
+      // ✅ No orderBy — fetches ALL posts regardless of whether created_at_ts
+      // exists (older posts may not have it). Sort client-side instead.
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", uid)
-        // ✅ FIX 1: use created_at_ts to match the existing Firestore index
-        .orderBy("created_at_ts", "desc")
         .get();
-      return snap.docs.map((d) => {
-        const x = d.data() as any;
-        return {
-          id: d.id,
-          content: x.content ?? "",
-          media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-          created_at: tsToIso(x.created_at_ts ?? x.created_at),
-          post_type: x.post_type ?? null,
-        } as PostRow;
-      });
+      return snap.docs
+        .map((d) => {
+          const x = d.data() as any;
+          return {
+            id: d.id,
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            post_type: x.post_type ?? null,
+          } as PostRow;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
     },
   });
 
