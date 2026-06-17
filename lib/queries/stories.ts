@@ -1,4 +1,8 @@
-// lib/queries/stories.ts — ✅ FIXED: batchGetProfiles uses individual doc gets instead of FieldPath
+// lib/queries/stories.ts ✅ FIXED
+// Fix 1: uploadStoryMedia skips Firebase Storage upload for remote HTTPS URLs
+//         (Giphy URLs are already hosted — putFile() only works with local paths)
+// Fix 2: createStory in story.tsx passes media_url directly for GIFs
+
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import storage from "@react-native-firebase/storage";
@@ -27,14 +31,11 @@ function tsToIso(ts: any): string {
   return new Date(ts).toISOString();
 }
 
-function chunk<T>(arr: T[], size: number) {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+// ✅ FIX 1: check if URI is already a remote URL (Giphy, etc.)
+function isRemoteUrl(uri: string): boolean {
+  return /^https?:\/\//i.test(uri);
 }
 
-// ✅ FIXED: use individual doc gets instead of FieldPath.documentId()
-// FieldPath.documentId() throws "undefined is not a function" in this SDK version
 async function batchGetProfiles(
   userIds: string[],
 ): Promise<Map<string, StoryProfile>> {
@@ -110,24 +111,12 @@ export async function fetchStoryById(
 export async function fetchActiveStories(): Promise<StoryRow[]> {
   try {
     const now = firestore.Timestamp.fromDate(new Date());
-    console.log(
-      "[fetchActiveStories] querying, now =",
-      now.toDate().toISOString(),
-    );
-
     const snap = await firestore()
       .collection("stories")
       .where("expires_at_ts", ">", now)
       .orderBy("expires_at_ts", "asc")
       .limit(200)
       .get({ source: "server" });
-
-    console.log(
-      "[fetchActiveStories] got",
-      snap.size,
-      "docs, empty =",
-      snap.empty,
-    );
 
     if (snap.empty) return [];
 
@@ -224,10 +213,19 @@ export async function markStorySeen(storyId: string) {
     );
 }
 
+// ✅ FIX 1: if uri is already a remote HTTPS URL (e.g. Giphy), skip Firebase
+//           Storage upload entirely and return the URL directly.
+//           putFile() only works with local file:// paths — not HTTPS URLs.
 export async function uploadStoryMedia(
   uri: string,
   mediaType: "image" | "video" | "gif",
 ): Promise<{ publicUrl: string; path: string }> {
+  // Remote URL (Giphy, CDN, etc.) — use directly, no upload needed
+  if (isRemoteUrl(uri)) {
+    return { publicUrl: uri, path: "" };
+  }
+
+  // Local file — upload to Firebase Storage as before
   const user = auth().currentUser;
   if (!user) throw new Error("Not authenticated");
   const ext = guessExt(uri, mediaType);

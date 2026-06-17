@@ -92,13 +92,10 @@ export default function CreateStoryScreen() {
     }
     setUploading(true);
     try {
-      const uploaded = await uploadStoryMedia(
-        mediaUri,
-        mediaType === "gif" ? "image" : mediaType,
-      );
+      const uploaded = await uploadStoryMedia(mediaUri, mediaType);
       await createStoryMutation.mutateAsync({
         media_url: uploaded.publicUrl,
-        media_type: mediaType === "gif" ? "image" : mediaType,
+        media_type: mediaType,
         caption: caption.trim() || undefined,
         duration: mediaType === "video" ? 15 : 5,
         is_nsfw: isNsfw,

@@ -93,7 +93,7 @@ function PushNotificationSetup() {
 
   // ✅ Register FCM token separately when user changes
   useEffect(() => {
-    if (user?.uid) registerPushNotifications();
+    if (user?.uid) registerPushNotifications(user.uid);
   }, [user?.uid]);
 
   return null;

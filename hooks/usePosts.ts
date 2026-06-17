@@ -119,7 +119,8 @@ async function getFollowingIds(uid: string): Promise<string[]> {
 }
 
 export function useFollowingIds() {
-  const uid = auth.currentUser?.uid;
+  const { user } = useAuth();
+  const uid = user?.uid;
   return useQuery({
     queryKey: ["following-ids", uid],
     enabled: !!uid,

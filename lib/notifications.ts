@@ -1,6 +1,6 @@
-// lib/notifications.ts ✅
-// ✅ FIXED: added getNotificationsMuted / setNotificationsMuted using AsyncStorage
-//           so notifications.tsx no longer crashes on import
+// lib/notifications.ts ✅ FIXED
+// Fix: registerPushNotifications now accepts and passes uid to avoid
+//      auth.currentUser timing race condition
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
@@ -8,7 +8,6 @@ import { Platform } from "react-native";
 
 const MUTED_KEY = "nebulanet:notifications_muted";
 
-// ✅ These were missing — notifications.tsx imports them
 export async function getNotificationsMuted(): Promise<boolean> {
   try {
     const val = await AsyncStorage.getItem(MUTED_KEY);
@@ -71,10 +70,11 @@ export async function setupNotificationChannels() {
   }
 }
 
-export async function registerPushNotifications(): Promise<void> {
+// ✅ FIX: accept uid and pass it through so token is saved correctly
+export async function registerPushNotifications(uid?: string): Promise<void> {
   const { registerForPushNotificationsAsync } =
     await import("@/utils/pushNotifications");
-  await registerForPushNotificationsAsync();
+  await registerForPushNotificationsAsync(uid);
 }
 
 export function setupNotificationListeners(
