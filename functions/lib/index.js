@@ -81,19 +81,13 @@ function buildParentalEmailHtml(childUsername, code) {
         '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
         "</div>",
         '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
-        '<strong style="color: #fff;">' +
-            childUsername +
-            '</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>',
+        "<strong style=\"color: #fff;\">" + childUsername + "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>",
         '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
         '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
-        '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' +
-            code +
-            "</div>",
+        '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + "</div>",
         '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
         "</div>",
-        '<p style="color: #CBD5E1; line-height: 1.6;">Share this code with ' +
-            childUsername +
-            " to complete account setup.</p>",
+        "<p style=\"color: #CBD5E1; line-height: 1.6;\">Share this code with " + childUsername + " to complete account setup.</p>",
         '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
         '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
         "</div>",
@@ -101,66 +95,40 @@ function buildParentalEmailHtml(childUsername, code) {
         "</div>",
     ].join("\n");
 }
-// ✅ NEW: data export email HTML
-/**
- * Build HTML for data export email.
- */
 function buildDataExportEmailHtml(displayName, stats) {
-    return ('<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;">' +
-        '<div style="text-align: center; margin-bottom: 32px;">' +
-        '<h1 style="font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;">' +
-        'NebulaNet</h1>' +
-        '<p style="color: #8892A4; margin: 0; font-size: 14px;">Your Data Export</p>' +
-        '</div>' +
-        '<p style="color: #CBD5E1; line-height: 1.6; font-size: 15px;">' +
-        'Hi <strong style="color: #fff;">' + displayName + '</strong>,<br/><br/>' +
-        'Your NebulaNet data export is attached to this email as a JSON file.' +
-        ' It contains your profile, posts, comments, and activity.' +
-        '</p>' +
-        '<div style="background: #121726; border: 1px solid #1E2A3A; ' +
-        'border-radius: 16px; padding: 20px; margin: 24px 0;">' +
-        '<p style="color: #8892A4; font-size: 12px; font-weight: 700; ' +
-        'letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;">' +
-        'Export Summary</p>' +
-        '<table style="width: 100%; border-collapse: collapse;">' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Posts</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.posts + '</td></tr>' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Comments</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.comments + '</td></tr>' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Liked Posts</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.likes + '</td></tr>' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Followers</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.followers + '</td></tr>' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Following</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.following + '</td></tr>' +
-        '<tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">' +
-        'Communities</td><td style="color: #8A7CFA; font-weight: 700; ' +
-        'text-align: right; font-size: 14px;">' + stats.communities + '</td></tr>' +
-        '</table>' +
-        '</div>' +
-        '<div style="background: rgba(138,124,250,0.1); border: 1px solid ' +
-        'rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; ' +
-        'margin-bottom: 24px;">' +
-        '<p style="color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;">' +
-        'Your full data is in the attached <strong>.json</strong> file. ' +
-        'Open it with any text editor or JSON viewer.' +
-        '</p>' +
-        '</div>' +
-        '<p style="color: #CBD5E1; font-size: 13px; line-height: 1.6;">' +
-        'If you did not request this export, you can safely ignore this email. ' +
-        'Your account has not been affected.' +
-        '</p>' +
-        '<p style="color: #3D4E63; font-size: 12px; text-align: center; ' +
-        'margin-top: 28px;">' +
-        'NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA; ' +
-        'text-decoration: none;">nebulanet.space</a>' +
-        '</p>' +
-        '</div>');
+    return `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;">
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;">NebulaNet</h1>
+    <p style="color: #8892A4; margin: 0; font-size: 14px;">Your Data Export</p>
+  </div>
+  <p style="color: #CBD5E1; line-height: 1.6; font-size: 15px;">
+    Hi <strong style="color: #fff;">${displayName}</strong>,<br/><br/>
+    Your NebulaNet data export is attached to this email as a JSON file.
+    It contains your profile, posts, comments, and activity.
+  </p>
+  <div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 20px; margin: 24px 0;">
+    <p style="color: #8892A4; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;">Export Summary</p>
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.posts}</td></tr>
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Comments</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.comments}</td></tr>
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Liked Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.likes}</td></tr>
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Followers</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.followers}</td></tr>
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Following</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.following}</td></tr>
+      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Communities</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.communities}</td></tr>
+    </table>
+  </div>
+  <div style="background: rgba(138,124,250,0.1); border: 1px solid rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; margin-bottom: 24px;">
+    <p style="color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;">
+      Your full data is in the attached <strong>.json</strong> file. Open it with any text editor or JSON viewer.
+    </p>
+  </div>
+  <p style="color: #CBD5E1; font-size: 13px; line-height: 1.6;">
+    If you did not request this export, you can safely ignore this email. Your account has not been affected.
+  </p>
+  <p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 28px;">
+    NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA; text-decoration: none;">nebulanet.space</a>
+  </p>
+</div>`;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
@@ -218,17 +186,18 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         }
         const soundPref = userSettings?.notification_sound ?? "default";
         const channelId = soundPref === "silent"
-            ? "silent"
-            : type === "message"
-                ? "messages"
-                : "default";
+            ? "silent_v2"
+            : soundPref === "vibrate"
+                ? "vibrate_v2"
+                : type === "message"
+                    ? "messages_v2"
+                    : "default_v2";
         let senderName = "Someone";
         if (senderId) {
             const senderSnap = await db.collection("profiles").doc(senderId).get();
             if (senderSnap.exists) {
                 const s = senderSnap.data();
-                senderName =
-                    s?.full_name || s?.username || "Someone";
+                senderName = s?.full_name || s?.username || "Someone";
             }
         }
         const title = getNotificationTitle(type, senderName);
@@ -268,10 +237,7 @@ exports.sendPushNotification = (0, firestore_2.onDocumentCreated)("notifications
         console.error("sendPushNotification error:", String(err));
         if (err?.code === "messaging/registration-token-not-registered" ||
             err?.code === "messaging/invalid-registration-token") {
-            await db
-                .collection("profiles")
-                .doc(receiverId)
-                .update({ fcm_token: null });
+            await db.collection("profiles").doc(receiverId).update({ fcm_token: null });
             console.log("Cleared invalid FCM token for", receiverId);
         }
     }
@@ -292,14 +258,8 @@ exports.onFollowCreated = (0, firestore_2.onDocumentCreated)("follows/{followId}
         return;
     try {
         await Promise.all([
-            db
-                .collection("profiles")
-                .doc(followerId)
-                .update({ following_count: firestore_1.FieldValue.increment(1) }),
-            db
-                .collection("profiles")
-                .doc(followingId)
-                .update({ follower_count: firestore_1.FieldValue.increment(1) }),
+            db.collection("profiles").doc(followerId).update({ following_count: firestore_1.FieldValue.increment(1) }),
+            db.collection("profiles").doc(followingId).update({ follower_count: firestore_1.FieldValue.increment(1) }),
         ]);
     }
     catch (err) {
@@ -322,14 +282,8 @@ exports.onFollowUpdated = (0, firestore_2.onDocumentUpdated)("follows/{followId}
     const delta = isAccepted ? 1 : -1;
     try {
         await Promise.all([
-            db
-                .collection("profiles")
-                .doc(followerId)
-                .update({ following_count: firestore_1.FieldValue.increment(delta) }),
-            db
-                .collection("profiles")
-                .doc(followingId)
-                .update({ follower_count: firestore_1.FieldValue.increment(delta) }),
+            db.collection("profiles").doc(followerId).update({ following_count: firestore_1.FieldValue.increment(delta) }),
+            db.collection("profiles").doc(followingId).update({ follower_count: firestore_1.FieldValue.increment(delta) }),
         ]);
     }
     catch (err) {
@@ -349,14 +303,8 @@ exports.onFollowDeleted = (0, firestore_2.onDocumentDeleted)("follows/{followId}
         return;
     try {
         await Promise.all([
-            db
-                .collection("profiles")
-                .doc(followerId)
-                .update({ following_count: firestore_1.FieldValue.increment(-1) }),
-            db
-                .collection("profiles")
-                .doc(followingId)
-                .update({ follower_count: firestore_1.FieldValue.increment(-1) }),
+            db.collection("profiles").doc(followerId).update({ following_count: firestore_1.FieldValue.increment(-1) }),
+            db.collection("profiles").doc(followingId).update({ follower_count: firestore_1.FieldValue.increment(-1) }),
         ]);
     }
     catch (err) {
@@ -373,22 +321,16 @@ exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_dele
         return;
     try {
         await db.collection("profiles").doc(userId).delete();
-        await db
-            .collection("user_settings")
-            .doc(userId)
-            .set({ deleted_at: new Date().toISOString(), cleanup_processed: true }, { merge: true });
+        await db.collection("user_settings").doc(userId).set({ deleted_at: new Date().toISOString(), cleanup_processed: true }, { merge: true });
         await auth.deleteUser(userId).catch(() => void 0);
-        await snap.ref.update({
-            status: "completed",
-            completed_at: new Date().toISOString(),
-        });
+        await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
     }
     catch (err) {
         await snap.ref.update({ status: "failed", error: String(err) });
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
-// DATA EXPORT — ✅ FIXED: now collects all data and emails it via Resend
+// DATA EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: "data_export_requests/{userId}", secrets: [resendApiKey] }, async (event) => {
     const userId = event.params.userId;
@@ -399,47 +341,19 @@ exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: 
     const requestedEmail = requestData.email;
     try {
         await snap.ref.update({ status: "processing" });
-        // 1. Collect all user data in parallel
         const [profileSnap, postsSnap, commentsSnap, likesSnap, savesSnap, repostsSnap, followersSnap, followingSnap, notificationsSnap, settingsSnap, communitiesSnap,] = await Promise.all([
             db.collection("profiles").doc(userId).get(),
             db.collection("posts").where("user_id", "==", userId).limit(500).get(),
-            db
-                .collection("comments")
-                .where("user_id", "==", userId)
-                .limit(500)
-                .get(),
+            db.collection("comments").where("user_id", "==", userId).limit(500).get(),
             db.collection("likes").where("user_id", "==", userId).limit(1000).get(),
             db.collection("saves").where("user_id", "==", userId).limit(500).get(),
-            db
-                .collection("reposts")
-                .where("user_id", "==", userId)
-                .limit(500)
-                .get(),
-            db
-                .collection("follows")
-                .where("following_id", "==", userId)
-                .where("status", "==", "accepted")
-                .limit(1000)
-                .get(),
-            db
-                .collection("follows")
-                .where("follower_id", "==", userId)
-                .where("status", "==", "accepted")
-                .limit(1000)
-                .get(),
-            db
-                .collection("notifications")
-                .where("receiver_id", "==", userId)
-                .limit(200)
-                .get(),
+            db.collection("reposts").where("user_id", "==", userId).limit(500).get(),
+            db.collection("follows").where("following_id", "==", userId).where("status", "==", "accepted").limit(1000).get(),
+            db.collection("follows").where("follower_id", "==", userId).where("status", "==", "accepted").limit(1000).get(),
+            db.collection("notifications").where("receiver_id", "==", userId).limit(200).get(),
             db.collection("user_settings").doc(userId).get(),
-            db
-                .collection("community_members")
-                .where("user_id", "==", userId)
-                .limit(100)
-                .get(),
+            db.collection("community_members").where("user_id", "==", userId).limit(100).get(),
         ]);
-        // 2. Resolve email — prefer Auth record over request field
         let emailToSend = requestedEmail ?? "";
         try {
             const userRecord = await auth.getUser(userId);
@@ -448,13 +362,9 @@ exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: 
         }
         catch { }
         if (!emailToSend) {
-            await snap.ref.update({
-                status: "failed",
-                error: "No email address found for user.",
-            });
+            await snap.ref.update({ status: "failed", error: "No email address found for user." });
             return;
         }
-        // 3. Build export object
         const profile = profileSnap.exists ? profileSnap.data() : {};
         const exportData = {
             exported_at: new Date().toISOString(),
@@ -474,7 +384,6 @@ exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: 
         const displayName = profile?.full_name || username;
         const exportJson = JSON.stringify(exportData, null, 2);
         const dateStr = new Date().toISOString().split("T")[0];
-        // 4. Send email with JSON attachment via Resend
         const emailRes = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
@@ -504,10 +413,7 @@ exports.generateUserDataExport = (0, firestore_2.onDocumentCreated)({ document: 
         const result = (await emailRes.json());
         if (!emailRes.ok) {
             console.error("Resend error:", result);
-            await snap.ref.update({
-                status: "failed",
-                error: "Email send failed: " + JSON.stringify(result),
-            });
+            await snap.ref.update({ status: "failed", error: "Email send failed: " + JSON.stringify(result) });
             return;
         }
         await snap.ref.update({
@@ -543,10 +449,7 @@ exports.handleBoostCreated = (0, firestore_2.onDocumentCreated)("boosts/{boostId
         if (!email)
             return;
         console.log("Boost confirmation for", email, ": post", boost.post_id, boost.duration_days, "days $", boost.total_amount);
-        await snap.ref.update({
-            email_sent: true,
-            email_sent_at: new Date().toISOString(),
-        });
+        await snap.ref.update({ email_sent: true, email_sent_at: new Date().toISOString() });
     }
     catch (err) {
         console.error("Boost email error:", String(err));
@@ -583,10 +486,7 @@ exports.sendParentalVerificationEmail = v2_1.https.onCall({ region: "us-central1
     }
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    await db
-        .collection("parental_verifications")
-        .doc(childUserId)
-        .set({
+    await db.collection("parental_verifications").doc(childUserId).set({
         parent_email: parentEmail,
         child_user_id: childUserId,
         child_username: childUsername ?? null,
@@ -636,10 +536,7 @@ exports.verifyParentalCode = v2_1.https.onCall({ region: "us-central1" }, async 
     if (storedCode !== code) {
         throw new v2_1.https.HttpsError("unauthenticated", "Invalid verification code.");
     }
-    await docRef.update({
-        verified: true,
-        verified_at: new Date().toISOString(),
-    });
+    await docRef.update({ verified: true, verified_at: new Date().toISOString() });
     await db.collection("profiles").doc(childUserId).update({
         parental_approved: true,
         parental_email: data.parent_email,
@@ -665,22 +562,9 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
     let shouldFlag = false;
     let flagReason = "";
     const EXPLICIT_WORDS = [
-        "porn",
-        "nude",
-        "naked",
-        "xxx",
-        "nsfw",
-        "onlyfans",
-        "sex tape",
-        "adult content",
-        "explicit",
-        "18+",
-        "hentai",
-        "lewd",
-        "slutty",
-        "horny",
-        "masturbat",
-        "genitals",
+        "porn", "nude", "naked", "xxx", "nsfw", "onlyfans", "sex tape",
+        "adult content", "explicit", "18+", "hentai", "lewd", "slutty",
+        "horny", "masturbat", "genitals",
     ];
     const lower = content.toLowerCase();
     const textMatch = EXPLICIT_WORDS.find((w) => lower.includes(w));
@@ -695,8 +579,7 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
                 !u.includes(".m4v") &&
                 !u.includes(".webm"));
             if (imageUrl) {
-                const visionRes = await fetch("https://vision.googleapis.com/v1/images:annotate?key=" +
-                    googleCloudApiKey.value(), {
+                const visionRes = await fetch("https://vision.googleapis.com/v1/images:annotate?key=" + googleCloudApiKey.value(), {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -717,15 +600,9 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
                         flagLevels.includes(safeSearch.racy)) {
                         shouldFlag = true;
                         flagReason = [
-                            flagLevels.includes(safeSearch.adult)
-                                ? "adult:" + safeSearch.adult
-                                : "",
-                            flagLevels.includes(safeSearch.racy)
-                                ? "racy:" + safeSearch.racy
-                                : "",
-                            flagLevels.includes(safeSearch.violence)
-                                ? "violence:" + safeSearch.violence
-                                : "",
+                            flagLevels.includes(safeSearch.adult) ? "adult:" + safeSearch.adult : "",
+                            flagLevels.includes(safeSearch.racy) ? "racy:" + safeSearch.racy : "",
+                            flagLevels.includes(safeSearch.violence) ? "violence:" + safeSearch.violence : "",
                         ]
                             .filter(Boolean)
                             .join(",");

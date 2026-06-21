@@ -1,6 +1,11 @@
 // lib/notifications.ts ✅ FIXED
-// Fix: registerPushNotifications now accepts and passes uid to avoid
-//      auth.currentUser timing race condition
+// Fix 1: registerPushNotifications now accepts and passes uid to avoid
+//        auth.currentUser timing race condition
+// Fix 2: channel IDs renamed to v2 — forces Android to create FRESH channels
+//        since Android locks channel sound/vibration settings permanently
+//        once a channel ID has been created on a device. Old "default" /
+//        "messages" / "silent" channels may have been created with no sound
+//        from earlier testing and Android ignores any code changes to them.
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
@@ -35,10 +40,14 @@ export function setupNotificationHandler() {
   });
 }
 
+// ✅ FIX 2: this is now the SINGLE source of truth for channel creation.
+// useNotifications.ts no longer creates its own channels — see that file's
+// updated version which just reads these channel IDs instead.
 export async function setupNotificationChannels() {
   if (Platform.OS !== "android") return;
   try {
-    await Notifications.setNotificationChannelAsync("default", {
+    // ✅ Renamed default -> default_v2 to force a fresh channel
+    await Notifications.setNotificationChannelAsync("default_v2", {
       name: "Default",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
@@ -48,7 +57,7 @@ export async function setupNotificationChannels() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
     });
-    await Notifications.setNotificationChannelAsync("messages", {
+    await Notifications.setNotificationChannelAsync("messages_v2", {
       name: "Messages",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
@@ -58,19 +67,25 @@ export async function setupNotificationChannels() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
     });
-    await Notifications.setNotificationChannelAsync("silent", {
+    await Notifications.setNotificationChannelAsync("vibrate_v2", {
+      name: "Vibrate Only",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 400, 200, 400],
+      enableVibrate: true,
+      showBadge: true,
+    });
+    await Notifications.setNotificationChannelAsync("silent_v2", {
       name: "Silent",
       importance: Notifications.AndroidImportance.LOW,
-      sound: undefined,
       enableVibrate: false,
       showBadge: false,
     });
+    console.log("[Notifications] Channels v2 created successfully");
   } catch (error) {
     console.error("Error setting up notification channels:", error);
   }
 }
 
-// ✅ FIX: accept uid and pass it through so token is saved correctly
 export async function registerPushNotifications(uid?: string): Promise<void> {
   const { registerForPushNotificationsAsync } =
     await import("@/utils/pushNotifications");

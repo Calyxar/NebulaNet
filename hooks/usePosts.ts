@@ -163,7 +163,6 @@ export function useInfiniteFeedPosts(
     activeTab === "following"
       ? {
           ...base,
-          // ✅ If user follows nobody show empty rather than all posts
           ...(followingIds.length > 0
             ? { userIds: followingIds }
             : { userIds: ["__no_results__"] }),
@@ -174,7 +173,17 @@ export function useInfiniteFeedPosts(
 
   const query = useInfinitePosts(filters);
 
-  const data = showNsfw
+  // ✅ Twitter-style fallback: when the following feed has fewer than 5 posts
+  // on the first page, blend in For You posts so the feed never feels empty.
+  // Fallback posts are tagged is_suggested so the UI can label them.
+  const needsFallback =
+    activeTab === "following" &&
+    !!query.data &&
+    (query.data.pages[0]?.posts.length ?? 0) < 5;
+
+  const fallbackQuery = useInfinitePosts(base);
+
+  let data = showNsfw
     ? query.data
     : query.data
       ? {
@@ -185,6 +194,25 @@ export function useInfiniteFeedPosts(
           })),
         }
       : query.data;
+
+  if (needsFallback && fallbackQuery.data && data) {
+    const existingIds = new Set(data.pages[0]?.posts.map((p) => p.id) ?? []);
+    const fallbackPosts = (fallbackQuery.data.pages[0]?.posts ?? [])
+      .filter((p) => !existingIds.has(p.id))
+      .filter((p) => showNsfw || !(p as any).is_nsfw)
+      .map((p) => ({ ...p, is_suggested: true }) as any);
+
+    data = {
+      ...data,
+      pages: [
+        {
+          ...data.pages[0],
+          posts: [...(data.pages[0]?.posts ?? []), ...fallbackPosts],
+        },
+        ...data.pages.slice(1),
+      ],
+    };
+  }
 
   return { ...query, data };
 }
@@ -494,7 +522,6 @@ export function useToggleRepost() {
                   ? p
                   : {
                       ...p,
-                      // ✅ FIX: never go below 0
                       repost_count: Math.max(
                         0,
                         ((p as any).repost_count ?? 0) +

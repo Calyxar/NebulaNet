@@ -2,7 +2,13 @@
 // Fix 1: reads notification_sound from user_settings before playing sound
 // Fix 2: respects "silent", "vibrate", and "default" preferences
 // Fix 3: reads muted state from AsyncStorage before showing notification
-// Fix 4: sets up separate Android channels for each sound mode
+// Fix 4: REMOVED duplicate channel creation — lib/notifications.ts's
+//        setupNotificationChannels() is now the single source of truth.
+//        Having two places create a "default" channel caused a race
+//        condition where whichever ran last silently won, and since
+//        Android locks channel sound settings permanently after first
+//        creation, the device could get stuck with a no-sound channel.
+// Fix 5: channel IDs updated to _v2 suffix to match lib/notifications.ts
 
 import { getNotificationsMuted } from "@/lib/notifications";
 import auth from "@react-native-firebase/auth";
@@ -70,11 +76,9 @@ Notifications.setNotificationHandler({
 export function useNotifications() {
   const queryClient = useQueryClient();
   const initialisedRef = useRef(false);
-  // ✅ FIX 1: track sound preference in state so it's always current
   const [soundPref, setSoundPref] = useState<SoundPref>("default");
   const soundPrefRef = useRef<SoundPref>("default");
 
-  // ✅ FIX 1: load sound preference from Firestore when user changes
   useEffect(() => {
     const unsub = auth().onAuthStateChanged(async (user) => {
       if (!user) return;
@@ -89,7 +93,6 @@ export function useNotifications() {
         soundPrefRef.current = pref;
       } catch {}
 
-      // Also listen for real-time changes to sound preference
       return firestore()
         .collection("user_settings")
         .doc(user.uid)
@@ -103,47 +106,15 @@ export function useNotifications() {
     return () => unsub();
   }, []);
 
-  // ✅ FIX 4: set up Android channels for each sound mode
+  // ✅ FIX 4: NO LONGER creates channels here. lib/notifications.ts's
+  // setupNotificationChannels() (called once in app/_layout.tsx) is the
+  // single source of truth for channel creation. This avoids two competing
+  // setNotificationChannelAsync("default", ...) calls with different
+  // configs racing against each other.
   useEffect(() => {
-    const init = async () => {
-      try {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== "granted") return;
-
-        if (Platform.OS === "android") {
-          // Default channel — sound + vibration
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Default",
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#7C3AED",
-            sound: "notification.wav",
-            enableVibrate: true,
-          });
-
-          // Vibrate-only channel — no sound
-          await Notifications.setNotificationChannelAsync("vibrate-only", {
-            name: "Vibrate Only",
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 400, 200, 400],
-            enableVibrate: true,
-            sound: undefined, // no sound
-          });
-
-          // Silent channel — no sound, no vibration
-          await Notifications.setNotificationChannelAsync("silent", {
-            name: "Silent",
-            importance: Notifications.AndroidImportance.LOW,
-            enableVibrate: false,
-            sound: undefined,
-          });
-        }
-      } catch {}
-    };
-    init();
+    Notifications.requestPermissionsAsync().catch(() => {});
   }, []);
 
-  // ✅ FIX 2: play sound only when pref is "default"
   const playNotificationSound = useCallback(async () => {
     if (soundPrefRef.current !== "default") return;
     try {
@@ -154,18 +125,16 @@ export function useNotifications() {
     } catch {}
   }, []);
 
-  // ✅ FIX 2 & 3: check mute + sound pref before showing notification
+  // ✅ FIX 5: channel IDs match lib/notifications.ts's _v2 channels
   const showLocalNotification = useCallback(
     async (title: string, body: string, data?: any) => {
       try {
-        // Check mute state first
         const isMuted = await getNotificationsMuted();
         if (isMuted) return;
 
         const pref = soundPrefRef.current;
 
         if (pref === "silent") {
-          // Show notification visually but no sound or vibration
           await Notifications.scheduleNotificationAsync({
             content: {
               title,
@@ -177,14 +146,13 @@ export function useNotifications() {
             trigger: null,
             ...(Platform.OS === "android" &&
               ({
-                android: { channelId: "silent" },
+                android: { channelId: "silent_v2" },
               } as any)),
           });
           return;
         }
 
         if (pref === "vibrate") {
-          // Vibrate only — no sound file
           await Notifications.scheduleNotificationAsync({
             content: {
               title,
@@ -196,10 +164,9 @@ export function useNotifications() {
             trigger: null,
             ...(Platform.OS === "android" &&
               ({
-                android: { channelId: "vibrate-only" },
+                android: { channelId: "vibrate_v2" },
               } as any)),
           });
-          // Trigger vibration manually on iOS (Android channel handles it)
           if (Platform.OS === "ios") {
             const { default: ReactNativeHapticFeedback } =
               await import("react-native-haptic-feedback").catch(() => ({
@@ -222,10 +189,9 @@ export function useNotifications() {
           trigger: null,
           ...(Platform.OS === "android" &&
             ({
-              android: { channelId: "default" },
+              android: { channelId: "default_v2" },
             } as any)),
         });
-        // Also play in-app sound
         await playNotificationSound();
       } catch {}
     },
