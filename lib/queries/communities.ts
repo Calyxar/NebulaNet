@@ -1,8 +1,13 @@
 // lib/queries/communities.ts ✅ FIXED
 // Fix: replaced web SDK documentId() with firestore.FieldPath.documentId()
 // from @react-native-firebase — they are NOT interchangeable
+// ✅ FIX 2: fetchMyCommunities now takes uid as a parameter instead of
+// independently reading auth.currentUser. Previously, if this ran in the
+// same tick that useAuth()'s `user` became truthy but Firebase's internal
+// auth.currentUser hadn't synchronously caught up yet, this function would
+// silently return [] every time — emptying the community picker with no
+// error, regardless of actual membership data in Firestore.
 
-import { auth } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
 export type Community = {
@@ -13,14 +18,13 @@ export type Community = {
   description?: string | null;
 };
 
-export async function fetchMyCommunities(): Promise<Community[]> {
-  const user = auth.currentUser;
-  if (!user) return [];
+export async function fetchMyCommunities(uid: string): Promise<Community[]> {
+  if (!uid) return [];
 
   // 1) joined communities
   const memberSnap = await firestore()
     .collection("community_members")
-    .where("user_id", "==", user.uid)
+    .where("user_id", "==", uid)
     .limit(500)
     .get();
 
@@ -29,15 +33,18 @@ export async function fetchMyCommunities(): Promise<Community[]> {
     .filter(Boolean) as string[];
 
   // 2) created/owned communities
+  // Note: createCommunity() only ever writes `owner_id` — `created_by` is
+  // queried defensively in case older or alternate write paths used it,
+  // but as of this codebase it's always empty. Harmless to keep.
   const createdSnaps = await Promise.all([
     firestore()
       .collection("communities")
-      .where("owner_id", "==", user.uid)
+      .where("owner_id", "==", uid)
       .get()
       .catch(() => null),
     firestore()
       .collection("communities")
-      .where("created_by", "==", user.uid)
+      .where("created_by", "==", uid)
       .get()
       .catch(() => null),
   ]);
@@ -47,7 +54,6 @@ export async function fetchMyCommunities(): Promise<Community[]> {
     .map((d) => ({ id: d.id, ...(d.data() as any) }));
 
   // 3) fetch joined community docs in batches of 10
-  // ✅ FIX: use firestore.FieldPath.documentId() not web SDK documentId()
   const joinedRows: any[] = [];
   for (let i = 0; i < joinedIds.length; i += 10) {
     const batch = joinedIds.slice(i, i + 10);

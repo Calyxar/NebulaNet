@@ -296,6 +296,7 @@ export default function HomeScreen() {
 
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
+  console.log("[HOME DEBUG] myCommunityIds:", myCommunityIds);
 
   const { data: userPrefs } = useQuery({
     queryKey: ["user-preferences", user?.uid],

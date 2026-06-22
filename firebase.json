@@ -5,6 +5,9 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "database": {
+    "rules": "database.rules.json"
+  },
   "emulators": {
     "auth": {
       "host": "0.0.0.0",
@@ -18,6 +21,10 @@
       "host": "0.0.0.0",
       "port": 5001
     },
+    "database": {
+      "host": "0.0.0.0",
+      "port": 9000
+    },
     "ui": {
       "enabled": true,
       "port": 4000
@@ -29,10 +36,6 @@
   },
   "hosting": {
     "public": "public",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ]
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
   }
 }

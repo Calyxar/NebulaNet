@@ -4,6 +4,9 @@
 // Fix 2: getRepostFeedItems uses orderBy("created_at","desc") not created_at_ts
 //         to match the existing reposts index
 // Fix 3: following feed adds visibility filter so private posts don't leak
+// Fix 4: minor accounts (age_group "teen" or "under_13") never query for or
+//         receive is_nsfw posts — matches the Firestore security rule, so
+//         queries never request documents the rule would reject
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth } from "@/lib/firebase";
@@ -121,6 +124,9 @@ const POST_MEDIA_TYPES: ReadonlySet<MediaType> = new Set([
   "video",
   "gif",
 ]);
+
+// ✅ NEW: matches the Firestore security rule's isMinor() check
+const MINOR_AGE_GROUPS = new Set(["teen", "under_13"]);
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -248,6 +254,23 @@ async function getCommunitySnapshot(
   };
 }
 
+// ✅ NEW: resolves whether the given viewer is a minor (age_group "teen" or
+// "under_13"). Mirrors the Firestore security rule's isMinor() exactly, so
+// queries built here never ask for documents the rule would reject. Fails
+// open (returns false) on lookup errors — the security rule remains the
+// real backstop even if this check can't run for some reason.
+async function isViewerMinor(viewerId: string): Promise<boolean> {
+  if (!viewerId) return false;
+  try {
+    const snap = await firestore().collection("profiles").doc(viewerId).get();
+    if (!snap.exists) return false;
+    const ageGroup = (snap.data() as any)?.age_group;
+    return MINOR_AGE_GROUPS.has(ageGroup);
+  } catch {
+    return false;
+  }
+}
+
 /* =========================================================
    STORAGE UPLOAD
 ========================================================= */
@@ -340,9 +363,16 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
    REPOST FEED ITEMS
    ✅ FIX 2: use orderBy("created_at","desc") to match the
    existing reposts index (not created_at_ts which has no index)
+   ✅ FIX 4: skip NSFW reposts for minors (filtered client-side since
+   this path uses a documentId "in" query that can't cleanly combine
+   with another field filter here)
 ========================================================= */
 
-async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
+async function getRepostFeedItems(
+  uid: string,
+  limit: number,
+  excludeNsfw: boolean,
+): Promise<Post[]> {
   try {
     // ✅ FIX 2: was orderBy("created_at_ts") — no index exists for that
     // reposts collection only has: user_id ASC + created_at DESC
@@ -376,6 +406,8 @@ async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
         if (!d.exists()) return;
         const data = d.data() as any;
         if (data.is_visible === false) return;
+        // ✅ FIX 4: skip NSFW reposts for minors
+        if (excludeNsfw && data.is_nsfw === true) return;
         const p = docToPost(d.id, data, {
           is_liked: false,
           is_saved: false,
@@ -398,6 +430,7 @@ async function getRepostFeedItems(uid: string, limit: number): Promise<Post[]> {
    GET POSTS — FOLLOWING FEED FIX
    ✅ FIX 1: Firestore "in" operator only supports 10 items.
    When userIds > 10 we batch into multiple queries and merge.
+   ✅ FIX 4: excludeNsfw param applies is_nsfw == false filter for minors
 ========================================================= */
 
 async function getPostsForUserIds(
@@ -405,6 +438,7 @@ async function getPostsForUserIds(
   sortBy: "newest" | "popular" | "trending",
   limit: number,
   cursor: PostFilters["cursor"],
+  excludeNsfw: boolean,
 ): Promise<FirebaseFirestoreTypes.QueryDocumentSnapshot[]> {
   // ✅ FIX 1: batch into chunks of 10
   const batches = chunk(userIds, 10);
@@ -421,6 +455,13 @@ async function getPostsForUserIds(
         .where("user_id", "in", batch)
         // ✅ FIX 3: only show public + followers posts in following feed
         .where("visibility", "in", ["public", "followers"]);
+
+      // ✅ FIX 4: minors never query for is_nsfw posts at all — matches
+      // the Firestore security rule, so the query never asks for a
+      // document the rule would reject.
+      if (excludeNsfw) {
+        q = q.where("is_nsfw", "==", false);
+      }
 
       if (sortBy === "trending") {
         const weekAgo = firestore.Timestamp.fromDate(
@@ -495,6 +536,8 @@ export async function getPosts(
     resolvedUserId = await resolveUserIdFromUsername(username);
 
   const viewerId = auth.currentUser?.uid ?? "";
+  // ✅ FIX 4: resolve once per call, reused everywhere below
+  const viewerIsMinor = viewerId ? await isViewerMinor(viewerId) : false;
 
   // ✅ FIX 1: following feed — batch userIds queries
   if (userIds && userIds.length > 0) {
@@ -504,7 +547,13 @@ export async function getPosts(
       return { posts: [], total: 0, hasMore: false, nextCursor: null };
     }
 
-    const docs = await getPostsForUserIds(realIds, sortBy, limit, cursor);
+    const docs = await getPostsForUserIds(
+      realIds,
+      sortBy,
+      limit,
+      cursor,
+      viewerIsMinor,
+    );
     const raw = docs
       .map((d) => docToPost(d.id, d.data()))
       .filter((p) => p.is_visible !== false)
@@ -541,6 +590,12 @@ export async function getPosts(
     q = q.where("user_id", "==", resolvedUserId);
   }
   if (visibility) q = q.where("visibility", "==", visibility);
+
+  // ✅ FIX 4: same minor-safe filter as the following-feed path
+  if (viewerIsMinor) {
+    q = q.where("is_nsfw", "==", false);
+  }
+
   if (hashtag)
     q = q.where(
       "hashtags",
@@ -592,7 +647,11 @@ export async function getPosts(
   // On first page only, merge in reposted posts for the viewer
   let merged = posts;
   if (viewerId && !cursor && !resolvedUserId && !resolvedCommunityIds.length) {
-    const repostItems = await getRepostFeedItems(viewerId, limit);
+    const repostItems = await getRepostFeedItems(
+      viewerId,
+      limit,
+      viewerIsMinor,
+    );
     const ownPostIds = new Set(posts.map((p) => p.id));
     const newReposts = repostItems.filter((r) => !ownPostIds.has(r.id));
 
@@ -631,6 +690,9 @@ export async function getPosts(
 
 /* =========================================================
    GET SINGLE POST
+   ✅ FIX 4: minors get null (treated as not found) for is_nsfw posts,
+   instead of fetching content the security rule would reject anyway —
+   avoids a confusing permission-denied crash on the post detail screen.
 ========================================================= */
 
 export async function getPostById(id: string): Promise<Post | null> {
@@ -641,6 +703,12 @@ export async function getPostById(id: string): Promise<Post | null> {
   const d = snap.data() as any;
   if (d.is_visible === false) return null;
   const viewerId = auth.currentUser?.uid ?? "";
+
+  if (d.is_nsfw === true && viewerId) {
+    const viewerIsMinor = await isViewerMinor(viewerId);
+    if (viewerIsMinor) return null;
+  }
+
   let is_liked = false;
   let is_saved = false;
   if (viewerId) {

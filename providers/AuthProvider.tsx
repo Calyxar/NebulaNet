@@ -26,6 +26,7 @@ import firestore from "@react-native-firebase/firestore";
 import { router } from "expo-router";
 import { Alert, Platform, ToastAndroid } from "react-native";
 
+import { initPresence, teardownPresence } from "@/lib/firestore/presence";
 import { initRevenueCat } from "@/lib/revenuecat";
 import { registerForPushNotificationsAsync } from "@/utils/pushNotifications";
 
@@ -178,6 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           setUser(u as FirebaseUser);
+          initPresence(u.uid);
         } catch (err) {
           console.warn("AuthState processing failed:", err);
           setUser(null);
@@ -375,6 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updated_at: nowIso(),
       updated_at_ts: firestore.FieldValue.serverTimestamp(),
     });
+    await teardownPresence(userId);
     await auth().signOut();
     qc.clear();
   }, [userId, qc]);
@@ -397,17 +400,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { merge: true },
       );
     Alert.alert(
-      "Request Received",
-      "We've received your account deletion request. Your account will be deleted within 30 days.",
+      "Account Deletion Started",
+      "Your account and data are being deleted now. This usually finishes within a few minutes, and you'll be signed out automatically.",
       [{ text: "OK" }],
     );
   }, [userId]);
 
   const signOut = useCallback(async () => {
+    if (userId) await teardownPresence(userId);
     await auth().signOut();
     qc.clear();
     router.replace("/(auth)/login");
-  }, [qc]);
+  }, [qc, userId]);
 
   const value = useMemo<AuthContextType>(
     () => ({

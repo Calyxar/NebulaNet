@@ -1,3 +1,4 @@
+import { CommunityRow } from "@/components/CommunityRow";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { PostSearchSkeleton, SearchRowSkeleton } from "@/components/Skeleton";
@@ -533,80 +534,6 @@ function SuggestedUserRow({
         )}
       </View>
     </View>
-  );
-}
-
-// ✅ FIX: CommunityRow now shows "Joined" vs "Join" based on is_joined
-function CommunityRow({
-  community: c,
-  idx,
-  colors,
-}: {
-  community: SearchCommunity;
-  idx: number;
-  colors: any;
-}) {
-  const isJoined = !!c.is_joined;
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      style={[
-        styles.row,
-        idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
-      ]}
-      onPress={() => router.push(`/community/${c.slug}`)}
-    >
-      {c.image_url ? (
-        <Image
-          source={{ uri: c.image_url }}
-          style={[styles.communityAvatar, { backgroundColor: colors.surface }]}
-        />
-      ) : (
-        <View
-          style={[styles.communityBadge, { backgroundColor: colors.surface }]}
-        >
-          <Ionicons name="people" size={18} color={colors.primary} />
-        </View>
-      )}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text
-          style={[styles.rowTitle, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {c.name}
-        </Text>
-        <Text
-          style={[styles.rowSubtitle, { color: colors.textTertiary }]}
-          numberOfLines={1}
-        >
-          {c.member_count
-            ? `${c.member_count.toLocaleString()} members`
-            : (c.description ?? "")}
-        </Text>
-      </View>
-      {/* ✅ FIX: dynamic joined state */}
-      <TouchableOpacity
-        style={[
-          styles.followBtn,
-          {
-            backgroundColor: isJoined ? colors.surface : colors.primary,
-            borderColor: isJoined ? colors.border : colors.primary,
-          },
-        ]}
-        onPress={() => router.push(`/community/${c.slug}`)}
-        activeOpacity={0.85}
-      >
-        <Text
-          style={[
-            styles.followBtnText,
-            { color: isJoined ? colors.text : "#fff" },
-          ]}
-        >
-          {isJoined ? "Joined" : "Join"}
-        </Text>
-      </TouchableOpacity>
-    </TouchableOpacity>
   );
 }
 
@@ -2042,7 +1969,6 @@ export default function ExploreScreen() {
                       },
                     ]}
                   >
-                    {/* ✅ FIX: use CommunityRow here too so is_joined works */}
                     {communities.map((c: any, idx: number) => (
                       <CommunityRow
                         key={c.id}
@@ -2131,13 +2057,9 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
-                    icon="pricetag-outline"
-                    title="No hashtags found"
-                    subtitle={
-                      searchQuery.trim()
-                        ? `No results for #${searchQuery.replace(/^#/, "")}`
-                        : "Hashtags will appear here as people post."
-                    }
+                    icon="people-circle-outline"
+                    title="No matches"
+                    subtitle="Try a different keyword."
                   />
                 )}
               </>

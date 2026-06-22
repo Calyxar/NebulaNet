@@ -36,6 +36,8 @@ async function fetchActiveAnnouncement(): Promise<Announcement | null> {
     .limit(1)
     .get();
 
+  console.log("[Announcement] empty?", snap.empty, "size", snap.size);
+
   if (snap.empty) return null;
   const d = snap.docs[0].data() as any;
   return {
@@ -88,7 +90,7 @@ export default function AnnouncementCard() {
   // Don't show if no announcement, already dismissed, or same announcement dismissed before
   if (!announcement) return null;
   if (dismissed) return null;
-  if (dismissedId === announcement.id) return null;
+  // if (dismissedId === announcement.id) return null;
 
   const gradientColors = isDark
     ? (["#3B1F72", "#1E1040"] as const)

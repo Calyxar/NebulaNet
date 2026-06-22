@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { getDatabase } from "firebase-admin/database";
 import { getMessaging } from "firebase-admin/messaging";
 import { defineSecret } from "firebase-functions/params";
 import { https, setGlobalOptions } from "firebase-functions/v2";
@@ -20,6 +21,7 @@ setGlobalOptions({
 
 const db = getFirestore();
 const auth = getAuth();
+const rtdb = getDatabase();
 
 const resendApiKey = defineSecret("RESEND_API_KEY");
 const googleCloudApiKey = defineSecret("GOOGLE_CLOUD_VISION_API_KEY");
@@ -334,6 +336,14 @@ export const handleAccountDeletion = onDocumentCreated(
         { merge: true },
       );
       await auth.deleteUser(userId).catch(() => void 0);
+
+      // Clean up the orphaned Realtime Database presence node — Firestore
+      // and Auth no longer have this user, so this status leftover would
+      // otherwise sit there indefinitely with no owner.
+      await rtdb.ref(`/status/${userId}`).remove().catch((err) => {
+        console.warn("Failed to clean up RTDB presence node for", userId, String(err));
+      });
+
       await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
     } catch (err) {
       await snap.ref.update({ status: "failed", error: String(err) });

@@ -4,6 +4,7 @@ exports.moderatePostContent = exports.verifyParentalCode = exports.sendParentalV
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
+const database_1 = require("firebase-admin/database");
 const messaging_1 = require("firebase-admin/messaging");
 const params_1 = require("firebase-functions/params");
 const v2_1 = require("firebase-functions/v2");
@@ -16,6 +17,7 @@ const firestore_2 = require("firebase-functions/v2/firestore");
 });
 const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)();
+const rtdb = (0, database_1.getDatabase)();
 const resendApiKey = (0, params_1.defineSecret)("RESEND_API_KEY");
 const googleCloudApiKey = (0, params_1.defineSecret)("GOOGLE_CLOUD_VISION_API_KEY");
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +325,12 @@ exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_dele
         await db.collection("profiles").doc(userId).delete();
         await db.collection("user_settings").doc(userId).set({ deleted_at: new Date().toISOString(), cleanup_processed: true }, { merge: true });
         await auth.deleteUser(userId).catch(() => void 0);
+        // Clean up the orphaned Realtime Database presence node — Firestore
+        // and Auth no longer have this user, so this status leftover would
+        // otherwise sit there indefinitely with no owner.
+        await rtdb.ref(`/status/${userId}`).remove().catch((err) => {
+            console.warn("Failed to clean up RTDB presence node for", userId, String(err));
+        });
         await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
     }
     catch (err) {

@@ -1,44 +1,58 @@
 // hooks/usePresence.ts — FIREBASE ✅
+// Read-only subscriber to a user's online/offline status, written by
+// lib/firestore/presence.ts (initPresence/teardownPresence) into
+// Realtime Database at /status/{uid}.
+//
+// This hook does NOT set the current user's own status — it only
+// reads someone else's (or your own, if you pass your own uid).
+// Writing presence happens once, centrally, via initPresence() in
+// AuthProvider — not per-component.
 
-import { db } from "@/lib/firebase";
-import firestore from "@react-native-firebase/firestore";
-import { useEffect } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import database from "@react-native-firebase/database";
+import { useEffect, useState } from "react";
 
-export type PresenceStatus = "online" | "offline" | "away";
+export type PresenceState = "online" | "offline" | "unknown";
 
-export function usePresence(userId?: string) {
+export interface PresenceInfo {
+  status: PresenceState;
+  lastChanged: number | null;
+}
+
+export function usePresence(userId?: string | null): PresenceInfo {
+  const [info, setInfo] = useState<PresenceInfo>({
+    status: "unknown",
+    lastChanged: null,
+  });
+
   useEffect(() => {
-    if (!userId) return;
-    let mounted = true;
+    if (!userId) {
+      setInfo({ status: "unknown", lastChanged: null });
+      return;
+    }
 
-    const setStatus = async (status: PresenceStatus) => {
-      if (!mounted) return;
-      await db
-        .collection("user_presence")
-        .doc(userId)
-        .set(
-          {
-            user_id: userId,
-            status,
-            last_seen: firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-    };
+    const ref = database().ref(`/status/${userId}`);
 
-    setStatus("online").catch(() => {});
+    const callback = ref.on(
+      "value",
+      (snap) => {
+        const val = snap.val();
+        if (!val) {
+          setInfo({ status: "unknown", lastChanged: null });
+          return;
+        }
+        setInfo({
+          status: val.state === "online" ? "online" : "offline",
+          lastChanged: val.last_changed ?? null,
+        });
+      },
+      (err) => {
+        console.warn("usePresence: listener error", err);
+        setInfo({ status: "unknown", lastChanged: null });
+      },
+    );
 
-    const onAppStateChange = (state: AppStateStatus) => {
-      setStatus(state === "active" ? "online" : "away").catch(() => {});
-    };
-
-    const sub = AppState.addEventListener("change", onAppStateChange);
-
-    return () => {
-      mounted = false;
-      sub.remove();
-      setStatus("offline").catch(() => {});
-    };
+    return () => ref.off("value", callback);
   }, [userId]);
+
+  return info;
 }

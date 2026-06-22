@@ -3,6 +3,7 @@
 // Fix 2: quote reposts fetched without compound index query
 // Fix 3: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
 // Fix 4: Google Places URL uses encodeURIComponent on types param
+// Fix 5: Activity tab now also includes liked posts, not just reposts/quotes
 
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
@@ -107,7 +108,24 @@ type QuoteRow = {
   } | null;
 };
 
-type ActivityRow = RepostRow | QuoteRow;
+// ✅ NEW: liked posts, mirrors RepostRow shape
+type LikeRow = {
+  id: string;
+  type: "like";
+  content: string;
+  media_urls: string[] | null;
+  created_at: string;
+  post_type?: string | null;
+  liked_at: string;
+  sort_at: string;
+  original_user: {
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
+type ActivityRow = RepostRow | QuoteRow | LikeRow;
 
 type FollowEdge = {
   follower_id: string;
@@ -683,7 +701,7 @@ export default function UserProfileScreen() {
 
   // ── Quote reposts ──────────────────────────────────────────────────────────
   // ✅ FIX 2: fetch all user posts ordered by created_at_ts, filter client-side
-  const { data: quoteReposts } = useQuery({
+  const { data: quoteReposts, isLoading: loadingQuotes } = useQuery({
     queryKey: ["user-quote-reposts", target?.id],
     enabled: !!target?.id && canViewPosts && canViewActivity,
     staleTime: 0,
@@ -741,12 +759,88 @@ export default function UserProfileScreen() {
     },
   });
 
+  // ── Likes ──────────────────────────────────────────────────────────────────
+  // ✅ NEW: mirrors the reposts query pattern. Fetches this user's `likes`
+  // docs, batch-fetches the liked posts, and attaches the original
+  // author's denormalized user info for display. Self-likes are excluded —
+  // "Liked · @yourself" isn't meaningful activity to surface.
+  const { data: likedActivity, isLoading: loadingLikes } = useQuery({
+    queryKey: ["user-likes-activity", target?.id],
+    enabled: !!target?.id && canViewPosts && canViewActivity,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<LikeRow[]> => {
+      const likeSnap = await firestore()
+        .collection("likes")
+        .where("user_id", "==", target!.id)
+        .limit(50)
+        .get();
+
+      if (likeSnap.empty) return [];
+
+      const postIds: string[] = [];
+      const likedAt: Record<string, string> = {};
+      likeSnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        if (data.post_id) {
+          postIds.push(data.post_id);
+          likedAt[data.post_id] = tsToIso(
+            data.created_at ?? data.created_at_ts,
+          );
+        }
+      });
+
+      const chunks: string[][] = [];
+      for (let i = 0; i < postIds.length; i += 10)
+        chunks.push(postIds.slice(i, i + 10));
+
+      const postDocs: LikeRow[] = [];
+      for (const chunk of chunks) {
+        const snap = await firestore()
+          .collection("posts")
+          .where(firestore.FieldPath.documentId(), "in", chunk)
+          .get();
+        snap.docs.forEach((d) => {
+          const x = d.data() as any;
+          if (x.user_id === target!.id) return; // skip self-likes
+          const at = likedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
+          postDocs.push({
+            id: d.id,
+            type: "like",
+            content: x.content ?? "",
+            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
+            post_type: x.post_type ?? null,
+            liked_at: at,
+            sort_at: at,
+            original_user: x.user
+              ? {
+                  username: x.user.username ?? null,
+                  full_name: x.user.full_name ?? null,
+                  avatar_url: x.user.avatar_url ?? null,
+                }
+              : null,
+          });
+        });
+      }
+
+      return postDocs.sort(
+        (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
+      );
+    },
+  });
+
   // ── Merged activity ────────────────────────────────────────────────────────
+  // ✅ UPDATED: now includes likedActivity alongside reposts and quotes
   const allActivity = useMemo((): ActivityRow[] => {
-    return [...(reposts ?? []), ...(quoteReposts ?? [])].sort(
+    return [
+      ...(reposts ?? []),
+      ...(quoteReposts ?? []),
+      ...(likedActivity ?? []),
+    ].sort(
       (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
     );
-  }, [reposts, quoteReposts]);
+  }, [reposts, quoteReposts, likedActivity]);
 
   const mediaPosts = useMemo(
     () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
@@ -1331,7 +1425,7 @@ export default function UserProfileScreen() {
                       @{target.username} has set their activity to private.
                     </Text>
                   </View>
-                ) : loadingReposts ? (
+                ) : loadingReposts || loadingQuotes || loadingLikes ? (
                   <View style={{ gap: 12 }}>
                     {Array.from({ length: 3 }).map((_, i) => (
                       <View
@@ -1383,21 +1477,32 @@ export default function UserProfileScreen() {
                               name={
                                 item.type === "quote"
                                   ? "chatbubble-ellipses-outline"
-                                  : "repeat-outline"
+                                  : item.type === "like"
+                                    ? "heart"
+                                    : "repeat-outline"
                               }
                               size={14}
-                              color={colors.primary}
+                              color={
+                                item.type === "like"
+                                  ? "#FF375F"
+                                  : colors.primary
+                              }
                             />
                             <Text
                               style={{
                                 fontSize: 12,
                                 fontWeight: "700",
-                                color: colors.primary,
+                                color:
+                                  item.type === "like"
+                                    ? "#FF375F"
+                                    : colors.primary,
                               }}
                             >
                               {item.type === "quote"
                                 ? `Quoted · @${(item as QuoteRow).quoted_post?.user?.username ?? "someone"}`
-                                : `Reposted · @${(item as RepostRow).original_user?.username ?? (item as RepostRow).original_user?.full_name ?? "someone"}`}
+                                : item.type === "like"
+                                  ? `Liked · @${(item as LikeRow).original_user?.username ?? (item as LikeRow).original_user?.full_name ?? "someone"}`
+                                  : `Reposted · @${(item as RepostRow).original_user?.username ?? (item as RepostRow).original_user?.full_name ?? "someone"}`}
                             </Text>
                           </View>
                           {item.type === "quote" && !!item.content && (
@@ -1411,17 +1516,18 @@ export default function UserProfileScreen() {
                               {item.content}
                             </Text>
                           )}
-                          {item.type === "repost" && !!item.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
-                          )}
+                          {(item.type === "repost" || item.type === "like") &&
+                            !!item.content && (
+                              <Text
+                                style={[
+                                  styles.postContent,
+                                  { color: colors.text },
+                                ]}
+                                numberOfLines={4}
+                              >
+                                {item.content}
+                              </Text>
+                            )}
                           {item.type === "quote" &&
                             (item as QuoteRow).quoted_post && (
                               <View
@@ -1513,8 +1619,8 @@ export default function UserProfileScreen() {
                       ]}
                     >
                       {isMe
-                        ? "Posts you repost or quote"
-                        : `Posts @${target.username} reposts or quotes`}{" "}
+                        ? "Posts you like, repost, or quote"
+                        : `Posts @${target.username} likes, reposts, or quotes`}{" "}
                       will appear here.
                     </Text>
                   </View>

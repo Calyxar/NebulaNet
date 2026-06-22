@@ -28,6 +28,21 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
+    // ✅ NEW: minors (age_group "teen" or "under_13") are hard-blocked from
+    // reading is_nsfw content — enforced here at the rules layer, so no
+    // client-side toggle or modified app build can bypass it. Accounts with
+    // no age_group set (pre-existing users from before this field existed)
+    // are treated as adults by this check — defaulting unknown accounts to
+    // "minor" would lock out existing real adult users. A migration to
+    // backfill age_group on old accounts should be run separately; this
+    // function intentionally does not try to guess for missing data.
+    function isMinor() {
+      return signedIn() &&
+        hasProfile(uid()) &&
+        (profileDoc(uid()).data.age_group == "teen" ||
+         profileDoc(uid()).data.age_group == "under_13");
+    }
+
     function isCounterUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['like_count', 'comment_count', 'repost_count', 'save_count', 'share_count', 'view_count']);
@@ -61,7 +76,14 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
-      allow read, get, list: if signedIn();
+      // ✅ NEW: minors can never read posts flagged is_nsfw == true.
+      // This is a per-document read check — Firestore evaluates it on the
+      // single-document get() and applies it as a query-time filter on
+      // list/collection queries too (queries against a flagged-true field
+      // a minor can't read simply omit those docs from results, they don't
+      // error the whole query).
+      allow read, get, list: if signedIn() &&
+        (resource.data.is_nsfw != true || !isMinor());
       allow create: if signedIn();
       allow update: if signedIn() && (
         resource.data.user_id == uid() ||

@@ -171,6 +171,7 @@ export function useInfiniteFeedPosts(
         ? { ...base, communityIds: opts?.communityIds ?? [] }
         : base;
 
+  console.log("[FEED DEBUG]", activeTab, JSON.stringify(filters));
   const query = useInfinitePosts(filters);
 
   // ✅ Twitter-style fallback: when the following feed has fewer than 5 posts
