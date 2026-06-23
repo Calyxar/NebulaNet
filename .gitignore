@@ -26,12 +26,27 @@ serviceAccountKey.json
 credentials.json
 google-services.json
 
+# crash logs
+crash_log*.txt
+crash_log.txt
+error_output.txt
 
 # debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 firebase-debug.log*
+
+# Manually-generated bundles/sourcemaps and bundletool output
+# (from local debugging — not build artifacts that should be committed)
+android-release.bundle
+android-release.bundle.map
+*.apks
+resolve-crash.js
+
+# Release signing keystore (covered by *.jks above, but explicit for clarity)
+release.keystore
+debug.keystore
 
 # Firebase noise
 .firebase/

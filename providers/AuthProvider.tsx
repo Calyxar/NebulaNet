@@ -204,8 +204,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .doc(userId)
       .onSnapshot(
         (snap) => {
-          setUserSettings(snap.exists() ? (snap.data() as UserSettings) : null);
-          setIsUserSettingsLoading(false);
+          try {
+            const exists = snap?.exists?.();
+            setUserSettings(exists ? (snap.data() as UserSettings) : null);
+          } catch (err) {
+            console.warn("user_settings snapshot processing failed:", err);
+            setUserSettings(null);
+          } finally {
+            setIsUserSettingsLoading(false);
+          }
         },
         (err) => {
           console.warn("user_settings listener error:", err);
@@ -267,11 +274,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           updated_at: nowIso(),
           updated_at_ts: firestore.FieldValue.serverTimestamp(),
         });
-      if (updates.username) {
+
+      // ✅ FIXED: propagate denormalized author info to existing content
+      // whenever username OR full_name (display name) changes — not just
+      // username. Previously full_name was never propagated at all, so
+      // changing your display name silently never updated old posts.
+      const usernameChanged = !!updates.username;
+      const nameChanged = updates.full_name !== undefined;
+      if (usernameChanged || nameChanged) {
         const newUsername = updates.username;
-        const newUsernameLc = newUsername.toLowerCase();
+        const newUsernameLc = newUsername?.toLowerCase();
+        const newFullName = updates.full_name;
+        const newAvatarUrl = updates.avatar_url;
+
+        // Build the patch for embedded `user: ProfileRow` objects
+        // (matches the ProfileRow shape in lib/firestore/posts.ts:
+        // { id, username, full_name, avatar_url } — no username_lc there).
+        const userPatch: Record<string, any> = {};
+        if (usernameChanged) userPatch["user.username"] = newUsername;
+        if (nameChanged) userPatch["user.full_name"] = newFullName;
+        if (newAvatarUrl !== undefined)
+          userPatch["user.avatar_url"] = newAvatarUrl;
+
+        const authorPatch: Record<string, any> = {};
+        if (usernameChanged) {
+          authorPatch["author.username"] = newUsername;
+          authorPatch["author.username_lc"] = newUsernameLc;
+        }
+        if (nameChanged) authorPatch["author.full_name"] = newFullName;
+        if (newAvatarUrl !== undefined)
+          authorPatch["author.avatar_url"] = newAvatarUrl;
+
+        const profilesEmbedPatch: Record<string, any> = {};
+        if (usernameChanged)
+          profilesEmbedPatch["profiles.username"] = newUsername;
+        if (nameChanged) profilesEmbedPatch["profiles.full_name"] = newFullName;
+
+        const participantPatch: Record<string, any> = {};
+        if (usernameChanged)
+          participantPatch[`participants.${userId}.username`] = newUsername;
+        if (nameChanged)
+          participantPatch[`participants.${userId}.full_name`] = newFullName;
+
         await Promise.allSettled([
           (async () => {
+            if (!Object.keys(userPatch).length) return;
             const snap = await firestore()
               .collection("posts")
               .where("user_id", "==", userId)
@@ -279,14 +326,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snap.docs.length) return;
             const batch = firestore().batch();
             snap.docs.forEach((doc) => {
-              batch.update(doc.ref, {
-                "user.username": newUsername,
-                "user.username_lc": newUsernameLc,
-              });
+              batch.update(doc.ref, userPatch);
             });
             await batch.commit();
           })(),
           (async () => {
+            if (!Object.keys(authorPatch).length) return;
             const snap = await firestore()
               .collection("comments")
               .where("user_id", "==", userId)
@@ -294,14 +339,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snap.docs.length) return;
             const batch = firestore().batch();
             snap.docs.forEach((doc) => {
-              batch.update(doc.ref, {
-                "author.username": newUsername,
-                "author.username_lc": newUsernameLc,
-              });
+              batch.update(doc.ref, authorPatch);
             });
             await batch.commit();
           })(),
           (async () => {
+            if (!Object.keys(profilesEmbedPatch).length) return;
             const snap = await firestore()
               .collection("stories")
               .where("user_id", "==", userId)
@@ -309,11 +352,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snap.docs.length) return;
             const batch = firestore().batch();
             snap.docs.forEach((doc) => {
-              batch.update(doc.ref, { "profiles.username": newUsername });
+              batch.update(doc.ref, profilesEmbedPatch);
             });
             await batch.commit();
           })(),
           (async () => {
+            if (!Object.keys(participantPatch).length) return;
             const snap = await firestore()
               .collection("conversations")
               .where("participant_ids", "array-contains", userId)
@@ -321,9 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snap.docs.length) return;
             const batch = firestore().batch();
             snap.docs.forEach((doc) => {
-              batch.update(doc.ref, {
-                [`participants.${userId}.username`]: newUsername,
-              });
+              batch.update(doc.ref, participantPatch);
             });
             await batch.commit();
           })(),

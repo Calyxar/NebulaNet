@@ -15,8 +15,8 @@ let settingsUnsub: (() => void) | null = null;
 async function getActivityStatusEnabled(userId: string): Promise<boolean> {
   try {
     const snap = await db.collection("user_privacy_settings").doc(userId).get();
-    if (!snap.exists()) return true; // matches DEFAULT_PRIVACY_SETTINGS
-    const data = snap.data();
+    if (!snap?.exists?.()) return true; // matches DEFAULT_PRIVACY_SETTINGS
+    const data = snap?.data?.();
     return data?.activity_status !== false;
   } catch {
     return true; // fail open to default rather than silently breaking presence
@@ -83,17 +83,33 @@ export function initPresence(userId: string) {
 
   // Watch for the user toggling activity_status off/on *while logged in*,
   // and flip presence live to match — not just at next app launch.
+  // ✅ FIXED: snap.data() itself could throw if the listener fires with a
+  // malformed/transitional snapshot during rapid app-startup auth changes —
+  // optional chaining on the RETURN VALUE of snap.data() does not protect
+  // against snap.data() itself throwing. Wrapped in try/catch, and added
+  // the second onSnapshot argument (error callback) so a Firestore error
+  // here can never again propagate uncaught and crash the whole app.
   settingsUnsub = db
     .collection("user_privacy_settings")
     .doc(userId)
-    .onSnapshot((snap) => {
-      const enabled = snap.data()?.activity_status !== false;
-      if (enabled) {
-        goOnline(userId);
-      } else {
-        goOffline(userId);
-      }
-    });
+    .onSnapshot(
+      (snap) => {
+        try {
+          const data = snap?.data?.();
+          const enabled = data?.activity_status !== false;
+          if (enabled) {
+            goOnline(userId);
+          } else {
+            goOffline(userId);
+          }
+        } catch (err) {
+          console.warn("presence: privacy settings listener failed", err);
+        }
+      },
+      (err) => {
+        console.warn("presence: privacy settings onSnapshot error", err);
+      },
+    );
 }
 
 /** Call on sign-out to stop listening and mark the user offline immediately. */
