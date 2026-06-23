@@ -107,6 +107,12 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
+    match /author_affinity/{affinityId} {
+      allow read: if signedIn() && resource.data.viewer_id == uid();
+      allow create, update: if signedIn() && request.resource.data.viewer_id == uid();
+      allow delete: if false;
+    }
+
     match /saves/{saveId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.user_id == uid();

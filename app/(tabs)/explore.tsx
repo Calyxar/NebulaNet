@@ -537,11 +537,29 @@ function SuggestedUserRow({
   );
 }
 
-function GridCell({ post, colors }: { post: DiscoveryPost; colors: any }) {
+function GridCell({
+  post,
+  colors,
+  allPostIds,
+  index,
+}: {
+  post: DiscoveryPost;
+  colors: any;
+  allPostIds: string[];
+  index: number;
+}) {
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPress={() => router.push(`/post/${post.id}` as any)}
+      onPress={() =>
+        router.push({
+          pathname: "/post/viewer",
+          params: {
+            postIds: JSON.stringify(allPostIds),
+            initialIndex: String(index),
+          },
+        } as any)
+      }
       style={[styles.gridCell, { backgroundColor: colors.surface }]}
     >
       {post.is_video ? (
@@ -568,6 +586,7 @@ function DiscoveryGrid({
   posts: DiscoveryPost[];
   colors: any;
 }) {
+  const allPostIds = useMemo(() => posts.map((p) => p.id), [posts]);
   if (!posts.length) return null;
   const rows: DiscoveryPost[][] = [];
   for (let i = 0; i < posts.length; i += GRID_COLS) {
@@ -577,8 +596,14 @@ function DiscoveryGrid({
     <View style={styles.gridWrap}>
       {rows.map((row, ri) => (
         <View key={ri} style={styles.gridRow}>
-          {row.map((post) => (
-            <GridCell key={post.id} post={post} colors={colors} />
+          {row.map((post, ci) => (
+            <GridCell
+              key={post.id}
+              post={post}
+              colors={colors}
+              allPostIds={allPostIds}
+              index={ri * GRID_COLS + ci}
+            />
           ))}
           {row.length < GRID_COLS &&
             Array(GRID_COLS - row.length)

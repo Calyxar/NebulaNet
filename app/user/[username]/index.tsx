@@ -100,6 +100,7 @@ type QuoteRow = {
   quoted_post: {
     id: string;
     content: string | null;
+    media_urls?: string[] | null;
     user: {
       username: string | null;
       full_name: string | null;
@@ -639,12 +640,19 @@ export default function UserProfileScreen() {
     staleTime: 0,
     gcTime: 0,
     queryFn: async (): Promise<RepostRow[]> => {
+      console.log("[ACTIVITY DEBUG] reposts: target.id =", target?.id);
       const repostSnap = await firestore()
         .collection("reposts")
         .where("user_id", "==", target!.id)
         .limit(50)
         .get();
 
+      console.log(
+        "[ACTIVITY DEBUG] reposts: empty =",
+        repostSnap.empty,
+        "size =",
+        repostSnap.size,
+      );
       if (repostSnap.empty) return [];
 
       const postIds: string[] = [];
@@ -665,11 +673,15 @@ export default function UserProfileScreen() {
 
       const postDocs: RepostRow[] = [];
       for (const chunk of chunks) {
-        const snap = await firestore()
-          .collection("posts")
-          .where(firestore.FieldPath.documentId(), "in", chunk)
-          .get();
-        snap.docs.forEach((d) => {
+        // ✅ FIXED: firestore.FieldPath.documentId() was resolving to
+        // undefined in this file, causing ".where(undefined, 'in', chunk)"
+        // and a hard crash ("undefined is not a function"). Fetching each
+        // doc individually by ref sidesteps FieldPath entirely.
+        const docSnaps = await Promise.all(
+          chunk.map((id) => firestore().collection("posts").doc(id).get()),
+        );
+        docSnaps.forEach((d) => {
+          if (!d.exists) return;
           const x = d.data() as any;
           const at =
             repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
@@ -725,6 +737,12 @@ export default function UserProfileScreen() {
             let quotedContent: string | null = x.quote_post?.content ?? null;
             let quotedUser = x.quote_post?.user ?? null;
 
+            let quotedMediaUrls: string[] | null = Array.isArray(
+              x.quote_post?.media_urls,
+            )
+              ? x.quote_post.media_urls
+              : null;
+
             if (!quotedContent) {
               try {
                 const quotedSnap = await firestore()
@@ -735,6 +753,9 @@ export default function UserProfileScreen() {
                 if (quotedData) {
                   quotedContent = quotedData.content ?? null;
                   quotedUser = quotedData.user ?? null;
+                  quotedMediaUrls = Array.isArray(quotedData.media_urls)
+                    ? quotedData.media_urls
+                    : null;
                 }
               } catch {}
             }
@@ -750,6 +771,7 @@ export default function UserProfileScreen() {
               quoted_post: {
                 id: x.quote_post_id,
                 content: quotedContent,
+                media_urls: quotedMediaUrls,
                 user: quotedUser,
               },
             });
@@ -770,12 +792,19 @@ export default function UserProfileScreen() {
     staleTime: 0,
     gcTime: 0,
     queryFn: async (): Promise<LikeRow[]> => {
+      console.log("[ACTIVITY DEBUG] likes: target.id =", target?.id);
       const likeSnap = await firestore()
         .collection("likes")
         .where("user_id", "==", target!.id)
         .limit(50)
         .get();
 
+      console.log(
+        "[ACTIVITY DEBUG] likes: empty =",
+        likeSnap.empty,
+        "size =",
+        likeSnap.size,
+      );
       if (likeSnap.empty) return [];
 
       const postIds: string[] = [];
@@ -796,11 +825,11 @@ export default function UserProfileScreen() {
 
       const postDocs: LikeRow[] = [];
       for (const chunk of chunks) {
-        const snap = await firestore()
-          .collection("posts")
-          .where(firestore.FieldPath.documentId(), "in", chunk)
-          .get();
-        snap.docs.forEach((d) => {
+        const docSnaps = await Promise.all(
+          chunk.map((id) => firestore().collection("posts").doc(id).get()),
+        );
+        docSnaps.forEach((d) => {
+          if (!d.exists) return;
           const x = d.data() as any;
           if (x.user_id === target!.id) return; // skip self-likes
           const at = likedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
@@ -832,6 +861,14 @@ export default function UserProfileScreen() {
 
   // ── Merged activity ────────────────────────────────────────────────────────
   // ✅ UPDATED: now includes likedActivity alongside reposts and quotes
+  console.log(
+    "[ACTIVITY DEBUG] canViewActivity:",
+    canViewActivity,
+    "canViewPosts:",
+    canViewPosts,
+    "target.id:",
+    target?.id,
+  );
   const allActivity = useMemo((): ActivityRow[] => {
     return [
       ...(reposts ?? []),
@@ -1539,25 +1576,70 @@ export default function UserProfileScreen() {
                                   },
                                 ]}
                               >
-                                {(item as QuoteRow).quoted_post?.user && (
-                                  <Text
-                                    style={[
-                                      styles.quotedAuthor,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                  >
-                                    @
+                                {(item as QuoteRow).quoted_post?.user ? (
+                                  <View style={styles.quotedAuthorRow}>
                                     {(item as QuoteRow).quoted_post?.user
-                                      ?.username ?? "User"}
-                                  </Text>
-                                )}
+                                      ?.avatar_url ? (
+                                      <Image
+                                        source={{
+                                          uri: (item as QuoteRow).quoted_post!
+                                            .user!.avatar_url!,
+                                        }}
+                                        style={styles.quotedAvatar}
+                                      />
+                                    ) : (
+                                      <View
+                                        style={[
+                                          styles.quotedAvatar,
+                                          styles.quotedAvatarPlaceholder,
+                                          { backgroundColor: colors.primary },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={styles.quotedAvatarInitial}
+                                        >
+                                          {(
+                                            (item as QuoteRow).quoted_post?.user
+                                              ?.username?.[0] ?? "U"
+                                          ).toUpperCase()}
+                                        </Text>
+                                      </View>
+                                    )}
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                      <Text
+                                        style={[
+                                          styles.quotedFullName,
+                                          { color: colors.text },
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {(item as QuoteRow).quoted_post?.user
+                                          ?.full_name ??
+                                          (item as QuoteRow).quoted_post?.user
+                                            ?.username ??
+                                          "User"}
+                                      </Text>
+                                      <Text
+                                        style={[
+                                          styles.quotedAuthor,
+                                          { color: colors.textTertiary },
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        @
+                                        {(item as QuoteRow).quoted_post?.user
+                                          ?.username ?? "user"}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                ) : null}
                                 {!!(item as QuoteRow).quoted_post?.content ? (
                                   <Text
                                     style={[
                                       styles.quotedContent,
                                       { color: colors.textSecondary },
                                     ]}
-                                    numberOfLines={3}
+                                    numberOfLines={4}
                                   >
                                     {(item as QuoteRow).quoted_post?.content}
                                   </Text>
@@ -1570,6 +1652,17 @@ export default function UserProfileScreen() {
                                   >
                                     Post unavailable
                                   </Text>
+                                )}
+                                {!!(item as QuoteRow).quoted_post
+                                  ?.media_urls?.[0] && (
+                                  <Image
+                                    source={{
+                                      uri: (item as QuoteRow).quoted_post!
+                                        .media_urls![0],
+                                    }}
+                                    style={styles.quotedMedia}
+                                    resizeMode="cover"
+                                  />
                                 )}
                               </View>
                             )}
@@ -2145,10 +2238,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     marginTop: 8,
-    gap: 4,
+    gap: 8,
   },
-  quotedAuthor: { fontSize: 12, fontWeight: "700" },
+  quotedAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quotedAvatar: { width: 28, height: 28, borderRadius: 14 },
+  quotedAvatarPlaceholder: { alignItems: "center", justifyContent: "center" },
+  quotedAvatarInitial: { fontSize: 12, fontWeight: "800", color: "#fff" },
+  quotedFullName: { fontSize: 13, fontWeight: "700" },
+  quotedAuthor: { fontSize: 12, fontWeight: "500" },
   quotedContent: { fontSize: 13, lineHeight: 18 },
+  quotedMedia: {
+    width: "100%",
+    height: 140,
+    borderRadius: 10,
+    marginTop: 2,
+  },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 32,

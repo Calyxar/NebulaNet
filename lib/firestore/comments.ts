@@ -1,5 +1,10 @@
 // lib/firestore/comments.ts
+// ✅ NEW: records author affinity (for the For You ranking algorithm)
+// when a user comments on someone else's post. Comments are weighted
+// higher than likes in the affinity score — see lib/firestore/affinity.ts.
+
 import { auth, db } from "@/lib/firebase";
+import { recordAffinity } from "@/lib/firestore/affinity";
 import firestore from "@react-native-firebase/firestore";
 
 type ProfileRow = {
@@ -141,6 +146,23 @@ export async function addComment(input: {
   });
 
   await batch.commit();
+
+  // ✅ NEW: record affinity toward the post's author. This is a separate
+  // read after the batch commits — addComment doesn't otherwise need the
+  // post's author id, so we fetch it only for this purpose, and only
+  // after the real comment write has already succeeded. Fire-and-forget:
+  // never let this delay or fail the comment the user just posted.
+  postRef
+    .get()
+    .then((postSnap) => {
+      const postData = postSnap.exists() ? (postSnap.data() as any) : null;
+      const authorId = postData?.user_id;
+      if (authorId) {
+        recordAffinity(authorId, "comment").catch(() => {});
+      }
+    })
+    .catch(() => {});
+
   return { id: commentRef.id };
 }
 

@@ -10,6 +10,7 @@ import {
 import {
   createPost,
   deletePost,
+  getForYouFeed,
   getPostById,
   getPosts,
   updatePost,
@@ -172,17 +173,30 @@ export function useInfiniteFeedPosts(
         : base;
 
   console.log("[FEED DEBUG]", activeTab, JSON.stringify(filters));
-  const query = useInfinitePosts(filters);
+
+  // ✅ For You now uses the ranked algorithm instead of plain
+  // newest/popular sort — see lib/firestore/posts.ts getForYouFeed().
+  // following/my-community still use the existing infinite-paginated
+  // getPosts() path, since pagination is meaningful there in a way it
+  // isn't for a re-scored ranking.
+  const forYouQuery = useInfiniteForYouFeed({
+    enabled: activeTab === "for-you",
+  });
+  const standardQuery = useInfinitePosts(filters);
+  const query = activeTab === "for-you" ? forYouQuery : standardQuery;
 
   // ✅ Twitter-style fallback: when the following feed has fewer than 5 posts
-  // on the first page, blend in For You posts so the feed never feels empty.
-  // Fallback posts are tagged is_suggested so the UI can label them.
+  // on the first page, blend in For You (ranked) posts so the feed never
+  // feels empty. Fallback posts are tagged is_suggested so the UI can label
+  // them. Only runs the ranked fallback query when actually needed — was
+  // previously calling useInfinitePosts(base) unconditionally on every
+  // render regardless of tab, which was wasteful.
   const needsFallback =
     activeTab === "following" &&
     !!query.data &&
     (query.data.pages[0]?.posts.length ?? 0) < 5;
 
-  const fallbackQuery = useInfinitePosts(base);
+  const fallbackQuery = useInfiniteForYouFeed({ enabled: needsFallback });
 
   let data = showNsfw
     ? query.data
@@ -216,6 +230,22 @@ export function useInfiniteFeedPosts(
   }
 
   return { ...query, data };
+}
+
+// ✅ NEW: wraps getForYouFeed() (the ranked algorithm) in the same
+// InfiniteData<PaginatedPosts> shape the rest of the codebase expects,
+// so it's a drop-in for useInfinitePosts() wherever For You ranking is
+// needed. Re-scores fresh on every fetch (pull-to-refresh) rather than
+// paginating — see the header comment on getForYouFeed() in posts.ts
+// for why that's the right model for a ranked feed.
+export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
+  return useInfiniteQuery<PaginatedPosts, Error>({
+    queryKey: [...postKeys.lists(), "for-you-ranked"],
+    enabled: opts?.enabled ?? true,
+    initialPageParam: null as null,
+    queryFn: () => getForYouFeed({ limit: 20 }),
+    getNextPageParam: () => undefined, // no pagination for ranked results
+  });
 }
 
 export function useInfiniteCommunityFeed(communitySlug: string | undefined) {

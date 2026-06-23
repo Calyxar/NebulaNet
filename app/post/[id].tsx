@@ -24,9 +24,9 @@ import { useOptimisticSharePost } from "@/hooks/useShares";
 import { db } from "@/lib/firebase";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
+import { formatDate } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -65,14 +65,6 @@ function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
-}
-
-function formatTime(dateString: string): string {
-  try {
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
-  } catch {
-    return dateString;
-  }
 }
 
 function Avatar({
@@ -538,7 +530,7 @@ export default function PostDetailScreen() {
                 <Text
                   style={[styles.timestamp, { color: colors.textTertiary }]}
                 >
-                  {formatTime(post.created_at)}
+                  {formatDate(post.created_at)}
                 </Text>
               </Pressable>
 
@@ -862,7 +854,7 @@ export default function PostDetailScreen() {
                                   { color: colors.textTertiary },
                                 ]}
                               >
-                                {formatTime(c.created_at)}
+                                {formatDate(c.created_at)}
                               </Text>
                             </View>
                             <HashtagText

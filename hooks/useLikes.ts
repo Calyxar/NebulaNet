@@ -1,8 +1,12 @@
 // hooks/useLikes.ts — FIXED ✅
 // Fix: optimistically update list cache so feed card reflects state immediately
 // Previously only updated detail cache → feed card stayed stale until refetch
+// ✅ NEW: records author affinity (for the For You ranking algorithm) when
+// a post transitions from not-liked to liked. Does NOT record on unlike —
+// affinity only ever builds up, see lib/firestore/affinity.ts for why.
 
 import { postKeys } from "@/hooks/usePosts";
+import { recordAffinity } from "@/lib/firestore/affinity";
 import { toggleLikePost } from "@/lib/firestore/likes";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -18,6 +22,37 @@ export function useLikePost() {
       // also check list cache if detail not loaded
       const isLiked = post?.is_liked ?? false;
       await toggleLikePost(postId, isLiked);
+
+      // ✅ NEW: record affinity only when going from not-liked -> liked.
+      // We need the post's author id — pull it from whichever cache
+      // (detail or list) already has it, since toggleLikePost itself
+      // doesn't return the post data and we don't want a second read
+      // just for this. If we can't find it cheaply, skip silently —
+      // affinity tracking is a nice-to-have signal, never worth an
+      // extra round trip on the critical like-tap path.
+      if (!isLiked) {
+        let authorId: string | undefined = post?.user_id;
+        if (!authorId) {
+          const lists = qc.getQueriesData<InfiniteFeed>({
+            queryKey: postKeys.lists(),
+          });
+          for (const [, data] of lists) {
+            if (authorId) break;
+            if (!data) continue;
+            for (const page of data.pages) {
+              const found = page.posts?.find((p: any) => p?.id === postId);
+              if (found?.user_id) {
+                authorId = found.user_id;
+                break;
+              }
+            }
+          }
+        }
+        if (authorId) {
+          recordAffinity(authorId, "like").catch(() => {});
+        }
+      }
+
       return { postId, next: !isLiked };
     },
 

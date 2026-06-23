@@ -2,6 +2,10 @@
 // Fix 1: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
 // Fix 2: Google Places URL uses URLSearchParams (no pipe encoding issues)
 // Fix 3: Places API error surfaced to user instead of silently returning empty
+// Fix 4: Community list refetches every time this screen comes into focus,
+//         instead of trusting whatever React Query already had cached —
+//         fixes the picker showing empty/stale after joining a community
+//         in a different screen or session.
 
 import GifPicker from "@/components/post/GifPicker";
 import { useCommunities } from "@/hooks/useCommunities";
@@ -10,10 +14,11 @@ import { auth } from "@/lib/firebase";
 import { extractHashtags } from "@/lib/firestore/hashtags";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -281,12 +286,14 @@ function LocationPicker({
 function CommunityPickerModal({
   visible,
   communities,
+  loading,
   onSelect,
   onClose,
   colors,
 }: {
   visible: boolean;
   communities: any[];
+  loading?: boolean;
   onSelect: (c: { id: string; name: string; slug: string }) => void;
   onClose: () => void;
   colors: any;
@@ -308,7 +315,11 @@ function CommunityPickerModal({
         <Text style={[lpStyles.title, { color: colors.text }]}>
           Post to Community
         </Text>
-        {communities.length === 0 ? (
+        {loading ? (
+          <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
+            Loading your communities...
+          </Text>
+        ) : communities.length === 0 ? (
           <Text style={[lpStyles.hint, { color: colors.textTertiary }]}>
             Join a community first to post there.
           </Text>
@@ -430,7 +441,20 @@ export default function CreatePostScreen() {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const createPostMutation = useCreatePost();
-  const { myCommunities } = useCommunities();
+  const { myCommunities, isLoading: communitiesLoading } = useCommunities();
+  const qc = useQueryClient();
+
+  // ✅ FIX 4: refetch the community list every time this screen gains
+  // focus, instead of trusting whatever React Query already had cached.
+  // Covers the case where the user joined a community on a different
+  // screen (e.g. Explore) earlier in the same app session and the
+  // invalidation from that join either hadn't propagated yet or this
+  // screen's query was never subscribed at the time it fired.
+  useFocusEffect(
+    useCallback(() => {
+      qc.invalidateQueries({ queryKey: ["my-communities"] });
+    }, [qc]),
+  );
 
   const [title, setTitle] = useState("");
   const [bodyText, setBodyText] = useState("");
@@ -1066,6 +1090,7 @@ export default function CreatePostScreen() {
       <CommunityPickerModal
         visible={showCommunityPicker}
         communities={myCommunities}
+        loading={communitiesLoading}
         onSelect={(c) => setSelectedCommunity(c)}
         onClose={() => setShowCommunityPicker(false)}
         colors={colors}

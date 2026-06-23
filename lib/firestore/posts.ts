@@ -10,6 +10,7 @@
 
 import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
 import { auth } from "@/lib/firebase";
+import { getAffinityScores } from "@/lib/firestore/affinity";
 import {
   decrementHashtagCounts,
   extractHashtags,
@@ -880,4 +881,169 @@ export async function deletePost(postId: string): Promise<boolean> {
   }
 
   return true;
+}
+
+/* =========================================================
+   FOR YOU FEED — RANKING ALGORITHM
+   ============================================================
+   Separate from getPosts() on purpose: this is a genuinely different
+   query shape (wide candidate pool + client-side scoring) rather than
+   "fetch + sort by one field," and keeping it isolated makes the
+   scoring formula easy to find and tune without wading through the
+   following/community/profile code paths above.
+
+   How it works:
+   1. Pull a candidate pool of recent posts platform-wide (not just
+      people you follow) — last few days, capped at ~100 candidates.
+   2. Fetch the viewer's affinity scores for every candidate's author
+      in one batched lookup (avoids N individual reads).
+   3. Score each candidate: affinity + engagement velocity + recency.
+   4. Sort by score, return the top `limit`.
+
+   This intentionally does NOT do:
+   - Topic/hashtag content similarity (needs embeddings or a real
+     tagging taxonomy — a real v2+ feature, not a v1 one)
+   - Server-side scoring (see lib/firestore/affinity.ts header comment
+     for why client-side is the right call at this app's current scale)
+   - Real-time re-ranking on scroll (each feed load computes one
+     snapshot ranking; good enough for a pull-to-refresh model)
+========================================================= */
+
+// Tunable weights — adjust these to change how much each signal matters.
+// All three are normalized into roughly comparable ranges before
+// weighting, so changing one weight has a predictable effect on the
+// final ranking rather than being dominated by whichever raw number
+// happens to be largest.
+const FOR_YOU_WEIGHTS = {
+  affinity: 4,
+  engagement: 3,
+  recency: 2,
+} as const;
+
+// How many days back the candidate pool reaches. Wider = more variety
+// but more candidates to score; narrower = faster but can feel stale
+// if your platform doesn't have a lot of daily post volume yet.
+const FOR_YOU_CANDIDATE_WINDOW_DAYS = 3;
+const FOR_YOU_CANDIDATE_POOL_SIZE = 100;
+
+function hoursSince(iso: string): number {
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.max(ms / (1000 * 60 * 60), 0.1); // floor avoids divide-by-near-zero
+}
+
+/**
+ * Engagement velocity: weighted interactions per hour since posting.
+ * Comments and reposts count for more than likes (more effort = stronger
+ * signal of quality), matching the same weighting used in affinity.ts.
+ * Normalized with a log curve so one viral outlier doesn't completely
+ * dominate every other signal in the final score.
+ */
+function engagementScore(post: Post): number {
+  const weighted =
+    (post.like_count ?? 0) * 1 +
+    (post.comment_count ?? 0) * 2 +
+    (post.repost_count ?? 0) * 3;
+  const velocity = weighted / hoursSince(post.created_at);
+  // log1p keeps this in a sane range — without it, a single post with
+  // 10,000 likes/hour would mathematically erase every other signal.
+  return Math.log1p(velocity);
+}
+
+/**
+ * Recency decay: newer posts get a boost even at zero engagement, so
+ * brand-new posts aren't invisible just because they haven't had time
+ * to accumulate likes yet (the "cold start" problem). Decays smoothly
+ * over the candidate window rather than as a hard cutoff.
+ */
+function recencyScore(post: Post): number {
+  const ageHours = hoursSince(post.created_at);
+  const windowHours = FOR_YOU_CANDIDATE_WINDOW_DAYS * 24;
+  // Exponential decay: ~1.0 at age 0, ~0.37 at one full window, near 0 beyond.
+  return Math.exp(-ageHours / windowHours);
+}
+
+/**
+ * Affinity score, normalized with the same log curve as engagement so
+ * a viewer who has interacted with one author hundreds of times doesn't
+ * make every other signal irrelevant for that author's posts forever.
+ */
+function normalizedAffinity(rawScore: number): number {
+  return Math.log1p(Math.max(rawScore, 0));
+}
+
+export async function getForYouFeed(
+  filters: { limit?: number; cursor?: PostFilters["cursor"] } = {},
+): Promise<PaginatedPosts> {
+  const { limit = 20 } = filters;
+  const viewerId = auth.currentUser?.uid ?? "";
+  const viewerIsMinor = viewerId ? await isViewerMinor(viewerId) : false;
+
+  // ── Step 1: candidate pool — recent posts platform-wide ──────────
+  const windowStart = firestore.Timestamp.fromDate(
+    new Date(Date.now() - FOR_YOU_CANDIDATE_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+  );
+
+  let q: FirebaseFirestoreTypes.Query = firestore()
+    .collection("posts")
+    .where("visibility", "==", "public")
+    .where("created_at_ts", ">=", windowStart);
+
+  if (viewerIsMinor) {
+    q = q.where("is_nsfw", "==", false);
+  }
+
+  q = q.orderBy("created_at_ts", "desc").limit(FOR_YOU_CANDIDATE_POOL_SIZE);
+
+  const snap = await q.get();
+  const candidates = snap.docs
+    .map((d) => docToPost(d.id, d.data()))
+    .filter((p) => p.is_visible !== false);
+
+  if (candidates.length === 0) {
+    return { posts: [], total: 0, hasMore: false, nextCursor: null };
+  }
+
+  // ── Step 2: fetch affinity scores for all candidate authors ──────
+  const authorIds = candidates.map((p) => p.user_id);
+  const affinityMap = viewerId
+    ? await getAffinityScores(viewerId, authorIds)
+    : new Map<string, number>();
+
+  // ── Step 3: score each candidate ──────────────────────────────────
+  const scored = candidates.map((post) => {
+    const rawAffinity = affinityMap.get(post.user_id) ?? 0;
+    const score =
+      normalizedAffinity(rawAffinity) * FOR_YOU_WEIGHTS.affinity +
+      engagementScore(post) * FOR_YOU_WEIGHTS.engagement +
+      recencyScore(post) * FOR_YOU_WEIGHTS.recency;
+    return { post, score };
+  });
+
+  // ── Step 4: sort by score, take top `limit` ───────────────────────
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.slice(0, limit).map((s) => s.post);
+
+  // Attach is_liked/is_saved/is_owned the same way getPosts() does
+  const ids = top.map((p) => p.id);
+  const { liked, saved } = viewerId
+    ? await fetchMyLikeSaveFlags(viewerId, ids)
+    : { liked: new Set<string>(), saved: new Set<string>() };
+
+  const posts = top.map((p) =>
+    docToPost(p.id, p, {
+      is_liked: viewerId ? liked.has(p.id) : false,
+      is_saved: viewerId ? saved.has(p.id) : false,
+      is_owned: viewerId ? p.user_id === viewerId : false,
+    }),
+  );
+
+  return {
+    posts,
+    total: -1,
+    // Cursor pagination isn't meaningful for a re-scored ranking on
+    // every load — "hasMore" reflects whether the candidate pool itself
+    // was exhausted, not a stable scroll position.
+    hasMore: candidates.length >= FOR_YOU_CANDIDATE_POOL_SIZE,
+    nextCursor: null,
+  };
 }

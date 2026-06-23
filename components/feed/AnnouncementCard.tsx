@@ -29,27 +29,34 @@ type Announcement = {
 };
 
 async function fetchActiveAnnouncement(): Promise<Announcement | null> {
-  const snap = await firestore()
-    .collection("announcements")
-    .where("active", "==", true)
-    .orderBy("created_at", "desc")
-    .limit(1)
-    .get();
+  try {
+    const snap = await firestore()
+      .collection("announcements")
+      .where("active", "==", true)
+      .orderBy("created_at", "desc")
+      .limit(1)
+      .get();
 
-  console.log("[Announcement] empty?", snap.empty, "size", snap.size);
-
-  if (snap.empty) return null;
-  const d = snap.docs[0].data() as any;
-  return {
-    id: snap.docs[0].id,
-    title: d.title ?? "",
-    body: d.body ?? "",
-    active: d.active ?? true,
-    created_at: d.created_at ?? "",
-    cta_label: d.cta_label ?? null,
-    cta_url: d.cta_url ?? null,
-    version: d.version ?? null,
-  };
+    if (snap.empty) return null;
+    const d = snap.docs[0].data() as any;
+    return {
+      id: snap.docs[0].id,
+      title: d.title ?? "",
+      body: d.body ?? "",
+      active: d.active ?? true,
+      created_at: d.created_at ?? "",
+      cta_label: d.cta_label ?? null,
+      cta_url: d.cta_url ?? null,
+      version: d.version ?? null,
+    };
+  } catch (err) {
+    // ✅ NEW: this query needs a composite index (active + created_at).
+    // Previously, an index error here failed completely silently — the
+    // card just never appeared, with no visible error anywhere. Now it
+    // logs clearly so this can't silently regress again.
+    console.warn("[Announcement] fetchActiveAnnouncement failed:", err);
+    return null;
+  }
 }
 
 export default function AnnouncementCard() {
