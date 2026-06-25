@@ -126,15 +126,24 @@ export async function fetchMyCommunities(): Promise<Community[]> {
 
   const ownedRows = ownedSnap.docs.map((d) => docToCommunity(d.data(), d.id));
 
-  // 3) Fetch joined community docs (chunked, max 10 per query)
+  // 3) Fetch joined community docs individually by ref, in batches of 10
+  // for parallelism — no FieldPath "in" query involved.
   const joinedRows: Community[] = [];
   for (let i = 0; i < joinedIds.length; i += 10) {
     const batch = joinedIds.slice(i, i + 10);
-    const snap = await db
-      .collection("communities")
-      .where(firestore.FieldPath.documentId(), "in", batch)
-      .get();
-    snap.docs.forEach((d) => joinedRows.push(docToCommunity(d.data(), d.id)));
+    try {
+      const docSnaps = await Promise.all(
+        batch.map((communityId) =>
+          db.collection("communities").doc(communityId).get(),
+        ),
+      );
+      docSnaps.forEach((d) => {
+        if (!d.exists) return;
+        joinedRows.push(docToCommunity(d.data(), d.id));
+      });
+    } catch (err) {
+      console.warn("[fetchMyCommunities] failed to fetch joined batch:", err);
+    }
   }
 
   // 4) Merge + dedupe

@@ -1,4 +1,9 @@
 // components/chat/ChatList.tsx ✅
+// ✅ FIXED: inverted FlatList on Android rotates its entire content area
+// 180°, including ListEmptyComponent. Message bubbles never visibly show
+// this rotation, but the empty-state icon/text did — "No messages yet"
+// was rendering upside-down. Fixed by counter-rotating just that component.
+
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -197,7 +202,13 @@ export default function ChatList({
   const renderEmpty = () => {
     if (emptyComponent) return emptyComponent;
     return (
-      <View style={styles.emptyContainer}>
+      // ✅ FIXED: inverted FlatList on Android rotates its entire content
+      // area 180°, including ListEmptyComponent. Message bubbles don't
+      // visibly show this (no inherent "up" orientation in a chat bubble),
+      // but text/icons in an empty state do — hence "No messages yet"
+      // rendering upside-down. Counter-rotating just this component
+      // cancels the list's rotation without affecting real messages.
+      <View style={[styles.emptyContainer, styles.emptyContainerCounterFlip]}>
         <Ionicons
           name="chatbubble-ellipses-outline"
           size={64}
@@ -472,6 +483,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 60,
+  },
+  // ✅ NEW: cancels the inverted FlatList's 180° rotation for this
+  // component only — real message items don't need this because chat
+  // bubbles have no visible "up" orientation, but icon/text content does.
+  emptyContainerCounterFlip: {
+    transform: [{ scaleY: -1 }],
   },
   emptyTitle: {
     fontSize: 18,

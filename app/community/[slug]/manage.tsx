@@ -117,6 +117,38 @@ export default function CommunityManageScreen() {
     }
   }, [community?.id, name, desc, imageUrl, isPrivate]);
 
+  const [newRuleTitle, setNewRuleTitle] = useState("");
+  const [newRuleDesc, setNewRuleDesc] = useState("");
+  const [addingRule, setAddingRule] = useState(false);
+
+  // ✅ NEW: this screen could display and delete existing rules, but had
+  // no way to actually create one — no button, no input fields, no
+  // handler existed anywhere in this file. That's the entire bug.
+  const addRule = useCallback(async () => {
+    if (!community?.id) return;
+    const title = newRuleTitle.trim();
+    if (!title) {
+      Alert.alert("Rule needs a title", "Please enter a short rule title.");
+      return;
+    }
+    setAddingRule(true);
+    try {
+      await db.collection("community_rules").add({
+        community_id: community.id,
+        title,
+        description: newRuleDesc.trim() || null,
+        created_at: firestore.FieldValue.serverTimestamp(),
+      });
+      setNewRuleTitle("");
+      setNewRuleDesc("");
+      load();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to add rule");
+    } finally {
+      setAddingRule(false);
+    }
+  }, [community?.id, newRuleTitle, newRuleDesc, load]);
+
   const deleteRule = useCallback(
     async (ruleId: string) => {
       Alert.alert("Delete rule?", "This cannot be undone.", [
@@ -328,17 +360,88 @@ export default function CommunityManageScreen() {
                   },
                 ]}
               >
-                <Text
-                  style={[{ flex: 1, fontWeight: "700", color: colors.text }]}
-                >
-                  {r.title}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: "700", color: colors.text }}>
+                    {r.title}
+                  </Text>
+                  {!!r.description && (
+                    <Text
+                      style={{
+                        color: colors.textTertiary,
+                        fontSize: 12,
+                        marginTop: 2,
+                      }}
+                    >
+                      {r.description}
+                    </Text>
+                  )}
+                </View>
                 <TouchableOpacity onPress={() => deleteRule(r.id)}>
                   <Ionicons name="trash-outline" size={18} color="#EF4444" />
                 </TouchableOpacity>
               </View>
             ))
           )}
+
+          {/* ✅ NEW: Add Rule form — previously didn't exist at all */}
+          <View
+            style={{
+              borderTopWidth: rules.length > 0 ? 1 : 0,
+              borderTopColor: colors.border,
+              marginTop: rules.length > 0 ? 12 : 0,
+              paddingTop: rules.length > 0 ? 12 : 0,
+              gap: 8,
+            }}
+          >
+            <TextInput
+              value={newRuleTitle}
+              onChangeText={setNewRuleTitle}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
+              placeholder='Rule title (e.g. "Be respectful")'
+              placeholderTextColor={colors.textTertiary}
+              maxLength={80}
+            />
+            <TextInput
+              value={newRuleDesc}
+              onChangeText={setNewRuleDesc}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="Optional description"
+              placeholderTextColor={colors.textTertiary}
+              maxLength={200}
+              multiline
+            />
+            <TouchableOpacity
+              onPress={addRule}
+              disabled={addingRule || !newRuleTitle.trim()}
+              style={[
+                styles.addRuleBtn,
+                {
+                  backgroundColor: colors.primary,
+                  opacity: addingRule || !newRuleTitle.trim() ? 0.5 : 1,
+                },
+              ]}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={{ color: "#fff", fontWeight: "800" }}>
+                {addingRule ? "Adding..." : "Add Rule"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={{ height: 32 }} />
@@ -392,5 +495,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     gap: 12,
+  },
+  addRuleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
 });

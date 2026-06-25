@@ -93,18 +93,22 @@ async function getProfilesMap(userIds: string[]) {
   const map = new Map<string, StoryProfile>();
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   for (const batch of chunk(ids, 10)) {
-    const snap = await firestore()
-      .collection("profiles")
-      .where(firestore.FieldPath.documentId(), "in", batch)
-      .get();
-    snap.docs.forEach((d) => {
-      const x = d.data() as any;
-      map.set(d.id, {
-        username: (x.username as string) ?? null,
-        full_name: (x.full_name as string) ?? null,
-        avatar_url: (x.avatar_url as string) ?? null,
+    try {
+      const docSnaps = await Promise.all(
+        batch.map((id) => firestore().collection("profiles").doc(id).get()),
+      );
+      docSnaps.forEach((d) => {
+        if (!d.exists) return;
+        const x = d.data() as any;
+        map.set(d.id, {
+          username: (x.username as string) ?? null,
+          full_name: (x.full_name as string) ?? null,
+          avatar_url: (x.avatar_url as string) ?? null,
+        });
       });
-    });
+    } catch (err) {
+      console.warn("[getProfilesMap] failed to fetch batch:", err);
+    }
   }
   return map;
 }
@@ -207,17 +211,14 @@ export async function markStorySeen(storyId: string) {
   const sid = storyId.trim();
   if (!sid) return;
   const key = `${sid}_${viewer.uid}`;
-  await firestore()
-    .collection("story_seen")
-    .doc(key)
-    .set(
-      {
-        story_id: sid,
-        viewer_id: viewer.uid,
-        seen_at_ts: firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+  await firestore().collection("story_seen").doc(key).set(
+    {
+      story_id: sid,
+      viewer_id: viewer.uid,
+      seen_at_ts: firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
 
 export async function uploadStoryMedia(

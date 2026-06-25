@@ -7,6 +7,16 @@
 // auth.currentUser hadn't synchronously caught up yet, this function would
 // silently return [] every time — emptying the community picker with no
 // error, regardless of actual membership data in Firestore.
+// ✅ FIX 3: firestore.FieldPath.documentId() was resolving to undefined in
+// this codebase (same root-cause bug found and fixed in several other
+// files today — app/user/[username]/index.tsx, lib/firestore/posts.ts),
+// causing ".where(undefined, 'in', batch)" to throw "undefined is not a
+// function". The empty `catch {}` around this swallowed the error
+// completely — joined-community lookups silently returned nothing, with
+// owned communities the only ones ever appearing in the picker, and zero
+// trace anywhere that anything had failed. Switched to per-doc fetches,
+// which sidestep FieldPath entirely, and added logging so a future
+// failure here can never again disappear without a trace.
 
 import firestore from "@react-native-firebase/firestore";
 
@@ -53,19 +63,29 @@ export async function fetchMyCommunities(uid: string): Promise<Community[]> {
     .flatMap((s) => (s ? s.docs : []))
     .map((d) => ({ id: d.id, ...(d.data() as any) }));
 
-  // 3) fetch joined community docs in batches of 10
+  // 3) fetch joined community docs individually by ref, in batches of 10
+  // for parallelism (not for an "in" query limit — there's no longer an
+  // "in" query here at all).
   const joinedRows: any[] = [];
   for (let i = 0; i < joinedIds.length; i += 10) {
     const batch = joinedIds.slice(i, i + 10);
     try {
-      const snap = await firestore()
-        .collection("communities")
-        .where(firestore.FieldPath.documentId(), "in", batch)
-        .get();
-      snap.docs.forEach((d) =>
-        joinedRows.push({ id: d.id, ...(d.data() as any) }),
+      const docSnaps = await Promise.all(
+        batch.map((communityId) =>
+          firestore().collection("communities").doc(communityId).get(),
+        ),
       );
-    } catch {}
+      docSnaps.forEach((d) => {
+        if (!d.exists) return;
+        joinedRows.push({ id: d.id, ...(d.data() as any) });
+      });
+    } catch (err) {
+      // ✅ Previously an empty catch {} — this failure was completely
+      // silent, with joined communities just disappearing from every
+      // picker and tab that uses this function. Never let that happen
+      // again without at least a visible trace.
+      console.warn("[fetchMyCommunities] failed to fetch joined batch:", err);
+    }
   }
 
   // 4) merge + dedupe

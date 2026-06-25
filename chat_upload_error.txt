@@ -1,0 +1,337 @@
+--------- beginning of main
+06-24 10:35:05.005   890   964 E BatteryDump: !@new_battery_dump : 4231,1603,1900,3150,82,327,323,426,0,0,374,426,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4124,7530,912,0,
+06-24 10:35:05.464   920   920 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318225
+06-24 10:35:06.634   920  2834 E NativeCustomFrequencyManager: [NativeCFMS] BpCustomFrequencyManager::acquire()
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: failed to call SemStatusBarManager
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: java.lang.NullPointerException
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController.onFlexModeChanged(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:24)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController$1.onReceive(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:101)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.lambda$getRunnable$0(LoadedApk.java:2073)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.$r8$lambda$mcNAAl1SQ4MyJPyDg8TJ2x2h0Rk(LoadedApk.java:0)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.os.Looper.dispatchMessage(Looper.java:358)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loopOnce(Looper.java:288)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loop(Looper.java:392)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at android.app.ActivityThread.main(ActivityThread.java:10346)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at java.lang.reflect.Method.invoke(Native Method)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:638)
+06-24 10:35:06.671 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:972)
+--------- beginning of system
+06-24 10:35:07.024 12075 12313 E WindowManager: win=Window{7fc6719 u0 InputMethod} destroySurfaces: appStopped=true cleanupOnResume=false win.mWindowRemovalAllowed=false win.mRemoveOnExit=false win.mViewVisibility=8 caller=com.android.server.wm.WindowManagerService.tryStartExitingAnimation:128 com.android.server.wm.WindowManagerService.relayoutWindow:1121 com.android.server.wm.Session.relayout:30 android.view.IWindowSession$Stub.onTransact:840 com.android.server.wm.Session.onTransact:1 android.os.Binder.execTransactInternal:1509 android.os.Binder.execTransact:1454 
+06-24 10:35:07.038   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318240
+06-24 10:35:07.331 23166  5523 E Notification4P_GO: CommonUtil.isDesktopMode manager is null
+06-24 10:35:07.423  4795  4921 W ReactNativeJS: [expo-image-picker] `ImagePicker.MediaTypeOptions` have been deprecated. Use `ImagePicker.MediaType` or an array of `ImagePicker.MediaType` instead.
+06-24 10:35:07.452  3109  3109 E pageboostd: Received HALT command code 2
+06-24 10:35:07.522   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318247
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: Failed to check if local search is enabled
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: java.lang.IllegalStateException: Service not connected
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerLocalSearchManager.isSemanticSearchSupported(PhotoPickerLocalSearchManager.java:155)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.isSearchEnabled(PhotoPickerProvider.java:329)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.onGetCapabilities(PhotoPickerProvider.java:319)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.callUnchecked(CloudMediaProvider.java:761)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.call(CloudMediaProvider.java:734)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.content.ContentProvider.call(ContentProvider.java:2786)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.content.ContentProvider$Transport.call(ContentProvider.java:644)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:601)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:589)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.sync.PickerSearchProviderClient.fetchCapabilities(PickerSearchProviderClient.java:254)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.doesLocalProviderSupportSearch(SearchState.java:108)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.isLocalSearchEnabled(SearchState.java:136)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2.$r8$lambda$LzYBg9FQAjB2SfoOD3HXjF_LAKc(PickerDataLayerV2.java:1954)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2$$ExternalSyntheticLambda1.get(R8$$SyntheticClass:0)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1744)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.util.ThreadFactoryUtil$1.$r8$lambda$Wm4GPOYBu_O7miOEhuUfhyf0mgc(ThreadFactoryUtil.java:77)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at com.android.providers.media.util.ThreadFactoryUtil$1$$ExternalSyntheticLambda0.run(R8$$SyntheticClass:0)
+06-24 10:35:07.570 14356 16823 E PhotoPickerProvider: 	at java.lang.Thread.run(Thread.java:1572)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: Failed to check if local search is enabled
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: java.lang.IllegalStateException: Service not connected
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerLocalSearchManager.isSemanticSearchSupported(PhotoPickerLocalSearchManager.java:155)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.isSearchEnabled(PhotoPickerProvider.java:329)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.onGetCapabilities(PhotoPickerProvider.java:319)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.callUnchecked(CloudMediaProvider.java:761)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.call(CloudMediaProvider.java:734)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.content.ContentProvider.call(ContentProvider.java:2786)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.content.ContentProvider$Transport.call(ContentProvider.java:644)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:601)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:589)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.sync.PickerSearchProviderClient.fetchCapabilities(PickerSearchProviderClient.java:254)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.doesLocalProviderSupportSearch(SearchState.java:108)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.isLocalSearchEnabled(SearchState.java:136)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.SearchSuggestionsProvider.getSuggestionsFromLocalProvider(SearchSuggestionsProvider.java:194)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2.$r8$lambda$28UA72Bfbr0pajqoWtt4zOYah60(PickerDataLayerV2.java:991)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2$$ExternalSyntheticLambda9.get(R8$$SyntheticClass:0)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1744)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.exec(CompletableFuture.java:1736)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:391)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1325)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.scan(ForkJoinPool.java:1856)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:1821)
+06-24 10:35:07.616 14356  6048 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: Failed to check if local search is enabled
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: java.lang.IllegalStateException: Service not connected
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerLocalSearchManager.isSemanticSearchSupported(PhotoPickerLocalSearchManager.java:155)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.isSearchEnabled(PhotoPickerProvider.java:329)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.onGetCapabilities(PhotoPickerProvider.java:319)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.callUnchecked(CloudMediaProvider.java:761)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.call(CloudMediaProvider.java:734)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.content.ContentProvider.call(ContentProvider.java:2786)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.content.ContentProvider$Transport.call(ContentProvider.java:644)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:601)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:589)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.sync.PickerSearchProviderClient.fetchCapabilities(PickerSearchProviderClient.java:254)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.doesLocalProviderSupportSearch(SearchState.java:108)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.isLocalSearchEnabled(SearchState.java:136)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2.$r8$lambda$LzYBg9FQAjB2SfoOD3HXjF_LAKc(PickerDataLayerV2.java:1954)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2$$ExternalSyntheticLambda1.get(R8$$SyntheticClass:0)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1744)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.util.ThreadFactoryUtil$1.$r8$lambda$Wm4GPOYBu_O7miOEhuUfhyf0mgc(ThreadFactoryUtil.java:77)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at com.android.providers.media.util.ThreadFactoryUtil$1$$ExternalSyntheticLambda0.run(R8$$SyntheticClass:0)
+06-24 10:35:07.633 14356 16824 E PhotoPickerProvider: 	at java.lang.Thread.run(Thread.java:1572)
+06-24 10:35:07.669 12075 12100 E WindowManager: win=Window{7f02315 u0 com.nebulanet.app/com.nebulanet.app.MainActivity EXITING} destroySurfaces: appStopped=false cleanupOnResume=false win.mWindowRemovalAllowed=true win.mRemoveOnExit=true win.mViewVisibility=0 caller=com.android.server.wm.WindowState.onExitAnimationDone:224 com.android.server.wm.WindowState.onAnimationFinished:174 com.android.server.wm.WindowContainer$$ExternalSyntheticLambda8.onAnimationFinished:3 com.android.server.wm.SurfaceAnimator$$ExternalSyntheticLambda0.onAnimationFinished:69 com.android.server.wm.LocalAnimationAdapter$$ExternalSyntheticLambda0.run:10 android.os.Handler.handleCallback:1070 android.os.Handler.dispatchMessage:125 
+06-24 10:35:07.676   920   920 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318247
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: Failed to check if local search is enabled
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: java.lang.IllegalStateException: Service not connected
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerLocalSearchManager.isSemanticSearchSupported(PhotoPickerLocalSearchManager.java:155)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.isSearchEnabled(PhotoPickerProvider.java:329)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.onGetCapabilities(PhotoPickerProvider.java:319)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.callUnchecked(CloudMediaProvider.java:761)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.call(CloudMediaProvider.java:734)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.content.ContentProvider.call(ContentProvider.java:2786)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.content.ContentProvider$Transport.call(ContentProvider.java:644)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:601)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:589)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.sync.PickerSearchProviderClient.fetchCapabilities(PickerSearchProviderClient.java:254)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.doesLocalProviderSupportSearch(SearchState.java:108)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.isLocalSearchEnabled(SearchState.java:136)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.SearchSuggestionsProvider.getSuggestionsFromLocalProvider(SearchSuggestionsProvider.java:194)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2.$r8$lambda$28UA72Bfbr0pajqoWtt4zOYah60(PickerDataLayerV2.java:991)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2$$ExternalSyntheticLambda9.get(R8$$SyntheticClass:0)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1744)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.exec(CompletableFuture.java:1736)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:391)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1325)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.scan(ForkJoinPool.java:1856)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:1821)
+06-24 10:35:07.714 14356  6049 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+06-24 10:35:07.714  3109  3109 E pageboostd: Received HALT command code 2
+06-24 10:35:07.722   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Dim Layer for - Task=191#318255
+06-24 10:35:07.731   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - ActivityRecord{185972730 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t191}#318241
+06-24 10:35:07.755   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.028 - Dim Layer for - Task=191#318255
+06-24 10:35:07.756   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.016 - ActivityRecord{185972730 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t191}#318241
+06-24 10:35:07.812 12075 12727 E ClipboardService: Denying clipboard access to com.nebulanet.app, application is not in focus nor is it a system service for user 0
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: Failed to check if local search is enabled
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: java.lang.IllegalStateException: Service not connected
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerLocalSearchManager.isSemanticSearchSupported(PhotoPickerLocalSearchManager.java:155)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.isSearchEnabled(PhotoPickerProvider.java:329)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.PhotoPickerProvider.onGetCapabilities(PhotoPickerProvider.java:319)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.callUnchecked(CloudMediaProvider.java:761)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.provider.CloudMediaProvider.call(CloudMediaProvider.java:734)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.content.ContentProvider.call(ContentProvider.java:2786)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.content.ContentProvider$Transport.call(ContentProvider.java:644)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:601)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at android.content.ContentProviderClient.call(ContentProviderClient.java:589)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.sync.PickerSearchProviderClient.fetchCapabilities(PickerSearchProviderClient.java:254)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.doesLocalProviderSupportSearch(SearchState.java:108)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.SearchState.isLocalSearchEnabled(SearchState.java:136)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.SearchSuggestionsProvider.getSuggestionsFromLocalProvider(SearchSuggestionsProvider.java:194)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2.$r8$lambda$28UA72Bfbr0pajqoWtt4zOYah60(PickerDataLayerV2.java:991)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at com.android.providers.media.photopicker.v2.PickerDataLayerV2$$ExternalSyntheticLambda9.get(R8$$SyntheticClass:0)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1744)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.CompletableFuture$AsyncSupply.exec(CompletableFuture.java:1736)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:391)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1325)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.scan(ForkJoinPool.java:1856)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:1821)
+06-24 10:35:07.835 14356  6762 E PhotoPickerProvider: 	at java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+06-24 10:35:07.844 15381 22190 E AccessibilityService: bindInput must be paired with unbindInput.
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: failed to call SemStatusBarManager
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: java.lang.NullPointerException
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController.onFlexModeChanged(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:24)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController$1.onReceive(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:101)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.lambda$getRunnable$0(LoadedApk.java:2073)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.$r8$lambda$mcNAAl1SQ4MyJPyDg8TJ2x2h0Rk(LoadedApk.java:0)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.os.Looper.dispatchMessage(Looper.java:358)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loopOnce(Looper.java:288)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loop(Looper.java:392)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at android.app.ActivityThread.main(ActivityThread.java:10346)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at java.lang.reflect.Method.invoke(Native Method)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:638)
+06-24 10:35:08.049 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:972)
+06-24 10:35:08.382 12075 13496 E WindowManager: win=Window{7fc6719 u0 InputMethod} destroySurfaces: appStopped=true cleanupOnResume=false win.mWindowRemovalAllowed=false win.mRemoveOnExit=false win.mViewVisibility=8 caller=com.android.server.wm.WindowManagerService.tryStartExitingAnimation:128 com.android.server.wm.WindowManagerService.relayoutWindow:1121 com.android.server.wm.Session.relayout:30 android.view.IWindowSession$Stub.onTransact:840 com.android.server.wm.Session.onTransact:1 android.os.Binder.execTransactInternal:1509 android.os.Binder.execTransact:1454 
+06-24 10:35:08.397   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318261
+06-24 10:35:08.594 23166  5523 E Notification4P_GO: CommonUtil.isDesktopMode manager is null
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: Unable to check Uri permission because caller is holding WM lock; assuming permission denied
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: java.lang.IllegalStateException: Unable to check Uri permission because caller is holding WM lock; assuming permission denied
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.am.ActivityManagerService$LocalService.checkContentProviderUriPermission(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:33)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkHoldingPermissionsInternalUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:187)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkHoldingPermissionsUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:28)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkContentUriPermissionFullUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:80)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService$LocalService.checkUriPermission(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:5)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.computeCallerInfo(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:59)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.finishActivityResults(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:70)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.finishIfPossible(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:87)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityClientController.finishActivity(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:268)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at android.app.IActivityClientController$Stub.onTransact(IActivityClientController.java:929)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityClientController.onTransact(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:1)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at android.os.Binder.execTransactInternal(Binder.java:1509)
+06-24 10:35:09.524 12075 13496 E ContentProviderHelper: 	at android.os.Binder.execTransact(Binder.java:1454)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: Unable to check Uri permission because caller is holding WM lock; assuming permission denied
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: java.lang.IllegalStateException: Unable to check Uri permission because caller is holding WM lock; assuming permission denied
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.am.ActivityManagerService$LocalService.checkContentProviderUriPermission(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:33)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkHoldingPermissionsInternalUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:187)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkHoldingPermissionsUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:28)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService.checkContentUriPermissionFullUnlocked(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:80)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.uri.UriGrantsManagerService$LocalService.checkUriPermission(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:5)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.computeCallerInfo(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:96)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.finishActivityResults(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:70)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityRecord.finishIfPossible(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:87)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityClientController.finishActivity(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:268)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at android.app.IActivityClientController$Stub.onTransact(IActivityClientController.java:929)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at com.android.server.wm.ActivityClientController.onTransact(qb/109715740 5de77913a13db59cf37301d9da62789f5fdfb029108bfe3b1b0ab175b10f2f8e:1)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at android.os.Binder.execTransactInternal(Binder.java:1509)
+06-24 10:35:09.527 12075 13496 E ContentProviderHelper: 	at android.os.Binder.execTransact(Binder.java:1454)
+06-24 10:35:09.607  3109  3109 E pageboostd: Received HALT command code 2
+06-24 10:35:09.619 15381 19184 E AccessibilityService: bindInput must be paired with unbindInput.
+06-24 10:35:09.642   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318268
+06-24 10:35:09.666   920   920 E SurfaceFlinger: alpha changed 0.016 -> 0.000 - ActivityRecord{185972730 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t191}#318241
+06-24 10:35:09.666   920   920 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - ActivityRecord{185972730 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t191}#318241
+06-24 10:35:09.730  3109  3109 E pageboostd: Received HALT command code 2
+06-24 10:35:09.733   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - ActivityRecord{253339737 u0 com.nebulanet.app/expo.modules.imagepicker.ExpoCropImageActivity t191}#318265
+06-24 10:35:09.733   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x271f8de#318277
+06-24 10:35:09.733   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.000 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x271f8de#318277
+06-24 10:35:09.733   920   920 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - ActivityRecord{253339737 u0 com.nebulanet.app/expo.modules.imagepicker.ExpoCropImageActivity t191}#318265
+06-24 10:35:09.750   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.010 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x271f8de#318277
+06-24 10:35:09.753   920  2834 E NativeCustomFrequencyManager: [NativeCFMS] BpCustomFrequencyManager::acquire()
+06-24 10:35:09.889   920   920 E SurfaceFlinger: alpha changed 0.028 -> 0.000 - Dim Layer for - Task=191#318255
+06-24 10:35:09.897   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318280
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: failed to call SemStatusBarManager
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: java.lang.NullPointerException
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController.onFlexModeChanged(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:24)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController$1.onReceive(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:101)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.lambda$getRunnable$0(LoadedApk.java:2073)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.$r8$lambda$mcNAAl1SQ4MyJPyDg8TJ2x2h0Rk(LoadedApk.java:0)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.os.Looper.dispatchMessage(Looper.java:358)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loopOnce(Looper.java:288)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loop(Looper.java:392)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at android.app.ActivityThread.main(ActivityThread.java:10346)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at java.lang.reflect.Method.invoke(Native Method)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:638)
+06-24 10:35:09.995 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:972)
+06-24 10:35:10.247 12075 12496 E WindowManager: win=Window{4cbe80b u0 com.nebulanet.app/com.nebulanet.app.MainActivity} destroySurfaces: appStopped=true cleanupOnResume=false win.mWindowRemovalAllowed=false win.mRemoveOnExit=false win.mViewVisibility=8 caller=com.android.server.wm.ActivityRecord.destroySurfaces:24 com.android.server.wm.ActivityRecord.activityStopped:209 com.android.server.wm.ActivityClientController.activityStopped:102 android.app.IActivityClientController$Stub.onTransact:829 com.android.server.wm.ActivityClientController.onTransact:1 android.os.Binder.execTransactInternal:1514 android.os.Binder.execTransact:1454 
+06-24 10:35:10.358 12075 15260 E WindowManager: win=Window{7fc6719 u0 InputMethod} destroySurfaces: appStopped=true cleanupOnResume=false win.mWindowRemovalAllowed=false win.mRemoveOnExit=false win.mViewVisibility=8 caller=com.android.server.wm.WindowManagerService.tryStartExitingAnimation:128 com.android.server.wm.WindowManagerService.relayoutWindow:1121 com.android.server.wm.Session.relayout:30 android.view.IWindowSession$Stub.onTransact:840 com.android.server.wm.Session.onTransact:1 android.os.Binder.execTransactInternal:1509 android.os.Binder.execTransact:1454 
+06-24 10:35:10.380   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318282
+06-24 10:35:10.539  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `Timestamp`. Please use `Timestamp` instead.
+06-24 10:35:10.540  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.
+06-24 10:35:10.540  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.
+06-24 10:35:10.540  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.
+06-24 10:35:10.588   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x930ba1#318287
+06-24 10:35:10.588   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.180 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x930ba1#318287
+06-24 10:35:10.613   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318288
+06-24 10:35:10.746   920   920 E SurfaceFlinger: alpha changed 0.011 -> 0.000 - DimTransitionLayer for Surface(name=ActivityRecord{261365697 u0 com.nebulanet.app/.MainActivity t191}#318051)/@0x930ba1#318287
+06-24 10:35:10.771   920   920 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318288
+06-24 10:35:13.680  8074  8088 E ashmem  : Pinning is deprecated since Android Q. Please use trim or other methods.
+06-24 10:35:14.350 12075 12102 E Watchdog: !@Sync: 3291 heap(MB): 163 / 164 FD: 1279 Threads: 539 [2026-06-24 10:35:14.350]
+06-24 10:35:15.043  4795  4921 E ReactNativeJS: 'Firebase upload failed:', [Error: crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported]
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: console.error: Firebase upload failed: Error: crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported, stack:
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: _construct@1:206882
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: Wrapper@1:206533
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: _callSuper@1:191359
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: SyntheticError@1:206016
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: reactConsoleErrorHandler@1:205578
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: ?anon_0_@1:5504210
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: asyncGeneratorStep@1:638062
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: _next@1:638319
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: anonymous@1:638271
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: anonymous@1:638192
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: uploadToFirebaseStorage@1:5504309
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: ?anon_0_@1:5504551
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: asyncGeneratorStep@1:638062
+06-24 10:35:15.046  4795  4938 E unknown:ReactNative: _next@1:638319
+06-24 10:35:15.070   890   964 E BatteryDump: !@new_battery_dump : 4188,1079,1900,3150,82,327,323,448,0,0,369,448,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4125,7540,913,0,
+06-24 10:35:15.113   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=920511f com.nebulanet.app/com.nebulanet.app.MainActivity#318295)/@0x9ba207 - animation-leash of window_animation#318299
+06-24 10:35:15.113   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Dim Layer for - Task=191#318300
+06-24 10:35:15.113   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.000 - Dim Layer for - Task=191#318300
+06-24 10:35:15.113   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.000 - Surface(name=920511f com.nebulanet.app/com.nebulanet.app.MainActivity#318295)/@0x9ba207 - animation-leash of window_animation#318299
+06-24 10:35:15.121   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.032 - Dim Layer for - Task=191#318300
+06-24 10:35:15.121   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.104 - Surface(name=920511f com.nebulanet.app/com.nebulanet.app.MainActivity#318295)/@0x9ba207 - animation-leash of window_animation#318299
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: failed to call SemStatusBarManager
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: java.lang.NullPointerException
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController.onFlexModeChanged(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:24)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at com.android.wm.shell.flexpanel.FlexPanelStartController$1.onReceive(qb/109715740 fc03ca75abe9ebdf67581c90f896ce6ffa95e03ca9043ed40dc44d5d36ca452b:101)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.lambda$getRunnable$0(LoadedApk.java:2073)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args.$r8$lambda$mcNAAl1SQ4MyJPyDg8TJ2x2h0Rk(LoadedApk.java:0)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.app.LoadedApk$ReceiverDispatcher$Args$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.os.Looper.dispatchMessage(Looper.java:358)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loopOnce(Looper.java:288)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.os.Looper.loop(Looper.java:392)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at android.app.ActivityThread.main(ActivityThread.java:10346)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at java.lang.reflect.Method.invoke(Native Method)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:638)
+06-24 10:35:15.409 12692 12692 E FlexPanelStartController: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:972)
+06-24 10:35:15.504 23166  5523 E Notification4P_GO: CommonUtil.isDesktopMode manager is null
+06-24 10:35:15.771 12075 13496 E WindowManager: win=Window{7fc6719 u0 InputMethod} destroySurfaces: appStopped=true cleanupOnResume=false win.mWindowRemovalAllowed=false win.mRemoveOnExit=false win.mViewVisibility=8 caller=com.android.server.wm.WindowManagerService.tryStartExitingAnimation:128 com.android.server.wm.WindowManagerService.relayoutWindow:1121 com.android.server.wm.Session.relayout:30 android.view.IWindowSession$Stub.onTransact:840 com.android.server.wm.Session.onTransact:1 android.os.Binder.execTransactInternal:1509 android.os.Binder.execTransact:1454 
+06-24 10:35:15.816   920   920 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=7fc6719 InputMethod#289664)/@0x3630790 - animation-leash of insets_animation#318301
+06-24 10:35:15.930  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.
+06-24 10:35:15.930  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.
+06-24 10:35:15.931  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.
+06-24 10:35:15.931  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `FieldValue`. Please use `FieldValue` instead.
+06-24 10:35:15.931  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `serverTimestamp`. Please use `serverTimestamp()` instead.
+06-24 10:35:15.994 12075 12386 E SemSoftApManager: NET_CAPABILITY_VALIDATED100 valid:true nc:[ Transports: CELLULAR Capabilities: SUPL&DUN&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&NOT_CONGESTED&NOT_SUSPENDED&TEMPORARILY_NOT_METERED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=6880Kbps LinkDnBandwidth>=23066Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> AdminUids: [10264, 10268] SubscriptionIds: {1} UnderlyingNetworks: Null]
+06-24 10:35:19.171 12075 12100 E WindowManager: win=Window{920511f u0 com.nebulanet.app/com.nebulanet.app.MainActivity EXITING} destroySurfaces: appStopped=false cleanupOnResume=false win.mWindowRemovalAllowed=true win.mRemoveOnExit=true win.mViewVisibility=0 caller=com.android.server.wm.WindowState.onExitAnimationDone:224 com.android.server.wm.WindowState.onAnimationFinished:174 com.android.server.wm.WindowContainer$$ExternalSyntheticLambda8.onAnimationFinished:3 com.android.server.wm.SurfaceAnimator$$ExternalSyntheticLambda0.onAnimationFinished:69 com.android.server.wm.LocalAnimationAdapter$$ExternalSyntheticLambda0.run:10 android.os.Handler.handleCallback:1070 android.os.Handler.dispatchMessage:125 
+06-24 10:35:19.178   920   920 E SurfaceFlinger: alpha changed 0.000 -> 0.000 - Surface(name=920511f com.nebulanet.app/com.nebulanet.app.MainActivity#318295)/@0x9ba207 - animation-leash of window_animation#318302
+06-24 10:35:19.178   920   920 E SurfaceFlinger: alpha changed 0.036 -> 0.000 - Dim Layer for - Task=191#318300
+06-24 10:35:24.956 12075 12386 E SemSoftApManager: NET_CAPABILITY_VALIDATED100 valid:true nc:[ Transports: CELLULAR Capabilities: SUPL&DUN&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&NOT_CONGESTED&NOT_SUSPENDED&TEMPORARILY_NOT_METERED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=6740Kbps LinkDnBandwidth>=12576Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> AdminUids: [10264, 10268] SubscriptionIds: {1} UnderlyingNetworks: Null]
+06-24 10:35:25.176   890   964 E BatteryDump: !@new_battery_dump : 4238,1440,1900,3150,82,327,324,417,0,0,365,417,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4125,7550,914,0,
+06-24 10:35:35.250   890   964 E BatteryDump: !@new_battery_dump : 4244,1362,1900,3150,82,327,324,396,0,0,363,396,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4126,7560,915,0,
+06-24 10:35:40.688  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `Timestamp`. Please use `Timestamp` instead.
+06-24 10:35:40.689  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.
+06-24 10:35:40.689  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.
+06-24 10:35:40.689  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.
+06-24 10:35:41.373  7599  7599 E SLPASVC : disconnect key: -1146534185                                                                         [at com.samsung.euicc.lpaService.worker.RxHandler.preProcessRequest(RxHandler.java:298)]
+06-24 10:35:41.382  7599  7599 E SLPASVC : disconnect key: 1348482573                                                                          [at com.samsung.euicc.lpaService.worker.RxHandler.preProcessRequest(RxHandler.java:298)]
+06-24 10:35:41.382  7599  7599 E SLPASVC : To Client messenger is NULL                                                                         [at com.samsung.euicc.lpaService.worker.RxHandler.sendToClient(RxHandler.java:380)]
+06-24 10:35:41.932  7599  7599 E SLPASVC : initHandlerIfNeed                                                                                   [at com.samsung.euicc.lpaService.bootstrap.VsimNetworkRequester.initHandlerIfNeed(VsimNetworkRequester.java:47)]
+06-24 10:35:44.365 12075 12102 E Watchdog: !@Sync: 3292 heap(MB): 143 / 162 FD: 1268 Threads: 539 [2026-06-24 10:35:44.364]
+06-24 10:35:45.324   890   964 E BatteryDump: !@new_battery_dump : 4248,1447,1900,3150,82,326,324,389,0,0,359,389,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4126,7560,915,0,
+06-24 10:35:55.393   890   964 E BatteryDump: !@new_battery_dump : 4249,1604,1900,3150,82,326,324,385,0,0,357,385,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4127,7570,916,0,
+06-24 10:35:59.320   915   924 E HeatmapThread: Could not open '/sys/class/power_supply/sec_auth/batt_heatmap', errno = 2
+06-24 10:36:05.486   890   964 E BatteryDump: !@new_battery_dump : 4253,1548,1900,3150,82,326,324,380,0,0,355,380,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4128,7580,917,0,
+06-24 10:36:10.849  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `Timestamp`. Please use `Timestamp` instead.
+06-24 10:36:10.849  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.
+06-24 10:36:10.850  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.
+06-24 10:36:10.850  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.
+06-24 10:36:14.381 12075 12102 E Watchdog: !@Sync: 3293 heap(MB): 162 / 162 FD: 1268 Threads: 539 [2026-06-24 10:36:14.380]
+06-24 10:36:15.539   890   964 E BatteryDump: !@new_battery_dump : 4226,1119,1900,3150,82,326,324,377,0,0,353,377,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4129,7590,918,0,
+06-24 10:36:25.624   890   964 E BatteryDump: !@new_battery_dump : 4256,1605,1900,3150,82,326,324,376,0,0,351,376,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4130,7600,919,0,
+06-24 10:36:26.645  8276  8290 E ashmem  : Pinning is deprecated since Android Q. Please use trim or other methods.
+06-24 10:36:27.911 12075 12711 E ShortcutService: Invalid icon type in shortcut tkbaker1729@gmail.com. Bitmaps are not allowed in long-lived shortcuts. Use Resource icons, or Uri-based icons instead.
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: The exception is  stream was reset: CANCEL
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: okhttp3.internal.http2.Http2Stream$FramingSource.read(SourceFile:54)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: okhttp3.internal.connection.Exchange$ResponseBodySource.read(SourceFile:13)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: okio.RealBufferedSource.exhausted(SourceFile:18)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: com.microsoft.office.outlook.http.HttpRequestCallback.onResponse(SourceFile:97)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: okhttp3.internal.connection.RealCall$AsyncCall.run(SourceFile:40)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+06-24 10:36:29.284  7115  8342 E ExceptionStackTrace: java.lang.Thread.run(Thread.java:1572)
+06-24 10:36:35.718   890   964 E BatteryDump: !@new_battery_dump : 4258,1592,1900,3150,82,326,324,383,0,0,350,383,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4131,7610,920,0,
+06-24 10:36:41.010  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `Timestamp`. Please use `Timestamp` instead.
+06-24 10:36:41.011  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.
+06-24 10:36:41.011  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.
+06-24 10:36:41.012  4795  4921 W ReactNativeJS: This method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.
+06-24 10:36:44.399 12075 12102 E Watchdog: !@Sync: 3294 heap(MB): 158 / 161 FD: 1274 Threads: 539 [2026-06-24 10:36:44.398]
+06-24 10:36:45.790   890   964 E BatteryDump: !@new_battery_dump : 4262,1545,1900,3150,82,325,324,375,0,0,350,375,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9420,0x48000,0x10010000,0x0,0,0000,0000,00000000,0,0,0,0,867,4132,7620,921,0,

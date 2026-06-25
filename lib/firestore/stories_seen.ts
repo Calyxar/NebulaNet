@@ -36,20 +36,22 @@ async function getProfilesMap(userIds: string[]) {
   const map = new Map<string, StorySeenViewer["profile"]>();
 
   for (const b of chunk(ids, 10)) {
-    const snap = await db
-      .collection("profiles")
-      .where(firestore.FieldPath.documentId(), "in", b)
-      .limit(10)
-      .get();
-
-    snap.docs.forEach((d) => {
-      const x = d.data() as any;
-      map.set(d.id, {
-        username: (x.username as string) ?? null,
-        full_name: (x.full_name as string) ?? null,
-        avatar_url: (x.avatar_url as string) ?? null,
+    try {
+      const docSnaps = await Promise.all(
+        b.map((id) => db.collection("profiles").doc(id).get()),
+      );
+      docSnaps.forEach((d) => {
+        if (!d.exists) return;
+        const x = d.data() as any;
+        map.set(d.id, {
+          username: (x.username as string) ?? null,
+          full_name: (x.full_name as string) ?? null,
+          avatar_url: (x.avatar_url as string) ?? null,
+        });
       });
-    });
+    } catch (err) {
+      console.warn("[getProfilesMap] failed to fetch batch:", err);
+    }
   }
 
   return map;

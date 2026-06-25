@@ -1,6 +1,15 @@
 // app/_layout.tsx ✅
 // ✅ FIXED: removed hasRedirected ref — it was blocking redo onboarding redirect
 //           redirect logic now runs reactively whenever auth state changes
+// ✅ FIXED: added react-native-get-random-values polyfill, imported FIRST
+//           before anything else — uuid's v4() relies on
+//           crypto.getRandomValues(), which doesn't exist in Hermes by
+//           default. Without this, any uuidv4() call anywhere in the app
+//           (e.g. ChatInput.tsx's chat file uploads) throws
+//           "crypto.getRandomValues() not supported" and fails silently
+//           into a caught error rather than crashing visibly.
+
+import "react-native-get-random-values";
 
 import { useAuth } from "@/hooks/useAuth";
 import "@/lib/i18n";

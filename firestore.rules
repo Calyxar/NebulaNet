@@ -28,6 +28,16 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
+    // ✅ NEW: official account check (e.g. @nebulanet). Used only for
+    // read-side display purposes by the client (badge rendering) — this
+    // function itself grants no special write permissions. An official
+    // account's posts go through the exact same /posts create/update/
+    // delete rules as any other user's; there's no separate write path.
+    function isOfficialAccount(userId) {
+      return hasProfile(userId) &&
+        profileDoc(userId).data.is_official == true;
+    }
+
     // ✅ NEW: minors (age_group "teen" or "under_13") are hard-blocked from
     // reading is_nsfw content — enforced here at the rules layer, so no
     // client-side toggle or modified app build can bypass it. Accounts with
@@ -53,11 +63,24 @@ service cloud.firestore {
         .hasOnly(['poll', 'updated_at', 'updated_at_ts']);
     }
 
+    function isSelfProfileUpdate(userId) {
+      // ✅ NEW: self-updates may touch any field EXCEPT is_official and
+      // role — those can only be changed by an admin (or directly via
+      // the Firebase console / Admin SDK). Without this, a user could
+      // set is_official: true on their own profile through the same
+      // update() call they use to change their bio.
+      return isSelf(userId) &&
+        resource.data.is_suspended != true &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['is_official', 'role']);
+    }
+
     match /profiles/{userId} {
       allow read, get, list: if signedIn();
       allow create: if isSelf(userId);
-      // ✅ admin can update any profile (e.g. unsuspend); self can update unless suspended
-      allow update: if (isSelf(userId) && resource.data.is_suspended != true) || isAdmin();
+      // ✅ admin can update any profile (e.g. unsuspend, grant official
+      // status); self can update any field except is_official/role
+      allow update: if isSelfProfileUpdate(userId) || isAdmin();
       allow delete: if isSelf(userId) || isAdmin();
     }
 
@@ -107,6 +130,10 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
+    // ✅ NEW: For You ranking signal — tracks how much a viewer engages
+    // with each author they interact with (via likes/comments/reposts).
+    // Only the viewer who owns the affinity record can read or write it;
+    // no one can read someone else's affinity scores toward other users.
     match /author_affinity/{affinityId} {
       allow read: if signedIn() && resource.data.viewer_id == uid();
       allow create, update: if signedIn() && request.resource.data.viewer_id == uid();
@@ -331,7 +358,30 @@ service cloud.firestore {
       allow write: if false; // Cloud Function only (admin SDK)
     }
 
+    // ✅ FIXED: was missing entirely — lib/firestore/presence.ts reads
+    // and listens to this collection to respect the user's
+    // activity_status privacy toggle. With no explicit match block, the
+    // catch-all deny rule was silently blocking it, surfacing as
+    // "presence: privacy settings onSnapshot error" with a generic
+    // permission-denied error rather than any indication the rule was
+    // simply missing.
+    match /user_privacy_settings/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
     match /app_config/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ✅ FIXED: was missing entirely — AnnouncementCard.tsx queries this
+    // collection, but with no explicit match block here, the catch-all
+    // deny rule at the bottom of this file was silently blocking every
+    // read, surfacing as a generic permission-denied error with no
+    // indication that the real problem was a missing rule, not a bug
+    // in the query itself.
+    match /announcements/{announcementId} {
       allow read: if signedIn();
       allow write: if isAdmin();
     }

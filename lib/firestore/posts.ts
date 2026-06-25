@@ -399,12 +399,17 @@ async function getRepostFeedItems(
     const postDocs: Post[] = [];
 
     for (const c of chunks2) {
-      const snap = await firestore()
-        .collection("posts")
-        .where(firestore.FieldPath.documentId(), "in", c)
-        .get();
-      snap.docs.forEach((d) => {
-        if (!d.exists()) return;
+      // ✅ FIXED: firestore.FieldPath.documentId() was resolving to
+      // undefined in this codebase (same bug found and fixed in
+      // app/user/[username]/index.tsx's reposts/likes queries), causing
+      // ".where(undefined, 'in', c)" and a hard "undefined is not a
+      // function" failure. Fetching each doc individually by ref
+      // sidesteps FieldPath entirely.
+      const docSnaps = await Promise.all(
+        c.map((postId) => firestore().collection("posts").doc(postId).get()),
+      );
+      docSnaps.forEach((d) => {
+        if (!d.exists) return;
         const data = d.data() as any;
         if (data.is_visible === false) return;
         // ✅ FIX 4: skip NSFW reposts for minors
