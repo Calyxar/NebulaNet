@@ -842,11 +842,14 @@ export async function updatePost(
       : null;
 
   let hashtagPatch: { hashtags?: string[] } = {};
+  const oldHashtags: string[] = Array.isArray(d.hashtags) ? d.hashtags : [];
+  let newHashtags: string[] | null = null;
   if (patch.content !== undefined && patch.content !== null) {
     const combinedText = [patch.title ?? d.title ?? "", patch.content].join(
       " ",
     );
-    hashtagPatch = { hashtags: extractHashtags(combinedText) };
+    newHashtags = extractHashtags(combinedText);
+    hashtagPatch = { hashtags: newHashtags };
   }
 
   const now = new Date().toISOString();
@@ -857,6 +860,32 @@ export async function updatePost(
     updated_at: now,
     updated_at_ts: firestore.FieldValue.serverTimestamp(),
   });
+
+  // ✅ FIXED: editing a post's content used to silently overwrite its
+  // hashtags field with no adjustment to the global `hashtags` collection
+  // counters — tags removed from the post stayed counted forever, and
+  // newly added tags never got counted at all. The array-contains query
+  // on the hashtag page was always correct (it reads the post's live
+  // hashtags field directly), but the displayed post COUNT drifted out
+  // of sync over time. Now diffs old vs new tags and adjusts counts for
+  // exactly what changed.
+  if (newHashtags !== null) {
+    const oldSet = new Set(oldHashtags);
+    const newSet = new Set(newHashtags);
+    const removed = oldHashtags.filter((t) => !newSet.has(t));
+    const added = newHashtags.filter((t) => !oldSet.has(t));
+    if (removed.length) {
+      decrementHashtagCounts(removed).catch((e) =>
+        console.warn("[updatePost] decrementHashtagCounts failed:", e),
+      );
+    }
+    if (added.length) {
+      indexHashtags(added).catch((e) =>
+        console.warn("[updatePost] indexHashtags failed:", e),
+      );
+    }
+  }
+
   const updated = await refDoc.get();
   if (!updated.exists) return null;
   return docToPost(updated.id, updated.data(), { is_owned: true });

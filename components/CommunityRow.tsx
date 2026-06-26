@@ -1,15 +1,26 @@
-// ✅ FIXED: Join button now actually joins inline (was just navigating to
-// the community page and doing nothing). Optimistic update flips the
-// button instantly; reverts on failure. Row tap still navigates;
-// the button itself no longer does.
+// components/CommunityRow.tsx ✅ FIXED — shared join-state source of truth
+// ✅ FIXED: previously, isJoined lived in a per-instance useState, scoped
+// to whichever specific CommunityRow got tapped. If the same community
+// appeared in two places at once (e.g. "Communities you might like" AND
+// search results), only the tapped instance's button flipped — the other
+// instance stayed stale until its own query happened to refetch, which
+// isn't guaranteed to happen immediately just because invalidateQueries
+// fired elsewhere. Now every CommunityRow instance derives isJoined from
+// the SAME shared cache (myCommunityIds, from useCommunities() — the hook
+// already used for the community picker/switcher elsewhere in the app),
+// so the moment one instance's mutation settles and that cache updates,
+// every other instance of every row referencing that community re-renders
+// with the new state simultaneously. Matches how a follow button stays
+// in sync across multiple simultaneous views of the same account.
 
+import { useCommunities } from "@/hooks/useCommunities";
 import type { SearchCommunity } from "@/hooks/useSearch";
 import { auth, db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React from "react";
 import {
   ActivityIndicator,
   Image,
@@ -76,9 +87,35 @@ export function useToggleCommunityJoin() {
       vars.isJoined
         ? leaveCommunityInline(vars.communityId)
         : joinCommunityInline(vars.communityId),
+    // ✅ NEW: optimistically update the SHARED my-communities cache
+    // directly, instead of only flipping local component state. This is
+    // what makes every CommunityRow instance — anywhere in the app —
+    // update in lockstep the moment one of them is tapped.
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["my-communities"] });
+      const previous = qc.getQueryData<any[]>(["my-communities"]);
+      if (previous) {
+        if (vars.isJoined) {
+          // leaving — remove from the cached list
+          qc.setQueryData(
+            ["my-communities"],
+            previous.filter((c) => c.id !== vars.communityId),
+          );
+        } else {
+          // joining — add a minimal placeholder entry; the next real
+          // refetch (triggered below) fills in full details
+          qc.setQueryData(
+            ["my-communities"],
+            [...previous, { id: vars.communityId }],
+          );
+        }
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["my-communities"], ctx.previous);
+    },
     onSettled: () => {
-      // Keep any other screens (community detail, my-communities list)
-      // honest too, since we just wrote directly to Firestore here.
       qc.invalidateQueries({ queryKey: ["my-communities"] });
       qc.invalidateQueries({ queryKey: ["suggested-communities"] });
       qc.invalidateQueries({ queryKey: ["search"] });
@@ -95,24 +132,14 @@ export function CommunityRow({
   idx: number;
   colors: any;
 }) {
-  // ✅ Local optimistic state — flips instantly on tap, independent of
-  // whatever query this row's data originally came from (search results,
-  // suggestions, etc. aren't re-fetched just because one row changed).
-  const [optimisticJoined, setOptimisticJoined] = useState<boolean | null>(
-    null,
-  );
-  const isJoined = optimisticJoined ?? !!c.is_joined;
+  // ✅ FIXED: derives from the shared cache instead of local state — see
+  // header comment for why this is the actual fix, not just a refactor.
+  const { myCommunityIds } = useCommunities();
+  const isJoined = myCommunityIds.includes(c.id);
   const toggleJoin = useToggleCommunityJoin();
 
   const handleJoinPress = () => {
-    const prev = isJoined;
-    setOptimisticJoined(!prev);
-    toggleJoin.mutate(
-      { communityId: c.id, isJoined: prev },
-      {
-        onError: () => setOptimisticJoined(prev), // revert on failure
-      },
-    );
+    toggleJoin.mutate({ communityId: c.id, isJoined });
   };
 
   return (
@@ -153,10 +180,6 @@ export function CommunityRow({
         </Text>
       </View>
 
-      {/* ✅ FIX: this button now joins/leaves directly instead of
-          navigating. Stop propagation isn't needed since this
-          TouchableOpacity is its own touch target, not nested in
-          another pressable. */}
       <TouchableOpacity
         style={[
           styles.followBtn,

@@ -1,29 +1,56 @@
-// components/chat/ChatHeader.tsx ✅ THEMED
+// components/chat/ChatHeader.tsx ✅ REDESIGNED — Twitter/X DM header style
+// ✅ NEW: avatar next to name (was text-only before)
+// ✅ NEW: tapping name/avatar navigates to the other person's profile
+// ✅ NEW: onMorePress is now actually wired up from the parent screen
+//         (previously supported by this component but never passed in,
+//         so the "..." button could never render)
+// ✅ REMOVED: onCallPress/onVideoPress — dead props, never passed from
+//         the parent screen, and not part of the DM feature set this app
+//         actually has. Kept the component focused on what's real rather
+//         than carrying unused optional UI forever.
+
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface ChatHeaderProps {
   title: string;
   subtitle?: string;
+  avatarUrl?: string | null;
   isOnline?: boolean;
   lastSeen?: string;
   onBackPress: () => void;
+  onTitlePress?: () => void;
   onMorePress?: () => void;
-  onCallPress?: () => void;
-  onVideoPress?: () => void;
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 }
 
 export default function ChatHeader({
   title,
   subtitle,
+  avatarUrl,
   isOnline = false,
   lastSeen,
   onBackPress,
+  onTitlePress,
   onMorePress,
-  onCallPress,
-  onVideoPress,
 }: ChatHeaderProps) {
   const { colors } = useTheme();
 
@@ -38,51 +65,57 @@ export default function ChatHeader({
         <TouchableOpacity onPress={onBackPress} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <View style={styles.userInfo}>
-          <Text
-            style={[styles.title, { color: colors.text }]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-          <View style={styles.statusContainer}>
-            {isOnline ? (
-              <>
-                <View style={styles.onlineDot} />
-                <Text
-                  style={[styles.statusText, { color: colors.textSecondary }]}
-                >
-                  Online
-                </Text>
-              </>
+
+        <Pressable
+          style={styles.userInfo}
+          onPress={onTitlePress}
+          disabled={!onTitlePress}
+        >
+          <View style={styles.avatarWrap}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
-              <Text
-                style={[styles.statusText, { color: colors.textSecondary }]}
+              <View
+                style={[
+                  styles.avatar,
+                  styles.avatarFallback,
+                  { backgroundColor: colors.surface },
+                ]}
               >
-                {lastSeen || subtitle || "Offline"}
-              </Text>
+                <Text style={[styles.avatarLetter, { color: colors.primary }]}>
+                  {getInitials(title || "?")}
+                </Text>
+              </View>
+            )}
+            {isOnline && (
+              <View
+                style={[styles.onlineIndicator, { borderColor: colors.card }]}
+              />
             )}
           </View>
-        </View>
+
+          <View style={styles.nameBlock}>
+            <Text
+              style={[styles.title, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+            <Text
+              style={[styles.statusText, { color: colors.textSecondary }]}
+              numberOfLines={1}
+            >
+              {isOnline ? "Online" : lastSeen || subtitle || ""}
+            </Text>
+          </View>
+        </Pressable>
       </View>
 
-      <View style={styles.rightSection}>
-        {onVideoPress && (
-          <TouchableOpacity onPress={onVideoPress} style={styles.actionButton}>
-            <Ionicons name="videocam-outline" size={24} color={colors.text} />
-          </TouchableOpacity>
-        )}
-        {onCallPress && (
-          <TouchableOpacity onPress={onCallPress} style={styles.actionButton}>
-            <Ionicons name="call-outline" size={22} color={colors.text} />
-          </TouchableOpacity>
-        )}
-        {onMorePress && (
-          <TouchableOpacity onPress={onMorePress} style={styles.actionButton}>
-            <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
-          </TouchableOpacity>
-        )}
-      </View>
+      {onMorePress && (
+        <TouchableOpacity onPress={onMorePress} style={styles.actionButton}>
+          <Ionicons name="ellipsis-vertical" size={22} color={colors.text} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -93,22 +126,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
   },
   leftSection: { flexDirection: "row", alignItems: "center", flex: 1 },
-  backButton: { padding: 4, marginRight: 12 },
-  userInfo: { flex: 1 },
-  title: { fontSize: 18, fontWeight: "900", marginBottom: 2 },
-  statusContainer: { flexDirection: "row", alignItems: "center" },
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#34C759",
-    marginRight: 6,
+  backButton: { padding: 4, marginRight: 10 },
+  userInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  statusText: { fontSize: 12, fontWeight: "700" },
-  rightSection: { flexDirection: "row", alignItems: "center" },
-  actionButton: { padding: 8, marginLeft: 12 },
+  avatarWrap: { position: "relative" },
+  avatar: { width: 38, height: 38, borderRadius: 19 },
+  avatarFallback: { alignItems: "center", justifyContent: "center" },
+  avatarLetter: { fontSize: 14, fontWeight: "900" },
+  onlineIndicator: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#34C759",
+    borderWidth: 2,
+  },
+  nameBlock: { flex: 1, minWidth: 0 },
+  title: { fontSize: 16, fontWeight: "800" },
+  statusText: { fontSize: 12, fontWeight: "600", marginTop: 1 },
+  actionButton: { padding: 8 },
 });

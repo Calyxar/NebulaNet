@@ -1,9 +1,21 @@
-// app/user/[username]/index.tsx ✅ FIXED
-// Fix 1: reposts query drops orderBy — sorts client-side instead
-// Fix 2: quote reposts fetched without compound index query
+// app/user/[username]/index.tsx ✅ REWRITTEN — Twitter-accurate Posts tab
+//
+// ✅ MAJOR CHANGE: removed the separate "Activity" tab entirely. Twitter/X
+// doesn't have one — reposts and quote-posts are mixed directly into the
+// main Posts timeline, sorted by action time, with a "🔁 Reposted" label
+// above reposted items and an embedded quoted-post card under quotes.
+// Likes are dropped from any profile display, matching current Twitter/X
+// (which removed public Likes tabs from profiles).
+//
+// This also resolves the long-running Activity tab bugs (empty results,
+// quote cards missing avatar/username) by construction — there's no
+// longer a separate quote/repost/like query path to go wrong. Reposts
+// fetch their underlying post by ref (no FieldPath bug); quote-posts are
+// just regular posts in the normal posts query that happen to carry a
+// quote_post_id, resolved with the same embedded-card renderer used here.
+//
 // Fix 3: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
 // Fix 4: Google Places URL uses encodeURIComponent on types param
-// Fix 5: Activity tab now also includes liked posts, not just reposts/quotes
 
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
@@ -65,68 +77,40 @@ type PrivacyFlags = {
 
 type UserStats = { posts: number; followers: number; following: number };
 
-type PostRow = {
+type QuotedPostInfo = {
   id: string;
-  content: string;
-  media_urls: string[] | null;
-  created_at: string;
-  post_type?: string | null;
-};
-
-type RepostRow = {
-  id: string;
-  type: "repost";
-  content: string;
-  media_urls: string[] | null;
-  created_at: string;
-  post_type?: string | null;
-  reposted_at: string;
-  sort_at: string;
-  original_user: {
+  content: string | null;
+  media_urls?: string[] | null;
+  user: {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
   } | null;
 };
 
-type QuoteRow = {
+// ✅ Unified feed item — every entry in the Posts tab is one of these.
+// "own" = a post the user wrote (may itself be a quote, via quoted_post)
+// "repost" = a post the user reposted (not authored by them)
+type ProfileFeedItem = {
   id: string;
-  type: "quote";
+  kind: "own" | "repost";
   content: string;
   media_urls: string[] | null;
-  created_at: string;
   post_type?: string | null;
-  sort_at: string;
-  quoted_post: {
-    id: string;
-    content: string | null;
-    media_urls?: string[] | null;
-    user: {
-      username: string | null;
-      full_name: string | null;
-      avatar_url: string | null;
-    } | null;
-  } | null;
-};
-
-// ✅ NEW: liked posts, mirrors RepostRow shape
-type LikeRow = {
-  id: string;
-  type: "like";
-  content: string;
-  media_urls: string[] | null;
   created_at: string;
-  post_type?: string | null;
-  liked_at: string;
+  // The timestamp this item should be SORTED by — created_at for own
+  // posts, reposted_at for reposts. Keeps the timeline ordered by when
+  // the action actually happened, the same way Twitter's profile does.
   sort_at: string;
-  original_user: {
+  quoted_post?: QuotedPostInfo | null;
+  // Only present for kind === "repost" — who originally authored the
+  // post this user reposted.
+  original_author?: {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
   } | null;
 };
-
-type ActivityRow = RepostRow | QuoteRow | LikeRow;
 
 type FollowEdge = {
   follower_id: string;
@@ -135,7 +119,10 @@ type FollowEdge = {
 };
 type BlockEdge = { blocker_id: string; blocked_id: string };
 
-const profileTabs = ["Activity", "Post", "Tagged", "Media"] as const;
+// ✅ "Activity" removed — Twitter/X doesn't have a separate tab for this;
+// reposts/quotes are mixed directly into Posts, and Likes aren't shown
+// publicly on profiles at all anymore.
+const profileTabs = ["Post", "Tagged", "Media"] as const;
 
 function Skeleton({ style }: { style: any }) {
   return <View style={[styles.skel, style]} />;
@@ -190,7 +177,6 @@ function LocationPicker({
     setLoading(true);
     setError("");
     try {
-      // ✅ FIX 4: use separate type params instead of pipe-separated string
       const params = new URLSearchParams({
         input: text,
         key: PLACES_API_KEY,
@@ -240,7 +226,6 @@ function LocationPicker({
         activeOpacity={1}
         onPress={handleClose}
       />
-      {/* ✅ FIX 3: KeyboardAvoidingView pushes sheet above keyboard */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "position" : "height"}
         keyboardVerticalOffset={0}
@@ -567,9 +552,6 @@ export default function UserProfileScreen() {
     },
   });
 
-  const canViewActivity =
-    isMe || privacyFlags?.show_activity_publicly !== false;
-
   // ── Stats ──────────────────────────────────────────────────────────────────
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", target?.id],
@@ -603,56 +585,88 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ── Posts ──────────────────────────────────────────────────────────────────
-  const { data: posts, isLoading: loadingPosts } = useQuery({
-    queryKey: ["user-posts", target?.id],
+  // ── Own posts (resolves quote_post_id -> embedded quoted post info) ────────
+  const { data: ownPosts, isLoading: loadingOwnPosts } = useQuery({
+    queryKey: ["user-own-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
-    queryFn: async () => {
-      // ✅ No orderBy — fetches ALL posts regardless of whether created_at_ts
-      // exists (older posts may not have it). Sort client-side instead.
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<ProfileFeedItem[]> => {
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", target!.id)
         .get();
-      return snap.docs
-        .map((d) => {
+
+      const items: ProfileFeedItem[] = await Promise.all(
+        snap.docs.map(async (d) => {
           const x = d.data() as any;
+          const createdAt = tsToIso(x.created_at_ts ?? x.created_at);
+
+          let quotedPost: QuotedPostInfo | null = null;
+          if (x.quote_post_id) {
+            let quotedContent: string | null = x.quote_post?.content ?? null;
+            let quotedUser = x.quote_post?.user ?? null;
+            let quotedMediaUrls: string[] | null = Array.isArray(
+              x.quote_post?.media_urls,
+            )
+              ? x.quote_post.media_urls
+              : null;
+
+            if (!quotedContent) {
+              try {
+                const qSnap = await firestore()
+                  .collection("posts")
+                  .doc(x.quote_post_id)
+                  .get();
+                const qd = qSnap.exists() ? (qSnap.data() as any) : null;
+                if (qd) {
+                  quotedContent = qd.content ?? null;
+                  quotedUser = qd.user ?? null;
+                  quotedMediaUrls = Array.isArray(qd.media_urls)
+                    ? qd.media_urls
+                    : null;
+                }
+              } catch {}
+            }
+
+            quotedPost = {
+              id: x.quote_post_id,
+              content: quotedContent,
+              media_urls: quotedMediaUrls,
+              user: quotedUser,
+            };
+          }
+
           return {
             id: d.id,
+            kind: "own",
             content: x.content ?? "",
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: tsToIso(x.created_at_ts ?? x.created_at),
             post_type: x.post_type ?? null,
-          };
-        })
-        .sort(
-          (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        ) as PostRow[];
+            created_at: createdAt,
+            sort_at: createdAt,
+            quoted_post: quotedPost,
+          } as ProfileFeedItem;
+        }),
+      );
+
+      return items;
     },
   });
 
-  // ── Simple reposts ─────────────────────────────────────────────────────────
-  // ✅ FIX 1: no orderBy — fetch all and sort client-side
-  const { data: reposts, isLoading: loadingReposts } = useQuery({
+  // ── Reposts (this user reposting someone else's post) ──────────────────────
+  const { data: repostItems, isLoading: loadingReposts } = useQuery({
     queryKey: ["user-reposts", target?.id],
-    enabled: !!target?.id && canViewPosts && canViewActivity,
+    enabled: !!target?.id && canViewPosts,
     staleTime: 0,
     gcTime: 0,
-    queryFn: async (): Promise<RepostRow[]> => {
-      console.log("[ACTIVITY DEBUG] reposts: target.id =", target?.id);
+    queryFn: async (): Promise<ProfileFeedItem[]> => {
       const repostSnap = await firestore()
         .collection("reposts")
         .where("user_id", "==", target!.id)
         .limit(50)
         .get();
 
-      console.log(
-        "[ACTIVITY DEBUG] reposts: empty =",
-        repostSnap.empty,
-        "size =",
-        repostSnap.size,
-      );
       if (repostSnap.empty) return [];
 
       const postIds: string[] = [];
@@ -671,30 +685,33 @@ export default function UserProfileScreen() {
       for (let i = 0; i < postIds.length; i += 10)
         chunks.push(postIds.slice(i, i + 10));
 
-      const postDocs: RepostRow[] = [];
+      const items: ProfileFeedItem[] = [];
       for (const chunk of chunks) {
-        // ✅ FIXED: firestore.FieldPath.documentId() was resolving to
-        // undefined in this file, causing ".where(undefined, 'in', chunk)"
-        // and a hard crash ("undefined is not a function"). Fetching each
-        // doc individually by ref sidesteps FieldPath entirely.
+        // ✅ Per-doc fetch by ref — sidesteps the FieldPath.documentId()
+        // bug that broke this query for most of today.
         const docSnaps = await Promise.all(
           chunk.map((id) => firestore().collection("posts").doc(id).get()),
         );
         docSnaps.forEach((d) => {
           if (!d.exists) return;
           const x = d.data() as any;
+          if (x.is_visible === false) return;
+          // Don't show a "repost" of the user's own post on their own
+          // profile — that's just their post, no separate repost entry
+          // is meaningful to display.
+          if (x.user_id === target!.id) return;
+
           const at =
             repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
-          postDocs.push({
+          items.push({
             id: d.id,
-            type: "repost",
+            kind: "repost",
             content: x.content ?? "",
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: tsToIso(x.created_at_ts ?? x.created_at),
             post_type: x.post_type ?? null,
-            reposted_at: at,
+            created_at: tsToIso(x.created_at_ts ?? x.created_at),
             sort_at: at,
-            original_user: x.user
+            original_author: x.user
               ? {
                   username: x.user.username ?? null,
                   full_name: x.user.full_name ?? null,
@@ -705,183 +722,23 @@ export default function UserProfileScreen() {
         });
       }
 
-      return postDocs.sort(
-        (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
-      );
+      return items;
     },
   });
 
-  // ── Quote reposts ──────────────────────────────────────────────────────────
-  // ✅ FIX 2: fetch all user posts ordered by created_at_ts, filter client-side
-  const { data: quoteReposts, isLoading: loadingQuotes } = useQuery({
-    queryKey: ["user-quote-reposts", target?.id],
-    enabled: !!target?.id && canViewPosts && canViewActivity,
-    staleTime: 0,
-    gcTime: 0,
-    queryFn: async (): Promise<QuoteRow[]> => {
-      const snap = await firestore()
-        .collection("posts")
-        .where("user_id", "==", target!.id)
-        .orderBy("created_at_ts", "desc")
-        .limit(50)
-        .get();
-
-      const results: QuoteRow[] = [];
-      await Promise.all(
-        snap.docs
-          .filter((d) => !!(d.data() as any).quote_post_id)
-          .map(async (d) => {
-            const x = d.data() as any;
-            if (!x.quote_post_id) return;
-
-            let quotedContent: string | null = x.quote_post?.content ?? null;
-            let quotedUser = x.quote_post?.user ?? null;
-
-            let quotedMediaUrls: string[] | null = Array.isArray(
-              x.quote_post?.media_urls,
-            )
-              ? x.quote_post.media_urls
-              : null;
-
-            if (!quotedContent) {
-              try {
-                const quotedSnap = await firestore()
-                  .collection("posts")
-                  .doc(x.quote_post_id)
-                  .get();
-                const quotedData = quotedSnap.data() as any;
-                if (quotedData) {
-                  quotedContent = quotedData.content ?? null;
-                  quotedUser = quotedData.user ?? null;
-                  quotedMediaUrls = Array.isArray(quotedData.media_urls)
-                    ? quotedData.media_urls
-                    : null;
-                }
-              } catch {}
-            }
-
-            results.push({
-              id: d.id,
-              type: "quote",
-              content: x.content ?? "",
-              media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-              created_at: tsToIso(x.created_at_ts ?? x.created_at),
-              post_type: x.post_type ?? null,
-              sort_at: tsToIso(x.created_at_ts ?? x.created_at),
-              quoted_post: {
-                id: x.quote_post_id,
-                content: quotedContent,
-                media_urls: quotedMediaUrls,
-                user: quotedUser,
-              },
-            });
-          }),
-      );
-      return results;
-    },
-  });
-
-  // ── Likes ──────────────────────────────────────────────────────────────────
-  // ✅ NEW: mirrors the reposts query pattern. Fetches this user's `likes`
-  // docs, batch-fetches the liked posts, and attaches the original
-  // author's denormalized user info for display. Self-likes are excluded —
-  // "Liked · @yourself" isn't meaningful activity to surface.
-  const { data: likedActivity, isLoading: loadingLikes } = useQuery({
-    queryKey: ["user-likes-activity", target?.id],
-    enabled: !!target?.id && canViewPosts && canViewActivity,
-    staleTime: 0,
-    gcTime: 0,
-    queryFn: async (): Promise<LikeRow[]> => {
-      console.log("[ACTIVITY DEBUG] likes: target.id =", target?.id);
-      const likeSnap = await firestore()
-        .collection("likes")
-        .where("user_id", "==", target!.id)
-        .limit(50)
-        .get();
-
-      console.log(
-        "[ACTIVITY DEBUG] likes: empty =",
-        likeSnap.empty,
-        "size =",
-        likeSnap.size,
-      );
-      if (likeSnap.empty) return [];
-
-      const postIds: string[] = [];
-      const likedAt: Record<string, string> = {};
-      likeSnap.docs.forEach((d) => {
-        const data = d.data() as any;
-        if (data.post_id) {
-          postIds.push(data.post_id);
-          likedAt[data.post_id] = tsToIso(
-            data.created_at ?? data.created_at_ts,
-          );
-        }
-      });
-
-      const chunks: string[][] = [];
-      for (let i = 0; i < postIds.length; i += 10)
-        chunks.push(postIds.slice(i, i + 10));
-
-      const postDocs: LikeRow[] = [];
-      for (const chunk of chunks) {
-        const docSnaps = await Promise.all(
-          chunk.map((id) => firestore().collection("posts").doc(id).get()),
-        );
-        docSnaps.forEach((d) => {
-          if (!d.exists) return;
-          const x = d.data() as any;
-          if (x.user_id === target!.id) return; // skip self-likes
-          const at = likedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
-          postDocs.push({
-            id: d.id,
-            type: "like",
-            content: x.content ?? "",
-            media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-            created_at: tsToIso(x.created_at_ts ?? x.created_at),
-            post_type: x.post_type ?? null,
-            liked_at: at,
-            sort_at: at,
-            original_user: x.user
-              ? {
-                  username: x.user.username ?? null,
-                  full_name: x.user.full_name ?? null,
-                  avatar_url: x.user.avatar_url ?? null,
-                }
-              : null,
-          });
-        });
-      }
-
-      return postDocs.sort(
-        (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
-      );
-    },
-  });
-
-  // ── Merged activity ────────────────────────────────────────────────────────
-  // ✅ UPDATED: now includes likedActivity alongside reposts and quotes
-  console.log(
-    "[ACTIVITY DEBUG] canViewActivity:",
-    canViewActivity,
-    "canViewPosts:",
-    canViewPosts,
-    "target.id:",
-    target?.id,
-  );
-  const allActivity = useMemo((): ActivityRow[] => {
-    return [
-      ...(reposts ?? []),
-      ...(quoteReposts ?? []),
-      ...(likedActivity ?? []),
-    ].sort(
+  // ── Merged, Twitter-style Posts timeline ────────────────────────────────────
+  const feedItems = useMemo((): ProfileFeedItem[] => {
+    return [...(ownPosts ?? []), ...(repostItems ?? [])].sort(
       (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
     );
-  }, [reposts, quoteReposts, likedActivity]);
+  }, [ownPosts, repostItems]);
+
+  const loadingPosts = loadingOwnPosts || loadingReposts;
 
   const mediaPosts = useMemo(
-    () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
-    [posts],
+    () =>
+      (ownPosts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
+    [ownPosts],
   );
 
   // ── Follow mutation ────────────────────────────────────────────────────────
@@ -970,7 +827,7 @@ export default function UserProfileScreen() {
       qc.invalidateQueries({ queryKey: ["follow-edge", user.uid, target.id] });
       qc.invalidateQueries({ queryKey: ["user-stats", target.id] });
       qc.invalidateQueries({ queryKey: ["user-stats", user.uid] });
-      qc.invalidateQueries({ queryKey: ["user-posts", target.id] });
+      qc.invalidateQueries({ queryKey: ["user-own-posts", target.id] });
       qc.invalidateQueries({
         queryKey: ["profile-privacy-flags", target.id, user.uid],
       });
@@ -1438,290 +1295,7 @@ export default function UserProfileScreen() {
           </View>
 
           <View style={styles.contentSection}>
-            {/* ── ACTIVITY ── */}
-            {activeTab === "Activity" && (
-              <>
-                {!canViewActivity ? (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="lock-closed-outline"
-                      size={40}
-                      color={colors.primary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      Activity is Private
-                    </Text>
-                    <Text
-                      style={[
-                        styles.emptyDescription,
-                        { color: colors.textTertiary },
-                      ]}
-                    >
-                      @{target.username} has set their activity to private.
-                    </Text>
-                  </View>
-                ) : loadingReposts || loadingQuotes || loadingLikes ? (
-                  <View style={{ gap: 12 }}>
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.postCard,
-                          { backgroundColor: colors.card },
-                        ]}
-                      >
-                        <Skeleton
-                          style={{ height: 12, width: "75%", borderRadius: 10 }}
-                        />
-                        <Skeleton
-                          style={{
-                            height: 12,
-                            width: "55%",
-                            borderRadius: 10,
-                            marginTop: 10,
-                          }}
-                        />
-                      </View>
-                    ))}
-                  </View>
-                ) : allActivity.length > 0 ? (
-                  <View style={{ gap: 12 }}>
-                    {allActivity.map((item) => {
-                      const img = item.media_urls?.[0];
-                      const isVid =
-                        isVideoUrl(img) || item.post_type === "video";
-                      return (
-                        <TouchableOpacity
-                          key={`${item.type}-${item.id}`}
-                          style={[
-                            styles.postCard,
-                            { backgroundColor: colors.card },
-                          ]}
-                          onPress={() => router.push(`/post/${item.id}` as any)}
-                          activeOpacity={0.9}
-                        >
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 6,
-                              marginBottom: 8,
-                            }}
-                          >
-                            <Ionicons
-                              name={
-                                item.type === "quote"
-                                  ? "chatbubble-ellipses-outline"
-                                  : item.type === "like"
-                                    ? "heart"
-                                    : "repeat-outline"
-                              }
-                              size={14}
-                              color={
-                                item.type === "like"
-                                  ? "#FF375F"
-                                  : colors.primary
-                              }
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontWeight: "700",
-                                color:
-                                  item.type === "like"
-                                    ? "#FF375F"
-                                    : colors.primary,
-                              }}
-                            >
-                              {item.type === "quote"
-                                ? `Quoted · @${(item as QuoteRow).quoted_post?.user?.username ?? "someone"}`
-                                : item.type === "like"
-                                  ? `Liked · @${(item as LikeRow).original_user?.username ?? (item as LikeRow).original_user?.full_name ?? "someone"}`
-                                  : `Reposted · @${(item as RepostRow).original_user?.username ?? (item as RepostRow).original_user?.full_name ?? "someone"}`}
-                            </Text>
-                          </View>
-                          {item.type === "quote" && !!item.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text, marginBottom: 8 },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
-                          )}
-                          {(item.type === "repost" || item.type === "like") &&
-                            !!item.content && (
-                              <Text
-                                style={[
-                                  styles.postContent,
-                                  { color: colors.text },
-                                ]}
-                                numberOfLines={4}
-                              >
-                                {item.content}
-                              </Text>
-                            )}
-                          {item.type === "quote" &&
-                            (item as QuoteRow).quoted_post && (
-                              <View
-                                style={[
-                                  styles.quotedCard,
-                                  {
-                                    borderColor: colors.border,
-                                    backgroundColor: colors.surface,
-                                  },
-                                ]}
-                              >
-                                {(item as QuoteRow).quoted_post?.user ? (
-                                  <View style={styles.quotedAuthorRow}>
-                                    {(item as QuoteRow).quoted_post?.user
-                                      ?.avatar_url ? (
-                                      <Image
-                                        source={{
-                                          uri: (item as QuoteRow).quoted_post!
-                                            .user!.avatar_url!,
-                                        }}
-                                        style={styles.quotedAvatar}
-                                      />
-                                    ) : (
-                                      <View
-                                        style={[
-                                          styles.quotedAvatar,
-                                          styles.quotedAvatarPlaceholder,
-                                          { backgroundColor: colors.primary },
-                                        ]}
-                                      >
-                                        <Text
-                                          style={styles.quotedAvatarInitial}
-                                        >
-                                          {(
-                                            (item as QuoteRow).quoted_post?.user
-                                              ?.username?.[0] ?? "U"
-                                          ).toUpperCase()}
-                                        </Text>
-                                      </View>
-                                    )}
-                                    <View style={{ flex: 1, minWidth: 0 }}>
-                                      <Text
-                                        style={[
-                                          styles.quotedFullName,
-                                          { color: colors.text },
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {(item as QuoteRow).quoted_post?.user
-                                          ?.full_name ??
-                                          (item as QuoteRow).quoted_post?.user
-                                            ?.username ??
-                                          "User"}
-                                      </Text>
-                                      <Text
-                                        style={[
-                                          styles.quotedAuthor,
-                                          { color: colors.textTertiary },
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        @
-                                        {(item as QuoteRow).quoted_post?.user
-                                          ?.username ?? "user"}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                ) : null}
-                                {!!(item as QuoteRow).quoted_post?.content ? (
-                                  <Text
-                                    style={[
-                                      styles.quotedContent,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                    numberOfLines={4}
-                                  >
-                                    {(item as QuoteRow).quoted_post?.content}
-                                  </Text>
-                                ) : (
-                                  <Text
-                                    style={[
-                                      styles.quotedContent,
-                                      { color: colors.textTertiary },
-                                    ]}
-                                  >
-                                    Post unavailable
-                                  </Text>
-                                )}
-                                {!!(item as QuoteRow).quoted_post
-                                  ?.media_urls?.[0] && (
-                                  <Image
-                                    source={{
-                                      uri: (item as QuoteRow).quoted_post!
-                                        .media_urls![0],
-                                    }}
-                                    style={styles.quotedMedia}
-                                    resizeMode="cover"
-                                  />
-                                )}
-                              </View>
-                            )}
-                          {!!img && (
-                            <View
-                              style={[
-                                styles.postMediaWrap,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Image
-                                source={{ uri: img }}
-                                style={styles.postMedia}
-                                resizeMode="cover"
-                              />
-                              {isVid && (
-                                <View style={styles.videoOverlay}>
-                                  <Ionicons
-                                    name="play-circle"
-                                    size={32}
-                                    color="#fff"
-                                  />
-                                </View>
-                              )}
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="repeat-outline"
-                      size={40}
-                      color={colors.textTertiary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Activity Yet
-                    </Text>
-                    <Text
-                      style={[
-                        styles.emptyDescription,
-                        { color: colors.textTertiary },
-                      ]}
-                    >
-                      {isMe
-                        ? "Posts you like, repost, or quote"
-                        : `Posts @${target.username} likes, reposts, or quotes`}{" "}
-                      will appear here.
-                    </Text>
-                  </View>
-                )}
-              </>
-            )}
-
-            {/* ── POSTS ── */}
+            {/* ── POSTS — Twitter-style merged timeline ── */}
             {activeTab === "Post" && (
               <>
                 {!canViewPosts ? (
@@ -1769,33 +1343,202 @@ export default function UserProfileScreen() {
                       </View>
                     ))}
                   </View>
-                ) : posts && posts.length > 0 ? (
+                ) : feedItems.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {posts.map((p) => {
-                      const img = p.media_urls?.[0];
-                      const isVid = isVideoUrl(img) || p.post_type === "video";
+                    {feedItems.map((item) => {
+                      const img = item.media_urls?.[0];
+                      const isVid =
+                        isVideoUrl(img) || item.post_type === "video";
+                      const isQuote = !!item.quoted_post;
+
                       return (
                         <TouchableOpacity
-                          key={p.id}
+                          key={`${item.kind}-${item.id}`}
                           style={[
                             styles.postCard,
                             { backgroundColor: colors.card },
                           ]}
-                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          {!!p.content && (
+                          {/* ✅ Repost label — Twitter-style, sits above
+                              the post card it's reposting */}
+                          {item.kind === "repost" && (
+                            <View style={styles.repostLabelRow}>
+                              <Ionicons
+                                name="repeat-outline"
+                                size={13}
+                                color={colors.textTertiary}
+                              />
+                              <Text
+                                style={[
+                                  styles.repostLabelText,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                {isMe
+                                  ? "You reposted"
+                                  : `@${target.username} reposted`}
+                              </Text>
+                            </View>
+                          )}
+
+                          {item.kind === "repost" && item.original_author && (
+                            <View style={styles.repostAuthorRow}>
+                              {item.original_author.avatar_url ? (
+                                <Image
+                                  source={{
+                                    uri: item.original_author.avatar_url,
+                                  }}
+                                  style={styles.repostAuthorAvatar}
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.repostAuthorAvatar,
+                                    styles.quotedAvatarPlaceholder,
+                                    { backgroundColor: colors.primary },
+                                  ]}
+                                >
+                                  <Text style={styles.quotedAvatarInitial}>
+                                    {(
+                                      item.original_author.username?.[0] ?? "U"
+                                    ).toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
+                              <Text
+                                style={[
+                                  styles.repostAuthorName,
+                                  { color: colors.text },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {item.original_author.full_name ??
+                                  item.original_author.username ??
+                                  "User"}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.repostAuthorHandle,
+                                  { color: colors.textTertiary },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                @{item.original_author.username ?? "user"}
+                              </Text>
+                            </View>
+                          )}
+
+                          {!!item.content && (
                             <Text
                               style={[
                                 styles.postContent,
-                                { color: colors.text },
+                                {
+                                  color: colors.text,
+                                  marginBottom: isQuote ? 8 : 0,
+                                },
                               ]}
                               numberOfLines={4}
                             >
-                              {p.content}
+                              {item.content}
                             </Text>
                           )}
-                          {!!img && (
+
+                          {/* ✅ Embedded quoted-post card */}
+                          {isQuote && item.quoted_post && (
+                            <View
+                              style={[
+                                styles.quotedCard,
+                                {
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.surface,
+                                },
+                              ]}
+                            >
+                              {item.quoted_post.user ? (
+                                <View style={styles.quotedAuthorRow}>
+                                  {item.quoted_post.user.avatar_url ? (
+                                    <Image
+                                      source={{
+                                        uri: item.quoted_post.user.avatar_url,
+                                      }}
+                                      style={styles.quotedAvatar}
+                                    />
+                                  ) : (
+                                    <View
+                                      style={[
+                                        styles.quotedAvatar,
+                                        styles.quotedAvatarPlaceholder,
+                                        { backgroundColor: colors.primary },
+                                      ]}
+                                    >
+                                      <Text style={styles.quotedAvatarInitial}>
+                                        {(
+                                          item.quoted_post.user.username?.[0] ??
+                                          "U"
+                                        ).toUpperCase()}
+                                      </Text>
+                                    </View>
+                                  )}
+                                  <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text
+                                      style={[
+                                        styles.quotedFullName,
+                                        { color: colors.text },
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {item.quoted_post.user.full_name ??
+                                        item.quoted_post.user.username ??
+                                        "User"}
+                                    </Text>
+                                    <Text
+                                      style={[
+                                        styles.quotedAuthor,
+                                        { color: colors.textTertiary },
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      @
+                                      {item.quoted_post.user.username ?? "user"}
+                                    </Text>
+                                  </View>
+                                </View>
+                              ) : null}
+                              {!!item.quoted_post.content ? (
+                                <Text
+                                  style={[
+                                    styles.quotedContent,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                  numberOfLines={4}
+                                >
+                                  {item.quoted_post.content}
+                                </Text>
+                              ) : (
+                                <Text
+                                  style={[
+                                    styles.quotedContent,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  Post unavailable
+                                </Text>
+                              )}
+                              {!!item.quoted_post.media_urls?.[0] && (
+                                <Image
+                                  source={{
+                                    uri: item.quoted_post.media_urls[0],
+                                  }}
+                                  style={styles.quotedMedia}
+                                  resizeMode="cover"
+                                />
+                              )}
+                            </View>
+                          )}
+
+                          {!!img && !isQuote && (
                             <View
                               style={[
                                 styles.postMediaWrap,
@@ -1840,7 +1583,9 @@ export default function UserProfileScreen() {
                         { color: colors.textTertiary },
                       ]}
                     >
-                      This user hasn't posted anything yet.
+                      {isMe
+                        ? "Posts you write or repost will appear here."
+                        : `@${target.username} hasn't posted anything yet.`}
                     </Text>
                   </View>
                 )}
@@ -1895,7 +1640,7 @@ export default function UserProfileScreen() {
                       Follow to see media from @{target.username}.
                     </Text>
                   </View>
-                ) : loadingPosts ? (
+                ) : loadingOwnPosts ? (
                   <View style={{ gap: GRID_GAP }}>
                     {Array.from({ length: 2 }).map((_, ri) => (
                       <View
@@ -1925,7 +1670,7 @@ export default function UserProfileScreen() {
                     }}
                   >
                     {(() => {
-                      const rows: PostRow[][] = [];
+                      const rows: ProfileFeedItem[][] = [];
                       for (let i = 0; i < mediaPosts.length; i += 3)
                         rows.push(mediaPosts.slice(i, i + 3));
                       return rows.map((row, ri) => (
@@ -2079,7 +1824,6 @@ export default function UserProfileScreen() {
           />
         )}
 
-        {/* ✅ Location picker available on user profile too if needed */}
         <LocationPicker
           visible={showLocationPicker}
           onSelect={() => setShowLocationPicker(false)}
@@ -2217,6 +1961,22 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
+  repostLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  repostLabelText: { fontSize: 12, fontWeight: "700" },
+  repostAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  repostAuthorAvatar: { width: 24, height: 24, borderRadius: 12 },
+  repostAuthorName: { fontSize: 13, fontWeight: "800" },
+  repostAuthorHandle: { fontSize: 12, fontWeight: "500" },
   postContent: { fontSize: 14, lineHeight: 20 },
   postMediaWrap: {
     width: "100%",
@@ -2237,7 +1997,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     padding: 12,
-    marginTop: 8,
+    marginTop: 4,
     gap: 8,
   },
   quotedAuthorRow: {

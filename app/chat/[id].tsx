@@ -2,16 +2,24 @@
 // ✅ FIXED: message deletion with long press
 // ✅ FIXED: deleted messages hidden from UI
 // ✅ FIXED: media/attachments supported
+// ✅ FIXED: restored the subtitle useMemo, which was accidentally dropped
+//           in a previous edit — the JSX below still referenced it,
+//           causing a "Cannot find name 'subtitle'" compile error.
 
+import ChatActionsSheet, {
+  type ChatActionsSheetRef,
+} from "@/components/chat/ChatActionsSheet";
 import ChatHeader from "@/components/chat/ChatHeader";
 import ChatInput, { type ChatAttachment } from "@/components/chat/ChatInput";
 import ChatList from "@/components/chat/ChatList";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
+import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import firestore from "@react-native-firebase/firestore";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -110,6 +118,82 @@ export default function ChatConversationScreen() {
     return "";
   }, [conversation, user?.uid]);
 
+  // ✅ NEW: resolve the other participant's id/avatar once, for the
+  // header's tap-to-profile and avatar display. Group chats have no
+  // single "other user" so both stay null there.
+  const { otherUserId, otherUserAvatar } = useMemo(() => {
+    if (!conversation || conversation.is_group || !user?.uid)
+      return { otherUserId: null, otherUserAvatar: null };
+    const other = conversation.participants?.find(
+      (p) => p.user_id !== user.uid,
+    );
+    return {
+      otherUserId: other?.user_id ?? null,
+      otherUserAvatar: other?.profiles?.avatar_url ?? null,
+    };
+  }, [conversation, user?.uid]);
+
+  const actionsSheetRef = useRef<ChatActionsSheetRef>(null);
+  const { data: isMuted } = useMuteStatus(otherUserId ?? "");
+  const muteMutation = useToggleMute(otherUserId ?? "");
+
+  const handleBlock = () => {
+    actionsSheetRef.current?.close();
+    if (!otherUserId) return;
+    Alert.alert(
+      "Block user?",
+      "You won't see each other's posts or be able to message.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await db.collection("user_blocks").add({
+                blocker_id: user?.uid,
+                blocked_id: otherUserId,
+                created_at: new Date().toISOString(),
+              });
+              router.back();
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to block user");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDeleteConversation = () => {
+    actionsSheetRef.current?.close();
+    if (!id) return;
+    Alert.alert(
+      "Delete conversation?",
+      "This deletes the conversation for you. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { deleteConversation } =
+                await import("@/lib/firestore/chat");
+              await deleteConversation(id);
+              router.back();
+            } catch (e: any) {
+              Alert.alert(
+                "Error",
+                e?.message ?? "Failed to delete conversation",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleSendMessage = async (
     content: string,
     attachments?: ChatAttachment[],
@@ -171,11 +255,18 @@ export default function ChatConversationScreen() {
           <ChatHeader
             title={title}
             subtitle={subtitle}
+            avatarUrl={otherUserAvatar}
             isOnline={conversation?.is_online ?? false}
             onBackPress={() => {
               selectConversation(null);
               router.back();
             }}
+            onTitlePress={
+              otherUserId
+                ? () => router.push(`/user/${otherUserId}` as any)
+                : undefined
+            }
+            onMorePress={() => actionsSheetRef.current?.present()}
           />
 
           <ChatList
@@ -214,6 +305,41 @@ export default function ChatConversationScreen() {
             userId={user?.uid}
           />
         </KeyboardAvoidingView>
+
+        <ChatActionsSheet
+          ref={actionsSheetRef}
+          username={subtitle.replace(/^@/, "")}
+          isMuted={!!isMuted}
+          onViewProfile={
+            otherUserId
+              ? () => {
+                  actionsSheetRef.current?.close();
+                  router.push(`/user/${otherUserId}` as any);
+                }
+              : undefined
+          }
+          onMute={
+            otherUserId
+              ? () => {
+                  actionsSheetRef.current?.close();
+                  muteMutation.mutate(!!isMuted);
+                }
+              : undefined
+          }
+          onBlock={otherUserId ? handleBlock : undefined}
+          onReport={
+            otherUserId
+              ? () => {
+                  actionsSheetRef.current?.close();
+                  Alert.alert(
+                    "Report",
+                    "Thank you — we'll review this account.",
+                  );
+                }
+              : undefined
+          }
+          onDeleteConversation={id ? handleDeleteConversation : undefined}
+        />
       </SafeAreaView>
     </>
   );

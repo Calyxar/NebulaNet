@@ -1,5 +1,10 @@
-// components/chat/ConversationItem.tsx — FIREBASE ✅
-// Renamed SupabaseAttachment → ChatAttachment
+// components/chat/ConversationItem.tsx — ✅ REDESIGNED, Twitter/X DM list style
+// ✅ NEW: unread conversations now bold the NAME and TIMESTAMP too, not
+//         just the message preview — matches how Twitter/X visually
+//         distinguishes an unread thread at a glance, not just on close
+//         inspection of the preview text weight.
+// ✅ Slightly larger avatar (60 vs 56) and tighter online-indicator inset
+//         to read closer to X's actual DM list proportions.
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -38,6 +43,7 @@ export default function ConversationItem({
   onLongPress,
 }: ConversationItemProps) {
   const { colors } = useTheme() as { colors: any };
+  const isUnread = unreadCount > 0;
 
   const getInitials = (n: string) =>
     n
@@ -95,7 +101,11 @@ export default function ConversationItem({
         <View style={styles.header}>
           <View style={styles.nameRow}>
             <Text
-              style={[styles.name, { color: colors.text }]}
+              style={[
+                styles.name,
+                { color: colors.text },
+                isUnread && styles.nameUnread,
+              ]}
               numberOfLines={1}
             >
               {name}
@@ -112,7 +122,12 @@ export default function ConversationItem({
           <Text
             style={[
               styles.timestamp,
-              { color: colors.textTertiary ?? colors.textSecondary },
+              {
+                color: isUnread
+                  ? colors.text
+                  : (colors.textTertiary ?? colors.textSecondary),
+              },
+              isUnread && styles.timestampUnread,
             ]}
           >
             {timestamp}
@@ -124,16 +139,20 @@ export default function ConversationItem({
             style={[
               styles.message,
               {
-                color: isTyping ? colors.primary : colors.textSecondary,
+                color: isTyping
+                  ? colors.primary
+                  : isUnread
+                    ? colors.text
+                    : colors.textSecondary,
                 fontStyle: isTyping ? "italic" : "normal",
-                fontWeight: unreadCount > 0 ? "600" : "400",
+                fontWeight: isUnread ? "700" : "400",
               },
             ]}
             numberOfLines={1}
           >
             {preview}
           </Text>
-          {unreadCount > 0 && (
+          {isUnread && (
             <View
               style={[styles.unreadBadge, { backgroundColor: colors.primary }]}
             >
@@ -156,11 +175,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   avatarContainer: { position: "relative", marginRight: 12 },
-  avatar: { width: 56, height: 56, borderRadius: 28 },
+  avatar: { width: 60, height: 60, borderRadius: 30 },
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -184,8 +203,10 @@ const styles = StyleSheet.create({
   },
   nameRow: { flexDirection: "row", alignItems: "center", flex: 1, gap: 4 },
   name: { fontSize: 16, fontWeight: "600", flexShrink: 1 },
+  nameUnread: { fontWeight: "800" },
   pinIcon: { marginLeft: 2 },
   timestamp: { fontSize: 12 },
+  timestampUnread: { fontWeight: "700" },
   messageContainer: {
     flexDirection: "row",
     alignItems: "center",

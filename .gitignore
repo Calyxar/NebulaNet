@@ -26,6 +26,9 @@ serviceAccountKey.json
 credentials.json
 google-services.json
 
+#Firebase Users
+
+
 # crash logs
 crash_log*.txt
 crash_log.txt
