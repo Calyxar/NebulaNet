@@ -78,3 +78,7 @@ app-example
 
 .vercel
 .env*.local
+"credentials.json" 
+"google-services.json" 
+"firebase_users.json" 
+"users.json" 
