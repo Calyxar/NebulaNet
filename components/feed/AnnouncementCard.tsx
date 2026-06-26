@@ -94,10 +94,15 @@ export default function AnnouncementCard() {
     }
   }, [announcement]);
 
-  // Don't show if no announcement, already dismissed, or same announcement dismissed before
+  // Don't show if no announcement, already dismissed this session, or
+  // this exact announcement was dismissed in a previous session. The
+  // persisted check below was previously commented out — the dismissal
+  // WAS being saved correctly to AsyncStorage, but never actually
+  // consulted, so the card reappeared on every fresh app launch
+  // regardless of whether the user had already dismissed it.
   if (!announcement) return null;
   if (dismissed) return null;
-  // if (dismissedId === announcement.id) return null;
+  if (dismissedId === announcement.id) return null;
 
   const gradientColors = isDark
     ? (["#3B1F72", "#1E1040"] as const)
