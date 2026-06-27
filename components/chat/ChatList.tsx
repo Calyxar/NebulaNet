@@ -199,31 +199,6 @@ export default function ChatList({
     );
   };
 
-  const renderEmpty = () => {
-    if (emptyComponent) return emptyComponent;
-    return (
-      // ✅ FIXED: inverted FlatList on Android rotates its entire content
-      // area 180°, including ListEmptyComponent. Message bubbles don't
-      // visibly show this (no inherent "up" orientation in a chat bubble),
-      // but text/icons in an empty state do — hence "No messages yet"
-      // rendering upside-down. Counter-rotating just this component
-      // cancels the list's rotation without affecting real messages.
-      <View style={[styles.emptyContainer, styles.emptyContainerCounterFlip]}>
-        <Ionicons
-          name="chatbubble-ellipses-outline"
-          size={64}
-          color={colors.border}
-        />
-        <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
-          No messages yet
-        </Text>
-        <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
-          Start a conversation by sending a message
-        </Text>
-      </View>
-    );
-  };
-
   const renderFooter = () =>
     isLoading ? (
       <View style={styles.footer}>
@@ -232,37 +207,62 @@ export default function ChatList({
     ) : null;
 
   return (
-    <FlatList
-      data={listItems}
-      keyExtractor={(item) =>
-        item.type === "date" ? `date-${item.label}` : item.data.id
-      }
-      renderItem={renderItem}
-      // ✅ inverted=true puts newest messages at the bottom naturally.
-      // No scrollToEnd needed — the list starts at the bottom and
-      // new items push existing ones up, exactly like iMessage/WhatsApp.
-      inverted
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        onRefresh ? (
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        ) : undefined
-      }
-      // onEndReached fires when the user scrolls UP (older messages) because inverted
-      onEndReached={onLoadMore}
-      onEndReachedThreshold={0.3}
-      ListEmptyComponent={renderEmpty}
-      ListFooterComponent={renderFooter}
-      // Performance
-      removeClippedSubviews
-      maxToRenderPerBatch={20}
-      windowSize={10}
-    />
+    <View style={{ flex: 1 }}>
+      <FlatList
+        data={listItems}
+        keyExtractor={(item) =>
+          item.type === "date" ? `date-${item.label}` : item.data.id
+        }
+        renderItem={renderItem}
+        inverted
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          ) : undefined
+        }
+        onEndReached={onLoadMore}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={renderFooter}
+        removeClippedSubviews
+        maxToRenderPerBatch={20}
+        windowSize={10}
+      />
+      {/* ✅ FIXED: rendering the empty state via ListEmptyComponent put it
+          INSIDE the inverted FlatList's rotation context, where the
+          counter-transform (scaleY: -1) produced garbled text on some
+          devices instead of cleanly cancelling the rotation. Rendering it
+          as a plain sibling overlay — completely outside the FlatList —
+          sidesteps the transform math entirely. */}
+      {listItems.length === 0 && (
+        <View style={styles.emptyOverlay} pointerEvents="none">
+          {emptyComponent ?? (
+            <View style={styles.emptyContainer}>
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={64}
+                color={colors.border}
+              />
+              <Text
+                style={[styles.emptyTitle, { color: colors.textSecondary }]}
+              >
+                No messages yet
+              </Text>
+              <Text
+                style={[styles.emptySubtitle, { color: colors.textTertiary }]}
+              >
+                Start a conversation by sending a message
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -478,17 +478,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     fontWeight: "700",
   },
+  emptyOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   emptyContainer: {
-    flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 60,
-  },
-  // ✅ NEW: cancels the inverted FlatList's 180° rotation for this
-  // component only — real message items don't need this because chat
-  // bubbles have no visible "up" orientation, but icon/text content does.
-  emptyContainerCounterFlip: {
-    transform: [{ scaleY: -1 }],
   },
   emptyTitle: {
     fontSize: 18,

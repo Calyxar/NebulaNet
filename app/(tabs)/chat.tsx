@@ -162,7 +162,12 @@ export default function ChatScreen() {
                 mediaType={item.last_message?.media_type ?? null}
                 timestamp={formatTimestamp(item.updated_at)}
                 unreadCount={item.unread_count ?? 0}
-                isOnline={item.is_online ?? false}
+                otherUserId={
+                  !item.is_group
+                    ? (item.participants?.find((p) => p.user_id !== user?.uid)
+                        ?.user_id ?? null)
+                    : null
+                }
                 isTyping={item.is_typing ?? false}
                 isPinned={item.is_pinned ?? false}
                 avatar={getAvatarUrl(item, user?.uid)}

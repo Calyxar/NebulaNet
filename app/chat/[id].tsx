@@ -15,6 +15,7 @@ import ChatList from "@/components/chat/ChatList";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
+import { usePresence } from "@/hooks/usePresence";
 import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import firestore from "@react-native-firebase/firestore";
@@ -134,6 +135,8 @@ export default function ChatConversationScreen() {
   }, [conversation, user?.uid]);
 
   const actionsSheetRef = useRef<ChatActionsSheetRef>(null);
+  const { status: otherUserStatus } = usePresence(otherUserId);
+  const otherUserOnline = otherUserStatus === "online";
   const { data: isMuted } = useMuteStatus(otherUserId ?? "");
   const muteMutation = useToggleMute(otherUserId ?? "");
 
@@ -256,7 +259,7 @@ export default function ChatConversationScreen() {
             title={title}
             subtitle={subtitle}
             avatarUrl={otherUserAvatar}
-            isOnline={conversation?.is_online ?? false}
+            isOnline={otherUserOnline}
             onBackPress={() => {
               selectConversation(null);
               router.back();

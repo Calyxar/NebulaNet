@@ -652,7 +652,13 @@ export async function getPosts(
 
   // On first page only, merge in reposted posts for the viewer
   let merged = posts;
-  if (viewerId && !cursor && !resolvedUserId && !resolvedCommunityIds.length) {
+  if (
+    viewerId &&
+    !cursor &&
+    !resolvedUserId &&
+    !resolvedCommunityIds.length &&
+    !hashtag
+  ) {
     const repostItems = await getRepostFeedItems(
       viewerId,
       limit,

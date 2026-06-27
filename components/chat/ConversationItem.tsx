@@ -7,6 +7,7 @@
 //         to read closer to X's actual DM list proportions.
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
+import { usePresence } from "@/hooks/usePresence";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
@@ -20,7 +21,12 @@ export type ConversationItemProps = {
   mediaType?: string | null;
   timestamp: string;
   unreadCount: number;
-  isOnline: boolean;
+  // ✅ CHANGED: was a static boolean computed once upstream from
+  // denormalized conversation data. Now this component subscribes to
+  // LIVE presence itself via otherUserId, so the green dot updates the
+  // moment the other person opens/closes the app — not just whenever
+  // the conversation list happens to re-fetch.
+  otherUserId?: string | null;
   isTyping: boolean;
   isPinned: boolean;
   avatar?: string | null;
@@ -35,7 +41,7 @@ export default function ConversationItem({
   mediaType,
   timestamp,
   unreadCount,
-  isOnline,
+  otherUserId,
   isTyping,
   isPinned,
   avatar,
@@ -43,6 +49,8 @@ export default function ConversationItem({
   onLongPress,
 }: ConversationItemProps) {
   const { colors } = useTheme() as { colors: any };
+  const { status } = usePresence(otherUserId);
+  const isOnline = status === "online";
   const isUnread = unreadCount > 0;
 
   const getInitials = (n: string) =>

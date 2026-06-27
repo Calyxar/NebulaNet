@@ -56,3 +56,22 @@ export function usePresence(userId?: string | null): PresenceInfo {
 
   return info;
 }
+
+/**
+ * ✅ NEW: formats a lastChanged timestamp into a short "last seen" string,
+ * matching the same general style as the timeAgo-style helpers already
+ * used elsewhere in the app (home.tsx, chat.tsx). Only meaningful for an
+ * OFFLINE user — an online user's header/row should just say "Online",
+ * not "Active 0m ago".
+ */
+export function formatLastSeen(lastChanged: number | null): string {
+  if (!lastChanged) return "";
+  const diffMs = Date.now() - lastChanged;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "Active just now";
+  if (diffMins < 60) return `Active ${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `Active ${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `Active ${diffDays}d ago`;
+}
