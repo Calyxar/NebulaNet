@@ -1,5 +1,6 @@
 // app/hashtag/[tag].tsx ✅
 // ✅ Uses getPosts with hashtag filter — works with array-contains index
+import MentionHashtagText from "@/components/MentionHashtagText";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { getTrendingHashtags } from "@/lib/firestore/hashtags";
 import { getPosts, type Post } from "@/lib/firestore/posts";
@@ -160,12 +161,13 @@ export default function HashtagScreen() {
         </View>
 
         {!!item.content && (
-          <Text
+          <MentionHashtagText
+            content={item.content}
             style={[styles.content, { color: colors.text }]}
             numberOfLines={4}
-          >
-            {item.content}
-          </Text>
+            hashtagColor={colors.primary}
+            onPress={() => router.push(`/post/${item.id}` as any)}
+          />
         )}
 
         {!!media && (

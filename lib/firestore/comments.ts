@@ -2,9 +2,18 @@
 // ✅ NEW: records author affinity (for the For You ranking algorithm)
 // when a user comments on someone else's post. Comments are weighted
 // higher than likes in the affinity score — see lib/firestore/affinity.ts.
+// ✅ FIXED: addComment never created a notification for the post's author
+// (or, for replies, the parent comment's author) — confirmed by tracing
+// through to sendPushNotification's Cloud Function logs, which showed
+// zero invocations ever, despite a valid, fresh FCM token on file.
+// ✅ NEW: also notifies anyone @mentioned in the comment text, separate
+// from (and in addition to) the reply/comment notification above — a
+// comment can both notify its parent author AND mention a third person.
 
 import { auth, db } from "@/lib/firebase";
 import { recordAffinity } from "@/lib/firestore/affinity";
+import { extractAndResolveMentions } from "@/lib/firestore/mentions";
+import { createNotification } from "@/lib/firestore/notifications";
 import firestore from "@react-native-firebase/firestore";
 
 type ProfileRow = {
@@ -160,6 +169,73 @@ export async function addComment(input: {
       if (authorId) {
         recordAffinity(authorId, "comment").catch(() => {});
       }
+
+      // ✅ FIXED (re-added): notify whoever should be notified about this
+      // comment.
+      // - Top-level comment -> notify the post's author.
+      // - Reply -> notify the PARENT COMMENT's author (matches how
+      //   Twitter/Instagram-style reply notifications work).
+      // createNotification() already no-ops on self-notifications.
+      if (input.parent_id) {
+        db.collection("comments")
+          .doc(input.parent_id)
+          .get()
+          .then((parentSnap) => {
+            const parentData = parentSnap.exists()
+              ? (parentSnap.data() as any)
+              : null;
+            const parentAuthorId = parentData?.user_id;
+            if (parentAuthorId) {
+              createNotification({
+                type: "comment",
+                receiver_id: parentAuthorId,
+                sender_id: uid,
+                entity_type: "comment",
+                entity_id: commentRef.id,
+                text: input.content,
+              }).catch((err) =>
+                console.warn(
+                  "[addComment] failed to create reply notification:",
+                  err,
+                ),
+              );
+            }
+          })
+          .catch(() => {});
+      } else if (authorId) {
+        createNotification({
+          type: "comment",
+          receiver_id: authorId,
+          sender_id: uid,
+          entity_type: "post",
+          entity_id: input.post_id,
+          text: input.content,
+        }).catch((err) =>
+          console.warn("[addComment] failed to create notification:", err),
+        );
+      }
+
+      // ✅ NEW: notify anyone @mentioned in the comment text, separate
+      // from the reply/comment notification above.
+      extractAndResolveMentions(input.content)
+        .then((mentions) => {
+          mentions.forEach((m) => {
+            createNotification({
+              type: "mention",
+              receiver_id: m.userId,
+              sender_id: uid,
+              entity_type: "comment",
+              entity_id: commentRef.id,
+              text: input.content,
+            }).catch((err) =>
+              console.warn(
+                "[addComment] failed to create mention notification:",
+                err,
+              ),
+            );
+          });
+        })
+        .catch(() => {});
     })
     .catch(() => {});
 

@@ -25,26 +25,26 @@
 // "2h" / "3d" / "Jun 22") instead of date-fns's formatDistanceToNow
 // ("2 hours ago") — matches app/post/[id].tsx.
 
-import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
+import MentionHashtagText from "@/components/MentionHashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import PostOptionsSheet, {
-    type PostOption,
+  type PostOption,
 } from "@/components/post/PostOptionsSheet";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import {
-    postKeys,
-    useAddComment,
-    useComments,
-    usePost,
-    useToggleBookmark,
-    useToggleCommentLike,
-    useToggleLike,
-    type CommentWithAuthor,
+  postKeys,
+  useAddComment,
+  useComments,
+  usePost,
+  useToggleBookmark,
+  useToggleCommentLike,
+  useToggleLike,
+  type CommentWithAuthor,
 } from "@/hooks/usePosts";
 import { useOptimisticSharePost } from "@/hooks/useShares";
 import { db } from "@/lib/firebase";
@@ -57,26 +57,26 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-    Alert,
-    Dimensions,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    type AlertButton,
-    type ViewToken,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  type AlertButton,
+  type ViewToken,
 } from "react-native";
 import {
-    SafeAreaView,
-    useSafeAreaInsets,
+  SafeAreaView,
+  useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -470,7 +470,7 @@ function PostViewerPage({
               </Text>
             )}
             {!isPoll && !!post.content && (
-              <HashtagText
+              <MentionHashtagText
                 content={post.content ?? ""}
                 style={[styles.postBody, { color: colors.textSecondary }]}
                 hashtagColor="#7c3aed"
@@ -770,7 +770,7 @@ function PostViewerPage({
                                   {formatDate(c.created_at)}
                                 </Text>
                               </View>
-                              <HashtagText
+                              <MentionHashtagText
                                 content={c.content ?? ""}
                                 style={StyleSheet.flatten([
                                   styles.commentText,

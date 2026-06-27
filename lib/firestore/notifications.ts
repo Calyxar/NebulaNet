@@ -9,7 +9,13 @@ export type NotificationType =
   | "follow_request"
   | "like"
   | "comment"
-  | "story_reply"
+  | "repost"
+  | "mention"
+  | "message"
+  | "story_like"
+  | "story_comment"
+  | "community_invite"
+  | "join_request"
   | "system";
 
 export type EntityType = "post" | "comment" | "story" | "user" | "community";

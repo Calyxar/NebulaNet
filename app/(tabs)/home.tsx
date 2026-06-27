@@ -7,8 +7,8 @@
 // ✅ AnnouncementCard shown at top of For You feed
 
 import AnnouncementCard from "@/components/feed/AnnouncementCard";
-import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
+import MentionHashtagText from "@/components/MentionHashtagText";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
@@ -770,7 +770,7 @@ export default function HomeScreen() {
           ) : (
             <>
               {!!post.content && (
-                <HashtagText
+                <MentionHashtagText
                   content={post.content}
                   style={[styles.content, { color: colors.text }]}
                   numberOfLines={6}

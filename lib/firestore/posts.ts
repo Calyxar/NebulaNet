@@ -16,6 +16,8 @@ import {
   extractHashtags,
   indexHashtags,
 } from "@/lib/firestore/hashtags";
+import { extractAndResolveMentions } from "@/lib/firestore/mentions";
+import { createNotification } from "@/lib/firestore/notifications";
 import { detectLanguage } from "@/utils/detectLanguage";
 import firestore, {
   FirebaseFirestoreTypes,
@@ -95,6 +97,14 @@ export interface PaginatedPosts {
   nextCursor: PostFilters["cursor"];
 }
 
+export type QuotedPostEmbed = {
+  id: string;
+  content: string | null;
+  user: ProfileRow | null;
+  created_at?: string;
+  media_urls?: string[] | null;
+};
+
 export type CreatePostData = {
   title?: string;
   content: string;
@@ -103,6 +113,16 @@ export type CreatePostData = {
   visibility: PostVisibility;
   location?: PostLocation;
   is_nsfw?: boolean;
+  // ✅ NEW: previously accepted via an `as any` cast from
+  // app/create/quote.tsx, which silenced the type error but meant
+  // these fields were silently dropped — createPost() never actually
+  // read or wrote them, so every quote post ever created was missing
+  // its quote_post_id/quote_post entirely in Firestore. Confirmed by
+  // tracing a real quote post ("Nice" quoting trish's moon photo) that
+  // rendered as bare text with no embedded quote card on the profile
+  // screen — the field genuinely never existed on the document.
+  quote_post_id?: string;
+  quote_post?: QuotedPostEmbed;
 };
 
 export type UpdatePostData = {
@@ -797,6 +817,11 @@ export async function createPost(
       location: postData.location ?? null,
       hashtags,
       is_nsfw: postData.is_nsfw ?? false,
+      // ✅ FIXED: was silently dropped — never written despite being
+      // passed in from app/create/quote.tsx since CreatePostData never
+      // declared these fields and this .add() call never included them.
+      quote_post_id: postData.quote_post_id ?? null,
+      quote_post: postData.quote_post ?? null,
       like_count: 0,
       comment_count: 0,
       repost_count: 0,
@@ -814,6 +839,32 @@ export async function createPost(
       console.warn("indexHashtags failed:", e),
     );
   }
+
+  // ✅ NEW: notify anyone @mentioned in the post. Fire-and-forget —
+  // resolution + notification creation should never block or fail the
+  // post itself from being created. createNotification() already
+  // no-ops on self-mentions.
+  extractAndResolveMentions(combinedText)
+    .then((mentions) => {
+      mentions.forEach((m) => {
+        createNotification({
+          type: "mention",
+          receiver_id: m.userId,
+          sender_id: uid,
+          entity_type: "post",
+          entity_id: refDoc.id,
+          text: postData.content,
+        }).catch((err) =>
+          console.warn(
+            "[createPost] failed to create mention notification:",
+            err,
+          ),
+        );
+      });
+    })
+    .catch((err) =>
+      console.warn("[createPost] failed to resolve mentions:", err),
+    );
 
   const createdSnap = await refDoc.get();
   if (!createdSnap.exists) return null;

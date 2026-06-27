@@ -1,6 +1,6 @@
 // app/post/[id].tsx
-import HashtagText from "@/components/HashtagText";
 import VideoPlayer from "@/components/media/VideoPlayer";
+import MentionHashtagText from "@/components/MentionHashtagText";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import PostOptionsSheet, {
@@ -564,7 +564,7 @@ export default function PostDetailScreen() {
                 </Text>
               )}
               {!isPoll && !!post.content && (
-                <HashtagText
+                <MentionHashtagText
                   content={post.content ?? ""}
                   style={[styles.postBody, { color: colors.textSecondary }]}
                   hashtagColor="#7c3aed"
@@ -857,7 +857,7 @@ export default function PostDetailScreen() {
                                 {formatDate(c.created_at)}
                               </Text>
                             </View>
-                            <HashtagText
+                            <MentionHashtagText
                               content={c.content ?? ""}
                               style={StyleSheet.flatten([
                                 styles.commentText,

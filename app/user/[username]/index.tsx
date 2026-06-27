@@ -7,16 +7,12 @@
 // Likes are dropped from any profile display, matching current Twitter/X
 // (which removed public Likes tabs from profiles).
 //
-// This also resolves the long-running Activity tab bugs (empty results,
-// quote cards missing avatar/username) by construction — there's no
-// longer a separate quote/repost/like query path to go wrong. Reposts
-// fetch their underlying post by ref (no FieldPath bug); quote-posts are
-// just regular posts in the normal posts query that happen to carry a
-// quote_post_id, resolved with the same embedded-card renderer used here.
-//
-// Fix 3: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
-// Fix 4: Google Places URL uses encodeURIComponent on types param
+// ✅ NEW: post content, quoted-post content, and reply content now render
+// through MentionHashtagText instead of plain Text — #hashtags and
+// @mentions in profile posts/replies are now styled and tappable here
+// too, matching every other screen that renders post content.
 
+import MentionHashtagText from "@/components/MentionHashtagText";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -88,9 +84,6 @@ type QuotedPostInfo = {
   } | null;
 };
 
-// ✅ Unified feed item — every entry in the Posts tab is one of these.
-// "own" = a post the user wrote (may itself be a quote, via quoted_post)
-// "repost" = a post the user reposted (not authored by them)
 type ProfileFeedItem = {
   id: string;
   kind: "own" | "repost";
@@ -98,17 +91,24 @@ type ProfileFeedItem = {
   media_urls: string[] | null;
   post_type?: string | null;
   created_at: string;
-  // The timestamp this item should be SORTED by — created_at for own
-  // posts, reposted_at for reposts. Keeps the timeline ordered by when
-  // the action actually happened, the same way Twitter's profile does.
   sort_at: string;
   quoted_post?: QuotedPostInfo | null;
-  // Only present for kind === "repost" — who originally authored the
-  // post this user reposted.
   original_author?: {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
+  } | null;
+};
+
+type ReplyItem = {
+  id: string;
+  content: string;
+  created_at: string;
+  parent_post_id: string;
+  parent_post_content: string | null;
+  parent_post_author: {
+    username: string | null;
+    full_name: string | null;
   } | null;
 };
 
@@ -119,10 +119,7 @@ type FollowEdge = {
 };
 type BlockEdge = { blocker_id: string; blocked_id: string };
 
-// ✅ "Activity" removed — Twitter/X doesn't have a separate tab for this;
-// reposts/quotes are mixed directly into Posts, and Likes aren't shown
-// publicly on profiles at all anymore.
-const profileTabs = ["Post", "Tagged", "Media"] as const;
+const profileTabs = ["Post", "Replies", "Tagged", "Media"] as const;
 
 function Skeleton({ style }: { style: any }) {
   return <View style={[styles.skel, style]} />;
@@ -150,7 +147,6 @@ const isVideoUrl = (url?: string | null) => {
   );
 };
 
-// ✅ FIX 3 & 4: LocationPicker with KeyboardAvoidingView + fixed Places URL
 function LocationPicker({
   visible,
   onSelect,
@@ -407,7 +403,6 @@ export default function UserProfileScreen() {
     useState<(typeof profileTabs)[number]>("Post");
   const [showLocationPicker, setShowLocationPicker] = useState(false);
 
-  // ── Profile ────────────────────────────────────────────────────────────────
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", raw],
     enabled: !!raw,
@@ -460,7 +455,6 @@ export default function UserProfileScreen() {
   const { data: isMuted } = useMuteStatus(target?.id ?? "");
   const muteMutation = useToggleMute(target?.id ?? "");
 
-  // ── Follow edge ────────────────────────────────────────────────────────────
   const { data: followEdge, isLoading: loadingEdge } = useQuery({
     queryKey: ["follow-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
@@ -483,7 +477,6 @@ export default function UserProfileScreen() {
   const isFollowing = !!followEdge && followEdge.status === "accepted";
   const isRequested = !!followEdge && followEdge.status === "pending";
 
-  // ── Block edge ─────────────────────────────────────────────────────────────
   const { data: blockEdge } = useQuery({
     queryKey: ["block-edge", user?.uid, target?.id],
     enabled: !!user?.uid && !!target?.id && !isMe,
@@ -528,7 +521,6 @@ export default function UserProfileScreen() {
     return isFollowing;
   }, [target?.id, isMe, isPrivate, isFollowing]);
 
-  // ── Privacy flags ──────────────────────────────────────────────────────────
   const { data: privacyFlags } = useQuery({
     queryKey: ["profile-privacy-flags", target?.id, user?.uid],
     enabled: !!target?.id && !isMe,
@@ -552,7 +544,6 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", target?.id],
     enabled: !!target?.id,
@@ -585,7 +576,6 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ── Own posts (resolves quote_post_id -> embedded quoted post info) ────────
   const { data: ownPosts, isLoading: loadingOwnPosts } = useQuery({
     queryKey: ["user-own-posts", target?.id],
     enabled: !!target?.id && canViewPosts,
@@ -654,7 +644,60 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ── Reposts (this user reposting someone else's post) ──────────────────────
+  const { data: replyItems, isLoading: loadingReplies } = useQuery({
+    queryKey: ["user-replies", target?.id],
+    enabled: !!target?.id && canViewPosts && activeTab === "Replies",
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<ReplyItem[]> => {
+      const commentSnap = await firestore()
+        .collection("comments")
+        .where("user_id", "==", target!.id)
+        .limit(50)
+        .get();
+
+      if (commentSnap.empty) return [];
+
+      const comments = commentSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      }));
+
+      const postIds = [
+        ...new Set(comments.map((c) => c.post_id).filter(Boolean)),
+      ];
+
+      const postDocs = await Promise.all(
+        postIds.map((id) => firestore().collection("posts").doc(id).get()),
+      );
+      const postMap = new Map(
+        postDocs.filter((d) => d.exists).map((d) => [d.id, d.data() as any]),
+      );
+
+      return comments
+        .map((c) => {
+          const parentPost = postMap.get(c.post_id);
+          return {
+            id: c.id,
+            content: c.content ?? "",
+            created_at: tsToIso(c.created_at_ts ?? c.created_at),
+            parent_post_id: c.post_id,
+            parent_post_content: parentPost?.content ?? null,
+            parent_post_author: parentPost?.user
+              ? {
+                  username: parentPost.user.username ?? null,
+                  full_name: parentPost.user.full_name ?? null,
+                }
+              : null,
+          } as ReplyItem;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+    },
+  });
+
   const { data: repostItems, isLoading: loadingReposts } = useQuery({
     queryKey: ["user-reposts", target?.id],
     enabled: !!target?.id && canViewPosts,
@@ -687,8 +730,6 @@ export default function UserProfileScreen() {
 
       const items: ProfileFeedItem[] = [];
       for (const chunk of chunks) {
-        // ✅ Per-doc fetch by ref — sidesteps the FieldPath.documentId()
-        // bug that broke this query for most of today.
         const docSnaps = await Promise.all(
           chunk.map((id) => firestore().collection("posts").doc(id).get()),
         );
@@ -696,9 +737,6 @@ export default function UserProfileScreen() {
           if (!d.exists) return;
           const x = d.data() as any;
           if (x.is_visible === false) return;
-          // Don't show a "repost" of the user's own post on their own
-          // profile — that's just their post, no separate repost entry
-          // is meaningful to display.
           if (x.user_id === target!.id) return;
 
           const at =
@@ -726,7 +764,6 @@ export default function UserProfileScreen() {
     },
   });
 
-  // ── Merged, Twitter-style Posts timeline ────────────────────────────────────
   const feedItems = useMemo((): ProfileFeedItem[] => {
     return [...(ownPosts ?? []), ...(repostItems ?? [])].sort(
       (a, b) => new Date(b.sort_at).getTime() - new Date(a.sort_at).getTime(),
@@ -741,7 +778,6 @@ export default function UserProfileScreen() {
     [ownPosts],
   );
 
-  // ── Follow mutation ────────────────────────────────────────────────────────
   const followMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
@@ -972,7 +1008,6 @@ export default function UserProfileScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        {/* Header */}
         <View style={[styles.header, { backgroundColor: "transparent" }]}>
           <TouchableOpacity
             style={[
@@ -1020,7 +1055,6 @@ export default function UserProfileScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Profile card */}
           <View
             style={[
               styles.profileCard,
@@ -1264,7 +1298,6 @@ export default function UserProfileScreen() {
             )}
           </View>
 
-          {/* Tabs */}
           <View
             style={[styles.tabsContainer, { backgroundColor: colors.card }]}
           >
@@ -1295,7 +1328,6 @@ export default function UserProfileScreen() {
           </View>
 
           <View style={styles.contentSection}>
-            {/* ── POSTS — Twitter-style merged timeline ── */}
             {activeTab === "Post" && (
               <>
                 {!canViewPosts ? (
@@ -1361,8 +1393,6 @@ export default function UserProfileScreen() {
                           onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          {/* ✅ Repost label — Twitter-style, sits above
-                              the post card it's reposting */}
                           {item.kind === "repost" && (
                             <View style={styles.repostLabelRow}>
                               <Ionicons
@@ -1431,7 +1461,8 @@ export default function UserProfileScreen() {
                           )}
 
                           {!!item.content && (
-                            <Text
+                            <MentionHashtagText
+                              content={item.content}
                               style={[
                                 styles.postContent,
                                 {
@@ -1440,12 +1471,13 @@ export default function UserProfileScreen() {
                                 },
                               ]}
                               numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
+                              hashtagColor={colors.primary}
+                              onPress={() =>
+                                router.push(`/post/${item.id}` as any)
+                              }
+                            />
                           )}
 
-                          {/* ✅ Embedded quoted-post card */}
                           {isQuote && item.quoted_post && (
                             <View
                               style={[
@@ -1507,15 +1539,20 @@ export default function UserProfileScreen() {
                                 </View>
                               ) : null}
                               {!!item.quoted_post.content ? (
-                                <Text
+                                <MentionHashtagText
+                                  content={item.quoted_post.content}
                                   style={[
                                     styles.quotedContent,
                                     { color: colors.textSecondary },
                                   ]}
                                   numberOfLines={4}
-                                >
-                                  {item.quoted_post.content}
-                                </Text>
+                                  hashtagColor={colors.primary}
+                                  onPress={() =>
+                                    router.push(
+                                      `/post/${item.quoted_post!.id}` as any,
+                                    )
+                                  }
+                                />
                               ) : (
                                 <Text
                                   style={[
@@ -1592,7 +1629,117 @@ export default function UserProfileScreen() {
               </>
             )}
 
-            {/* ── TAGGED ── */}
+            {activeTab === "Replies" && (
+              <>
+                {!canViewPosts ? (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={40}
+                      color={colors.primary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      Private Account
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      Follow to see replies from @{target.username}.
+                    </Text>
+                  </View>
+                ) : loadingReplies ? (
+                  <View style={{ gap: 12 }}>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.postCard,
+                          { backgroundColor: colors.card },
+                        ]}
+                      >
+                        <Skeleton
+                          style={{ height: 12, width: "75%", borderRadius: 10 }}
+                        />
+                        <Skeleton
+                          style={{
+                            height: 12,
+                            width: "55%",
+                            borderRadius: 10,
+                            marginTop: 10,
+                          }}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : replyItems && replyItems.length > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {replyItems.map((reply) => (
+                      <TouchableOpacity
+                        key={reply.id}
+                        style={[
+                          styles.postCard,
+                          { backgroundColor: colors.card },
+                        ]}
+                        onPress={() =>
+                          router.push(`/post/${reply.parent_post_id}` as any)
+                        }
+                        activeOpacity={0.9}
+                      >
+                        <Text
+                          style={[
+                            styles.repostLabelText,
+                            { color: colors.textTertiary, marginBottom: 6 },
+                          ]}
+                        >
+                          Replying to{" "}
+                          {reply.parent_post_author?.username
+                            ? `@${reply.parent_post_author.username}`
+                            : "a post"}
+                        </Text>
+                        <MentionHashtagText
+                          content={reply.content}
+                          style={[styles.postContent, { color: colors.text }]}
+                          numberOfLines={4}
+                          hashtagColor={colors.primary}
+                          onPress={() =>
+                            router.push(`/post/${reply.parent_post_id}` as any)
+                          }
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <View
+                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
+                  >
+                    <Ionicons
+                      name="chatbubble-outline"
+                      size={40}
+                      color={colors.textTertiary}
+                    />
+                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                      No Replies Yet
+                    </Text>
+                    <Text
+                      style={[
+                        styles.emptyDescription,
+                        { color: colors.textTertiary },
+                      ]}
+                    >
+                      {isMe
+                        ? "Replies you make to other posts will appear here."
+                        : `@${target.username} hasn't replied to anything yet.`}
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
             {activeTab === "Tagged" && (
               <View
                 style={[styles.emptyCard, { backgroundColor: colors.card }]}
@@ -1616,7 +1763,6 @@ export default function UserProfileScreen() {
               </View>
             )}
 
-            {/* ── MEDIA ── */}
             {activeTab === "Media" && (
               <>
                 {!canViewPosts ? (
