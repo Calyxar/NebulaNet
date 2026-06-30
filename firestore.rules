@@ -386,6 +386,18 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // News tab — synced server-side by the syncNewsFromCurrents Cloud
+// Function (Admin SDK, bypasses these rules entirely). Client only reads.
+    match /news_articles/{articleId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /news_meta/{category} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

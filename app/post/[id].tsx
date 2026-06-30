@@ -1,4 +1,13 @@
 // app/post/[id].tsx
+// ✅ Post card and stats card merged into one continuous card (content,
+//    stat counts, divider, action row) instead of two separate shadowed
+//    boxes — reads as one post the way Twitter's detail page does.
+// ✅ Action row icons are now unlabeled (no "Like"/"Comment"/etc. text
+//    underneath), matching the icon-only direction already adopted for
+//    the bottom nav bar elsewhere in this redesign.
+// CommentRow.tsx is untouched — its recursive nested-reply rendering with
+// the vertical connector line already matches Twitter's thread pattern.
+
 import VideoPlayer from "@/components/media/VideoPlayer";
 import MentionHashtagText from "@/components/MentionHashtagText";
 import CommentRow from "@/components/post/CommentRow";
@@ -119,7 +128,7 @@ export default function PostDetailScreen() {
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
-  // ✅ NEW: when replying to a specific comment, tracks which one so
+  // ✅ when replying to a specific comment, tracks which one so
   // handlePostComment can attach parent_id, and so the input bar can
   // show a "Replying to @x" indicator with a way to cancel.
   const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
@@ -241,8 +250,8 @@ export default function PostDetailScreen() {
       await addCommentMutation.mutateAsync({
         post_id: post.id,
         content: comment.trim(),
-        // ✅ NEW: attaches the reply relationship when replying to a
-        // specific comment instead of commenting on the post directly.
+        // ✅ attaches the reply relationship when replying to a specific
+        // comment instead of commenting on the post directly.
         parent_id: replyingTo?.id ?? null,
       });
       setComment("");
@@ -256,8 +265,8 @@ export default function PostDetailScreen() {
     }
   };
 
-  // ✅ NEW: focuses the input and sets reply context — called from a
-  // comment's "Reply" button.
+  // ✅ focuses the input and sets reply context — called from a comment's
+  // "Reply" button.
   const handleStartReply = (target: CommentWithAuthor) => {
     setReplyingTo(target);
     commentInputRef.current?.focus();
@@ -503,11 +512,10 @@ export default function PostDetailScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            // ✅ REMOVED onContentSizeChange — it scrolled the post to the
-            // bottom on every keystroke while the user was typing a comment.
-            // Scroll to bottom now only happens in handlePostComment (after
-            // submit) and on input focus below.
           >
+            {/* ✅ Single merged card — post content, stats, and action row
+                now live in one continuous block instead of two separate
+                shadowed cards. */}
             <View
               style={[
                 styles.postCard,
@@ -610,18 +618,13 @@ export default function PostDetailScreen() {
                 ) : (
                   <MediaGallery media={post.media_urls} />
                 ))}
-            </View>
 
-            <View
-              style={[
-                styles.statsCard,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.25 : 0.06,
-                },
-              ]}
-            >
-              <View style={styles.statsRow}>
+              {/* Stats — now sits inside the same card as the content
+                  above it, separated only by a divider rather than a
+                  whole second shadowed box. */}
+              <View
+                style={[styles.statsRow, { borderTopColor: colors.border }]}
+              >
                 {[
                   { val: post.like_count ?? 0, label: "like" },
                   { val: post.comment_count ?? 0, label: "comment" },
@@ -640,6 +643,9 @@ export default function PostDetailScreen() {
                 ))}
               </View>
 
+              {/* Action row — icon-only now, no text labels underneath,
+                  matching the icon-only direction already used for the
+                  bottom nav bar elsewhere in this redesign. */}
               <View
                 style={[styles.actionRow, { borderTopColor: colors.border }]}
               >
@@ -647,24 +653,13 @@ export default function PostDetailScreen() {
                   style={styles.actionBtn}
                   onPress={handleLike}
                   activeOpacity={0.75}
+                  hitSlop={8}
                 >
                   <Ionicons
                     name={post.is_liked ? "heart" : "heart-outline"}
-                    size={22}
+                    size={24}
                     color={post.is_liked ? colors.like : colors.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      {
-                        color: post.is_liked
-                          ? colors.like
-                          : colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    Like
-                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -678,88 +673,52 @@ export default function PostDetailScreen() {
                     );
                   }}
                   activeOpacity={0.75}
+                  hitSlop={8}
                 >
                   <Ionicons
                     name="chatbubble-outline"
-                    size={22}
+                    size={24}
                     color={colors.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    Comment
-                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={() => (repostSheetRef.current as any)?.present()}
                   activeOpacity={0.75}
+                  hitSlop={8}
                 >
                   <Ionicons
                     name={isReposted ? "repeat" : "repeat-outline"}
-                    size={22}
+                    size={24}
                     color={isReposted ? colors.primary : colors.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      {
-                        color: isReposted
-                          ? colors.primary
-                          : colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    Repost
-                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={() => (shareSheetRef.current as any)?.present()}
                   activeOpacity={0.75}
+                  hitSlop={8}
                 >
                   <Ionicons
                     name="arrow-redo-outline"
-                    size={22}
+                    size={24}
                     color={colors.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    Share
-                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={handleBookmark}
                   activeOpacity={0.75}
+                  hitSlop={8}
                 >
                   <Ionicons
                     name={post.is_saved ? "bookmark" : "bookmark-outline"}
-                    size={22}
+                    size={24}
                     color={post.is_saved ? colors.save : colors.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      {
-                        color: post.is_saved
-                          ? colors.save
-                          : colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    Save
-                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1049,15 +1008,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  statsCard: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
   authorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1095,7 +1045,10 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     gap: 16,
+    paddingTop: 12,
     paddingBottom: 12,
+    marginTop: 4,
+    borderTopWidth: 1,
     flexWrap: "wrap",
   },
   statText: { fontSize: 13 },
@@ -1103,16 +1056,15 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingTop: 4,
+    paddingTop: 6,
     borderTopWidth: 1,
   },
   actionBtn: {
     alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 10,
-    paddingHorizontal: 4,
-    gap: 4,
+    paddingHorizontal: 12,
   },
-  actionLabel: { fontSize: 11, fontWeight: "600" },
   commentsSection: {
     borderRadius: 20,
     padding: 16,
@@ -1135,31 +1087,7 @@ const styles = StyleSheet.create({
   commentSkeletonBody: { height: 12, width: "80%", borderRadius: 6 },
   noComments: { alignItems: "center", paddingVertical: 24, gap: 8 },
   noCommentsText: { fontSize: 14, fontWeight: "500" },
-  commentRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
-    paddingVertical: 10,
-  },
   commentBorder: { borderTopWidth: 1 },
-  commentBody: { flex: 1 },
-  commentHeader: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-    marginBottom: 3,
-  },
-  commentAuthor: { fontSize: 13, fontWeight: "700" },
-  commentTime: { fontSize: 11 },
-  commentText: { fontSize: 14, lineHeight: 20 },
-  commentLikeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 6,
-    alignSelf: "flex-start",
-  },
-  commentLikeCount: { fontSize: 11, fontWeight: "600" },
   showMoreBtn: {
     flexDirection: "row",
     alignItems: "center",

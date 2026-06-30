@@ -1,5 +1,10 @@
 // app/profile/edit.tsx ✅
 // ✅ FIXED: onSaved now invalidates profile query so DOB row updates immediately
+// ✅ NEW: banner photo upload added, mirroring the existing avatar upload
+//    pattern exactly (ImagePicker -> Firebase Storage -> banner_url write).
+//    Banner + avatar now render together the same way the redesigned
+//    profile screen displays them (avatar overlapping the banner's bottom
+//    edge), so editing here matches what you'll actually see on your profile.
 
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -30,6 +35,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const IS_SMALL = SCREEN_W < 380;
+const BANNER_HEIGHT = 140;
+const EDIT_AVATAR_SIZE = 96;
 
 function guessExtFromUri(uri: string) {
   const clean = uri.split("?")[0];
@@ -457,6 +464,9 @@ export default function EditProfileScreen() {
   });
   const [avatar, setAvatar] = useState(profile?.avatar_url || "");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  // ✅ NEW: banner state, mirrors avatar state exactly
+  const [banner, setBanner] = useState((profile as any)?.banner_url || "");
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [showBirthdateSheet, setShowBirthdateSheet] = useState(false);
 
   const currentBirthdate = (profile as any)?.birthdate as string | null;
@@ -471,6 +481,7 @@ export default function EditProfileScreen() {
         location: (profile as any)?.location || "",
       });
       setAvatar(profile.avatar_url || "");
+      setBanner((profile as any)?.banner_url || "");
     }
   }, [profile]);
 
@@ -479,6 +490,13 @@ export default function EditProfileScreen() {
     const join = avatar.includes("?") ? "&" : "?";
     return `${avatar}${join}t=${Date.now()}`;
   }, [avatar]);
+
+  // ✅ NEW: same cache-busting pattern as displayAvatar
+  const displayBanner = useMemo(() => {
+    if (!banner) return "";
+    const join = banner.includes("?") ? "&" : "?";
+    return `${banner}${join}t=${Date.now()}`;
+  }, [banner]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -527,6 +545,57 @@ export default function EditProfileScreen() {
     }
   };
 
+  // ✅ NEW: banner picker — same flow as pickImage but a wide 3:1 aspect
+  // crop instead of a square, matching the banner's shape on the profile.
+  const pickBannerImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "We need camera roll permissions to upload photos.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 1],
+      quality: 0.85,
+    });
+    if (result.canceled) return;
+    const pickedUri = result.assets?.[0]?.uri;
+    if (!pickedUri) {
+      Alert.alert("Error", "Could not read selected image.");
+      return;
+    }
+    setBanner(pickedUri);
+    await uploadBanner(pickedUri);
+  };
+
+  // ✅ NEW: banner upload — identical pattern to uploadAvatar, separate
+  // Storage path (banners/{uid}/...) so the two never collide.
+  const uploadBanner = async (uri: string) => {
+    if (!user?.uid) {
+      Alert.alert("Error", "User not found. Please log in again.");
+      return;
+    }
+    setIsUploadingBanner(true);
+    try {
+      const ext = guessExtFromUri(uri);
+      const fileRef = storage().ref(`banners/${user.uid}/${Date.now()}.${ext}`);
+      await fileRef.putFile(uri, { contentType: guessMimeType(ext) });
+      const publicUrl = await fileRef.getDownloadURL();
+      if (!publicUrl) throw new Error("Could not create download URL.");
+      setBanner(publicUrl);
+      Alert.alert("Success", "Banner uploaded! Tap Continue to save.");
+    } catch (e: any) {
+      Alert.alert("Upload Failed", e?.message || "Failed to upload banner.");
+      setBanner((profile as any)?.banner_url || "");
+    } finally {
+      setIsUploadingBanner(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.username.trim()) {
       Alert.alert("Validation Error", "Username is required");
@@ -550,6 +619,10 @@ export default function EditProfileScreen() {
         bio: formData.bio || null,
         location: formData.location || null,
         ...(avatar !== profile?.avatar_url && { avatar_url: avatar }),
+        // ✅ NEW: only included when changed, same guard pattern as avatar
+        ...(banner !== (profile as any)?.banner_url && {
+          banner_url: banner,
+        }),
       };
       await updateProfileMutation.mutateAsync(updates);
       Alert.alert("Success", "Profile updated successfully!", [
@@ -564,7 +637,8 @@ export default function EditProfileScreen() {
     }
   };
 
-  const isLoading = isUploadingAvatar || updateProfileMutation.isPending;
+  const isLoading =
+    isUploadingAvatar || isUploadingBanner || updateProfileMutation.isPending;
 
   return (
     <>
@@ -626,50 +700,99 @@ export default function EditProfileScreen() {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Avatar */}
-            <TouchableOpacity
-              style={styles.avatarContainer}
-              onPress={pickImage}
-              disabled={isLoading}
-              activeOpacity={0.9}
-            >
-              {avatar ? (
-                <Image source={{ uri: displayAvatar }} style={styles.avatar} />
-              ) : (
-                <View
-                  style={[
-                    styles.avatarPlaceholder,
-                    { backgroundColor: colors.surface },
-                  ]}
-                >
-                  <Ionicons
-                    name="person"
-                    size={48}
-                    color={colors.textTertiary}
+            {/* ✅ NEW: Banner + avatar together, mirroring how the
+                redesigned profile screen displays them (avatar overlapping
+                the banner's bottom-left edge). Tapping either opens its
+                own picker independently. */}
+            <View style={styles.bannerSection}>
+              <TouchableOpacity
+                style={styles.bannerWrap}
+                onPress={pickBannerImage}
+                disabled={isLoading}
+                activeOpacity={0.9}
+              >
+                {banner ? (
+                  <Image
+                    source={{ uri: displayBanner }}
+                    style={styles.bannerImage}
                   />
-                </View>
-              )}
-              {isLoading && (
-                <View style={styles.avatarOverlay}>
-                  <Text style={styles.avatarOverlayText}>
-                    {isUploadingAvatar ? "Uploading…" : "Saving…"}
-                  </Text>
-                </View>
-              )}
-              {!isLoading && (
-                <View
-                  style={[
-                    styles.cameraBadge,
-                    {
-                      backgroundColor: colors.primary,
-                      borderColor: colors.background,
-                    },
-                  ]}
-                >
-                  <Ionicons name="camera" size={20} color="#fff" />
-                </View>
-              )}
-            </TouchableOpacity>
+                ) : (
+                  <View
+                    style={[
+                      styles.bannerImage,
+                      styles.bannerPlaceholder,
+                      { backgroundColor: colors.primary + "30" },
+                    ]}
+                  />
+                )}
+                {isUploadingBanner && (
+                  <View style={styles.bannerOverlay}>
+                    <Text style={styles.avatarOverlayText}>Uploading…</Text>
+                  </View>
+                )}
+                {!isUploadingBanner && (
+                  <View
+                    style={[
+                      styles.bannerCameraBadge,
+                      { backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Ionicons name="camera" size={16} color={colors.text} />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.editAvatarOverlap,
+                  { borderColor: colors.background },
+                ]}
+                onPress={pickImage}
+                disabled={isLoading}
+                activeOpacity={0.9}
+              >
+                {avatar ? (
+                  <Image
+                    source={{ uri: displayAvatar }}
+                    style={styles.editAvatar}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatarPlaceholder,
+                      styles.editAvatar,
+                      { backgroundColor: colors.surface },
+                    ]}
+                  >
+                    <Ionicons
+                      name="person"
+                      size={36}
+                      color={colors.textTertiary}
+                    />
+                  </View>
+                )}
+                {isUploadingAvatar && (
+                  <View style={styles.avatarOverlay}>
+                    <Text style={styles.avatarOverlayTextSmall}>
+                      Uploading…
+                    </Text>
+                  </View>
+                )}
+                {!isUploadingAvatar && (
+                  <View
+                    style={[
+                      styles.cameraBadge,
+                      {
+                        backgroundColor: colors.primary,
+                        borderColor: colors.background,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="camera" size={16} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
 
             {/* Profile fields */}
             <View style={[styles.formCard, { backgroundColor: colors.card }]}>
@@ -929,38 +1052,69 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "800" },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
-  avatarContainer: {
-    alignSelf: "center",
-    marginVertical: 24,
+  // ✅ NEW: banner + overlapping avatar container
+  bannerSection: {
+    marginBottom: 24 + EDIT_AVATAR_SIZE / 2,
+  },
+  bannerWrap: {
+    width: "100%",
+    height: BANNER_HEIGHT,
+    borderRadius: 16,
+    overflow: "hidden",
     position: "relative",
   },
-  avatar: { width: 120, height: 120, borderRadius: 60 },
+  bannerImage: { width: "100%", height: "100%" },
+  bannerPlaceholder: { alignItems: "center", justifyContent: "center" },
+  bannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bannerCameraBadge: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editAvatarOverlap: {
+    position: "absolute",
+    left: 20,
+    bottom: -(EDIT_AVATAR_SIZE / 2),
+    width: EDIT_AVATAR_SIZE,
+    height: EDIT_AVATAR_SIZE,
+    borderRadius: EDIT_AVATAR_SIZE / 2,
+    borderWidth: 4,
+  },
+  editAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: EDIT_AVATAR_SIZE / 2,
+  },
   avatarPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
     justifyContent: "center",
     alignItems: "center",
   },
   avatarOverlay: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: EDIT_AVATAR_SIZE / 2,
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
   },
   avatarOverlayText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  avatarOverlayTextSmall: { color: "#fff", fontWeight: "800", fontSize: 10 },
   cameraBadge: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 3,

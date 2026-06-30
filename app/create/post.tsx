@@ -1,4 +1,4 @@
-// app/create/post.tsx ✅ FIXED
+// app/create/post.tsx ✅ FIXED + REDESIGNED
 // Fix 1: LocationPicker uses KeyboardAvoidingView so keyboard doesn't cover results
 // Fix 2: Google Places URL uses URLSearchParams (no pipe encoding issues)
 // Fix 3: Places API error surfaced to user instead of silently returning empty
@@ -6,8 +6,19 @@
 //         instead of trusting whatever React Query already had cached —
 //         fixes the picker showing empty/stale after joining a community
 //         in a different screen or session.
+// ✅ NEW: poster's avatar now shown next to the compose box (Twitter/
+//         Bluesky always show this — confirms which account you're
+//         posting as, which matters given the dev/gaming identity split).
+// ✅ NEW: visibility moved from a full-width options-list row into a
+//         small pill next to the avatar, matching Twitter/Bluesky's
+//         audience selector placement. Location and NSFW stay as list
+//         rows below — those aren't Twitter concepts, so there's no
+//         reference pattern worth copying for them.
+// ✅ NEW: character count is now a small ring grouped directly next to
+//         the Post button instead of sitting isolated on the far left.
 
 import GifPicker from "@/components/post/GifPicker";
+import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
 import { useCreatePost } from "@/hooks/usePosts";
 import { auth } from "@/lib/firebase";
@@ -80,6 +91,41 @@ const EXPLICIT_KEYWORDS = [
 function containsExplicitText(text: string): boolean {
   const lower = text.toLowerCase();
   return EXPLICIT_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// ✅ NEW: small avatar shown next to the compose box, same pattern used
+// on the post detail screen and home feed.
+function ComposerAvatar({
+  uri,
+  name,
+  fallbackColor,
+}: {
+  uri?: string | null;
+  name: string;
+  fallbackColor: string;
+}) {
+  if (uri) return <Image source={{ uri }} style={styles.composerAvatar} />;
+  return (
+    <View
+      style={[
+        styles.composerAvatar,
+        styles.composerAvatarFallback,
+        { backgroundColor: fallbackColor },
+      ]}
+    >
+      <Text style={styles.composerAvatarText}>{getInitials(name || "?")}</Text>
+    </View>
+  );
 }
 
 // ✅ FIX 1 & 2: LocationPicker with KeyboardAvoidingView + proper Places URL
@@ -436,12 +482,22 @@ const lpStyles = StyleSheet.create({
   secondaryText: { fontSize: 12, marginTop: 2 },
 });
 
+const VISIBILITY_CONFIG: Record<
+  Visibility,
+  { label: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  public: { label: "Everyone", icon: "earth-outline" },
+  followers: { label: "Followers", icon: "people-outline" },
+  private: { label: "Only Me", icon: "lock-closed-outline" },
+};
+
 export default function CreatePostScreen() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const createPostMutation = useCreatePost();
   const { myCommunities, isLoading: communitiesLoading } = useCommunities();
+  const { profile } = useAuth();
   const qc = useQueryClient();
 
   // ✅ FIX 4: refetch the community list every time this screen gains
@@ -490,6 +546,21 @@ export default function CreatePostScreen() {
   const charCount = bodyText.length;
   const charLimit = 500;
   const isOverLimit = charCount > charLimit;
+  const remaining = charLimit - charCount;
+  // ✅ NEW: ring color escalates as you approach/exceed the limit, same
+  // visual language Twitter uses for its count ring.
+  const ringColor = isOverLimit
+    ? "#EF4444"
+    : remaining <= 50
+      ? "#F59E0B"
+      : colors.border;
+
+  const posterName = profile?.full_name || profile?.username || "You";
+
+  const cycleVisibility = () =>
+    setVisibility((v) =>
+      v === "public" ? "followers" : v === "followers" ? "private" : "public",
+    );
 
   const ensureLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -655,6 +726,53 @@ export default function CreatePostScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            {/* ✅ NEW: poster identity row — avatar + audience pill, sits
+                above the compose card instead of audience being buried in
+                the options list below. */}
+            <View style={styles.composerIdentityRow}>
+              <ComposerAvatar
+                uri={profile?.avatar_url}
+                name={posterName}
+                fallbackColor={colors.primary}
+              />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text
+                  style={[styles.composerName, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {posterName}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.visibilityPill,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: colors.surface,
+                    },
+                  ]}
+                  onPress={cycleVisibility}
+                  disabled={isPosting}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={VISIBILITY_CONFIG[visibility].icon}
+                    size={13}
+                    color={colors.primary}
+                  />
+                  <Text
+                    style={[styles.visibilityPillText, { color: colors.text }]}
+                  >
+                    {VISIBILITY_CONFIG[visibility].label}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={12}
+                    color={colors.textTertiary}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <View style={[styles.card, { backgroundColor: colors.card }]}>
               <TextInput
                 style={[styles.titleInput, { color: colors.text }]}
@@ -889,47 +1007,8 @@ export default function CreatePostScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* Visibility */}
-              <TouchableOpacity
-                style={[styles.optionRow, { borderBottomColor: colors.border }]}
-                onPress={() =>
-                  setVisibility((v) =>
-                    v === "public"
-                      ? "followers"
-                      : v === "followers"
-                        ? "private"
-                        : "public",
-                  )
-                }
-                disabled={isPosting}
-              >
-                <View
-                  style={[
-                    styles.optionIcon,
-                    { backgroundColor: colors.primary + "18" },
-                  ]}
-                >
-                  <Ionicons
-                    name="lock-open-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </View>
-                <Text style={[styles.optionLabel, { color: colors.text }]}>
-                  {visibility === "public"
-                    ? "Share Post to Public"
-                    : visibility === "followers"
-                      ? "Share with Followers"
-                      : "Only Me"}
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textTertiary}
-                />
-              </TouchableOpacity>
-
-              {/* NSFW toggle */}
+              {/* NSFW toggle — Visibility row removed from here, now the
+                  pill near the top of the screen. */}
               <TouchableOpacity
                 style={[styles.optionRow, { borderBottomWidth: 0 }]}
                 onPress={() => setIsNsfw((v) => !v)}
@@ -1036,16 +1115,6 @@ export default function CreatePostScreen() {
               },
             ]}
           >
-            <View style={styles.bottomLeft}>
-              <Text
-                style={[
-                  styles.charCountText,
-                  { color: isOverLimit ? "#EF4444" : colors.textTertiary },
-                ]}
-              >
-                {charLimit - charCount}
-              </Text>
-            </View>
             <TouchableOpacity
               style={[
                 styles.draftBtn,
@@ -1060,18 +1129,30 @@ export default function CreatePostScreen() {
                 Save as Draft
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.postBtn,
-                (!canPost || isOverLimit) && styles.postBtnDisabled,
-              ]}
-              onPress={handlePost}
-              disabled={!canPost || isOverLimit || isPosting}
-            >
-              <Text style={styles.postBtnText}>
-                {isPosting ? "Posting…" : "Post"}
-              </Text>
-            </TouchableOpacity>
+
+            {/* ✅ NEW: count ring sits directly next to Post, instead of
+                isolated on the far left of the bar. */}
+            <View style={styles.countAndPost}>
+              {charCount > 0 && (
+                <View style={[styles.countRing, { borderColor: ringColor }]}>
+                  <Text style={[styles.countRingText, { color: ringColor }]}>
+                    {Math.abs(remaining) > 99 ? "99+" : remaining}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  styles.postBtn,
+                  (!canPost || isOverLimit) && styles.postBtnDisabled,
+                ]}
+                onPress={handlePost}
+                disabled={!canPost || isOverLimit || isPosting}
+              >
+                <Text style={styles.postBtnText}>
+                  {isPosting ? "Posting…" : "Post"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -1116,6 +1197,29 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 18, fontWeight: "700" },
   scroll: { flex: 1, paddingHorizontal: 16 },
+  // ✅ NEW: poster identity row styles
+  composerIdentityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  composerAvatar: { width: 40, height: 40, borderRadius: 20 },
+  composerAvatarFallback: { alignItems: "center", justifyContent: "center" },
+  composerAvatarText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  composerName: { fontSize: 14, fontWeight: "800", marginBottom: 4 },
+  visibilityPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  visibilityPillText: { fontSize: 12, fontWeight: "700" },
   card: { borderRadius: 16, padding: 16, marginBottom: 12, marginTop: 8 },
   titleInput: {
     fontSize: 18,
@@ -1256,8 +1360,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     alignItems: "center",
   },
-  bottomLeft: { width: 40, alignItems: "center" },
-  charCountText: { fontSize: 12, fontWeight: "700" },
   draftBtn: {
     flex: 1,
     paddingVertical: 16,
@@ -1267,9 +1369,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   draftBtnText: { fontSize: 15, fontWeight: "700" },
+  // ✅ NEW: groups the count ring with the Post button
+  countAndPost: { flexDirection: "row", alignItems: "center", gap: 10 },
+  countRing: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countRingText: { fontSize: 10, fontWeight: "800" },
   postBtn: {
-    flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",

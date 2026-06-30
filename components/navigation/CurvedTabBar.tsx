@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export const TAB_BAR_BASE_HEIGHT = 68;
+export const TAB_BAR_BASE_HEIGHT = 64;
 
 export function getTabBarHeight(insetsBottom: number) {
   const extraAndroidGesture = Platform.OS === "android" ? 8 : 0;
@@ -144,20 +144,11 @@ export default function CurvedTabBar({
               navigation.navigate(route.name as never);
           };
 
-          const iconSize = isFocused ? 26 : 24;
+          // Icon-only nav (Twitter/Bluesky style) — slightly larger now that
+          // there's no label competing for vertical space underneath.
+          const iconSize = isFocused ? 28 : 26;
           const color = isFocused ? activeColor : inactiveColor;
           const strokeWidth = isFocused ? 2.5 : 2;
-
-          const label =
-            route.name === "home"
-              ? "Home"
-              : route.name === "explore"
-                ? "Explore"
-                : route.name === "chat"
-                  ? "Chat"
-                  : route.name === "profile"
-                    ? "Profile"
-                    : "";
 
           if (isCreate) {
             return (
@@ -234,15 +225,6 @@ export default function CurvedTabBar({
                   </View>
                 ) : null}
               </View>
-              <Text
-                style={[
-                  styles.label,
-                  { color: inactiveColor },
-                  isFocused && { color: activeColor },
-                ]}
-              >
-                {label}
-              </Text>
             </TouchableOpacity>
           );
         })}
@@ -264,7 +246,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 12,
+    paddingTop: 14,
     paddingHorizontal: 4,
     borderTopWidth: Platform.OS === "android" ? 1 : 0,
     shadowColor: "#000",
@@ -302,7 +284,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   softPressOverlay: { ...StyleSheet.absoluteFillObject },
-  label: { fontSize: 11, fontWeight: "700", marginTop: 4 },
   iconWrap: {
     position: "relative",
     alignItems: "center",

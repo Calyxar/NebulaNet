@@ -1,4 +1,6 @@
 // app/notifications/index.tsx ✅ — tab screen with back handler
+// ✅ Tabs switched from pill-background to underline style, matching
+//    Explore and Profile, so the whole app uses one consistent tab pattern.
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
@@ -9,19 +11,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    BackHandler,
-    Image,
-    SectionList,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  BackHandler,
+  Image,
+  SectionList,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import {
-    SafeAreaView,
-    useSafeAreaInsets,
+  SafeAreaView,
+  useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
 type FilterTab = "all" | "unread";
@@ -358,45 +360,41 @@ export default function NotificationsScreen() {
             }
           />
 
-          <View style={styles.tabsWrap}>
-            <View
-              style={[
-                styles.tabsRow,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.2 : 0.05,
-                },
-              ]}
-            >
-              {(["all", "unread"] as FilterTab[]).map((tab) => {
-                const isActive = activeFilter === tab;
-                const label =
-                  tab === "all"
-                    ? "All"
-                    : `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`;
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    onPress={() => setActiveFilter(tab)}
-                    activeOpacity={0.85}
+          {/* Underline tabs — matches Explore and Profile */}
+          <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
+            {(["all", "unread"] as FilterTab[]).map((tab) => {
+              const isActive = activeFilter === tab;
+              const label =
+                tab === "all"
+                  ? "All"
+                  : `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveFilter(tab)}
+                  activeOpacity={0.7}
+                  style={styles.tabItem}
+                >
+                  <Text
                     style={[
-                      styles.tabItem,
-                      isActive && { backgroundColor: colors.primary },
+                      styles.tabText,
+                      { color: isActive ? colors.text : colors.textTertiary },
+                      isActive && styles.tabTextActive,
                     ]}
                   >
-                    <Text
+                    {label}
+                  </Text>
+                  {isActive && (
+                    <View
                       style={[
-                        styles.tabText,
-                        { color: colors.textTertiary },
-                        isActive && { color: "#fff" },
+                        styles.tabUnderline,
+                        { backgroundColor: colors.primary },
                       ]}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {isLoading ? (
@@ -492,26 +490,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   markAllText: { fontSize: 13, fontWeight: "700" },
-  tabsWrap: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 4 },
+  // Underline tab bar — matches Explore/Profile, replaces the old
+  // rounded-pill segmented control.
   tabsRow: {
     flexDirection: "row",
-    borderRadius: 22,
-    padding: 5,
-    gap: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 14,
-    elevation: 2,
-    alignSelf: "flex-start",
+    marginHorizontal: 18,
+    paddingTop: 4,
+    borderBottomWidth: 1,
   },
-  tabItem: {
-    paddingHorizontal: 16,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
+  tabItem: { flex: 1, alignItems: "center", paddingVertical: 13 },
+  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabTextActive: { fontWeight: "900" },
+  tabUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: "56%",
+    borderRadius: 2,
   },
-  tabText: { fontSize: 13, fontWeight: "700" },
   listContent: { paddingTop: 8 },
   sectionHeader: { paddingHorizontal: 4, paddingTop: 16, paddingBottom: 8 },
   sectionTitle: {

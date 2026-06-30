@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getDatabase } from "firebase-admin/database";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
@@ -10,7 +11,8 @@ import {
   onDocumentDeleted,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
-import algoliasearch from "algoliasearch";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { algoliasearch } from "algoliasearch";
 import { defineSecret as defineAlgoliaSecret } from "firebase-functions/params";
 
 initializeApp();
@@ -23,10 +25,12 @@ setGlobalOptions({
 
 const db = getFirestore();
 const auth = getAuth();
+const rtdb = getDatabase();
 
 const resendApiKey = defineSecret("RESEND_API_KEY");
 const googleCloudApiKey = defineSecret("GOOGLE_CLOUD_VISION_API_KEY");
 const algoliaAdminKey = defineAlgoliaSecret("ALGOLIA_ADMIN_KEY");
+const currentsApiKey = defineSecret("CURRENTS_API_KEY");
 
 const ALGOLIA_APP_ID = process.env.EXPO_PUBLIC_ALGOLIA_APP_ID ?? "";
 
@@ -173,7 +177,7 @@ function changed(before: any, after: any, fields: string[]): boolean {
   return fields.some((f) => before?.[f] !== after?.[f]);
 }
 
-const POST_SEARCH_FIELDS = ["content", "title", "hashtags", "visibility", "is_nsfw", "is_visible", "community_id"];
+const POST_SEARCH_FIELDS = ["content", "title", "hashtags", "visibility", "is_nsfw", "is_visible", "community_id", "media_urls"];
 const PROFILE_SEARCH_FIELDS = ["username", "full_name", "bio", "avatar_url", "is_private", "is_suspended"];
 const COMMUNITY_SEARCH_FIELDS = ["name", "slug", "description", "is_private"];
 
@@ -774,7 +778,8 @@ export const moderatePostContent = onDocumentCreated(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ALGOLIA SYNC
+// ALGOLIA SYNC (fixed for algoliasearch v5 — saveObject/deleteObject take
+// { indexName, body/objectID } instead of the old client.initIndex(...) chain)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const syncPostToAlgolia = onDocumentCreated(
@@ -784,20 +789,23 @@ export const syncPostToAlgolia = onDocumentCreated(
     if (!snap) return;
     try {
       const data = snap.data() as any;
-      const index = getAlgoliaClient().initIndex("posts");
-      await index.saveObject({
-        objectID: event.params.postId,
-        content: data.content ?? "",
-        title: data.title ?? "",
-        hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
-        user_id: data.user_id ?? null,
-        username: data.user?.username ?? null,
-        full_name: data.user?.full_name ?? null,
-        community_id: data.community_id ?? null,
-        visibility: data.visibility ?? "public",
-        is_nsfw: data.is_nsfw === true,
-        is_visible: data.is_visible !== false,
-        created_at_ts: data.created_at_ts?.toMillis?.() ?? Date.now(),
+      await getAlgoliaClient().saveObject({
+        indexName: "posts",
+        body: {
+          objectID: event.params.postId,
+          content: data.content ?? "",
+          title: data.title ?? "",
+          hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
+          user_id: data.user_id ?? null,
+          username: data.user?.username ?? null,
+          full_name: data.user?.full_name ?? null,
+          community_id: data.community_id ?? null,
+          visibility: data.visibility ?? "public",
+          is_nsfw: data.is_nsfw === true,
+          is_visible: data.is_visible !== false,
+          media_urls: Array.isArray(data.media_urls) ? data.media_urls : [],
+          created_at_ts: data.created_at_ts?.toMillis?.() ?? Date.now(),
+        },
       });
     } catch (err) {
       console.error("[syncPostToAlgolia] failed:", String(err));
@@ -813,20 +821,23 @@ export const syncPostUpdateToAlgolia = onDocumentUpdated(
     if (!before || !after) return;
     if (!changed(before, after, POST_SEARCH_FIELDS)) return;
     try {
-      const index = getAlgoliaClient().initIndex("posts");
-      await index.saveObject({
-        objectID: event.params.postId,
-        content: after.content ?? "",
-        title: after.title ?? "",
-        hashtags: Array.isArray(after.hashtags) ? after.hashtags : [],
-        user_id: after.user_id ?? null,
-        username: after.user?.username ?? null,
-        full_name: after.user?.full_name ?? null,
-        community_id: after.community_id ?? null,
-        visibility: after.visibility ?? "public",
-        is_nsfw: after.is_nsfw === true,
-        is_visible: after.is_visible !== false,
-        created_at_ts: after.created_at_ts?.toMillis?.() ?? Date.now(),
+      await getAlgoliaClient().saveObject({
+        indexName: "posts",
+        body: {
+          objectID: event.params.postId,
+          content: after.content ?? "",
+          title: after.title ?? "",
+          hashtags: Array.isArray(after.hashtags) ? after.hashtags : [],
+          user_id: after.user_id ?? null,
+          username: after.user?.username ?? null,
+          full_name: after.user?.full_name ?? null,
+          community_id: after.community_id ?? null,
+          visibility: after.visibility ?? "public",
+          is_nsfw: after.is_nsfw === true,
+          is_visible: after.is_visible !== false,
+          media_urls: Array.isArray(after.media_urls) ? after.media_urls : [],
+          created_at_ts: after.created_at_ts?.toMillis?.() ?? Date.now(),
+        },
       });
     } catch (err) {
       console.error("[syncPostUpdateToAlgolia] failed:", String(err));
@@ -838,7 +849,10 @@ export const removePostFromAlgolia = onDocumentDeleted(
   { document: "posts/{postId}", secrets: [algoliaAdminKey] },
   async (event) => {
     try {
-      await getAlgoliaClient().initIndex("posts").deleteObject(event.params.postId);
+      await getAlgoliaClient().deleteObject({
+        indexName: "posts",
+        objectID: event.params.postId,
+      });
     } catch (err) {
       console.error("[removePostFromAlgolia] failed:", String(err));
     }
@@ -852,16 +866,18 @@ export const syncProfileToAlgolia = onDocumentCreated(
     if (!snap) return;
     try {
       const data = snap.data() as any;
-      const index = getAlgoliaClient().initIndex("profiles");
-      await index.saveObject({
-        objectID: event.params.userId,
-        username: data.username ?? "",
-        full_name: data.full_name ?? "",
-        bio: data.bio ?? "",
-        avatar_url: data.avatar_url ?? null,
-        follower_count: data.follower_count ?? 0,
-        is_private: data.is_private === true,
-        is_suspended: data.is_suspended === true,
+      await getAlgoliaClient().saveObject({
+        indexName: "profiles",
+        body: {
+          objectID: event.params.userId,
+          username: data.username ?? "",
+          full_name: data.full_name ?? "",
+          bio: data.bio ?? "",
+          avatar_url: data.avatar_url ?? null,
+          follower_count: data.follower_count ?? 0,
+          is_private: data.is_private === true,
+          is_suspended: data.is_suspended === true,
+        },
       });
     } catch (err) {
       console.error("[syncProfileToAlgolia] failed:", String(err));
@@ -877,16 +893,18 @@ export const syncProfileUpdateToAlgolia = onDocumentUpdated(
     if (!before || !after) return;
     if (!changed(before, after, PROFILE_SEARCH_FIELDS)) return;
     try {
-      const index = getAlgoliaClient().initIndex("profiles");
-      await index.saveObject({
-        objectID: event.params.userId,
-        username: after.username ?? "",
-        full_name: after.full_name ?? "",
-        bio: after.bio ?? "",
-        avatar_url: after.avatar_url ?? null,
-        follower_count: after.follower_count ?? 0,
-        is_private: after.is_private === true,
-        is_suspended: after.is_suspended === true,
+      await getAlgoliaClient().saveObject({
+        indexName: "profiles",
+        body: {
+          objectID: event.params.userId,
+          username: after.username ?? "",
+          full_name: after.full_name ?? "",
+          bio: after.bio ?? "",
+          avatar_url: after.avatar_url ?? null,
+          follower_count: after.follower_count ?? 0,
+          is_private: after.is_private === true,
+          is_suspended: after.is_suspended === true,
+        },
       });
     } catch (err) {
       console.error("[syncProfileUpdateToAlgolia] failed:", String(err));
@@ -898,7 +916,10 @@ export const removeProfileFromAlgolia = onDocumentDeleted(
   { document: "profiles/{userId}", secrets: [algoliaAdminKey] },
   async (event) => {
     try {
-      await getAlgoliaClient().initIndex("profiles").deleteObject(event.params.userId);
+      await getAlgoliaClient().deleteObject({
+        indexName: "profiles",
+        objectID: event.params.userId,
+      });
     } catch (err) {
       console.error("[removeProfileFromAlgolia] failed:", String(err));
     }
@@ -912,14 +933,16 @@ export const syncCommunityToAlgolia = onDocumentCreated(
     if (!snap) return;
     try {
       const data = snap.data() as any;
-      const index = getAlgoliaClient().initIndex("communities");
-      await index.saveObject({
-        objectID: event.params.communityId,
-        name: data.name ?? "",
-        slug: data.slug ?? "",
-        description: data.description ?? "",
-        member_count: data.member_count ?? 0,
-        is_private: data.is_private === true,
+      await getAlgoliaClient().saveObject({
+        indexName: "communities",
+        body: {
+          objectID: event.params.communityId,
+          name: data.name ?? "",
+          slug: data.slug ?? "",
+          description: data.description ?? "",
+          member_count: data.member_count ?? 0,
+          is_private: data.is_private === true,
+        },
       });
     } catch (err) {
       console.error("[syncCommunityToAlgolia] failed:", String(err));
@@ -935,14 +958,16 @@ export const syncCommunityUpdateToAlgolia = onDocumentUpdated(
     if (!before || !after) return;
     if (!changed(before, after, COMMUNITY_SEARCH_FIELDS)) return;
     try {
-      const index = getAlgoliaClient().initIndex("communities");
-      await index.saveObject({
-        objectID: event.params.communityId,
-        name: after.name ?? "",
-        slug: after.slug ?? "",
-        description: after.description ?? "",
-        member_count: after.member_count ?? 0,
-        is_private: after.is_private === true,
+      await getAlgoliaClient().saveObject({
+        indexName: "communities",
+        body: {
+          objectID: event.params.communityId,
+          name: after.name ?? "",
+          slug: after.slug ?? "",
+          description: after.description ?? "",
+          member_count: after.member_count ?? 0,
+          is_private: after.is_private === true,
+        },
       });
     } catch (err) {
       console.error("[syncCommunityUpdateToAlgolia] failed:", String(err));
@@ -954,9 +979,125 @@ export const removeCommunityFromAlgolia = onDocumentDeleted(
   { document: "communities/{communityId}", secrets: [algoliaAdminKey] },
   async (event) => {
     try {
-      await getAlgoliaClient().initIndex("communities").deleteObject(event.params.communityId);
+      await getAlgoliaClient().deleteObject({
+        indexName: "communities",
+        objectID: event.params.communityId,
+      });
     } catch (err) {
       console.error("[removeCommunityFromAlgolia] failed:", String(err));
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEWS SYNC (Currents API → Firestore cache, read by the News tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// V2 canonical categories — picked a representative spread rather than all 16
+// to keep the daily request budget low on Currents' free tier (1,000/day).
+const NEWS_CATEGORIES = [
+  "general",
+  "science_technology",
+  "economy_business_finance",
+  "sport",
+  "arts_culture_entertainment",
+  "health",
+] as const;
+
+type NewsArticle = {
+  id: string;
+  title: string;
+  description: string | null;
+  url: string;
+  author: string | null;
+  image: string | null;
+  language: string;
+  category: string[];
+  published: string;
+};
+
+async function fetchCurrentsCategory(
+  category: string,
+  apiKey: string,
+): Promise<NewsArticle[]> {
+  const url =
+    "https://api.currentsapi.services/v2/latest-news" +
+    "?language=en&page_size=20&category=" +
+    encodeURIComponent(category) +
+    "&apiKey=" +
+    encodeURIComponent(apiKey);
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error(
+      "[syncNews] Currents request failed for category",
+      category,
+      res.status,
+      await res.text().catch(() => ""),
+    );
+    return [];
+  }
+  const data = (await res.json()) as { status: string; news?: NewsArticle[] };
+  if (data.status !== "ok" || !Array.isArray(data.news)) {
+    console.error("[syncNews] unexpected Currents response for", category, data);
+    return [];
+  }
+  return data.news;
+}
+
+// Runs every 3 hours. Fetches each category from Currents and upserts into
+// Firestore, deduped by article id so re-fetching the same story doesn't
+// create duplicates. Also writes a small news_meta doc per category so the
+// client can show "Updated Xh ago" without needing article-level timestamps.
+export const syncNewsFromCurrents = onSchedule(
+  { schedule: "every 3 hours", secrets: [currentsApiKey], timeoutSeconds: 300 },
+  async () => {
+    const apiKey = currentsApiKey.value();
+    if (!apiKey) {
+      console.error("[syncNews] CURRENTS_API_KEY secret is empty");
+      return;
+    }
+
+    for (const category of NEWS_CATEGORIES) {
+      try {
+        const articles = await fetchCurrentsCategory(category, apiKey);
+        if (!articles.length) {
+          console.log("[syncNews] no articles returned for", category);
+          continue;
+        }
+
+        const batch = db.batch();
+        let count = 0;
+        for (const a of articles) {
+          if (!a.id) continue;
+          const ref = db.collection("news_articles").doc(a.id);
+          batch.set(
+            ref,
+            {
+              title: a.title ?? "",
+              description: a.description ?? null,
+              url: a.url ?? "",
+              author: a.author ?? null,
+              image: a.image ?? null,
+              language: a.language ?? "en",
+              category: Array.isArray(a.category) ? a.category : [category],
+              published: a.published ?? null,
+              synced_at: FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          );
+          count++;
+        }
+        if (count > 0) await batch.commit();
+
+        await db.collection("news_meta").doc(category).set({
+          last_synced_at: FieldValue.serverTimestamp(),
+          article_count: count,
+        });
+
+        console.log("[syncNews] synced", count, "articles for", category);
+      } catch (err) {
+        console.error("[syncNews] failed for category", category, String(err));
+      }
     }
   },
 );

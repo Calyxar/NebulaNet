@@ -1,4 +1,9 @@
 // components/navigation/AppHeader.tsx ✅
+// ✅ FIX: RightNode no longer reserves a 44px ghost spacer when leftWide
+//    is the only content provided (no title, no right/rightWide) — that
+//    ghost spacer exists to balance a centered title against a back
+//    button, which doesn't apply when a screen (like Explore) packs
+//    everything into leftWide. Recovers real width for that content.
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
@@ -78,11 +83,18 @@ export default function AppHeader({
     <View style={styles.sideGhost} />
   );
 
+  // ✅ Skip the ghost spacer entirely when leftWide is supplying all the
+  // content and there's no title to keep visually balanced — that ghost
+  // only earns its keep when centering a title against a back button.
+  const skipRightGhost = !!leftWide && !hasTitle && !right && !rightWide;
+
   const RightNode = rightWide ? (
     <View style={styles.rightWide}>{rightWide}</View>
-  ) : (
+  ) : right ? (
+    <View style={styles.side}>{right}</View>
+  ) : skipRightGhost ? null : (
     <View style={styles.side}>
-      {right ?? <View style={styles.sideGhost} />}
+      <View style={styles.sideGhost} />
     </View>
   );
 

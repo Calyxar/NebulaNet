@@ -9,6 +9,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useFollowActions, useFollowStatus } from "@/hooks/useFollowActions";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import {
+  NEWS_CATEGORIES,
+  useNews,
+  type NewsArticle,
+  type NewsCategory,
+} from "@/hooks/useNews";
+import {
   fetchDiscoveryPosts,
   fetchSuggestedCommunities,
   fetchSuggestedUsers,
@@ -29,8 +35,13 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+// ✅ NEW: news links now open via the platform's native in-app browser
+// (Safari View Controller / Chrome Custom Tabs) — the same mechanism
+// Twitter uses for external links — instead of routing to a custom
+// /news/viewer screen that was never built.
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, {
   useCallback,
   useEffect,
@@ -65,13 +76,15 @@ const GRID_COLS = 3;
 const GRID_CELL =
   (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
+// "hashtag" is no longer a standalone tab — trending hashtags surface as
+// ranked cards inside the Top feed instead, Twitter-Explore style.
 type ExploreCategory =
   | "top"
   | "latest"
   | "people"
   | "media"
   | "community"
-  | "hashtag";
+  | "news";
 
 type MediaFilter = "all" | "images" | "videos" | "gifs";
 type SafetyFilter = "safe" | "all";
@@ -417,6 +430,7 @@ function SuggestedUserRow({
   const { data: status } = useFollowStatus(u.id);
   const isFollowing = status === "accepted" || status === "pending";
   const name = u.full_name || u.username || "User";
+  const bio = (u as any).bio as string | undefined;
 
   return (
     <View
@@ -466,6 +480,14 @@ function SuggestedUserRow({
               ? ` · ${u.follower_count.toLocaleString()} followers`
               : ""}
           </Text>
+          {!!bio && (
+            <Text
+              style={[styles.rowBio, { color: colors.textTertiary }]}
+              numberOfLines={1}
+            >
+              {bio}
+            </Text>
+          )}
         </View>
       </TouchableOpacity>
 
@@ -746,6 +768,56 @@ function RecentSearchesPanel({
   );
 }
 
+// Twitter-Explore-style ranked trend card: "1 · Trending", tag name, post count.
+function TrendingHashtagsCard({
+  hashtags,
+  colors,
+}: {
+  hashtags: TrendingHashtag[];
+  colors: any;
+}) {
+  if (!hashtags.length) return null;
+  return (
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, shadowOpacity: 0.05 },
+      ]}
+    >
+      {hashtags.slice(0, 5).map((h, idx) => (
+        <TouchableOpacity
+          key={h.tag}
+          activeOpacity={0.85}
+          style={[
+            styles.trendRow,
+            idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
+          ]}
+          onPress={() => router.push(`/hashtag/${h.tag}` as any)}
+        >
+          <Text style={[styles.trendRank, { color: colors.textTertiary }]}>
+            {idx + 1}
+          </Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.trendLabel, { color: colors.textTertiary }]}>
+              Trending
+            </Text>
+            <Text
+              style={[styles.trendTag, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              #{h.tag}
+            </Text>
+            <Text style={[styles.trendCount, { color: colors.textTertiary }]}>
+              {h.post_count.toLocaleString()}{" "}
+              {h.post_count === 1 ? "post" : "posts"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -755,6 +827,7 @@ export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeCategory, setActiveCategory] = useState<ExploreCategory>("top");
+  const [newsCategory, setNewsCategory] = useState<NewsCategory>("general");
 
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>("safe");
@@ -812,13 +885,15 @@ export default function ExploreScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
+  // Twitter-style fixed tab bar — five even-width tabs with a sliding
+  // underline under the active one, no pill backgrounds.
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "top", label: "Top" },
     { key: "latest", label: "Latest" },
     { key: "people", label: "People" },
     { key: "media", label: "Media" },
-    { key: "community", label: "Community" },
-    { key: "hashtag", label: "Hashtag" },
+    { key: "community", label: "Communities" },
+    { key: "news", label: "News" },
   ];
 
   const bottomPad = useMemo(
@@ -943,8 +1018,6 @@ export default function ExploreScreen() {
     return posts;
   }, [discoveryPosts, mediaFilter, safetyFilter]);
 
-  const shouldSearch = activeCategory !== "hashtag";
-
   const searchType = useMemo(() => {
     if (activeCategory === "people") return "account";
     if (activeCategory === "latest") return "post";
@@ -956,7 +1029,7 @@ export default function ExploreScreen() {
 
   const { data, isSearching, isIdle } = useSearch({
     type: (searchType ?? "top") as any,
-    query: shouldSearch ? searchQuery : "",
+    query: searchQuery,
     minChars: 2,
     limit: 20,
     debounceMs: 350,
@@ -970,6 +1043,11 @@ export default function ExploreScreen() {
   const accounts = (data as any)?.accounts ?? [];
   const posts = (data as any)?.posts ?? [];
   const communities = (data as any)?.communities ?? [];
+
+  const { data: newsArticles, isLoading: newsLoading } = useNews(
+    newsCategory,
+    20,
+  );
 
   const filteredPosts = useMemo(() => {
     let p = posts;
@@ -988,12 +1066,6 @@ export default function ExploreScreen() {
       );
     return p;
   }, [posts, mediaFilter, safetyFilter]);
-
-  const hashtagResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase().replace(/^#/, "");
-    if (!q) return trendingHashtags;
-    return trendingHashtags.filter((h) => h.tag.includes(q));
-  }, [searchQuery, trendingHashtags]);
 
   const showRecents =
     isSearchFocused && !searchQuery.trim() && recents.length > 0;
@@ -1059,11 +1131,7 @@ export default function ExploreScreen() {
                       setTimeout(() => setIsSearchFocused(false), 150);
                     }}
                     onSubmitEditing={commitSearch}
-                    placeholder={
-                      activeCategory === "hashtag"
-                        ? "Search hashtags…"
-                        : "Search…"
-                    }
+                    placeholder="Search NebulaNet"
                     placeholderTextColor={colors.textTertiary}
                     style={[styles.searchInput, { color: colors.text }]}
                     returnKeyType="search"
@@ -1117,46 +1185,38 @@ export default function ExploreScreen() {
             }
           />
 
-          <View
-            style={[
-              styles.segmentWrap,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.22 : 0.05,
-              },
-            ]}
-          >
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.segmentScrollContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {categories.map((c) => {
-                const isActive = activeCategory === c.key;
-                return (
-                  <TouchableOpacity
-                    key={c.key}
-                    onPress={() => switchCategory(c.key)}
-                    activeOpacity={0.85}
+          {/* Twitter-style fixed underline tab bar */}
+          <View style={[styles.tabBar, { borderBottomColor: colors.border }]}>
+            {categories.map((c) => {
+              const isActive = activeCategory === c.key;
+              return (
+                <TouchableOpacity
+                  key={c.key}
+                  onPress={() => switchCategory(c.key)}
+                  activeOpacity={0.7}
+                  style={styles.tabItem}
+                >
+                  <Text
                     style={[
-                      styles.segmentItem,
-                      isActive && { backgroundColor: colors.primary },
+                      styles.tabText,
+                      { color: isActive ? colors.text : colors.textTertiary },
+                      isActive && styles.tabTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
+                    {c.label}
+                  </Text>
+                  {isActive && (
+                    <View
                       style={[
-                        styles.segmentText,
-                        { color: colors.textTertiary },
-                        isActive && { color: "#FFFFFF" },
+                        styles.tabUnderline,
+                        { backgroundColor: colors.primary },
                       ]}
-                    >
-                      {c.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                    />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {filtersApplicable && activeFilterCount > 0 && (
@@ -1194,6 +1254,19 @@ export default function ExploreScreen() {
             {activeCategory === "top" && (
               <>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  What's happening
+                </Text>
+                <TrendingHashtagsCard
+                  hashtags={trendingHashtags}
+                  colors={colors}
+                />
+
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, marginTop: 20 },
+                  ]}
+                >
                   Top Posts
                 </Text>
 
@@ -2014,77 +2087,166 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {activeCategory === "hashtag" && (
+            {activeCategory === "news" && (
               <>
-                {hashtagResults.length > 0 ? (
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: colors.card,
-                        shadowOpacity: isDark ? 0.22 : 0.05,
-                      },
-                    ]}
-                  >
-                    {hashtagResults.map((h, idx) => (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.newsCategoryRow}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {NEWS_CATEGORIES.map((c) => {
+                    const isActive = newsCategory === c.key;
+                    return (
                       <TouchableOpacity
-                        key={h.tag}
+                        key={c.key}
+                        onPress={() => setNewsCategory(c.key)}
                         activeOpacity={0.85}
                         style={[
-                          styles.row,
-                          idx !== 0 && [
-                            styles.rowBorder,
-                            { borderTopColor: colors.border },
-                          ],
+                          styles.newsCategoryPill,
+                          {
+                            backgroundColor: isActive
+                              ? colors.primary
+                              : colors.card,
+                            borderColor: isActive
+                              ? colors.primary
+                              : colors.border,
+                          },
                         ]}
-                        onPress={() => router.push(`/hashtag/${h.tag}` as any)}
                       >
-                        <View
+                        <Text
                           style={[
-                            styles.hashtagBadge,
-                            { backgroundColor: colors.primary + "18" },
+                            styles.newsCategoryPillText,
+                            { color: isActive ? "#fff" : colors.text },
                           ]}
                         >
+                          {c.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {newsLoading ? (
+                  <View style={{ gap: 10, marginTop: 14 }}>
+                    {Array(5)
+                      .fill(null)
+                      .map((_, i) => (
+                        <PostSearchSkeleton key={i} />
+                      ))}
+                  </View>
+                ) : newsArticles && newsArticles.length > 0 ? (
+                  <View style={{ marginTop: 14 }}>
+                    {/* Hero card — lead story gets a big image + bold headline,
+                        same Twitter-News pattern of one hero followed by a
+                        compact list. Tapping opens the article via the
+                        platform's native in-app browser. */}
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      style={[
+                        styles.newsHeroCard,
+                        {
+                          backgroundColor: colors.card,
+                          shadowOpacity: isDark ? 0.22 : 0.05,
+                        },
+                      ]}
+                      onPress={() =>
+                        WebBrowser.openBrowserAsync(newsArticles[0].url)
+                      }
+                    >
+                      {newsArticles[0].image && (
+                        <Image
+                          source={{ uri: newsArticles[0].image }}
+                          style={styles.newsHeroImage}
+                          resizeMode="cover"
+                        />
+                      )}
+                      <View style={styles.newsHeroBody}>
+                        <Text
+                          style={[styles.newsHeroTitle, { color: colors.text }]}
+                          numberOfLines={3}
+                        >
+                          {newsArticles[0].title}
+                        </Text>
+                        {!!newsArticles[0].author && (
                           <Text
                             style={[
-                              styles.hashtagSymbol,
-                              { color: colors.primary },
-                            ]}
-                          >
-                            #
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text
-                            style={[styles.rowTitle, { color: colors.text }]}
-                            numberOfLines={1}
-                          >
-                            {h.tag}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.rowSubtitle,
+                              styles.newsSource,
                               { color: colors.textTertiary },
                             ]}
+                            numberOfLines={1}
                           >
-                            {h.post_count.toLocaleString()}{" "}
-                            {h.post_count === 1 ? "post" : "posts"}
+                            {newsArticles[0].author}
                           </Text>
-                        </View>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
-                      </TouchableOpacity>
-                    ))}
+                        )}
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Compact rows for the rest — same native browser open */}
+                    <View
+                      style={[
+                        styles.card,
+                        {
+                          backgroundColor: colors.card,
+                          shadowOpacity: isDark ? 0.22 : 0.05,
+                          marginTop: 12,
+                        },
+                      ]}
+                    >
+                      {newsArticles
+                        .slice(1)
+                        .map((a: NewsArticle, idx: number) => (
+                          <TouchableOpacity
+                            key={a.id}
+                            activeOpacity={0.85}
+                            style={[
+                              styles.newsRow,
+                              idx !== 0 && [
+                                styles.rowBorder,
+                                { borderTopColor: colors.border },
+                              ],
+                            ]}
+                            onPress={() => WebBrowser.openBrowserAsync(a.url)}
+                          >
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text
+                                style={[
+                                  styles.newsRowTitle,
+                                  { color: colors.text },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {a.title}
+                              </Text>
+                              {!!a.author && (
+                                <Text
+                                  style={[
+                                    styles.newsSource,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {a.author}
+                                </Text>
+                              )}
+                            </View>
+                            {a.image && (
+                              <Image
+                                source={{ uri: a.image }}
+                                style={styles.newsRowImage}
+                                resizeMode="cover"
+                              />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                    </View>
                   </View>
                 ) : (
                   <EmptyState
                     colors={colors}
-                    icon="people-circle-outline"
-                    title="No matches"
-                    subtitle="Try a different keyword."
+                    icon="newspaper-outline"
+                    title="No news yet"
+                    subtitle="Check back soon — this category will populate shortly."
                   />
                 )}
               </>
@@ -2205,24 +2367,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
-  segmentScrollContent: { flexDirection: "row", gap: 6, padding: 6 },
-  segmentWrap: {
+  // Twitter-Explore-style fixed tab bar — even-width tabs, sliding underline
+  // under the active tab instead of a pill background.
+  tabBar: {
+    flexDirection: "row",
     marginHorizontal: 18,
-    borderRadius: 22,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 2,
-    overflow: "hidden",
+    borderBottomWidth: 1,
   },
-  segmentItem: {
-    paddingHorizontal: 14,
-    height: 36,
-    borderRadius: 18,
+  tabItem: {
+    flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 13,
   },
-  segmentText: { fontSize: 13, fontWeight: "700" },
+  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabTextActive: { fontWeight: "900" },
+  tabUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: "56%",
+    borderRadius: 2,
+  },
   recentOverlay: { zIndex: 100 },
   recentPanel: {
     borderRadius: 22,
@@ -2296,6 +2461,7 @@ const styles = StyleSheet.create({
   rowBorder: { borderTopWidth: 1 },
   rowTitle: { fontSize: 14.5, fontWeight: "900" },
   rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
+  rowBio: { marginTop: 2, fontSize: 12, fontWeight: "500" },
   avatar: { width: 42, height: 42, borderRadius: 21 },
   avatarPlaceholder: {
     width: 42,
@@ -2313,14 +2479,51 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   communityAvatar: { width: 42, height: 42, borderRadius: 21 },
-  hashtagBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
+  // Trend card row (replaces the old standalone hashtag-tab row)
+  trendRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    gap: 14,
   },
-  hashtagSymbol: { fontSize: 22, fontWeight: "900" },
+  trendRank: { fontSize: 14, fontWeight: "900", width: 18, marginTop: 2 },
+  trendLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  trendTag: { fontSize: 15, fontWeight: "900", marginTop: 2 },
+  trendCount: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  newsCategoryRow: { flexDirection: "row", gap: 8, paddingVertical: 2 },
+  newsCategoryPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  newsCategoryPillText: { fontSize: 13, fontWeight: "700" },
+  newsHeroCard: {
+    borderRadius: 22,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  newsHeroImage: { width: "100%", height: 180 },
+  newsHeroBody: { padding: 14 },
+  newsHeroTitle: { fontSize: 17, fontWeight: "900", lineHeight: 22 },
+  newsSource: { fontSize: 12, fontWeight: "700", marginTop: 6 },
+  newsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  newsRowTitle: { fontSize: 14, fontWeight: "800", lineHeight: 19 },
+  newsRowImage: { width: 64, height: 64, borderRadius: 12 },
   followBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,

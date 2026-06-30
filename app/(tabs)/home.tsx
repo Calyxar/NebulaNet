@@ -5,6 +5,8 @@
 // ✅ Real-time profile sync
 // ✅ Route by user_id
 // ✅ AnnouncementCard shown at top of For You feed
+// ✅ Header now shows logo only (no "NebulaNet" text), matching
+//    Twitter/Bluesky's icon-only header pattern.
 
 import AnnouncementCard from "@/components/feed/AnnouncementCard";
 import VideoPlayer from "@/components/media/VideoPlayer";
@@ -383,17 +385,13 @@ export default function HomeScreen() {
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
+            // Logo-only header, no "NebulaNet" wordmark — matches the
+            // icon-only header pattern Twitter/Bluesky use.
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/icon.png")}
                 style={styles.brandLogo}
               />
-              <Text
-                style={[styles.brandText, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                NebulaNet
-              </Text>
             </View>
           }
           right={
@@ -992,13 +990,9 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
-  brandLogo: { width: 36, height: 36, borderRadius: 18 },
-  brandText: {
-    fontSize: 22,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-    flexShrink: 1,
-  },
+  // Enlarged now that it's the sole brand mark in the header (no text
+  // alongside it to balance against).
+  brandLogo: { width: 44, height: 44, borderRadius: 12 },
   bellWrap: {
     width: 44,
     height: 44,

@@ -3,6 +3,10 @@
 // Only the three internal search functions (searchAccounts, searchPosts,
 // searchCommunities) changed — all types, return shapes, and the public
 // useSearch() API are identical to before, so explore.tsx needs no changes.
+// ✅ NEW: bio now flows through from Algolia profile hits — was stored in
+// the index by syncProfileToAlgolia but never read here, so the bio line
+// already rendered conditionally in explore.tsx's SuggestedUserRow had
+// nothing to display for real search results.
 
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
@@ -27,6 +31,7 @@ export type SearchAccount = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  bio: string | null;
   follower_count: number;
   is_private: boolean;
   follow_status: FollowStatusLite;
@@ -210,6 +215,7 @@ async function searchAccounts(
       username: h.username ?? null,
       full_name: h.full_name ?? null,
       avatar_url: h.avatar_url ?? null,
+      bio: h.bio ?? null,
       follower_count: h.follower_count ?? 0,
       is_private: !!h.is_private,
       follow_status: followMap.get(h.objectID) ?? "none",

@@ -1,14 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.moderatePostContent = exports.verifyParentalCode = exports.sendParentalVerificationEmail = exports.deleteCommunity = exports.handleBoostCreated = exports.generateUserDataExport = exports.handleAccountDeletion = exports.onFollowDeleted = exports.onFollowUpdated = exports.onFollowCreated = exports.sendPushNotification = void 0;
+exports.syncNewsFromCurrents = exports.removeCommunityFromAlgolia = exports.syncCommunityUpdateToAlgolia = exports.syncCommunityToAlgolia = exports.removeProfileFromAlgolia = exports.syncProfileUpdateToAlgolia = exports.syncProfileToAlgolia = exports.removePostFromAlgolia = exports.syncPostUpdateToAlgolia = exports.syncPostToAlgolia = exports.moderatePostContent = exports.verifyParentalCode = exports.sendParentalVerificationEmail = exports.deleteCommunity = exports.handleBoostCreated = exports.generateUserDataExport = exports.handleAccountDeletion = exports.onFollowDeleted = exports.onFollowUpdated = exports.onFollowCreated = exports.sendPushNotification = void 0;
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
-const firestore_1 = require("firebase-admin/firestore");
 const database_1 = require("firebase-admin/database");
+const firestore_1 = require("firebase-admin/firestore");
 const messaging_1 = require("firebase-admin/messaging");
+const storage_1 = require("firebase-admin/storage");
 const params_1 = require("firebase-functions/params");
 const v2_1 = require("firebase-functions/v2");
 const firestore_2 = require("firebase-functions/v2/firestore");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
+const algoliasearch_1 = require("algoliasearch");
+const params_2 = require("firebase-functions/params");
 (0, app_1.initializeApp)();
 (0, v2_1.setGlobalOptions)({
     region: "us-central1",
@@ -20,6 +24,18 @@ const auth = (0, auth_1.getAuth)();
 const rtdb = (0, database_1.getDatabase)();
 const resendApiKey = (0, params_1.defineSecret)("RESEND_API_KEY");
 const googleCloudApiKey = (0, params_1.defineSecret)("GOOGLE_CLOUD_VISION_API_KEY");
+const algoliaAdminKey = (0, params_2.defineSecret)("ALGOLIA_ADMIN_KEY");
+const currentsApiKey = (0, params_1.defineSecret)("CURRENTS_API_KEY");
+const ALGOLIA_APP_ID = process.env.EXPO_PUBLIC_ALGOLIA_APP_ID ?? "";
+const MAX_BATCH_SIZE = 450;
+const STORAGE_FOLDERS = [
+    "community",
+    "posts",
+    "stories",
+    "avatars",
+    "chat",
+    "thumbnails",
+];
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,61 +93,88 @@ function getNotificationBody(type, text) {
 }
 function buildParentalEmailHtml(childUsername, code) {
     return [
-        '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
-        '<div style="text-align: center; margin-bottom: 32px;">',
-        '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
-        '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
+        "<div style=\"font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;\">",
+        "<div style=\"text-align: center; margin-bottom: 32px;\">",
+        "<h1 style=\"font-size: 28px; font-weight: 900; color: #fff; margin: 0;\">NebulaNet</h1>",
+        "<p style=\"color: #8892A4; margin-top: 8px;\">Parental Approval Required</p>",
         "</div>",
-        '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
+        "<p style=\"color: #CBD5E1; line-height: 1.6;\">Hi there,<br/><br/>",
         "<strong style=\"color: #fff;\">" + childUsername + "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>",
-        '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
-        '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
-        '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + "</div>",
-        '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
+        "<div style=\"background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;\">",
+        "<p style=\"color: #8892A4; font-size: 13px; margin: 0 0 12px 0;\">YOUR VERIFICATION CODE</p>",
+        "<div style=\"font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;\">" + code + "</div>",
+        "<p style=\"color: #8892A4; font-size: 12px; margin: 12px 0 0 0;\">This code expires in 30 minutes</p>",
         "</div>",
         "<p style=\"color: #CBD5E1; line-height: 1.6;\">Share this code with " + childUsername + " to complete account setup.</p>",
-        '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
-        '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
+        "<div style=\"background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;\">",
+        "<p style=\"color: #FCA5A5; font-size: 13px; margin: 0;\"><strong>Did not request this?</strong> Please ignore this email.</p>",
         "</div>",
-        '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
+        "<p style=\"color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;\">NebulaNet - nebulanet.space</p>",
         "</div>",
     ].join("\n");
 }
 function buildDataExportEmailHtml(displayName, stats) {
-    return `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;">
-  <div style="text-align: center; margin-bottom: 32px;">
-    <h1 style="font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;">NebulaNet</h1>
-    <p style="color: #8892A4; margin: 0; font-size: 14px;">Your Data Export</p>
-  </div>
-  <p style="color: #CBD5E1; line-height: 1.6; font-size: 15px;">
-    Hi <strong style="color: #fff;">${displayName}</strong>,<br/><br/>
-    Your NebulaNet data export is attached to this email as a JSON file.
-    It contains your profile, posts, comments, and activity.
-  </p>
-  <div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 20px; margin: 24px 0;">
-    <p style="color: #8892A4; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;">Export Summary</p>
-    <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.posts}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Comments</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.comments}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Liked Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.likes}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Followers</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.followers}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Following</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.following}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Communities</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.communities}</td></tr>
-    </table>
-  </div>
-  <div style="background: rgba(138,124,250,0.1); border: 1px solid rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; margin-bottom: 24px;">
-    <p style="color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;">
-      Your full data is in the attached <strong>.json</strong> file. Open it with any text editor or JSON viewer.
-    </p>
-  </div>
-  <p style="color: #CBD5E1; font-size: 13px; line-height: 1.6;">
-    If you did not request this export, you can safely ignore this email. Your account has not been affected.
-  </p>
-  <p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 28px;">
-    NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA; text-decoration: none;">nebulanet.space</a>
-  </p>
-</div>`;
+    return ("<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;\">" +
+        "<div style=\"text-align: center; margin-bottom: 32px;\">" +
+        "<h1 style=\"font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;\">NebulaNet</h1>" +
+        "<p style=\"color: #8892A4; margin: 0; font-size: 14px;\">Your Data Export</p>" +
+        "</div>" +
+        "<p style=\"color: #CBD5E1; line-height: 1.6; font-size: 15px;\">Hi <strong style=\"color: #fff;\">" + displayName + "</strong>,<br/><br/>Your NebulaNet data export is attached to this email as a JSON file. It contains your profile, posts, comments, and activity.</p>" +
+        "<div style=\"background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 20px; margin: 24px 0;\">" +
+        "<p style=\"color: #8892A4; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;\">Export Summary</p>" +
+        "<table style=\"width: 100%; border-collapse: collapse;\">" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Posts</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.posts + "</td></tr>" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Comments</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.comments + "</td></tr>" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Liked Posts</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.likes + "</td></tr>" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Followers</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.followers + "</td></tr>" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Following</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.following + "</td></tr>" +
+        "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Communities</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.communities + "</td></tr>" +
+        "</table></div>" +
+        "<div style=\"background: rgba(138,124,250,0.1); border: 1px solid rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; margin-bottom: 24px;\">" +
+        "<p style=\"color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;\">Your full data is in the attached <strong>.json</strong> file. Open it with any text editor or JSON viewer.</p>" +
+        "</div>" +
+        "<p style=\"color: #CBD5E1; font-size: 13px; line-height: 1.6;\">If you did not request this export, you can safely ignore this email. Your account has not been affected.</p>" +
+        "<p style=\"color: #3D4E63; font-size: 12px; text-align: center; margin-top: 28px;\">NebulaNet &middot; <a href=\"https://nebulanet.space\" style=\"color: #8A7CFA; text-decoration: none;\">nebulanet.space</a></p>" +
+        "</div>");
 }
+async function deleteQueryInBatches(query) {
+    let totalDeleted = 0;
+    while (true) {
+        const snap = await query.limit(MAX_BATCH_SIZE).get();
+        if (snap.empty)
+            break;
+        const batch = db.batch();
+        snap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        totalDeleted += snap.size;
+        if (snap.size < MAX_BATCH_SIZE)
+            break;
+    }
+    return totalDeleted;
+}
+async function deleteStoragePrefix(prefix) {
+    try {
+        const bucket = (0, storage_1.getStorage)().bucket();
+        const [files] = await bucket.getFiles({ prefix });
+        if (!files.length)
+            return 0;
+        await Promise.all(files.map((f) => f.delete().catch(() => void 0)));
+        return files.length;
+    }
+    catch (err) {
+        console.warn("deleteStoragePrefix failed for", prefix, String(err));
+        return 0;
+    }
+}
+function getAlgoliaClient() {
+    return (0, algoliasearch_1.algoliasearch)(ALGOLIA_APP_ID, algoliaAdminKey.value());
+}
+function changed(before, after, fields) {
+    return fields.some((f) => before?.[f] !== after?.[f]);
+}
+const POST_SEARCH_FIELDS = ["content", "title", "hashtags", "visibility", "is_nsfw", "is_visible", "community_id", "media_urls"];
+const PROFILE_SEARCH_FIELDS = ["username", "full_name", "bio", "avatar_url", "is_private", "is_suspended"];
+const COMMUNITY_SEARCH_FIELDS = ["name", "slug", "description", "is_private"];
 // ─────────────────────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,20 +364,56 @@ exports.handleAccountDeletion = (0, firestore_2.onDocumentCreated)("account_dele
     const snap = event.data;
     if (!snap)
         return;
+    const deletionSummary = {};
     try {
+        const contentCollections = [
+            { name: "posts", field: "user_id" },
+            { name: "comments", field: "user_id" },
+            { name: "likes", field: "user_id" },
+            { name: "saves", field: "user_id" },
+            { name: "reposts", field: "user_id" },
+            { name: "community_members", field: "user_id" },
+        ];
+        for (const { name, field } of contentCollections) {
+            const count = await deleteQueryInBatches(db.collection(name).where(field, "==", userId));
+            deletionSummary[name] = count;
+        }
+        const followsAsFollower = await deleteQueryInBatches(db.collection("follows").where("follower_id", "==", userId));
+        const followsAsFollowing = await deleteQueryInBatches(db.collection("follows").where("following_id", "==", userId));
+        deletionSummary["follows_as_follower"] = followsAsFollower;
+        deletionSummary["follows_as_following"] = followsAsFollowing;
+        const notifsReceived = await deleteQueryInBatches(db.collection("notifications").where("receiver_id", "==", userId));
+        const notifsSent = await deleteQueryInBatches(db.collection("notifications").where("sender_id", "==", userId));
+        deletionSummary["notifications_received"] = notifsReceived;
+        deletionSummary["notifications_sent"] = notifsSent;
+        const violations = await deleteQueryInBatches(db.collection("content_violations").where("user_id", "==", userId));
+        deletionSummary["content_violations"] = violations;
         await db.collection("profiles").doc(userId).delete();
-        await db.collection("user_settings").doc(userId).set({ deleted_at: new Date().toISOString(), cleanup_processed: true }, { merge: true });
+        await db.collection("user_settings").doc(userId).delete();
         await auth.deleteUser(userId).catch(() => void 0);
-        // Clean up the orphaned Realtime Database presence node — Firestore
-        // and Auth no longer have this user, so this status leftover would
-        // otherwise sit there indefinitely with no owner.
         await rtdb.ref(`/status/${userId}`).remove().catch((err) => {
             console.warn("Failed to clean up RTDB presence node for", userId, String(err));
         });
-        await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
+        let storageFilesDeleted = 0;
+        for (const folder of STORAGE_FOLDERS) {
+            const count = await deleteStoragePrefix(`${folder}/${userId}/`);
+            storageFilesDeleted += count;
+        }
+        deletionSummary["storage_files"] = storageFilesDeleted;
+        await snap.ref.update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+            deletion_summary: deletionSummary,
+        });
+        console.log("Account deletion completed for", userId, "summary:", deletionSummary);
     }
     catch (err) {
-        await snap.ref.update({ status: "failed", error: String(err) });
+        await snap.ref.update({
+            status: "failed",
+            error: String(err),
+            partial_deletion_summary: deletionSummary,
+        });
+        console.error("handleAccountDeletion error for", userId, String(err));
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
@@ -478,9 +557,8 @@ exports.deleteCommunity = v2_1.https.onCall({ region: "us-central1" }, async (re
     if (!communitySnap.exists)
         throw new Error("Community not found.");
     const communityData = communitySnap.data();
-    if (!communityData || communityData.owner_id !== uid) {
+    if (!communityData || communityData.owner_id !== uid)
         throw new Error("Permission denied. User is not the owner.");
-    }
     await communityRef.delete();
     return { success: true, message: "Community deleted successfully" };
 });
@@ -582,10 +660,7 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
     }
     if (!shouldFlag && mediaUrls.length > 0) {
         try {
-            const imageUrl = mediaUrls.find((u) => !u.includes(".mp4") &&
-                !u.includes(".mov") &&
-                !u.includes(".m4v") &&
-                !u.includes(".webm"));
+            const imageUrl = mediaUrls.find((u) => !u.includes(".mp4") && !u.includes(".mov") && !u.includes(".m4v") && !u.includes(".webm"));
             if (imageUrl) {
                 const visionRes = await fetch("https://vision.googleapis.com/v1/images:annotate?key=" + googleCloudApiKey.value(), {
                     method: "POST",
@@ -611,9 +686,7 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
                             flagLevels.includes(safeSearch.adult) ? "adult:" + safeSearch.adult : "",
                             flagLevels.includes(safeSearch.racy) ? "racy:" + safeSearch.racy : "",
                             flagLevels.includes(safeSearch.violence) ? "violence:" + safeSearch.violence : "",
-                        ]
-                            .filter(Boolean)
-                            .join(",");
+                        ].filter(Boolean).join(",");
                     }
                 }
             }
@@ -640,10 +713,7 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
             action_taken: "nsfw_flagged",
             reviewed: false,
         });
-        const violationsSnap = await db
-            .collection("content_violations")
-            .where("user_id", "==", userId)
-            .get();
+        const violationsSnap = await db.collection("content_violations").where("user_id", "==", userId).get();
         if (violationsSnap.size >= 3) {
             await db.collection("profiles").doc(userId).update({
                 content_violation_count: violationsSnap.size,
@@ -653,5 +723,278 @@ exports.moderatePostContent = (0, firestore_2.onDocumentCreated)({ document: "po
             });
         }
         console.log("Post", postId, "auto-flagged NSFW:", flagReason);
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+// ALGOLIA SYNC (fixed for algoliasearch v5 — saveObject/deleteObject take
+// { indexName, body/objectID } instead of the old client.initIndex(...) chain)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.syncPostToAlgolia = (0, firestore_2.onDocumentCreated)({ document: "posts/{postId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    try {
+        const data = snap.data();
+        await getAlgoliaClient().saveObject({
+            indexName: "posts",
+            body: {
+                objectID: event.params.postId,
+                content: data.content ?? "",
+                title: data.title ?? "",
+                hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
+                user_id: data.user_id ?? null,
+                username: data.user?.username ?? null,
+                full_name: data.user?.full_name ?? null,
+                community_id: data.community_id ?? null,
+                visibility: data.visibility ?? "public",
+                is_nsfw: data.is_nsfw === true,
+                is_visible: data.is_visible !== false,
+                media_urls: Array.isArray(data.media_urls) ? data.media_urls : [],
+                created_at_ts: data.created_at_ts?.toMillis?.() ?? Date.now(),
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncPostToAlgolia] failed:", String(err));
+    }
+});
+exports.syncPostUpdateToAlgolia = (0, firestore_2.onDocumentUpdated)({ document: "posts/{postId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after)
+        return;
+    if (!changed(before, after, POST_SEARCH_FIELDS))
+        return;
+    try {
+        await getAlgoliaClient().saveObject({
+            indexName: "posts",
+            body: {
+                objectID: event.params.postId,
+                content: after.content ?? "",
+                title: after.title ?? "",
+                hashtags: Array.isArray(after.hashtags) ? after.hashtags : [],
+                user_id: after.user_id ?? null,
+                username: after.user?.username ?? null,
+                full_name: after.user?.full_name ?? null,
+                community_id: after.community_id ?? null,
+                visibility: after.visibility ?? "public",
+                is_nsfw: after.is_nsfw === true,
+                is_visible: after.is_visible !== false,
+                media_urls: Array.isArray(after.media_urls) ? after.media_urls : [],
+                created_at_ts: after.created_at_ts?.toMillis?.() ?? Date.now(),
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncPostUpdateToAlgolia] failed:", String(err));
+    }
+});
+exports.removePostFromAlgolia = (0, firestore_2.onDocumentDeleted)({ document: "posts/{postId}", secrets: [algoliaAdminKey] }, async (event) => {
+    try {
+        await getAlgoliaClient().deleteObject({
+            indexName: "posts",
+            objectID: event.params.postId,
+        });
+    }
+    catch (err) {
+        console.error("[removePostFromAlgolia] failed:", String(err));
+    }
+});
+exports.syncProfileToAlgolia = (0, firestore_2.onDocumentCreated)({ document: "profiles/{userId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    try {
+        const data = snap.data();
+        await getAlgoliaClient().saveObject({
+            indexName: "profiles",
+            body: {
+                objectID: event.params.userId,
+                username: data.username ?? "",
+                full_name: data.full_name ?? "",
+                bio: data.bio ?? "",
+                avatar_url: data.avatar_url ?? null,
+                follower_count: data.follower_count ?? 0,
+                is_private: data.is_private === true,
+                is_suspended: data.is_suspended === true,
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncProfileToAlgolia] failed:", String(err));
+    }
+});
+exports.syncProfileUpdateToAlgolia = (0, firestore_2.onDocumentUpdated)({ document: "profiles/{userId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after)
+        return;
+    if (!changed(before, after, PROFILE_SEARCH_FIELDS))
+        return;
+    try {
+        await getAlgoliaClient().saveObject({
+            indexName: "profiles",
+            body: {
+                objectID: event.params.userId,
+                username: after.username ?? "",
+                full_name: after.full_name ?? "",
+                bio: after.bio ?? "",
+                avatar_url: after.avatar_url ?? null,
+                follower_count: after.follower_count ?? 0,
+                is_private: after.is_private === true,
+                is_suspended: after.is_suspended === true,
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncProfileUpdateToAlgolia] failed:", String(err));
+    }
+});
+exports.removeProfileFromAlgolia = (0, firestore_2.onDocumentDeleted)({ document: "profiles/{userId}", secrets: [algoliaAdminKey] }, async (event) => {
+    try {
+        await getAlgoliaClient().deleteObject({
+            indexName: "profiles",
+            objectID: event.params.userId,
+        });
+    }
+    catch (err) {
+        console.error("[removeProfileFromAlgolia] failed:", String(err));
+    }
+});
+exports.syncCommunityToAlgolia = (0, firestore_2.onDocumentCreated)({ document: "communities/{communityId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    try {
+        const data = snap.data();
+        await getAlgoliaClient().saveObject({
+            indexName: "communities",
+            body: {
+                objectID: event.params.communityId,
+                name: data.name ?? "",
+                slug: data.slug ?? "",
+                description: data.description ?? "",
+                member_count: data.member_count ?? 0,
+                is_private: data.is_private === true,
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncCommunityToAlgolia] failed:", String(err));
+    }
+});
+exports.syncCommunityUpdateToAlgolia = (0, firestore_2.onDocumentUpdated)({ document: "communities/{communityId}", secrets: [algoliaAdminKey] }, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after)
+        return;
+    if (!changed(before, after, COMMUNITY_SEARCH_FIELDS))
+        return;
+    try {
+        await getAlgoliaClient().saveObject({
+            indexName: "communities",
+            body: {
+                objectID: event.params.communityId,
+                name: after.name ?? "",
+                slug: after.slug ?? "",
+                description: after.description ?? "",
+                member_count: after.member_count ?? 0,
+                is_private: after.is_private === true,
+            },
+        });
+    }
+    catch (err) {
+        console.error("[syncCommunityUpdateToAlgolia] failed:", String(err));
+    }
+});
+exports.removeCommunityFromAlgolia = (0, firestore_2.onDocumentDeleted)({ document: "communities/{communityId}", secrets: [algoliaAdminKey] }, async (event) => {
+    try {
+        await getAlgoliaClient().deleteObject({
+            indexName: "communities",
+            objectID: event.params.communityId,
+        });
+    }
+    catch (err) {
+        console.error("[removeCommunityFromAlgolia] failed:", String(err));
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+// NEWS SYNC (Currents API → Firestore cache, read by the News tab)
+// ─────────────────────────────────────────────────────────────────────────────
+// V2 canonical categories — picked a representative spread rather than all 16
+// to keep the daily request budget low on Currents' free tier (1,000/day).
+const NEWS_CATEGORIES = [
+    "general",
+    "science_technology",
+    "economy_business_finance",
+    "sport",
+    "arts_culture_entertainment",
+    "health",
+];
+async function fetchCurrentsCategory(category, apiKey) {
+    const url = "https://api.currentsapi.services/v2/latest-news" +
+        "?language=en&page_size=20&category=" +
+        encodeURIComponent(category) +
+        "&apiKey=" +
+        encodeURIComponent(apiKey);
+    const res = await fetch(url);
+    if (!res.ok) {
+        console.error("[syncNews] Currents request failed for category", category, res.status, await res.text().catch(() => ""));
+        return [];
+    }
+    const data = (await res.json());
+    if (data.status !== "ok" || !Array.isArray(data.news)) {
+        console.error("[syncNews] unexpected Currents response for", category, data);
+        return [];
+    }
+    return data.news;
+}
+// Runs every 3 hours. Fetches each category from Currents and upserts into
+// Firestore, deduped by article id so re-fetching the same story doesn't
+// create duplicates. Also writes a small news_meta doc per category so the
+// client can show "Updated Xh ago" without needing article-level timestamps.
+exports.syncNewsFromCurrents = (0, scheduler_1.onSchedule)({ schedule: "every 3 hours", secrets: [currentsApiKey], timeoutSeconds: 300 }, async () => {
+    const apiKey = currentsApiKey.value();
+    if (!apiKey) {
+        console.error("[syncNews] CURRENTS_API_KEY secret is empty");
+        return;
+    }
+    for (const category of NEWS_CATEGORIES) {
+        try {
+            const articles = await fetchCurrentsCategory(category, apiKey);
+            if (!articles.length) {
+                console.log("[syncNews] no articles returned for", category);
+                continue;
+            }
+            const batch = db.batch();
+            let count = 0;
+            for (const a of articles) {
+                if (!a.id)
+                    continue;
+                const ref = db.collection("news_articles").doc(a.id);
+                batch.set(ref, {
+                    title: a.title ?? "",
+                    description: a.description ?? null,
+                    url: a.url ?? "",
+                    author: a.author ?? null,
+                    image: a.image ?? null,
+                    language: a.language ?? "en",
+                    category: Array.isArray(a.category) ? a.category : [category],
+                    published: a.published ?? null,
+                    synced_at: firestore_1.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                count++;
+            }
+            if (count > 0)
+                await batch.commit();
+            await db.collection("news_meta").doc(category).set({
+                last_synced_at: firestore_1.FieldValue.serverTimestamp(),
+                article_count: count,
+            });
+            console.log("[syncNews] synced", count, "articles for", category);
+        }
+        catch (err) {
+            console.error("[syncNews] failed for category", category, String(err));
+        }
     }
 });

@@ -1,4 +1,13 @@
-// app/(tabs)/profile.tsx ✅ FIXED
+// app/(tabs)/profile.tsx ✅ REDESIGNED
+// ✅ Banner photo added — avatar now overlaps its bottom edge, Twitter/
+//    Bluesky style. Reads profile.banner_url (new field — needs an upload
+//    flow added to the edit-profile screen separately).
+// ✅ "Activity" tab removed — reposts/quotes now interleave directly into
+//    the Post tab with an inline "Reposted"/"Quoted" label, matching how
+//    real Twitter/Bluesky timelines work (and matching the repost label
+//    pattern already used in home.tsx).
+// ✅ Tabs switched from pill-background to underline style, matching Explore.
+//
 // Fix 1: my-posts query uses orderBy("created_at_ts") to match existing index
 // Fix 2: my-reposts query uses staleTime:0 + gcTime:0 to bypass stale cache
 // Fix 3: reposts query drops orderBy entirely and sorts client-side (safest)
@@ -35,8 +44,11 @@ import {
 const { width: SCREEN_W } = Dimensions.get("window");
 const GRID_GAP = 2;
 const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
+const BANNER_HEIGHT = 150;
+const AVATAR_SIZE = 84;
+const AVATAR_OVERLAP = AVATAR_SIZE / 2;
 
-type ProfileTab = "Post" | "Activity" | "Media";
+type ProfileTab = "Post" | "Media";
 
 type ActivityItem = {
   id: string;
@@ -69,6 +81,12 @@ type PostRow = {
   created_at: string;
   post_type?: string | null;
 };
+
+// Unified feed item for the merged Post tab — either a plain post or an
+// activity item (repost/quote), tagged with a single sort timestamp.
+type FeedEntry =
+  | { kind: "post"; sortAt: string; post: PostRow }
+  | { kind: "activity"; sortAt: string; activity: ActivityItem };
 
 function formatNumber(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -310,6 +328,34 @@ export default function ProfileScreen() {
     },
   });
 
+  // ── Merge posts + activity into one interleaved, deduped feed ──────────────
+  // Quote-type activity items are themselves posts authored by this user
+  // (the "posts" query already includes them), so they're excluded from the
+  // plain-post list here to avoid showing the same quote post twice.
+  const mergedFeed: FeedEntry[] = useMemo(() => {
+    const quoteIds = new Set(
+      (activity ?? []).filter((a) => a.type === "quote").map((a) => a.id),
+    );
+    const plainPosts = (posts ?? []).filter((p) => !quoteIds.has(p.id));
+
+    const entries: FeedEntry[] = [
+      ...plainPosts.map(
+        (post): FeedEntry => ({ kind: "post", sortAt: post.created_at, post }),
+      ),
+      ...(activity ?? []).map(
+        (activityItem): FeedEntry => ({
+          kind: "activity",
+          sortAt: activityItem.activity_at,
+          activity: activityItem,
+        }),
+      ),
+    ];
+
+    return entries.sort(
+      (a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime(),
+    );
+  }, [posts, activity]);
+
   const mediaPosts = useMemo(
     () => (posts ?? []).filter((p) => p.media_urls && p.media_urls.length > 0),
     [posts],
@@ -326,6 +372,9 @@ export default function ProfileScreen() {
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const avatarUrl = profile?.avatar_url;
+  // New field — falls back to a primary-tint gradient when absent so the
+  // header still looks intentional before anyone's uploaded a banner.
+  const bannerUrl = (profile as any)?.banner_url as string | null | undefined;
   const displayName = profile?.full_name || profile?.username || "User";
 
   return (
@@ -341,7 +390,7 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          {/* Animated sticky header */}
+          {/* Animated sticky header — floats above the banner */}
           <View style={styles.header}>
             <Animated.View
               style={[
@@ -426,91 +475,94 @@ export default function ProfileScreen() {
               />
             }
           >
-            {/* Profile card */}
+            {/* Banner — Twitter/Bluesky style, avatar overlaps its bottom edge */}
+            <View style={styles.bannerWrap}>
+              {bannerUrl ? (
+                <Image source={{ uri: bannerUrl }} style={styles.bannerImage} />
+              ) : (
+                <LinearGradient
+                  colors={[colors.primary, colors.primary + "60"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.bannerImage}
+                />
+              )}
+              <TouchableOpacity
+                onPress={() => router.push("/profile/edit")}
+                activeOpacity={0.9}
+                style={[
+                  styles.avatarOverlap,
+                  { borderColor: colors.background },
+                ]}
+              >
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatarFallback,
+                      { backgroundColor: colors.primary },
+                    ]}
+                  >
+                    <Text style={styles.avatarFallbackText}>
+                      {(displayName[0] || "U").toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View
+                  style={[
+                    styles.editBadge,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.background,
+                    },
+                  ]}
+                >
+                  <Ionicons name="pencil" size={11} color="#fff" />
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Profile card — content starts clear of the overlapping avatar */}
             <View
               style={[
                 styles.profileCard,
                 { backgroundColor: colors.card, borderColor: colors.border },
               ]}
             >
-              <View style={styles.topRow}>
+              <View style={styles.actionRow}>
                 <TouchableOpacity
+                  style={[
+                    styles.editBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
                   onPress={() => router.push("/profile/edit")}
-                  activeOpacity={0.9}
+                  activeOpacity={0.85}
                 >
-                  {avatarUrl ? (
-                    <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-                  ) : (
-                    <View
-                      style={[
-                        styles.avatarFallback,
-                        { backgroundColor: colors.primary },
-                      ]}
-                    >
-                      <Text style={styles.avatarFallbackText}>
-                        {(displayName[0] || "U").toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-                  <View
-                    style={[
-                      styles.editBadge,
-                      {
-                        backgroundColor: colors.primary,
-                        borderColor: colors.card,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="pencil" size={11} color="#fff" />
-                  </View>
+                  <Text style={[styles.editBtnText, { color: colors.text }]}>
+                    Edit Profile
+                  </Text>
                 </TouchableOpacity>
-
-                <View style={styles.statsRow}>
-                  <Pressable
-                    style={styles.statItem}
-                    onPress={() => router.push(`/profile/followers` as any)}
-                  >
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(
-                        stats?.followers ??
-                          (profile as any)?.follower_count ??
-                          0,
-                      )}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Followers
-                    </Text>
-                  </Pressable>
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(stats?.posts ?? 0)}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Posts
-                    </Text>
-                  </View>
-                  <Pressable
-                    style={styles.statItem}
-                    onPress={() => router.push(`/profile/following` as any)}
-                  >
-                    <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatNumber(
-                        stats?.following ??
-                          (profile as any)?.following_count ??
-                          0,
-                      )}
-                    </Text>
-                    <Text
-                      style={[styles.statLabel, { color: colors.textTertiary }]}
-                    >
-                      Following
-                    </Text>
-                  </Pressable>
-                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.shareBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => shareSheetRef.current?.present()}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="share-outline"
+                    size={18}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
               </View>
 
               <View style={styles.nameRow}>
@@ -549,67 +601,86 @@ export default function ProfileScreen() {
                 </View>
               )}
 
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.editBtn,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() => router.push("/profile/edit")}
-                  activeOpacity={0.85}
+              <View style={styles.statsRow}>
+                <Pressable
+                  style={styles.statItem}
+                  onPress={() => router.push(`/profile/followers` as any)}
                 >
-                  <Text style={[styles.editBtnText, { color: colors.text }]}>
-                    Edit Profile
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {formatNumber(
+                      stats?.followers ?? (profile as any)?.follower_count ?? 0,
+                    )}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.shareBtn,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() => shareSheetRef.current?.present()}
-                  activeOpacity={0.85}
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Followers
+                  </Text>
+                </Pressable>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {formatNumber(stats?.posts ?? 0)}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Posts
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.statItem}
+                  onPress={() => router.push(`/profile/following` as any)}
                 >
-                  <Ionicons
-                    name="share-outline"
-                    size={18}
-                    color={colors.text}
-                  />
-                </TouchableOpacity>
+                  <Text style={[styles.statValue, { color: colors.text }]}>
+                    {formatNumber(
+                      stats?.following ??
+                        (profile as any)?.following_count ??
+                        0,
+                    )}
+                  </Text>
+                  <Text
+                    style={[styles.statLabel, { color: colors.textTertiary }]}
+                  >
+                    Following
+                  </Text>
+                </Pressable>
               </View>
             </View>
 
-            {/* Tabs */}
+            {/* Tabs — underline style, matching Explore. Just Post/Media now;
+                Activity merges into Post below. */}
             <View
-              style={[styles.tabsContainer, { backgroundColor: colors.card }]}
+              style={[
+                styles.tabsContainer,
+                { borderBottomColor: colors.border },
+              ]}
             >
-              {(["Post", "Activity", "Media"] as ProfileTab[]).map((tab) => {
+              {(["Post", "Media"] as ProfileTab[]).map((tab) => {
                 const active = activeTab === tab;
                 return (
                   <TouchableOpacity
                     key={tab}
-                    style={[
-                      styles.tab,
-                      active && { backgroundColor: colors.primary },
-                    ]}
                     onPress={() => setActiveTab(tab)}
-                    activeOpacity={0.85}
+                    activeOpacity={0.7}
+                    style={styles.tab}
                   >
                     <Text
                       style={[
                         styles.tabText,
-                        { color: colors.textTertiary },
-                        active && { color: "#fff", fontWeight: "800" },
+                        { color: active ? colors.text : colors.textTertiary },
+                        active && styles.tabTextActive,
                       ]}
                     >
                       {tab}
                     </Text>
+                    {active && (
+                      <View
+                        style={[
+                          styles.tabUnderline,
+                          { backgroundColor: colors.primary },
+                        ]}
+                      />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -617,37 +688,169 @@ export default function ProfileScreen() {
 
             {/* Tab content */}
             <View style={styles.contentSection}>
-              {/* POSTS */}
+              {/* POST — plain posts and reposts/quotes interleaved by date */}
               {activeTab === "Post" &&
-                (posts && posts.length > 0 ? (
+                (mergedFeed.length > 0 ? (
                   <View style={{ gap: 12 }}>
-                    {posts.map((p) => {
-                      const img = p.media_urls?.[0];
-                      const isVid = isVideoUrl(img) || p.post_type === "video";
+                    {mergedFeed.map((entry) => {
+                      if (entry.kind === "post") {
+                        const p = entry.post;
+                        const img = p.media_urls?.[0];
+                        const isVid =
+                          isVideoUrl(img) || p.post_type === "video";
+                        return (
+                          <TouchableOpacity
+                            key={`post-${p.id}`}
+                            style={[
+                              styles.postCard,
+                              { backgroundColor: colors.card },
+                            ]}
+                            onPress={() => router.push(`/post/${p.id}` as any)}
+                            activeOpacity={0.9}
+                          >
+                            {!!p.content && (
+                              <HashtagText
+                                content={p.content}
+                                style={[
+                                  styles.postContent,
+                                  { color: colors.text },
+                                ]}
+                                numberOfLines={4}
+                                hashtagColor={colors.primary}
+                                onPress={() =>
+                                  router.push(`/post/${p.id}` as any)
+                                }
+                              />
+                            )}
+                            {!!img && (
+                              <View
+                                style={[
+                                  styles.postMediaWrap,
+                                  { backgroundColor: colors.surface },
+                                ]}
+                              >
+                                <Image
+                                  source={{ uri: img }}
+                                  style={styles.postMedia}
+                                  resizeMode="cover"
+                                />
+                                {isVid && (
+                                  <View style={styles.videoOverlay}>
+                                    <Ionicons
+                                      name="play-circle"
+                                      size={32}
+                                      color="#fff"
+                                    />
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      }
+
+                      // entry.kind === "activity"
+                      const item = entry.activity;
+                      const img = item.media_urls?.[0];
+                      const isVid =
+                        isVideoUrl(img) || item.post_type === "video";
+
                       return (
                         <TouchableOpacity
-                          key={p.id}
+                          key={`${item.type}-${item.id}`}
                           style={[
                             styles.postCard,
                             { backgroundColor: colors.card },
                           ]}
-                          onPress={() => router.push(`/post/${p.id}` as any)}
+                          onPress={() => router.push(`/post/${item.id}` as any)}
                           activeOpacity={0.9}
                         >
-                          {!!p.content && (
-                            <HashtagText
-                              content={p.content}
+                          <View style={styles.activityLabelRow}>
+                            <Ionicons
+                              name={
+                                item.type === "quote"
+                                  ? "chatbubble-ellipses-outline"
+                                  : "repeat-outline"
+                              }
+                              size={14}
+                              color={colors.textTertiary}
+                            />
+                            <Text
+                              style={[
+                                styles.activityLabelText,
+                                { color: colors.textTertiary },
+                              ]}
+                            >
+                              {item.type === "quote"
+                                ? "You quoted"
+                                : "You reposted"}
+                            </Text>
+                          </View>
+
+                          {!!item.content && (
+                            <Text
                               style={[
                                 styles.postContent,
-                                { color: colors.text },
+                                { color: colors.text, marginBottom: 8 },
                               ]}
                               numberOfLines={4}
-                              hashtagColor={colors.primary}
-                              onPress={() =>
-                                router.push(`/post/${p.id}` as any)
-                              }
-                            />
+                            >
+                              {item.content}
+                            </Text>
                           )}
+
+                          {item.type === "quote" && item.quoted_post && (
+                            <View
+                              style={[
+                                styles.quotedCard,
+                                {
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.surface,
+                                },
+                              ]}
+                            >
+                              {item.quoted_post.user && (
+                                <Text
+                                  style={[
+                                    styles.quotedAuthor,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  @
+                                  {item.quoted_post.user.username ??
+                                    item.quoted_post.user.full_name ??
+                                    "User"}
+                                </Text>
+                              )}
+                              {!!item.quoted_post.content && (
+                                <Text
+                                  style={[
+                                    styles.quotedContent,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                  numberOfLines={3}
+                                >
+                                  {item.quoted_post.content}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+
+                          {item.type === "repost" && (
+                            <Text
+                              style={[
+                                styles.repostByline,
+                                { color: colors.textTertiary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              Originally by @
+                              {item.original_user?.username ??
+                                item.original_user?.full_name ??
+                                "someone"}
+                            </Text>
+                          )}
+
                           {!!img && (
                             <View
                               style={[
@@ -702,163 +905,6 @@ export default function ProfileScreen() {
                     >
                       <Text style={styles.createPostBtnText}>Create Post</Text>
                     </TouchableOpacity>
-                  </View>
-                ))}
-
-              {/* ACTIVITY */}
-              {activeTab === "Activity" &&
-                (activity && activity.length > 0 ? (
-                  <View style={{ gap: 12 }}>
-                    {activity.map((item) => {
-                      const img = item.media_urls?.[0];
-                      const isVid =
-                        isVideoUrl(img) || item.post_type === "video";
-
-                      return (
-                        <TouchableOpacity
-                          key={`${item.type}-${item.id}`}
-                          style={[
-                            styles.postCard,
-                            { backgroundColor: colors.card },
-                          ]}
-                          onPress={() => router.push(`/post/${item.id}` as any)}
-                          activeOpacity={0.9}
-                        >
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 6,
-                              marginBottom: 8,
-                            }}
-                          >
-                            <Ionicons
-                              name={
-                                item.type === "quote"
-                                  ? "chatbubble-ellipses-outline"
-                                  : "repeat-outline"
-                              }
-                              size={14}
-                              color={colors.primary}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontWeight: "700",
-                                color: colors.primary,
-                              }}
-                            >
-                              {item.type === "quote"
-                                ? `Quoted · @${item.quoted_post?.user?.username ?? item.quoted_post?.user?.full_name ?? "someone"}`
-                                : `Reposted · @${item.original_user?.username ?? item.original_user?.full_name ?? "someone"}`}
-                            </Text>
-                          </View>
-
-                          {item.type === "quote" && !!item.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text, marginBottom: 8 },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
-                          )}
-
-                          {item.type === "repost" && !!item.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
-                          )}
-
-                          {item.type === "quote" && item.quoted_post && (
-                            <View
-                              style={[
-                                styles.quotedCard,
-                                {
-                                  borderColor: colors.border,
-                                  backgroundColor: colors.surface,
-                                },
-                              ]}
-                            >
-                              {item.quoted_post.user && (
-                                <Text
-                                  style={[
-                                    styles.quotedAuthor,
-                                    { color: colors.textSecondary },
-                                  ]}
-                                >
-                                  @
-                                  {item.quoted_post.user.username ??
-                                    item.quoted_post.user.full_name ??
-                                    "User"}
-                                </Text>
-                              )}
-                              {!!item.quoted_post.content && (
-                                <Text
-                                  style={[
-                                    styles.quotedContent,
-                                    { color: colors.textSecondary },
-                                  ]}
-                                  numberOfLines={3}
-                                >
-                                  {item.quoted_post.content}
-                                </Text>
-                              )}
-                            </View>
-                          )}
-
-                          {!!img && (
-                            <View
-                              style={[
-                                styles.postMediaWrap,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Image
-                                source={{ uri: img }}
-                                style={styles.postMedia}
-                                resizeMode="cover"
-                              />
-                              {isVid && (
-                                <View style={styles.videoOverlay}>
-                                  <Ionicons
-                                    name="play-circle"
-                                    size={32}
-                                    color="#fff"
-                                  />
-                                </View>
-                              )}
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <View
-                    style={[styles.emptyCard, { backgroundColor: colors.card }]}
-                  >
-                    <Ionicons
-                      name="repeat-outline"
-                      size={40}
-                      color={colors.textTertiary}
-                    />
-                    <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                      No Activity Yet
-                    </Text>
-                    <Text
-                      style={[styles.emptyDesc, { color: colors.textTertiary }]}
-                    >
-                      Posts you repost or quote will appear here.
-                    </Text>
                   </View>
                 ))}
 
@@ -987,6 +1033,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     paddingTop: 14,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
   },
   headerCenter: {
     flex: 1,
@@ -1006,30 +1057,28 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  profileCard: {
-    borderRadius: 22,
-    padding: 18,
-    marginHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 12,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 2,
+  bannerWrap: {
+    width: "100%",
+    height: BANNER_HEIGHT + AVATAR_OVERLAP,
   },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-    gap: 16,
+  bannerImage: {
+    width: "100%",
+    height: BANNER_HEIGHT,
   },
-  avatar: { width: 76, height: 76, borderRadius: 38 },
+  avatarOverlap: {
+    position: "absolute",
+    bottom: 0,
+    left: 16,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    borderWidth: 4,
+  },
+  avatar: { width: "100%", height: "100%", borderRadius: AVATAR_SIZE / 2 },
   avatarFallback: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: "100%",
+    height: "100%",
+    borderRadius: AVATAR_SIZE / 2,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1045,30 +1094,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
   },
-  statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
-  statItem: { alignItems: "center" },
-  statValue: { fontSize: 18, fontWeight: "900" },
-  statLabel: { fontSize: 12, marginTop: 3, fontWeight: "700" },
-  nameRow: {
+  profileCard: {
+    borderRadius: 22,
+    padding: 18,
+    paddingTop: 12,
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 12,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  actionRow: {
     flexDirection: "row",
-    alignItems: "center",
     gap: 8,
-    marginBottom: 4,
+    justifyContent: "flex-end",
+    marginBottom: 10,
   },
-  displayName: { fontSize: 17, fontWeight: "900" },
-  username: { fontSize: 14, marginBottom: 6 },
-  bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 8 },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 8,
-  },
-  locationText: { fontSize: 13 },
-  actionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   editBtn: {
-    flex: 1,
     paddingVertical: 10,
+    paddingHorizontal: 18,
     borderRadius: 22,
     alignItems: "center",
     borderWidth: 1,
@@ -1082,20 +1130,44 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  displayName: { fontSize: 17, fontWeight: "900" },
+  username: { fontSize: 14, marginBottom: 6 },
+  bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 8 },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 10,
+  },
+  locationText: { fontSize: 13 },
+  statsRow: { flexDirection: "row", gap: 20, marginTop: 4 },
+  statItem: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  statValue: { fontSize: 15, fontWeight: "900" },
+  statLabel: { fontSize: 13, fontWeight: "600" },
+  // Underline tabs — matches Explore's tab bar style instead of the old
+  // pill-background segmented control.
   tabsContainer: {
     flexDirection: "row",
-    borderRadius: 22,
-    padding: 5,
     marginHorizontal: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
+    borderBottomWidth: 1,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 18 },
-  tabText: { fontSize: 13, fontWeight: "700" },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 13 },
+  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabTextActive: { fontWeight: "900" },
+  tabUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: "56%",
+    borderRadius: 2,
+  },
   contentSection: { paddingHorizontal: 16, paddingBottom: 32 },
   postCard: {
     borderRadius: 18,
@@ -1106,6 +1178,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
+  activityLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  activityLabelText: { fontSize: 12, fontWeight: "700" },
+  repostByline: { fontSize: 12, fontWeight: "600", marginTop: 4 },
   postContent: { fontSize: 14, lineHeight: 20 },
   postMediaWrap: {
     width: "100%",
