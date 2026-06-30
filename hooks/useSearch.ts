@@ -652,11 +652,21 @@ export function useSearch(params: UseSearchParams): UseSearchReturn {
     [type, debouncedQuery, lim, mediaType, mediaOnly],
   );
 
+  console.log(
+    "[SEARCH DEBUG] trimmed:",
+    trimmed,
+    "debouncedQuery:",
+    debouncedQuery,
+    "enabled:",
+    enabled,
+  );
+
   const q = useQuery({
     queryKey,
     enabled,
     staleTime: 30_000,
     queryFn: async () => {
+      console.log("[SEARCH DEBUG] queryFn firing for:", debouncedQuery);
       const uid = auth.currentUser?.uid ?? null;
 
       if (type === "top") {
