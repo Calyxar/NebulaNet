@@ -1,8 +1,8 @@
-// hooks/useSearch.ts — ✅ FIXED
-// Fix 1: fetchSuggestedCommunities returns is_joined (not just filters out joined)
-// Fix 2: searchCommunities returns is_joined for search results
-// Fix 3: Media search is Twitter-style — searches by title, hashtag, or #tag
-//        and only returns posts that actually have media attached
+// hooks/useSearch.ts
+// Search now powered by Algolia for typo-tolerance and substring matching.
+// Only the three internal search functions (searchAccounts, searchPosts,
+// searchCommunities) changed — all types, return shapes, and the public
+// useSearch() API are identical to before, so explore.tsx needs no changes.
 
 import { auth } from "@/lib/firebase";
 import { qk } from "@/lib/queryKeys/social";
@@ -10,7 +10,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import firestore from "@react-native-firebase/firestore";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { algoliasearch } from "algoliasearch";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+const algoliaClient = algoliasearch(
+  process.env.EXPO_PUBLIC_ALGOLIA_APP_ID ?? "",
+  process.env.EXPO_PUBLIC_ALGOLIA_SEARCH_KEY ?? "",
+);
 
 export type SearchType = "top" | "account" | "post" | "community";
 export type FollowStatusLite = "none" | "pending" | "accepted";
@@ -51,7 +57,7 @@ export type SearchCommunity = {
   image_url?: string | null;
   avatar_url?: string | null;
   member_count?: number;
-  is_joined?: boolean; // ✅ FIX 1: joined state
+  is_joined?: boolean;
 };
 
 export type SuggestedUser = {
@@ -130,7 +136,7 @@ function tsToIso(ts: any): string {
   return new Date(ts).toISOString();
 }
 
-function isVideoUrl(url?: string | null | undefined): boolean {
+function isVideoUrl(url?: string | null): boolean {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
   return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
@@ -138,13 +144,13 @@ function isVideoUrl(url?: string | null | undefined): boolean {
   );
 }
 
-function isImageUrl(url?: string | null | undefined): boolean {
+function isImageUrl(url?: string | null): boolean {
   if (!url) return false;
   const clean = url.split("?")[0].toLowerCase();
   return ["jpg", "jpeg", "png", "webp"].some((e) => clean.endsWith(`.${e}`));
 }
 
-function isGifUrl(url?: string | null | undefined): boolean {
+function isGifUrl(url?: string | null): boolean {
   if (!url) return false;
   return url.split("?")[0].toLowerCase().endsWith(".gif");
 }
@@ -184,261 +190,111 @@ async function searchAccounts(
   lim: number,
   uid: string | null,
 ): Promise<SearchAccount[]> {
-  const lower = q.replace(/^@/, "").toLowerCase().trim();
-  if (!lower) return [];
-  const end =
-    lower.slice(0, -1) +
-    String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
+  const query = q.replace(/^@/, "").trim();
+  if (!query) return [];
 
-  const [byUsername, byFullName, followMap] = await Promise.all([
-    firestore()
-      .collection("profiles")
-      .where("username", ">=", lower)
-      .where("username", "<", end)
-      .limit(lim)
-      .get(),
-    firestore()
-      .collection("profiles")
-      .where("full_name", ">=", q.replace(/^@/, ""))
-      .where(
-        "full_name",
-        "<",
-        q.replace(/^@/, "").slice(0, -1) +
-          String.fromCharCode(
-            q.replace(/^@/, "").charCodeAt(q.replace(/^@/, "").length - 1) + 1,
-          ),
-      )
-      .limit(lim)
-      .get(),
+  const [{ hits }, followMap] = await Promise.all([
+    algoliaClient.searchSingleIndex({
+      indexName: "profiles",
+      searchParams: { query, hitsPerPage: lim, filters: "is_suspended:false" },
+    }),
     uid
       ? fetchMyFollowMap(uid)
       : Promise.resolve(new Map<string, FollowStatusLite>()),
   ]);
 
-  const seen = new Set<string>();
-  const results: any[] = [];
-  [...byUsername.docs, ...byFullName.docs].forEach((d) => {
-    if (!seen.has(d.id)) {
-      seen.add(d.id);
-      results.push({ id: d.id, ...d.data() });
-    }
-  });
-
-  return results
-    .filter((p) => p.id !== uid)
-    .slice(0, lim)
-    .map((p) => ({
-      id: p.id,
-      username: p.username ?? null,
-      full_name: p.full_name ?? null,
-      avatar_url: p.avatar_url ?? null,
-      follower_count: p.follower_count ?? 0,
-      is_private: !!p.is_private,
-      follow_status: followMap.get(p.id) ?? "none",
+  return (hits as any[])
+    .filter((h) => h.objectID !== uid)
+    .map((h) => ({
+      id: h.objectID,
+      username: h.username ?? null,
+      full_name: h.full_name ?? null,
+      avatar_url: h.avatar_url ?? null,
+      follower_count: h.follower_count ?? 0,
+      is_private: !!h.is_private,
+      follow_status: followMap.get(h.objectID) ?? "none",
     }));
 }
 
-// ✅ FIX 3: Twitter-style media search
-// - Searches by title, hashtag array, or #tag prefix in query
-// - Only returns posts that have media attached
-// - Falls back to general content scan when no query matches hashtags
 async function searchPosts(
   q: string,
   lim: number,
   mediaType: MediaFilterType = "all",
   mediaOnly = false,
 ): Promise<SearchPost[]> {
-  const lower = q.toLowerCase().trim();
-  if (!lower) return [];
+  const query = q.replace(/^#/, "").trim();
+  if (!query) return [];
 
-  // Strip leading # for hashtag searches
-  const isHashtagSearch = lower.startsWith("#");
-  const tag = lower.replace(/^#/, "");
+  const filters = ["visibility:public", "is_visible:true"].join(" AND ");
 
-  let docs: any[] = [];
-  const seen = new Set<string>();
+  const { hits } = await algoliaClient.searchSingleIndex({
+    indexName: "posts",
+    searchParams: { query, hitsPerPage: lim * 2, filters },
+  });
+
+  let results = (hits as any[]).map((h) => ({
+    id: h.objectID,
+    content: h.content ?? null,
+    created_at: h.created_at_ts
+      ? new Date(h.created_at_ts).toISOString()
+      : new Date().toISOString(),
+    media_urls: Array.isArray(h.media_urls) ? h.media_urls : null,
+    like_count: h.like_count ?? null,
+    comment_count: h.comment_count ?? null,
+    share_count: h.share_count ?? null,
+    visibility: h.visibility ?? "public",
+    user: h.user_id
+      ? {
+          id: h.user_id,
+          username: h.username ?? null,
+          full_name: h.full_name ?? null,
+          avatar_url: h.avatar_url ?? null,
+        }
+      : null,
+  }));
 
   if (mediaOnly) {
-    // ── Twitter-style media search ──────────────────────────────────────────
-    // Step 1: search by hashtag match (exact array-contains)
-    try {
-      const hashtagSnap = await firestore()
-        .collection("posts")
-        .where("visibility", "==", "public")
-        .where("hashtags", "array-contains", tag)
-        .orderBy("created_at_ts", "desc")
-        .limit(lim * 2)
-        .get();
-
-      hashtagSnap.docs.forEach((d) => {
-        const p = { id: d.id, ...(d.data() as any) };
-        // ✅ Only include posts that actually have media
-        if (
-          Array.isArray(p.media_urls) &&
-          p.media_urls.length > 0 &&
-          !seen.has(d.id)
-        ) {
-          seen.add(d.id);
-          docs.push(p);
-        }
-      });
-    } catch {}
-
-    // Step 2: search by title or content containing the query
-    // (same as Twitter — typing "cats" shows media posts about cats)
-    try {
-      const contentSnap = await firestore()
-        .collection("posts")
-        .where("visibility", "==", "public")
-        .orderBy("created_at_ts", "desc")
-        .limit(300)
-        .get();
-
-      contentSnap.docs
-        .filter((d) => !seen.has(d.id))
-        .forEach((d) => {
-          const p = { id: d.id, ...(d.data() as any) };
-          const hasMedia =
-            Array.isArray(p.media_urls) && p.media_urls.length > 0;
-          if (!hasMedia) return; // ✅ media-only filter
-
-          const titleMatch = p.title?.toLowerCase().includes(lower);
-          const contentMatch = p.content?.toLowerCase().includes(lower);
-          const tagMatch = (p.hashtags as string[] | undefined)?.some((h) =>
-            h.toLowerCase().includes(tag),
-          );
-
-          if (titleMatch || contentMatch || tagMatch) {
-            seen.add(d.id);
-            docs.push(p);
-          }
-        });
-    } catch {}
-  } else {
-    // ── Standard post search (Latest tab, Top tab) ──────────────────────────
-    const [hashtagSnap, contentSnap] = await Promise.all([
-      firestore()
-        .collection("posts")
-        .where("visibility", "==", "public")
-        .where("hashtags", "array-contains", tag)
-        .orderBy("created_at_ts", "desc")
-        .limit(lim)
-        .get(),
-
-      isHashtagSearch
-        ? Promise.resolve(null)
-        : firestore()
-            .collection("posts")
-            .where("visibility", "==", "public")
-            .orderBy("created_at_ts", "desc")
-            .limit(100)
-            .get(),
-    ]);
-
-    hashtagSnap.docs.forEach((d) => {
-      seen.add(d.id);
-      docs.push({ id: d.id, ...d.data() });
-    });
-
-    if (contentSnap) {
-      contentSnap.docs
-        .filter((d) => !seen.has(d.id))
-        .map((d) => ({ id: d.id, ...(d.data() as any) }))
-        .filter(
-          (p: any) =>
-            p.content?.toLowerCase().includes(lower) ||
-            p.title?.toLowerCase().includes(lower),
-        )
-        .forEach((p) => {
-          seen.add(p.id);
-          docs.push(p);
-        });
-    }
+    results = results.filter(
+      (p) => Array.isArray(p.media_urls) && p.media_urls.length > 0,
+    );
   }
 
-  let results = docs
-    .filter((p: any) => p.is_visible !== false)
-    .slice(0, lim)
-    .map((p: any) => ({
-      id: p.id,
-      content: p.content ?? null,
-      created_at: tsToIso(p.created_at_ts ?? p.created_at),
-      media_urls: Array.isArray(p.media_urls) ? p.media_urls : null,
-      like_count: p.like_count ?? null,
-      comment_count: p.comment_count ?? null,
-      share_count: p.share_count ?? null,
-      visibility: p.visibility ?? "public",
-      user: p.user ?? null,
-    }));
-
-  // Apply media type filter on top of results
   if (mediaType === "images") {
     results = results.filter((p) =>
-      p.media_urls?.some((url: string) => isImageUrl(url)),
+      p.media_urls?.some((u: string) => isImageUrl(u)),
     );
   } else if (mediaType === "videos") {
     results = results.filter((p) =>
-      p.media_urls?.some((url: string) => isVideoUrl(url)),
+      p.media_urls?.some((u: string) => isVideoUrl(u)),
     );
   } else if (mediaType === "gifs") {
     results = results.filter((p) =>
-      p.media_urls?.some((url: string) => isGifUrl(url)),
+      p.media_urls?.some((u: string) => isGifUrl(u)),
     );
   }
 
-  return results;
+  return results.slice(0, lim);
 }
 
-// ✅ FIX 2: returns is_joined for search results
 async function searchCommunities(
   q: string,
   lim: number,
 ): Promise<SearchCommunity[]> {
-  const lower = q.toLowerCase().trim();
-  if (!lower) return [];
-  const end =
-    lower.slice(0, -1) +
-    String.fromCharCode(lower.charCodeAt(lower.length - 1) + 1);
-
+  const query = q.trim();
+  if (!query) return [];
   const uid = auth.currentUser?.uid ?? null;
 
-  const [snap, nameSnap] = await Promise.all([
-    firestore()
-      .collection("communities")
-      .where("slug", ">=", lower)
-      .where("slug", "<", end)
-      .limit(lim)
-      .get(),
-    firestore()
-      .collection("communities")
-      .orderBy("member_count", "desc")
-      .limit(50)
-      .get(),
-  ]);
-
-  const seen = new Set<string>();
-  const results: any[] = [];
-  snap.docs.forEach((d) => {
-    seen.add(d.id);
-    results.push({ id: d.id, ...d.data() });
+  const { hits } = await algoliaClient.searchSingleIndex({
+    indexName: "communities",
+    searchParams: { query, hitsPerPage: lim, filters: "is_private:false" },
   });
-  nameSnap.docs
-    .filter((d) => !seen.has(d.id))
-    .map((d) => ({ id: d.id, ...(d.data() as any) }))
-    .filter(
-      (c: any) =>
-        c.name?.toLowerCase().includes(lower) ||
-        c.slug?.toLowerCase().includes(lower),
-    )
-    .forEach((c) => results.push(c));
 
-  const sliced = results.slice(0, lim);
+  const sliced = hits as any[];
 
-  // ✅ FIX 2: check membership so the button shows "Joined" correctly
   const joinedSet = new Set<string>();
   if (uid && sliced.length > 0) {
     try {
-      const ids = sliced.map((c) => c.id);
+      const ids = sliced.map((h) => h.objectID);
       for (let i = 0; i < ids.length; i += 10) {
         const batch = ids.slice(i, i + 10);
         const memberSnap = await firestore()
@@ -453,15 +309,15 @@ async function searchCommunities(
     } catch {}
   }
 
-  return sliced.map((c: any) => ({
-    id: c.id,
-    name: c.name ?? "",
-    slug: c.slug ?? "",
-    description: c.description ?? null,
-    image_url: c.image_url ?? null,
-    avatar_url: c.avatar_url ?? null,
-    member_count: c.member_count ?? 0,
-    is_joined: joinedSet.has(c.id), // ✅
+  return sliced.map((h) => ({
+    id: h.objectID,
+    name: h.name ?? "",
+    slug: h.slug ?? "",
+    description: h.description ?? null,
+    image_url: h.image_url ?? null,
+    avatar_url: h.avatar_url ?? null,
+    member_count: h.member_count ?? 0,
+    is_joined: joinedSet.has(h.objectID),
   }));
 }
 
@@ -556,14 +412,11 @@ export async function fetchSuggestedUsers(lim = 8): Promise<SuggestedUser[]> {
   return profiles.slice(0, lim);
 }
 
-// ✅ FIX 1: keeps joined communities in the list and marks them is_joined: true
-// instead of filtering them out entirely (so users can see what they've joined)
 export async function fetchSuggestedCommunities(
   lim = 5,
 ): Promise<SearchCommunity[]> {
   const uid = auth.currentUser?.uid;
 
-  // Build joined set (including owned)
   const joinedSet = new Set<string>();
   if (uid) {
     try {
@@ -629,7 +482,7 @@ export async function fetchSuggestedCommunities(
       image_url: c.image_url ?? null,
       avatar_url: c.avatar_url ?? null,
       member_count: c.member_count ?? 0,
-      is_joined: joinedSet.has(c.id), // ✅ FIX 1
+      is_joined: joinedSet.has(c.id),
     }));
 }
 

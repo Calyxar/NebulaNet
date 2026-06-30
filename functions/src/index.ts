@@ -1,8 +1,8 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { getDatabase } from "firebase-admin/database";
 import { getMessaging } from "firebase-admin/messaging";
+import { getStorage } from "firebase-admin/storage";
 import { defineSecret } from "firebase-functions/params";
 import { https, setGlobalOptions } from "firebase-functions/v2";
 import {
@@ -10,6 +10,8 @@ import {
   onDocumentDeleted,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
+import algoliasearch from "algoliasearch";
+import { defineSecret as defineAlgoliaSecret } from "firebase-functions/params";
 
 initializeApp();
 
@@ -21,10 +23,23 @@ setGlobalOptions({
 
 const db = getFirestore();
 const auth = getAuth();
-const rtdb = getDatabase();
 
 const resendApiKey = defineSecret("RESEND_API_KEY");
 const googleCloudApiKey = defineSecret("GOOGLE_CLOUD_VISION_API_KEY");
+const algoliaAdminKey = defineAlgoliaSecret("ALGOLIA_ADMIN_KEY");
+
+const ALGOLIA_APP_ID = process.env.EXPO_PUBLIC_ALGOLIA_APP_ID ?? "";
+
+const MAX_BATCH_SIZE = 450;
+
+const STORAGE_FOLDERS = [
+  "community",
+  "posts",
+  "stories",
+  "avatars",
+  "chat",
+  "thumbnails",
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -63,23 +78,23 @@ function getNotificationBody(type: string, text?: string | null): string {
 
 function buildParentalEmailHtml(childUsername: string, code: string): string {
   return [
-    '<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;">',
-    '<div style="text-align: center; margin-bottom: 32px;">',
-    '<h1 style="font-size: 28px; font-weight: 900; color: #fff; margin: 0;">NebulaNet</h1>',
-    '<p style="color: #8892A4; margin-top: 8px;">Parental Approval Required</p>',
+    "<div style=\"font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0B0F1A; color: #fff; border-radius: 16px;\">",
+    "<div style=\"text-align: center; margin-bottom: 32px;\">",
+    "<h1 style=\"font-size: 28px; font-weight: 900; color: #fff; margin: 0;\">NebulaNet</h1>",
+    "<p style=\"color: #8892A4; margin-top: 8px;\">Parental Approval Required</p>",
     "</div>",
-    '<p style="color: #CBD5E1; line-height: 1.6;">Hi there,<br/><br/>',
+    "<p style=\"color: #CBD5E1; line-height: 1.6;\">Hi there,<br/><br/>",
     "<strong style=\"color: #fff;\">" + childUsername + "</strong> is trying to create a NebulaNet account. Because they are under 13, your approval is required.</p>",
-    '<div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;">',
-    '<p style="color: #8892A4; font-size: 13px; margin: 0 0 12px 0;">YOUR VERIFICATION CODE</p>',
-    '<div style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;">' + code + "</div>",
-    '<p style="color: #8892A4; font-size: 12px; margin: 12px 0 0 0;">This code expires in 30 minutes</p>',
+    "<div style=\"background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 24px; text-align: center; margin: 28px 0;\">",
+    "<p style=\"color: #8892A4; font-size: 13px; margin: 0 0 12px 0;\">YOUR VERIFICATION CODE</p>",
+    "<div style=\"font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #8A7CFA;\">" + code + "</div>",
+    "<p style=\"color: #8892A4; font-size: 12px; margin: 12px 0 0 0;\">This code expires in 30 minutes</p>",
     "</div>",
     "<p style=\"color: #CBD5E1; line-height: 1.6;\">Share this code with " + childUsername + " to complete account setup.</p>",
-    '<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;">',
-    '<p style="color: #FCA5A5; font-size: 13px; margin: 0;"><strong>Did not request this?</strong> Please ignore this email.</p>',
+    "<div style=\"background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 16px; margin-top: 24px;\">",
+    "<p style=\"color: #FCA5A5; font-size: 13px; margin: 0;\"><strong>Did not request this?</strong> Please ignore this email.</p>",
     "</div>",
-    '<p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;">NebulaNet - nebulanet.space</p>',
+    "<p style=\"color: #3D4E63; font-size: 12px; text-align: center; margin-top: 32px;\">NebulaNet - nebulanet.space</p>",
     "</div>",
   ].join("\n");
 }
@@ -95,40 +110,72 @@ function buildDataExportEmailHtml(
     communities: number;
   },
 ): string {
-  return `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;">
-  <div style="text-align: center; margin-bottom: 32px;">
-    <h1 style="font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;">NebulaNet</h1>
-    <p style="color: #8892A4; margin: 0; font-size: 14px;">Your Data Export</p>
-  </div>
-  <p style="color: #CBD5E1; line-height: 1.6; font-size: 15px;">
-    Hi <strong style="color: #fff;">${displayName}</strong>,<br/><br/>
-    Your NebulaNet data export is attached to this email as a JSON file.
-    It contains your profile, posts, comments, and activity.
-  </p>
-  <div style="background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 20px; margin: 24px 0;">
-    <p style="color: #8892A4; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;">Export Summary</p>
-    <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.posts}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Comments</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.comments}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Liked Posts</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.likes}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Followers</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.followers}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Following</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.following}</td></tr>
-      <tr><td style="color: #CBD5E1; padding: 6px 0; font-size: 14px;">Communities</td><td style="color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;">${stats.communities}</td></tr>
-    </table>
-  </div>
-  <div style="background: rgba(138,124,250,0.1); border: 1px solid rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; margin-bottom: 24px;">
-    <p style="color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;">
-      Your full data is in the attached <strong>.json</strong> file. Open it with any text editor or JSON viewer.
-    </p>
-  </div>
-  <p style="color: #CBD5E1; font-size: 13px; line-height: 1.6;">
-    If you did not request this export, you can safely ignore this email. Your account has not been affected.
-  </p>
-  <p style="color: #3D4E63; font-size: 12px; text-align: center; margin-top: 28px;">
-    NebulaNet &middot; <a href="https://nebulanet.space" style="color: #8A7CFA; text-decoration: none;">nebulanet.space</a>
-  </p>
-</div>`;
+  return (
+    "<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #0B0F1A; color: #fff; border-radius: 20px;\">" +
+    "<div style=\"text-align: center; margin-bottom: 32px;\">" +
+    "<h1 style=\"font-size: 26px; font-weight: 900; color: #fff; margin: 0 0 6px 0;\">NebulaNet</h1>" +
+    "<p style=\"color: #8892A4; margin: 0; font-size: 14px;\">Your Data Export</p>" +
+    "</div>" +
+    "<p style=\"color: #CBD5E1; line-height: 1.6; font-size: 15px;\">Hi <strong style=\"color: #fff;\">" + displayName + "</strong>,<br/><br/>Your NebulaNet data export is attached to this email as a JSON file. It contains your profile, posts, comments, and activity.</p>" +
+    "<div style=\"background: #121726; border: 1px solid #1E2A3A; border-radius: 16px; padding: 20px; margin: 24px 0;\">" +
+    "<p style=\"color: #8892A4; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px 0;\">Export Summary</p>" +
+    "<table style=\"width: 100%; border-collapse: collapse;\">" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Posts</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.posts + "</td></tr>" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Comments</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.comments + "</td></tr>" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Liked Posts</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.likes + "</td></tr>" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Followers</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.followers + "</td></tr>" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Following</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.following + "</td></tr>" +
+    "<tr><td style=\"color: #CBD5E1; padding: 6px 0; font-size: 14px;\">Communities</td><td style=\"color: #8A7CFA; font-weight: 700; text-align: right; font-size: 14px;\">" + stats.communities + "</td></tr>" +
+    "</table></div>" +
+    "<div style=\"background: rgba(138,124,250,0.1); border: 1px solid rgba(138,124,250,0.3); border-radius: 12px; padding: 14px; margin-bottom: 24px;\">" +
+    "<p style=\"color: #C4B9FF; font-size: 13px; margin: 0; line-height: 1.5;\">Your full data is in the attached <strong>.json</strong> file. Open it with any text editor or JSON viewer.</p>" +
+    "</div>" +
+    "<p style=\"color: #CBD5E1; font-size: 13px; line-height: 1.6;\">If you did not request this export, you can safely ignore this email. Your account has not been affected.</p>" +
+    "<p style=\"color: #3D4E63; font-size: 12px; text-align: center; margin-top: 28px;\">NebulaNet &middot; <a href=\"https://nebulanet.space\" style=\"color: #8A7CFA; text-decoration: none;\">nebulanet.space</a></p>" +
+    "</div>"
+  );
 }
+
+async function deleteQueryInBatches(
+  query: FirebaseFirestore.Query,
+): Promise<number> {
+  let totalDeleted = 0;
+  while (true) {
+    const snap = await query.limit(MAX_BATCH_SIZE).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    totalDeleted += snap.size;
+    if (snap.size < MAX_BATCH_SIZE) break;
+  }
+  return totalDeleted;
+}
+
+async function deleteStoragePrefix(prefix: string): Promise<number> {
+  try {
+    const bucket = getStorage().bucket();
+    const [files] = await bucket.getFiles({ prefix });
+    if (!files.length) return 0;
+    await Promise.all(files.map((f) => f.delete().catch(() => void 0)));
+    return files.length;
+  } catch (err) {
+    console.warn("deleteStoragePrefix failed for", prefix, String(err));
+    return 0;
+  }
+}
+
+function getAlgoliaClient() {
+  return algoliasearch(ALGOLIA_APP_ID, algoliaAdminKey.value());
+}
+
+function changed(before: any, after: any, fields: string[]): boolean {
+  return fields.some((f) => before?.[f] !== after?.[f]);
+}
+
+const POST_SEARCH_FIELDS = ["content", "title", "hashtags", "visibility", "is_nsfw", "is_visible", "community_id"];
+const PROFILE_SEARCH_FIELDS = ["username", "full_name", "bio", "avatar_url", "is_private", "is_suspended"];
+const COMMUNITY_SEARCH_FIELDS = ["name", "slug", "description", "is_private"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUSH NOTIFICATIONS
@@ -146,13 +193,11 @@ export const sendPushNotification = onDocumentCreated(
     const text = (notif.text as string) ?? null;
     if (!receiverId) return;
     if (senderId && senderId === receiverId) return;
-
     try {
       const [profileSnap, settingsSnap] = await Promise.all([
         db.collection("profiles").doc(receiverId).get(),
         db.collection("user_settings").doc(receiverId).get(),
       ]);
-
       if (!profileSnap.exists) return;
       const profile = profileSnap.data() as Record<string, unknown>;
       const fcmToken = (profile?.fcm_token as string) ?? null;
@@ -160,13 +205,10 @@ export const sendPushNotification = onDocumentCreated(
         console.log("No FCM token for", receiverId);
         return;
       }
-
       const userSettings = settingsSnap.exists
         ? (settingsSnap.data() as Record<string, unknown>)
         : null;
-      const notifPrefs =
-        (userSettings?.notifications as Record<string, unknown>) ?? {};
-
+      const notifPrefs = (userSettings?.notifications as Record<string, unknown>) ?? {};
       const typeEnabled = (() => {
         if (type === "like") return notifPrefs.likes !== false;
         if (type === "comment") return notifPrefs.comments !== false;
@@ -177,12 +219,10 @@ export const sendPushNotification = onDocumentCreated(
         if (type === "story_like" || type === "story_comment") return notifPrefs.likes !== false;
         return true;
       })();
-
       if (!typeEnabled) {
         console.log("Notification type", type, "disabled for", receiverId);
         return;
       }
-
       const soundPref = (userSettings?.notification_sound as string) ?? "default";
       const channelId =
         soundPref === "silent"
@@ -192,7 +232,6 @@ export const sendPushNotification = onDocumentCreated(
             : type === "message"
               ? "messages_v2"
               : "default_v2";
-
       let senderName = "Someone";
       if (senderId) {
         const senderSnap = await db.collection("profiles").doc(senderId).get();
@@ -201,10 +240,8 @@ export const sendPushNotification = onDocumentCreated(
           senderName = (s?.full_name as string) || (s?.username as string) || "Someone";
         }
       }
-
       const title = getNotificationTitle(type, senderName);
       const body = getNotificationBody(type, text);
-
       const message = {
         token: fcmToken,
         notification: { title, body },
@@ -233,7 +270,6 @@ export const sendPushNotification = onDocumentCreated(
           entityType: (notif.entity_type as string) ?? "",
         },
       };
-
       const response = await getMessaging().send(message);
       console.log("FCM sent to", receiverId, "type=", type, "channel=", channelId, "sound=", soundPref, "msgId=", response);
     } catch (err: any) {
@@ -329,24 +365,67 @@ export const handleAccountDeletion = onDocumentCreated(
     const userId = event.params.userId;
     const snap = event.data;
     if (!snap) return;
+    const deletionSummary: Record<string, number> = {};
     try {
-      await db.collection("profiles").doc(userId).delete();
-      await db.collection("user_settings").doc(userId).set(
-        { deleted_at: new Date().toISOString(), cleanup_processed: true },
-        { merge: true },
+      const contentCollections: Array<{ name: string; field: string }> = [
+        { name: "posts", field: "user_id" },
+        { name: "comments", field: "user_id" },
+        { name: "likes", field: "user_id" },
+        { name: "saves", field: "user_id" },
+        { name: "reposts", field: "user_id" },
+        { name: "community_members", field: "user_id" },
+      ];
+      for (const { name, field } of contentCollections) {
+        const count = await deleteQueryInBatches(
+          db.collection(name).where(field, "==", userId),
+        );
+        deletionSummary[name] = count;
+      }
+      const followsAsFollower = await deleteQueryInBatches(
+        db.collection("follows").where("follower_id", "==", userId),
       );
+      const followsAsFollowing = await deleteQueryInBatches(
+        db.collection("follows").where("following_id", "==", userId),
+      );
+      deletionSummary["follows_as_follower"] = followsAsFollower;
+      deletionSummary["follows_as_following"] = followsAsFollowing;
+      const notifsReceived = await deleteQueryInBatches(
+        db.collection("notifications").where("receiver_id", "==", userId),
+      );
+      const notifsSent = await deleteQueryInBatches(
+        db.collection("notifications").where("sender_id", "==", userId),
+      );
+      deletionSummary["notifications_received"] = notifsReceived;
+      deletionSummary["notifications_sent"] = notifsSent;
+      const violations = await deleteQueryInBatches(
+        db.collection("content_violations").where("user_id", "==", userId),
+      );
+      deletionSummary["content_violations"] = violations;
+      await db.collection("profiles").doc(userId).delete();
+      await db.collection("user_settings").doc(userId).delete();
       await auth.deleteUser(userId).catch(() => void 0);
-
-      // Clean up the orphaned Realtime Database presence node — Firestore
-      // and Auth no longer have this user, so this status leftover would
-      // otherwise sit there indefinitely with no owner.
-      await rtdb.ref(`/status/${userId}`).remove().catch((err) => {
+      await rtdb.ref(`/status/${userId}`).remove().catch((err: any) => {
         console.warn("Failed to clean up RTDB presence node for", userId, String(err));
       });
-
-      await snap.ref.update({ status: "completed", completed_at: new Date().toISOString() });
+      let storageFilesDeleted = 0;
+      for (const folder of STORAGE_FOLDERS) {
+        const count = await deleteStoragePrefix(`${folder}/${userId}/`);
+        storageFilesDeleted += count;
+      }
+      deletionSummary["storage_files"] = storageFilesDeleted;
+      await snap.ref.update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        deletion_summary: deletionSummary,
+      });
+      console.log("Account deletion completed for", userId, "summary:", deletionSummary);
     } catch (err) {
-      await snap.ref.update({ status: "failed", error: String(err) });
+      await snap.ref.update({
+        status: "failed",
+        error: String(err),
+        partial_deletion_summary: deletionSummary,
+      });
+      console.error("handleAccountDeletion error for", userId, String(err));
     }
   },
 );
@@ -361,13 +440,10 @@ export const generateUserDataExport = onDocumentCreated(
     const userId = event.params.userId;
     const snap = event.data;
     if (!snap) return;
-
     const requestData = snap.data() as Record<string, unknown>;
     const requestedEmail = requestData.email as string | undefined;
-
     try {
       await snap.ref.update({ status: "processing" });
-
       const [
         profileSnap,
         postsSnap,
@@ -393,18 +469,15 @@ export const generateUserDataExport = onDocumentCreated(
         db.collection("user_settings").doc(userId).get(),
         db.collection("community_members").where("user_id", "==", userId).limit(100).get(),
       ]);
-
       let emailToSend = requestedEmail ?? "";
       try {
         const userRecord = await auth.getUser(userId);
         if (userRecord.email) emailToSend = userRecord.email;
       } catch {}
-
       if (!emailToSend) {
         await snap.ref.update({ status: "failed", error: "No email address found for user." });
         return;
       }
-
       const profile = profileSnap.exists ? profileSnap.data() : {};
       const exportData = {
         exported_at: new Date().toISOString(),
@@ -420,12 +493,10 @@ export const generateUserDataExport = onDocumentCreated(
         settings: settingsSnap.exists ? settingsSnap.data() : {},
         notifications_count: notificationsSnap.size,
       };
-
       const username = (profile as any)?.username ?? userId;
       const displayName = (profile as any)?.full_name || username;
       const exportJson = JSON.stringify(exportData, null, 2);
       const dateStr = new Date().toISOString().split("T")[0];
-
       const emailRes = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -452,15 +523,12 @@ export const generateUserDataExport = onDocumentCreated(
           ],
         }),
       });
-
       const result = (await emailRes.json()) as Record<string, unknown>;
-
       if (!emailRes.ok) {
         console.error("Resend error:", result);
         await snap.ref.update({ status: "failed", error: "Email send failed: " + JSON.stringify(result) });
         return;
       }
-
       await snap.ref.update({
         status: "completed",
         completed_at: new Date().toISOString(),
@@ -472,7 +540,6 @@ export const generateUserDataExport = onDocumentCreated(
           likes: exportData.liked_post_ids.length,
         },
       });
-
       console.log("Data export sent to", emailToSend, "for user", userId);
     } catch (err) {
       console.error("generateUserDataExport error:", String(err));
@@ -519,9 +586,7 @@ export const deleteCommunity = https.onCall(
     const communitySnap = await communityRef.get();
     if (!communitySnap.exists) throw new Error("Community not found.");
     const communityData = communitySnap.data() as Record<string, unknown>;
-    if (!communityData || communityData.owner_id !== uid) {
-      throw new Error("Permission denied. User is not the owner.");
-    }
+    if (!communityData || communityData.owner_id !== uid) throw new Error("Permission denied. User is not the owner.");
     await communityRef.delete();
     return { success: true, message: "Community deleted successfully" };
   },
@@ -636,11 +701,7 @@ export const moderatePostContent = onDocumentCreated(
     if (!shouldFlag && mediaUrls.length > 0) {
       try {
         const imageUrl = mediaUrls.find(
-          (u) =>
-            !u.includes(".mp4") &&
-            !u.includes(".mov") &&
-            !u.includes(".m4v") &&
-            !u.includes(".webm"),
+          (u) => !u.includes(".mp4") && !u.includes(".mov") && !u.includes(".m4v") && !u.includes(".webm"),
         );
         if (imageUrl) {
           const visionRes = await fetch(
@@ -672,9 +733,7 @@ export const moderatePostContent = onDocumentCreated(
                 flagLevels.includes(safeSearch.adult) ? "adult:" + safeSearch.adult : "",
                 flagLevels.includes(safeSearch.racy) ? "racy:" + safeSearch.racy : "",
                 flagLevels.includes(safeSearch.violence) ? "violence:" + safeSearch.violence : "",
-              ]
-                .filter(Boolean)
-                .join(",");
+              ].filter(Boolean).join(",");
             }
           }
         }
@@ -700,10 +759,7 @@ export const moderatePostContent = onDocumentCreated(
         action_taken: "nsfw_flagged",
         reviewed: false,
       });
-      const violationsSnap = await db
-        .collection("content_violations")
-        .where("user_id", "==", userId)
-        .get();
+      const violationsSnap = await db.collection("content_violations").where("user_id", "==", userId).get();
       if (violationsSnap.size >= 3) {
         await db.collection("profiles").doc(userId).update({
           content_violation_count: violationsSnap.size,
@@ -713,6 +769,194 @@ export const moderatePostContent = onDocumentCreated(
         });
       }
       console.log("Post", postId, "auto-flagged NSFW:", flagReason);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALGOLIA SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const syncPostToAlgolia = onDocumentCreated(
+  { document: "posts/{postId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    try {
+      const data = snap.data() as any;
+      const index = getAlgoliaClient().initIndex("posts");
+      await index.saveObject({
+        objectID: event.params.postId,
+        content: data.content ?? "",
+        title: data.title ?? "",
+        hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
+        user_id: data.user_id ?? null,
+        username: data.user?.username ?? null,
+        full_name: data.user?.full_name ?? null,
+        community_id: data.community_id ?? null,
+        visibility: data.visibility ?? "public",
+        is_nsfw: data.is_nsfw === true,
+        is_visible: data.is_visible !== false,
+        created_at_ts: data.created_at_ts?.toMillis?.() ?? Date.now(),
+      });
+    } catch (err) {
+      console.error("[syncPostToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const syncPostUpdateToAlgolia = onDocumentUpdated(
+  { document: "posts/{postId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const before = event.data?.before?.data() as any;
+    const after = event.data?.after?.data() as any;
+    if (!before || !after) return;
+    if (!changed(before, after, POST_SEARCH_FIELDS)) return;
+    try {
+      const index = getAlgoliaClient().initIndex("posts");
+      await index.saveObject({
+        objectID: event.params.postId,
+        content: after.content ?? "",
+        title: after.title ?? "",
+        hashtags: Array.isArray(after.hashtags) ? after.hashtags : [],
+        user_id: after.user_id ?? null,
+        username: after.user?.username ?? null,
+        full_name: after.user?.full_name ?? null,
+        community_id: after.community_id ?? null,
+        visibility: after.visibility ?? "public",
+        is_nsfw: after.is_nsfw === true,
+        is_visible: after.is_visible !== false,
+        created_at_ts: after.created_at_ts?.toMillis?.() ?? Date.now(),
+      });
+    } catch (err) {
+      console.error("[syncPostUpdateToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const removePostFromAlgolia = onDocumentDeleted(
+  { document: "posts/{postId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    try {
+      await getAlgoliaClient().initIndex("posts").deleteObject(event.params.postId);
+    } catch (err) {
+      console.error("[removePostFromAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const syncProfileToAlgolia = onDocumentCreated(
+  { document: "profiles/{userId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    try {
+      const data = snap.data() as any;
+      const index = getAlgoliaClient().initIndex("profiles");
+      await index.saveObject({
+        objectID: event.params.userId,
+        username: data.username ?? "",
+        full_name: data.full_name ?? "",
+        bio: data.bio ?? "",
+        avatar_url: data.avatar_url ?? null,
+        follower_count: data.follower_count ?? 0,
+        is_private: data.is_private === true,
+        is_suspended: data.is_suspended === true,
+      });
+    } catch (err) {
+      console.error("[syncProfileToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const syncProfileUpdateToAlgolia = onDocumentUpdated(
+  { document: "profiles/{userId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const before = event.data?.before?.data() as any;
+    const after = event.data?.after?.data() as any;
+    if (!before || !after) return;
+    if (!changed(before, after, PROFILE_SEARCH_FIELDS)) return;
+    try {
+      const index = getAlgoliaClient().initIndex("profiles");
+      await index.saveObject({
+        objectID: event.params.userId,
+        username: after.username ?? "",
+        full_name: after.full_name ?? "",
+        bio: after.bio ?? "",
+        avatar_url: after.avatar_url ?? null,
+        follower_count: after.follower_count ?? 0,
+        is_private: after.is_private === true,
+        is_suspended: after.is_suspended === true,
+      });
+    } catch (err) {
+      console.error("[syncProfileUpdateToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const removeProfileFromAlgolia = onDocumentDeleted(
+  { document: "profiles/{userId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    try {
+      await getAlgoliaClient().initIndex("profiles").deleteObject(event.params.userId);
+    } catch (err) {
+      console.error("[removeProfileFromAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const syncCommunityToAlgolia = onDocumentCreated(
+  { document: "communities/{communityId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    try {
+      const data = snap.data() as any;
+      const index = getAlgoliaClient().initIndex("communities");
+      await index.saveObject({
+        objectID: event.params.communityId,
+        name: data.name ?? "",
+        slug: data.slug ?? "",
+        description: data.description ?? "",
+        member_count: data.member_count ?? 0,
+        is_private: data.is_private === true,
+      });
+    } catch (err) {
+      console.error("[syncCommunityToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const syncCommunityUpdateToAlgolia = onDocumentUpdated(
+  { document: "communities/{communityId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    const before = event.data?.before?.data() as any;
+    const after = event.data?.after?.data() as any;
+    if (!before || !after) return;
+    if (!changed(before, after, COMMUNITY_SEARCH_FIELDS)) return;
+    try {
+      const index = getAlgoliaClient().initIndex("communities");
+      await index.saveObject({
+        objectID: event.params.communityId,
+        name: after.name ?? "",
+        slug: after.slug ?? "",
+        description: after.description ?? "",
+        member_count: after.member_count ?? 0,
+        is_private: after.is_private === true,
+      });
+    } catch (err) {
+      console.error("[syncCommunityUpdateToAlgolia] failed:", String(err));
+    }
+  },
+);
+
+export const removeCommunityFromAlgolia = onDocumentDeleted(
+  { document: "communities/{communityId}", secrets: [algoliaAdminKey] },
+  async (event) => {
+    try {
+      await getAlgoliaClient().initIndex("communities").deleteObject(event.params.communityId);
+    } catch (err) {
+      console.error("[removeCommunityFromAlgolia] failed:", String(err));
     }
   },
 );

@@ -2,7 +2,7 @@
   "expo": {
     "name": "NebulaNet",
     "slug": "nebulanet",
-    "version": "1.1.0",
+    "version": "1.2.9",
     "orientation": "default",
     "icon": "./assets/images/nebulanet-icon.png",
     "scheme": "nebulanet",
@@ -35,9 +35,9 @@
       }
     },
     "android": {
-      "googleServicesFile": "$GOOGLE_SERVICES_JSON",
+      "googleServicesFile": "./google-services.json",
       "package": "com.nebulanet.app",
-      "versionCode": 9,
+      "versionCode": 165,
       "intentFilters": [
         {
           "action": "VIEW",

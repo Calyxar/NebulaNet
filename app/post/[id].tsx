@@ -1,6 +1,7 @@
 // app/post/[id].tsx
 import VideoPlayer from "@/components/media/VideoPlayer";
 import MentionHashtagText from "@/components/MentionHashtagText";
+import CommentRow from "@/components/post/CommentRow";
 import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import PostOptionsSheet, {
@@ -118,6 +119,10 @@ export default function PostDetailScreen() {
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
+  // ✅ NEW: when replying to a specific comment, tracks which one so
+  // handlePostComment can attach parent_id, and so the input bar can
+  // show a "Replying to @x" indicator with a way to cancel.
+  const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
@@ -236,9 +241,12 @@ export default function PostDetailScreen() {
       await addCommentMutation.mutateAsync({
         post_id: post.id,
         content: comment.trim(),
+        // ✅ NEW: attaches the reply relationship when replying to a
+        // specific comment instead of commenting on the post directly.
+        parent_id: replyingTo?.id ?? null,
       });
       setComment("");
-      // ✅ Scroll to bottom only after a comment is successfully submitted
+      setReplyingTo(null);
       setTimeout(
         () => scrollViewRef.current?.scrollToEnd({ animated: true }),
         150,
@@ -246,6 +254,17 @@ export default function PostDetailScreen() {
     } catch {
       Alert.alert("Error", "Failed to post comment");
     }
+  };
+
+  // ✅ NEW: focuses the input and sets reply context — called from a
+  // comment's "Reply" button.
+  const handleStartReply = (target: CommentWithAuthor) => {
+    setReplyingTo(target);
+    commentInputRef.current?.focus();
+    setTimeout(
+      () => scrollViewRef.current?.scrollToEnd({ animated: true }),
+      100,
+    );
   };
 
   const handleCommentLike = async (commentId: string) => {
@@ -816,86 +835,27 @@ export default function PostDetailScreen() {
               ) : (
                 <>
                   {displayedComments.map(
-                    (c: CommentWithAuthor, idx: number) => {
-                      const authorName =
-                        c.author?.full_name?.trim() ||
-                        c.author?.username?.trim() ||
-                        "User";
-                      return (
-                        <View
-                          key={c.id}
-                          style={[
-                            styles.commentRow,
-                            idx !== 0 && [
-                              styles.commentBorder,
-                              { borderTopColor: colors.border },
-                            ],
-                          ]}
-                        >
-                          <Avatar
-                            uri={c.author?.avatar_url}
-                            name={authorName}
-                            size={34}
-                            fallbackColor={colors.primary}
-                          />
-                          <View style={styles.commentBody}>
-                            <View style={styles.commentHeader}>
-                              <Text
-                                style={[
-                                  styles.commentAuthor,
-                                  { color: colors.text },
-                                ]}
-                              >
-                                {authorName}
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.commentTime,
-                                  { color: colors.textTertiary },
-                                ]}
-                              >
-                                {formatDate(c.created_at)}
-                              </Text>
-                            </View>
-                            <MentionHashtagText
-                              content={c.content ?? ""}
-                              style={StyleSheet.flatten([
-                                styles.commentText,
-                                { color: colors.textSecondary },
-                              ])}
-                              hashtagColor="#7c3aed"
-                            />
-                            <TouchableOpacity
-                              style={styles.commentLikeBtn}
-                              onPress={() => handleCommentLike(c.id)}
-                              activeOpacity={0.75}
-                            >
-                              <Ionicons
-                                name={
-                                  c.user_has_liked ? "heart" : "heart-outline"
-                                }
-                                size={14}
-                                color={
-                                  c.user_has_liked
-                                    ? colors.like
-                                    : colors.textTertiary
-                                }
-                              />
-                              {(c.likes_count ?? 0) > 0 && (
-                                <Text
-                                  style={[
-                                    styles.commentLikeCount,
-                                    { color: colors.textTertiary },
-                                  ]}
-                                >
-                                  {c.likes_count}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      );
-                    },
+                    (c: CommentWithAuthor, idx: number) => (
+                      <View
+                        key={c.id}
+                        style={
+                          idx !== 0
+                            ? [
+                                styles.commentBorder,
+                                { borderTopColor: colors.border },
+                              ]
+                            : undefined
+                        }
+                      >
+                        <CommentRow
+                          comment={c}
+                          colors={colors}
+                          formatDate={formatDate}
+                          onLike={handleCommentLike}
+                          onReply={handleStartReply}
+                        />
+                      </View>
+                    ),
                   )}
                   {comments.length > 3 && (
                     <TouchableOpacity
@@ -924,6 +884,29 @@ export default function PostDetailScreen() {
             <View style={{ height: 80 }} />
           </ScrollView>
 
+          {replyingTo && (
+            <View
+              style={[
+                styles.replyingToBar,
+                {
+                  backgroundColor: colors.surface,
+                  borderTopColor: colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.replyingToText, { color: colors.textTertiary }]}
+              >
+                Replying to{" "}
+                {replyingTo.author?.username
+                  ? `@${replyingTo.author.username}`
+                  : "comment"}
+              </Text>
+              <TouchableOpacity onPress={() => setReplyingTo(null)} hitSlop={8}>
+                <Ionicons name="close" size={16} color={colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+          )}
           <View
             style={[
               styles.commentInputBar,
@@ -1185,6 +1168,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   showMoreText: { fontSize: 13, fontWeight: "700" },
+  replyingToBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+  },
+  replyingToText: { fontSize: 12, fontWeight: "700" },
   commentInputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
