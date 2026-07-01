@@ -204,10 +204,9 @@ service cloud.firestore {
 
     // ✅ ADDED: was missing — onboarding writes here, silently failed in production
     match /user_interests/{userId} {
-      allow read: if isSelf(userId);
+      allow read: if signedIn();
       allow write: if isSelf(userId);
     }
-
     match /stories/{storyId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -387,7 +386,7 @@ service cloud.firestore {
     }
 
     // News tab — synced server-side by the syncNewsFromCurrents Cloud
-// Function (Admin SDK, bypasses these rules entirely). Client only reads.
+    // Function (Admin SDK, bypasses these rules entirely). Client only reads.
     match /news_articles/{articleId} {
       allow read: if signedIn();
       allow write: if false;
@@ -396,6 +395,23 @@ service cloud.firestore {
     match /news_meta/{category} {
       allow read: if signedIn();
       allow write: if false;
+    }
+
+    match /muted_users/{muteId} {
+      allow read: if signedIn() && resource.data.muter_id == uid();
+      allow create: if signedIn() && request.resource.data.muter_id == uid();
+      allow delete: if signedIn() && resource.data.muter_id == uid();
+    }
+
+    match /user_preferences/{userId} {
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
+    }
+
+    match /linked_accounts/{accountId} {
+      allow read: if signedIn() && resource.data.user_id == uid();
+      allow create: if signedIn() && request.resource.data.user_id == uid();
+      allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
     match /{document=**} {
