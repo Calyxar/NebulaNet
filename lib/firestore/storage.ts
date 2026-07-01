@@ -1,9 +1,16 @@
 // lib/firestore/storage.ts — React Native Firebase ✅
+// ✅ FIX: uploadChatFile now copies content:// URIs to the local cache
+//    before calling putFile on Android. Firebase Storage's putFile cannot
+//    read Android content provider URIs (content://...) directly — it
+//    needs a file:// URI. DocumentPicker and some gallery pickers on
+//    Android return content:// URIs, which caused every media/document
+//    send to fail silently with "Upload Failed".
 import { auth } from "@/lib/firebase";
 import storage from "@react-native-firebase/storage";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as VideoThumbnails from "expo-video-thumbnails";
+import { Platform } from "react-native";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -144,8 +151,21 @@ export async function uploadChatFile(params: {
   contentType: string;
 }): Promise<{ downloadURL: string }> {
   if (!auth.currentUser) throw new Error("Not authenticated");
+
+  let uploadUri = params.uri;
+
+  // ✅ FIX: Android content:// URIs (from DocumentPicker and some gallery
+  // pickers) cannot be read directly by Firebase Storage's putFile —
+  // copy to the local cache directory first to get a file:// URI.
+  if (Platform.OS === "android" && params.uri.startsWith("content://")) {
+    const ext = params.storagePath.split(".").pop() ?? "bin";
+    const cacheUri = `${(FileSystem as any).cacheDirectory}chat_upload_${Date.now()}.${ext}`;
+    await FileSystem.copyAsync({ from: params.uri, to: cacheUri });
+    uploadUri = cacheUri;
+  }
+
   const storageRef = storage().ref(params.storagePath);
-  await storageRef.putFile(params.uri, { contentType: params.contentType });
+  await storageRef.putFile(uploadUri, { contentType: params.contentType });
   const downloadURL = await storageRef.getDownloadURL();
   return { downloadURL };
 }

@@ -41,7 +41,7 @@ async function fetchNewsByCategory(
 ): Promise<NewsArticle[]> {
   const snap = await firestore()
     .collection("news_articles")
-    .where("category", "array-contains", category)
+    .where("category", "==", category)
     .orderBy("published", "desc")
     .limit(limit)
     .get();

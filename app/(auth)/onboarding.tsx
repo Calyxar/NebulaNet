@@ -1,8 +1,9 @@
 // app/(auth)/onboarding.tsx ✅
-// ✅ REWRITTEN: Twitter-style onboarding
-// Steps: Welcome → Username → Topics → Avatar → Suggested Accounts → Birthdate
-// Topics: Big cards with Ionicons + category name
-// Suggested accounts: filtered by selected topics, follow inline
+// ✅ Twitter-style onboarding with skip on every step
+// Steps: Welcome → Username → Topics → Avatar → Suggested Accounts
+// ✅ REDESIGN: uses real app icon on welcome, cleaner cards throughout,
+//    fixed topics "at least 3" vs enabled-at-1 inconsistency (now "any"),
+//    avatar placeholder redesigned, suggestions match Explore style.
 
 import { useAuth } from "@/hooks/useAuth";
 import { useFollowActions } from "@/hooks/useFollowActions";
@@ -33,7 +34,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width: SCREEN_W } = Dimensions.get("window");
-const CARD_W = (SCREEN_W - 48 - 12) / 2; // 2 columns, 16px side padding, 12px gap
+const CARD_W = (SCREEN_W - 48 - 12) / 2;
 
 // ── Topics ────────────────────────────────────────────────────────────────────
 const TOPICS = [
@@ -106,8 +107,7 @@ async function saveUserInterests(uid: string, interests: string[]) {
   );
 }
 
-// ── Progress bar ─────────────────────────────────────────────────────────────
-// Thin linear bar (like LinkedIn onboarding) — replaces step dots
+// ── Progress bar ──────────────────────────────────────────────────────────────
 function ProgressBar({
   current,
   total,
@@ -172,7 +172,7 @@ function TopicCard({
       >
         <Ionicons
           name={topic.icon as any}
-          size={26}
+          size={24}
           color={selected ? "#fff" : colors.primary}
         />
       </View>
@@ -183,7 +183,7 @@ function TopicCard({
       </Text>
       {selected && (
         <View style={styles.topicCheck}>
-          <Ionicons name="checkmark-circle" size={20} color="#fff" />
+          <Ionicons name="checkmark-circle" size={18} color="#fff" />
         </View>
       )}
     </TouchableOpacity>
@@ -194,6 +194,7 @@ function TopicCard({
 function SuggestedAccountRow({
   profile,
   colors,
+  isDark,
 }: {
   profile: {
     id: string;
@@ -203,17 +204,22 @@ function SuggestedAccountRow({
     is_private: boolean;
   };
   colors: any;
+  isDark: boolean;
 }) {
   const { follow, unfollow, isFollowingBusy } = useFollowActions(
     profile.id,
     profile.is_private,
   );
   const [followed, setFollowed] = useState(false);
-
   const name = profile.full_name || profile.username || "User";
 
   return (
-    <View style={[styles.suggestRow, { borderBottomColor: colors.border }]}>
+    <View
+      style={[
+        styles.suggestRow,
+        { backgroundColor: colors.card, shadowOpacity: isDark ? 0.2 : 0.05 },
+      ]}
+    >
       {profile.avatar_url ? (
         <Image
           source={{ uri: profile.avatar_url }}
@@ -231,7 +237,7 @@ function SuggestedAccountRow({
           </Text>
         </View>
       )}
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text
           style={[styles.suggestName, { color: colors.text }]}
           numberOfLines={1}
@@ -289,7 +295,7 @@ function SuggestedAccountRow({
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function OnboardingScreen() {
-  const { user, completeOnboarding, updateProfile } = useAuth();
+  const { user, completeOnboarding } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [step, setStep] = useState<Step>("welcome");
@@ -309,16 +315,13 @@ export default function OnboardingScreen() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Suggested accounts
+  // Suggestions
   const [suggested, setSuggested] = useState<any[]>([]);
   const [loadingSuggested, setLoadingSuggested] = useState(false);
 
   const gradientColors = isDark
     ? ([colors.background, colors.background] as const)
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
-
-  const visibleSteps = ["username", "topics", "avatar", "suggestions"];
-  const currentDotIndex = visibleSteps.indexOf(step);
 
   // ── Username ──────────────────────────────────────────────────────────────
   const onUsernameChange = (val: string) => {
@@ -328,10 +331,6 @@ export default function OnboardingScreen() {
     if (usernameTimer.current) clearTimeout(usernameTimer.current);
     if (!cleaned || cleaned.length < 3) {
       setUsernameStatus(cleaned.length > 0 ? "invalid" : "idle");
-      return;
-    }
-    if (!/^[a-zA-Z0-9_.]+$/.test(cleaned)) {
-      setUsernameStatus("invalid");
       return;
     }
     setUsernameStatus("checking");
@@ -390,7 +389,9 @@ export default function OnboardingScreen() {
     }
     setSaving(true);
     try {
-      await saveUserInterests(user.uid, selectedTopics);
+      if (selectedTopics.length > 0) {
+        await saveUserInterests(user.uid, selectedTopics);
+      }
     } catch (e) {
       console.warn("Topics save failed:", e);
     } finally {
@@ -446,7 +447,6 @@ export default function OnboardingScreen() {
     if (!user?.uid) return;
     setLoadingSuggested(true);
     try {
-      // Fetch profiles with matching interests OR top follower count
       const interestsSnap =
         selectedTopics.length > 0
           ? await firestore()
@@ -466,7 +466,6 @@ export default function OnboardingScreen() {
         if (uid && uid !== user.uid) suggestedUids.add(uid);
       });
 
-      // Also fetch top users by follower count as fallback
       const topSnap = await firestore()
         .collection("profiles")
         .orderBy("follower_count", "desc")
@@ -476,7 +475,6 @@ export default function OnboardingScreen() {
         if (d.id !== user.uid) suggestedUids.add(d.id);
       });
 
-      // Fetch profiles for all suggested uids
       const uids = Array.from(suggestedUids).slice(0, 15);
       if (!uids.length) {
         setSuggested([]);
@@ -495,7 +493,6 @@ export default function OnboardingScreen() {
           .get();
         snap.docs.forEach((d) => profiles.push({ id: d.id, ...d.data() }));
       }
-
       setSuggested(profiles.slice(0, 10));
     } catch (e) {
       console.warn("fetchSuggested failed:", e);
@@ -514,8 +511,7 @@ export default function OnboardingScreen() {
     router.replace("/(auth)/birthdate" as any);
   };
 
-  // ── RENDER ────────────────────────────────────────────────────────────────
-
+  // ── Wrapper ───────────────────────────────────────────────────────────────
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <LinearGradient
       colors={gradientColors as any}
@@ -536,27 +532,32 @@ export default function OnboardingScreen() {
     </LinearGradient>
   );
 
-  // WELCOME
+  // ── WELCOME ───────────────────────────────────────────────────────────────
   if (step === "welcome") {
     return (
       <Wrapper>
         <View style={styles.welcomeContent}>
+          {/* Real app icon instead of emoji */}
           <View
-            style={[
-              styles.welcomeLogoWrap,
-              { backgroundColor: colors.primary + "18" },
-            ]}
+            style={[styles.welcomeIconWrap, { shadowColor: colors.primary }]}
           >
-            <Text style={styles.welcomeLogoText}>🌌</Text>
+            <Image
+              source={require("@/assets/images/icon.png")}
+              style={styles.welcomeIcon}
+            />
           </View>
-          <Text style={[styles.welcomeTitle, { color: colors.text }]}>
-            Welcome to{"\n"}NebulaNet
-          </Text>
-          <Text
-            style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}
-          >
-            Your space to share, connect, and discover what matters to you.
-          </Text>
+
+          <View style={styles.welcomeTextBlock}>
+            <Text style={[styles.welcomeTitle, { color: colors.text }]}>
+              Welcome to{"\n"}NebulaNet
+            </Text>
+            <Text
+              style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}
+            >
+              Your space to share, connect, and discover what matters to you.
+            </Text>
+          </View>
+
           <View style={styles.welcomeFeatures}>
             {[
               { icon: "people-outline", text: "Follow people you care about" },
@@ -569,7 +570,13 @@ export default function OnboardingScreen() {
                 text: "Join communities and conversations",
               },
             ].map((f) => (
-              <View key={f.text} style={styles.welcomeFeatureRow}>
+              <View
+                key={f.text}
+                style={[
+                  styles.welcomeFeatureRow,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
                 <View
                   style={[
                     styles.welcomeFeatureIcon,
@@ -587,10 +594,16 @@ export default function OnboardingScreen() {
                 >
                   {f.text}
                 </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={colors.textTertiary}
+                />
               </View>
             ))}
           </View>
         </View>
+
         <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
@@ -600,11 +613,10 @@ export default function OnboardingScreen() {
             <Text style={styles.primaryBtnText}>Get Started</Text>
             <Ionicons name="arrow-forward" size={20} color="#fff" />
           </TouchableOpacity>
-          {/* ✅ Skip setup — jumps straight to birthdate for users who want to skip */}
           <TouchableOpacity
             onPress={() => router.replace("/(auth)/birthdate" as any)}
             activeOpacity={0.8}
-            style={{ alignItems: "center", paddingTop: 14 }}
+            style={styles.skipSetupBtn}
           >
             <Text
               style={[styles.skipSetupText, { color: colors.textTertiary }]}
@@ -617,7 +629,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // USERNAME
+  // ── USERNAME ──────────────────────────────────────────────────────────────
   if (step === "username") {
     const canContinue =
       username.length >= 3 &&
@@ -661,6 +673,7 @@ export default function OnboardingScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+
           <View style={styles.stepContent}>
             <Text style={[styles.stepTitle, { color: colors.text }]}>
               Choose a username
@@ -717,6 +730,7 @@ export default function OnboardingScreen() {
               </Text>
             )}
           </View>
+
           <View style={styles.footer}>
             <TouchableOpacity
               style={[
@@ -744,7 +758,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // TOPICS
+  // ── TOPICS ────────────────────────────────────────────────────────────────
   if (step === "topics") {
     return (
       <Wrapper>
@@ -772,23 +786,32 @@ export default function OnboardingScreen() {
             What are you into?
           </Text>
           <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
-            Pick topics to personalize your feed. Select at least 3.
+            Pick topics to personalize your For You feed.
           </Text>
-          <View style={styles.topicsCountRow}>
-            <View
-              style={[
-                styles.topicsCountBadge,
-                {
-                  backgroundColor: colors.primary + "18",
-                  borderColor: colors.primary + "30",
-                },
-              ]}
-            >
-              <Text style={[styles.topicsCountText, { color: colors.primary }]}>
-                {selectedTopics.length} selected
-              </Text>
+          {selectedTopics.length > 0 && (
+            <View style={styles.topicsCountRow}>
+              <View
+                style={[
+                  styles.topicsCountBadge,
+                  {
+                    backgroundColor: colors.primary + "18",
+                    borderColor: colors.primary + "30",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={14}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[styles.topicsCountText, { color: colors.primary }]}
+                >
+                  {selectedTopics.length} selected
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
         <FlatList
@@ -827,8 +850,14 @@ export default function OnboardingScreen() {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Text style={styles.primaryBtnText}>Continue</Text>
-                <Ionicons name="arrow-forward" size={20} color="#fff" />
+                <Text style={styles.primaryBtnText}>
+                  {selectedTopics.length === 0
+                    ? "Select a topic to continue"
+                    : "Continue"}
+                </Text>
+                {selectedTopics.length > 0 && (
+                  <Ionicons name="arrow-forward" size={20} color="#fff" />
+                )}
               </>
             )}
           </TouchableOpacity>
@@ -837,7 +866,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // AVATAR
+  // ── AVATAR ────────────────────────────────────────────────────────────────
   if (step === "avatar") {
     return (
       <Wrapper>
@@ -869,13 +898,30 @@ export default function OnboardingScreen() {
           <Text style={[styles.stepSubtitle, { color: colors.textSecondary }]}>
             Help people recognize you. You can always change this later.
           </Text>
+
           <TouchableOpacity
             style={styles.avatarPickerWrap}
             onPress={pickAvatar}
             activeOpacity={0.85}
           >
             {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+              <>
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={styles.avatarPreview}
+                />
+                <View
+                  style={[
+                    styles.avatarEditBadge,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.background,
+                    },
+                  ]}
+                >
+                  <Ionicons name="pencil" size={14} color="#fff" />
+                </View>
+              </>
             ) : (
               <View
                 style={[
@@ -883,32 +929,36 @@ export default function OnboardingScreen() {
                   { backgroundColor: colors.card, borderColor: colors.border },
                 ]}
               >
-                <Ionicons
-                  name="camera-outline"
-                  size={44}
-                  color={colors.primary}
-                />
-                <Text
+                <View
                   style={[
-                    styles.avatarPlaceholderText,
-                    { color: colors.textSecondary },
+                    styles.avatarPlaceholderInner,
+                    { backgroundColor: colors.primary + "18" },
                   ]}
                 >
-                  Tap to add photo
-                </Text>
-              </View>
-            )}
-            {avatarUri && (
-              <View
-                style={[
-                  styles.avatarEditBadge,
-                  { backgroundColor: colors.primary },
-                ]}
-              >
-                <Ionicons name="pencil" size={14} color="#fff" />
+                  <Ionicons
+                    name="person-outline"
+                    size={44}
+                    color={colors.primary}
+                  />
+                </View>
+                <View
+                  style={[
+                    styles.avatarCameraBtn,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.background,
+                    },
+                  ]}
+                >
+                  <Ionicons name="camera" size={16} color="#fff" />
+                </View>
               </View>
             )}
           </TouchableOpacity>
+
+          <Text style={[styles.avatarHint, { color: colors.textTertiary }]}>
+            Tap to choose from your photo library
+          </Text>
         </View>
 
         <View style={styles.footer}>
@@ -926,7 +976,10 @@ export default function OnboardingScreen() {
             activeOpacity={0.9}
           >
             {uploadingAvatar ? (
-              <ActivityIndicator color="#fff" />
+              <>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={styles.primaryBtnText}>Uploading…</Text>
+              </>
             ) : (
               <>
                 <Text style={styles.primaryBtnText}>
@@ -941,7 +994,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // SUGGESTIONS
+  // ── SUGGESTIONS ───────────────────────────────────────────────────────────
   if (step === "suggestions") {
     return (
       <Wrapper>
@@ -960,7 +1013,7 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.suggestHeaderWrap]}>
+        <View style={styles.suggestHeaderWrap}>
           <Text style={[styles.stepTitle, { color: colors.text }]}>
             Who to follow
           </Text>
@@ -989,6 +1042,7 @@ export default function OnboardingScreen() {
             keyExtractor={(p) => p.id}
             contentContainerStyle={styles.suggestList}
             showsVerticalScrollIndicator={false}
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             renderItem={({ item }) => (
               <SuggestedAccountRow
                 profile={{
@@ -999,12 +1053,24 @@ export default function OnboardingScreen() {
                   is_private: !!item.is_private,
                 }}
                 colors={colors}
+                isDark={isDark}
               />
             )}
           />
         ) : (
           <View style={styles.suggestEmpty}>
-            <Ionicons name="people-outline" size={48} color={colors.border} />
+            <View
+              style={[
+                styles.suggestEmptyIcon,
+                { backgroundColor: colors.card },
+              ]}
+            >
+              <Ionicons
+                name="people-outline"
+                size={40}
+                color={colors.textTertiary}
+              />
+            </View>
             <Text
               style={[styles.suggestEmptyText, { color: colors.textTertiary }]}
             >
@@ -1019,8 +1085,8 @@ export default function OnboardingScreen() {
             onPress={handleFinish}
             activeOpacity={0.9}
           >
-            <Text style={styles.primaryBtnText}>Continue</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" />
+            <Text style={styles.primaryBtnText}>Let's go</Text>
+            <Ionicons name="rocket-outline" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
       </Wrapper>
@@ -1036,36 +1102,53 @@ const styles = StyleSheet.create({
   // Welcome
   welcomeContent: {
     flex: 1,
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
     justifyContent: "center",
-    gap: 24,
+    gap: 28,
   },
-  welcomeLogoWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
+  welcomeIconWrap: {
     alignSelf: "center",
+    borderRadius: 28,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  welcomeLogoText: { fontSize: 44 },
+  welcomeIcon: {
+    width: 90,
+    height: 90,
+    borderRadius: 24,
+  },
+  welcomeTextBlock: { alignItems: "center", gap: 10 },
   welcomeTitle: {
     fontSize: 34,
     fontWeight: "900",
     textAlign: "center",
     lineHeight: 40,
+    letterSpacing: -0.5,
   },
   welcomeSubtitle: { fontSize: 16, textAlign: "center", lineHeight: 24 },
-  welcomeFeatures: { gap: 14 },
-  welcomeFeatureRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  welcomeFeatures: { gap: 10 },
+  welcomeFeatureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
   welcomeFeatureIcon: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  welcomeFeatureText: { fontSize: 15, fontWeight: "600", flex: 1 },
+  welcomeFeatureText: { fontSize: 14, fontWeight: "700", flex: 1 },
 
   // Step header
   stepHeader: {
@@ -1089,32 +1172,38 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   skipText: { fontSize: 15, fontWeight: "600" },
-  skipSetupText: {
-    fontSize: 14,
-    fontWeight: "600",
-    textDecorationLine: "underline",
-  },
+  skipSetupBtn: { alignItems: "center", paddingTop: 14 },
+  skipSetupText: { fontSize: 14, fontWeight: "600" },
 
   // Step content
   stepContent: {
     flex: 1,
     paddingHorizontal: 28,
     justifyContent: "center",
-    gap: 16,
+    gap: 14,
   },
-  stepTitle: { fontSize: 28, fontWeight: "900", lineHeight: 34 },
+  stepTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34,
+    letterSpacing: -0.3,
+  },
   stepSubtitle: { fontSize: 15, lineHeight: 22 },
 
   // Username
   usernameInputWrap: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1.5,
     paddingHorizontal: 16,
-    height: 56,
+    height: 58,
     gap: 8,
     marginTop: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   usernameAt: { fontSize: 18, fontWeight: "700" },
   usernameInput: { flex: 1, fontSize: 17, fontWeight: "600" },
@@ -1124,8 +1213,11 @@ const styles = StyleSheet.create({
   topicsHeaderWrap: { paddingHorizontal: 20, paddingBottom: 8, gap: 6 },
   topicsCountRow: { flexDirection: "row", marginTop: 4 },
   topicsCountBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
   },
@@ -1135,26 +1227,30 @@ const styles = StyleSheet.create({
   topicCard: {
     borderRadius: 18,
     borderWidth: 1.5,
-    padding: 16,
+    padding: 14,
     alignItems: "flex-start",
     gap: 10,
     position: "relative",
-    minHeight: 110,
+    minHeight: 100,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   topicIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  topicName: { fontSize: 14, fontWeight: "800", lineHeight: 18 },
+  topicName: { fontSize: 13, fontWeight: "800", lineHeight: 17 },
   topicCheck: { position: "absolute", top: 10, right: 10 },
 
   // Avatar
   avatarPickerWrap: {
     alignSelf: "center",
-    marginTop: 24,
+    marginTop: 16,
     position: "relative",
   },
   avatarPreview: { width: 140, height: 140, borderRadius: 70 },
@@ -1162,13 +1258,32 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    borderWidth: 2,
-    borderStyle: "dashed",
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
   },
-  avatarPlaceholderText: { fontSize: 13, fontWeight: "600" },
+  avatarPlaceholderInner: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarCameraBtn: {
+    position: "absolute",
+    bottom: 4,
+    right: 4,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+  },
   avatarEditBadge: {
     position: "absolute",
     bottom: 4,
@@ -1178,17 +1293,28 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+  },
+  avatarHint: {
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 12,
   },
 
   // Suggestions
-  suggestHeaderWrap: { paddingHorizontal: 20, paddingBottom: 8, gap: 4 },
+  suggestHeaderWrap: { paddingHorizontal: 20, paddingBottom: 12, gap: 4 },
   suggestList: { paddingHorizontal: 16, paddingBottom: 16 },
   suggestRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    padding: 14,
+    borderRadius: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
   },
   suggestAvatar: { width: 46, height: 46, borderRadius: 23 },
   suggestAvatarFallback: {
@@ -1199,10 +1325,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   suggestAvatarLetter: { fontSize: 18, fontWeight: "900", color: "#fff" },
-  suggestName: { fontSize: 15, fontWeight: "800" },
-  suggestHandle: { fontSize: 13, marginTop: 2 },
+  suggestName: { fontSize: 14, fontWeight: "900" },
+  suggestHandle: { fontSize: 12, marginTop: 2, fontWeight: "600" },
   followBtn: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
@@ -1221,8 +1347,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 32,
+  },
+  suggestEmptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   suggestEmptyText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
 
@@ -1235,6 +1368,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 18,
     borderRadius: 28,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 4,
   },
   primaryBtnText: { color: "#fff", fontSize: 17, fontWeight: "700" },
 });

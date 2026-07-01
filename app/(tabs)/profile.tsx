@@ -391,7 +391,7 @@ export default function ProfileScreen() {
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
           {/* Animated sticky header — floats above the banner */}
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
             <Animated.View
               style={[
                 StyleSheet.absoluteFillObject,
@@ -1032,7 +1032,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    paddingTop: 14,
     position: "absolute",
     top: 0,
     left: 0,

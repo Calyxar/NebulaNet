@@ -1,16 +1,24 @@
-// components/post/CommentRow.tsx — NEW
+// components/post/CommentRow.tsx
+// ✅ NEW: onDelete prop added — long-pressing your own comment shows a
+//    delete option via Alert. The prop is optional so existing call
+//    sites that don't pass it still work without change.
 // Renders a single comment AND recursively renders its nested replies
-// (c.replies, already populated by getComments() in lib/firestore/comments.ts
-// but never previously rendered anywhere). Draws a Twitter-style vertical
-// connector line down the left side of any comment that has replies,
-// linking it visually to its children — matches the thread-line pattern
-// in Twitter's reply view.
+// (c.replies, already populated by getComments() in lib/firestore/comments.ts).
+// Draws a Twitter-style vertical connector line down the left side of any
+// comment that has replies, linking it visually to its children.
 
 import MentionHashtagText from "@/components/MentionHashtagText";
 import type { CommentWithAuthor } from "@/hooks/usePosts";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 function getInitials(name: string): string {
   return name
@@ -67,7 +75,9 @@ interface CommentRowProps {
   formatDate: (iso: string) => string;
   onLike: (commentId: string) => void;
   onReply: (comment: CommentWithAuthor) => void;
+  onDelete?: (commentId: string) => void;
   isLast?: boolean;
+  currentUserId?: string;
 }
 
 export default function CommentRow({
@@ -77,22 +87,31 @@ export default function CommentRow({
   formatDate,
   onLike,
   onReply,
+  onDelete,
   isLast = false,
+  currentUserId,
 }: CommentRowProps) {
   const authorName =
     c.author?.full_name?.trim() || c.author?.username?.trim() || "User";
   const hasReplies = !!c.replies?.length;
-  // Nested replies get a smaller avatar and indent, same as Twitter's
-  // visual de-emphasis of deeper thread levels.
   const avatarSize = depth === 0 ? 34 : 28;
+  const isOwner = !!currentUserId && c.user_id === currentUserId;
+
+  const handleLongPress = () => {
+    if (!isOwner || !onDelete) return;
+    Alert.alert("Delete comment?", "This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => onDelete(c.id),
+      },
+    ]);
+  };
 
   return (
     <View style={{ flexDirection: "row" }}>
-      {/* ✅ Vertical connector line — only rendered for nested replies
-          (depth > 0), running up from this row to its parent. A single
-          continuous-looking line is built by stacking each depth level's
-          own short segment, since each CommentRow only knows about its
-          immediate parent, not the whole chain. */}
+      {/* Vertical connector line for nested replies */}
       {depth > 0 && (
         <View style={styles.connectorColumn}>
           <View
@@ -102,11 +121,11 @@ export default function CommentRow({
       )}
 
       <View style={{ flex: 1 }}>
-        <View
-          style={[
-            styles.commentRow,
-            depth > 0 && { paddingLeft: 4 },
-          ]}
+        <TouchableOpacity
+          activeOpacity={isOwner && onDelete ? 0.7 : 1}
+          onLongPress={handleLongPress}
+          delayLongPress={350}
+          style={[styles.commentRow, depth > 0 && { paddingLeft: 4 }]}
         >
           <Avatar
             uri={c.author?.avatar_url}
@@ -119,7 +138,9 @@ export default function CommentRow({
               <Text style={[styles.commentAuthor, { color: colors.text }]}>
                 {authorName}
               </Text>
-              <Text style={[styles.commentTime, { color: colors.textTertiary }]}>
+              <Text
+                style={[styles.commentTime, { color: colors.textTertiary }]}
+              >
                 {formatDate(c.created_at)}
               </Text>
             </View>
@@ -170,12 +191,26 @@ export default function CommentRow({
                   Reply
                 </Text>
               </TouchableOpacity>
+
+              {/* ✅ Delete button — only visible on your own comments */}
+              {isOwner && onDelete && (
+                <TouchableOpacity
+                  style={styles.replyBtn}
+                  onPress={handleLongPress}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={13}
+                    color={colors.textTertiary}
+                  />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
-        {/* ✅ Recursive render — each reply gets the same treatment,
-            including its own replies if any exist (arbitrary depth). */}
+        {/* Recursive render for nested replies */}
         {hasReplies && (
           <View style={{ marginTop: 4 }}>
             {c.replies!.map((reply, i) => (
@@ -187,6 +222,8 @@ export default function CommentRow({
                 formatDate={formatDate}
                 onLike={onLike}
                 onReply={onReply}
+                onDelete={onDelete}
+                currentUserId={currentUserId}
                 isLast={i === c.replies!.length - 1}
               />
             ))}

@@ -5,6 +5,9 @@
 // ✅ Action row icons are now unlabeled (no "Like"/"Comment"/etc. text
 //    underneath), matching the icon-only direction already adopted for
 //    the bottom nav bar elsewhere in this redesign.
+// ✅ Delete comment added — long-pressing or tapping the trash icon on
+//    your own comment shows a confirmation alert and removes it from
+//    Firestore, then invalidates the comments query so the list refreshes.
 // CommentRow.tsx is untouched — its recursive nested-reply rendering with
 // the vertical connector line already matches Twitter's thread pattern.
 
@@ -36,6 +39,7 @@ import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { formatDate } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
+import firestore from "@react-native-firebase/firestore";
 import { useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -128,9 +132,6 @@ export default function PostDetailScreen() {
 
   const [comment, setComment] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
-  // ✅ when replying to a specific comment, tracks which one so
-  // handlePostComment can attach parent_id, and so the input bar can
-  // show a "Replying to @x" indicator with a way to cancel.
   const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
@@ -250,8 +251,6 @@ export default function PostDetailScreen() {
       await addCommentMutation.mutateAsync({
         post_id: post.id,
         content: comment.trim(),
-        // ✅ attaches the reply relationship when replying to a specific
-        // comment instead of commenting on the post directly.
         parent_id: replyingTo?.id ?? null,
       });
       setComment("");
@@ -265,8 +264,6 @@ export default function PostDetailScreen() {
     }
   };
 
-  // ✅ focuses the input and sets reply context — called from a comment's
-  // "Reply" button.
   const handleStartReply = (target: CommentWithAuthor) => {
     setReplyingTo(target);
     commentInputRef.current?.focus();
@@ -288,6 +285,25 @@ export default function PostDetailScreen() {
       });
     } catch {
       Alert.alert("Error", "Failed to update comment like");
+    }
+  };
+
+  // ✅ NEW: delete a comment the current user owns, then refresh the list.
+  const handleDeleteComment = async (commentId: string) => {
+    if (!post) return;
+    try {
+      const ref = firestore().collection("comments").doc(commentId);
+      const snap = await ref.get();
+      if (!snap.exists()) return;
+      const data: any = snap.data();
+      if (data?.user_id !== viewerId) {
+        Alert.alert("Error", "You can only delete your own comments");
+        return;
+      }
+      await ref.delete();
+      qc.invalidateQueries({ queryKey: ["comments", post.id] });
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to delete comment");
     }
   };
 
@@ -513,9 +529,7 @@ export default function PostDetailScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* ✅ Single merged card — post content, stats, and action row
-                now live in one continuous block instead of two separate
-                shadowed cards. */}
+            {/* Single merged card — post content, stats, and action row */}
             <View
               style={[
                 styles.postCard,
@@ -619,9 +633,7 @@ export default function PostDetailScreen() {
                   <MediaGallery media={post.media_urls} />
                 ))}
 
-              {/* Stats — now sits inside the same card as the content
-                  above it, separated only by a divider rather than a
-                  whole second shadowed box. */}
+              {/* Stats row */}
               <View
                 style={[styles.statsRow, { borderTopColor: colors.border }]}
               >
@@ -643,9 +655,7 @@ export default function PostDetailScreen() {
                 ))}
               </View>
 
-              {/* Action row — icon-only now, no text labels underneath,
-                  matching the icon-only direction already used for the
-                  bottom nav bar elsewhere in this redesign. */}
+              {/* Icon-only action row */}
               <View
                 style={[styles.actionRow, { borderTopColor: colors.border }]}
               >
@@ -812,6 +822,8 @@ export default function PostDetailScreen() {
                           formatDate={formatDate}
                           onLike={handleCommentLike}
                           onReply={handleStartReply}
+                          onDelete={handleDeleteComment}
+                          currentUserId={viewerId ?? undefined}
                         />
                       </View>
                     ),
@@ -903,8 +915,6 @@ export default function PostDetailScreen() {
               returnKeyType="send"
               onSubmitEditing={handlePostComment}
               onFocus={() =>
-                // ✅ Bumped from 300ms to 450ms — fires after keyboard
-                // animation completes instead of mid-animation
                 setTimeout(
                   () => scrollViewRef.current?.scrollToEnd({ animated: true }),
                   450,

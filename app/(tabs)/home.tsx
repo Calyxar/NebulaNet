@@ -7,6 +7,10 @@
 // ✅ AnnouncementCard shown at top of For You feed
 // ✅ Header now shows logo only (no "NebulaNet" text), matching
 //    Twitter/Bluesky's icon-only header pattern.
+// ✅ For You/Following/My Community tabs switched from pill-background
+//    to underline style, matching Explore, Profile, and Notifications.
+// ✅ Community picker filters out nameless/broken community docs so the
+//    "C" fallback letter never appears for communities with no name set.
 
 import AnnouncementCard from "@/components/feed/AnnouncementCard";
 import VideoPlayer from "@/components/media/VideoPlayer";
@@ -298,7 +302,6 @@ export default function HomeScreen() {
 
   const { data: storiesRaw } = useActiveStories();
   const { myCommunities, myCommunityIds } = useCommunities();
-  console.log("[HOME DEBUG] myCommunityIds:", myCommunityIds);
 
   const { data: userPrefs } = useQuery({
     queryKey: ["user-preferences", user?.uid],
@@ -371,12 +374,13 @@ export default function HomeScreen() {
     );
   }, [storiesRaw]);
 
+  // ✅ FIX: filter out communities with no meaningful name so the "C"
+  // fallback letter never appears for nameless/broken community docs.
   const filteredCommunities = useMemo(() => {
     const q = communitySearch.trim().toLowerCase();
-    if (!q) return myCommunities;
-    return myCommunities.filter((c) =>
-      (c.name ?? "").toLowerCase().includes(q),
-    );
+    const named = myCommunities.filter((c) => !!c.name?.trim());
+    if (!q) return named;
+    return named.filter((c) => (c.name ?? "").toLowerCase().includes(q));
   }, [communitySearch, myCommunities]);
 
   const Header = useMemo(
@@ -385,8 +389,6 @@ export default function HomeScreen() {
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
-            // Logo-only header, no "NebulaNet" wordmark — matches the
-            // icon-only header pattern Twitter/Bluesky use.
             <View style={styles.brandRow}>
               <Image
                 source={require("@/assets/images/icon.png")}
@@ -480,18 +482,17 @@ export default function HomeScreen() {
           />
         </View>
 
+        {/* ✅ Underline tabs — matches Explore, Profile, Notifications */}
         <View
-          style={[styles.segmentWrap, { backgroundColor: colors.background }]}
+          style={[
+            styles.segmentWrap,
+            {
+              backgroundColor: colors.background,
+              borderBottomColor: colors.border,
+            },
+          ]}
         >
-          <View
-            style={[
-              styles.segment,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.05,
-              },
-            ]}
-          >
+          <View style={styles.segment}>
             <SegBtn
               label="For You"
               active={activeTab === "for-you"}
@@ -594,7 +595,7 @@ export default function HomeScreen() {
                         <Text
                           style={{ color: colors.primary, fontWeight: "900" }}
                         >
-                          {(item.name?.[0] ?? "C").toUpperCase()}
+                          {(item.name?.[0] ?? "?").toUpperCase()}
                         </Text>
                       </View>
                     )}
@@ -616,7 +617,9 @@ export default function HomeScreen() {
                 }}
               >
                 <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
-                  No communities match "{communitySearch.trim()}".
+                  {communitySearch.trim()
+                    ? `No communities match "${communitySearch.trim()}".`
+                    : "You haven't joined any communities yet."}
                 </Text>
               </View>
             )}
@@ -953,6 +956,8 @@ export default function HomeScreen() {
   );
 }
 
+// ✅ Underline tab button — matches Explore, Profile, Notifications.
+// Replaced the old pill-background SegBtn.
 function SegBtn({
   label,
   active,
@@ -966,19 +971,24 @@ function SegBtn({
 }) {
   return (
     <TouchableOpacity
-      style={[styles.segBtn, active && { backgroundColor: colors.primary }]}
       onPress={onPress}
-      activeOpacity={0.8}
+      activeOpacity={0.7}
+      style={styles.segBtn}
     >
       <Text
         style={[
           styles.segText,
-          { color: colors.textTertiary },
-          active && { color: "#FFFFFF" },
+          { color: active ? colors.text : colors.textTertiary },
+          active && styles.segTextActive,
         ]}
       >
         {label}
       </Text>
+      {active && (
+        <View
+          style={[styles.segUnderline, { backgroundColor: colors.primary }]}
+        />
+      )}
     </TouchableOpacity>
   );
 }
@@ -990,8 +1000,6 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
-  // Enlarged now that it's the sole brand mark in the header (no text
-  // alongside it to balance against).
   brandLogo: { width: 44, height: 44, borderRadius: 12 },
   bellWrap: {
     width: 44,
@@ -1034,26 +1042,29 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 6,
   },
-  segmentWrap: { paddingHorizontal: 14, paddingBottom: 12 },
+  // ✅ Underline tab container — no more pill card
+  segmentWrap: {
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+  },
   segment: {
-    borderRadius: 24,
-    padding: 6,
     flexDirection: "row",
-    gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
   },
   segBtn: {
     flex: 1,
-    height: 38,
-    borderRadius: 19,
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 13,
   },
-  segText: { fontSize: 13, fontWeight: "800" },
-  myCommunityPanel: { paddingBottom: 10 },
+  segText: { fontSize: 13, fontWeight: "700" },
+  segTextActive: { fontWeight: "900" },
+  segUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: "56%",
+    borderRadius: 2,
+  },
+  myCommunityPanel: { paddingBottom: 10, paddingTop: 12 },
   communitySearchWrap: {
     marginHorizontal: 14,
     marginBottom: 10,

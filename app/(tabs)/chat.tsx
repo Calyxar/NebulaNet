@@ -1,8 +1,11 @@
 // app/(tabs)/chat.tsx ✅
+// ✅ Removed the empty storiesContainer/ScrollView that was rendering
+//    nothing but a border line under the header — dead code that was
+//    taking up vertical space before the conversation list.
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
-import { useAuth } from "@/hooks/useAuth"; // ✅ hook not provider directly
+import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { type ChatConversation } from "@/lib/firestore/chat";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -12,7 +15,6 @@ import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -116,19 +118,6 @@ export default function ChatScreen() {
           }
         />
 
-        <View
-          style={[
-            styles.storiesContainer,
-            { borderBottomColor: colors.border },
-          ]}
-        >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.storiesContent}
-          />
-        </View>
-
         {loading.conversations && conversations.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -213,8 +202,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   addButtonText: { fontSize: 13, fontWeight: "700", color: "#fff" },
-  storiesContainer: { paddingVertical: 12, borderBottomWidth: 1 },
-  storiesContent: { paddingHorizontal: 16, gap: 12 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   emptyState: {
     flex: 1,

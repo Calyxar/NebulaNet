@@ -1007,6 +1007,7 @@ export async function deletePost(postId: string): Promise<boolean> {
 // happens to be largest.
 const FOR_YOU_WEIGHTS = {
   affinity: 4,
+  interests: 3,
   engagement: 3,
   recency: 2,
 } as const;
@@ -1062,6 +1063,20 @@ function normalizedAffinity(rawScore: number): number {
   return Math.log1p(Math.max(rawScore, 0));
 }
 
+/**
+ * Interest score: fraction of the viewer's declared interests that
+ * overlap with this post's hashtags. A post tagged #gaming and #tech
+ * scores higher for someone who selected both than for someone who
+ * only selected one. Returns 0 when the viewer has no declared
+ * interests, so the signal cleanly drops out for new users.
+ */
+function interestScore(post: Post, interests: Set<string>): number {
+  if (!interests.size) return 0;
+  const tags = post.hashtags ?? [];
+  const matches = tags.filter((t) => interests.has(t)).length;
+  return Math.min(matches / interests.size, 1);
+}
+
 export async function getForYouFeed(
   filters: { limit?: number; cursor?: PostFilters["cursor"] } = {},
 ): Promise<PaginatedPosts> {
@@ -1094,17 +1109,31 @@ export async function getForYouFeed(
     return { posts: [], total: 0, hasMore: false, nextCursor: null };
   }
 
-  // ── Step 2: fetch affinity scores for all candidate authors ──────
+  // ── Step 2: fetch affinity scores + viewer interests in parallel ──
   const authorIds = candidates.map((p) => p.user_id);
-  const affinityMap = viewerId
-    ? await getAffinityScores(viewerId, authorIds)
-    : new Map<string, number>();
+  const [affinityMap, interestSet] = await Promise.all([
+    viewerId
+      ? getAffinityScores(viewerId, authorIds)
+      : Promise.resolve(new Map<string, number>()),
+    viewerId
+      ? firestore()
+          .collection("user_interests")
+          .doc(viewerId)
+          .get()
+          .then((snap) => {
+            const raw = snap.exists() ? (snap.data() as any)?.interests : [];
+            return new Set<string>(Array.isArray(raw) ? raw : []);
+          })
+          .catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>()),
+  ]);
 
   // ── Step 3: score each candidate ──────────────────────────────────
   const scored = candidates.map((post) => {
     const rawAffinity = affinityMap.get(post.user_id) ?? 0;
     const score =
       normalizedAffinity(rawAffinity) * FOR_YOU_WEIGHTS.affinity +
+      interestScore(post, interestSet) * FOR_YOU_WEIGHTS.interests +
       engagementScore(post) * FOR_YOU_WEIGHTS.engagement +
       recencyScore(post) * FOR_YOU_WEIGHTS.recency;
     return { post, score };
