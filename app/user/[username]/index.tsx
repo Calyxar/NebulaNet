@@ -1,24 +1,27 @@
-// app/user/[username]/index.tsx ✅ REWRITTEN — Twitter-accurate Posts tab
-//
-// ✅ MAJOR CHANGE: removed the separate "Activity" tab entirely. Twitter/X
-// doesn't have one — reposts and quote-posts are mixed directly into the
-// main Posts timeline, sorted by action time, with a "🔁 Reposted" label
-// above reposted items and an embedded quoted-post card under quotes.
-// Likes are dropped from any profile display, matching current Twitter/X
-// (which removed public Likes tabs from profiles).
-//
-// ✅ NEW: post content, quoted-post content, and reply content now render
-// through MentionHashtagText instead of plain Text — #hashtags and
-// @mentions in profile posts/replies are now styled and tappable here
-// too, matching every other screen that renders post content.
+// app/user/[username]/index.tsx ✅ REDESIGNED
+// ✅ Banner photo added — reads target.banner_url, gradient fallback,
+//    avatar overlaps banner bottom-left — matches own profile.tsx exactly.
+// ✅ Tabs switched from pill-background to underline style, matching
+//    home, explore, profile, and notifications.
+// ✅ Stats moved below bio (Twitter style) instead of next to avatar
+//    (Instagram style) — consistent with own profile.tsx.
+// ✅ Dead LocationPicker removed — it was never triggered on this screen.
+// ✅ Posts tab: reposts and quote-posts mixed into main timeline with
+//    "Reposted" label and embedded quoted-post card.
+// ✅ MentionHashtagText used throughout for #hashtags and @mentions.
 
 import MentionHashtagText from "@/components/MentionHashtagText";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
+import UserActionsSheet, {
+  type UserActionsSheetRef,
+} from "@/components/UserActionsSheet";
 import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { createNotification } from "@/lib/firestore/notifications";
+import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,31 +31,22 @@ import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   Dimensions,
-  FlatList,
   Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import UserActionsSheet, {
-  type UserActionsSheetRef,
-} from "@/components/UserActionsSheet";
-import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
-import { useTheme } from "@/providers/ThemeProvider";
-
 const { width: SCREEN_W } = Dimensions.get("window");
 const GRID_GAP = 2;
 const CELL_SIZE = (SCREEN_W - 32 - GRID_GAP * 2) / 3;
-const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY ?? "";
+const BANNER_HEIGHT = 150;
+const AVATAR_SIZE = 76;
+const AVATAR_OVERLAP = AVATAR_SIZE / 2;
 
 type UserProfile = {
   id: string;
@@ -60,6 +54,7 @@ type UserProfile = {
   full_name: string | null;
   bio: string | null;
   avatar_url: string | null;
+  banner_url?: string | null;
   location?: string | null;
   is_private?: boolean | null;
   is_founder?: boolean | null;
@@ -147,248 +142,6 @@ const isVideoUrl = (url?: string | null) => {
   );
 };
 
-function LocationPicker({
-  visible,
-  onSelect,
-  onClose,
-  colors,
-}: {
-  visible: boolean;
-  onSelect: (place: { name: string; place_id: string }) => void;
-  onClose: () => void;
-  colors: any;
-}) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const search = async (text: string) => {
-    if (text.length < 2) {
-      setResults([]);
-      setError("");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams({
-        input: text,
-        key: PLACES_API_KEY,
-      });
-      const res = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`,
-      );
-      const json = await res.json();
-      if (json.status === "REQUEST_DENIED") {
-        setError("Location search unavailable. Check API key.");
-        setResults([]);
-      } else if (json.status === "ZERO_RESULTS") {
-        setResults([]);
-      } else {
-        setResults(json.predictions ?? []);
-      }
-    } catch {
-      setError("Network error. Check connection.");
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChange = (text: string) => {
-    setQuery(text);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(text), 350);
-  };
-
-  const handleClose = () => {
-    setQuery("");
-    setResults([]);
-    setError("");
-    onClose();
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
-      <TouchableOpacity
-        style={locStyles.overlay}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "position" : "height"}
-        keyboardVerticalOffset={0}
-      >
-        <View style={[locStyles.sheet, { backgroundColor: colors.card }]}>
-          <View
-            style={[locStyles.handle, { backgroundColor: colors.border }]}
-          />
-          <Text style={[locStyles.title, { color: colors.text }]}>
-            Add Location
-          </Text>
-          <View
-            style={[
-              locStyles.searchRow,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-          >
-            <Ionicons name="search" size={18} color={colors.textTertiary} />
-            <TextInput
-              style={[locStyles.searchInput, { color: colors.text }]}
-              placeholder="Search places..."
-              placeholderTextColor={colors.textTertiary}
-              value={query}
-              onChangeText={handleChange}
-              autoFocus
-              autoCorrect={false}
-              autoCapitalize="none"
-              returnKeyType="search"
-              onSubmitEditing={() => search(query)}
-            />
-            {!!query && (
-              <TouchableOpacity
-                onPress={() => {
-                  setQuery("");
-                  setResults([]);
-                  setError("");
-                }}
-              >
-                <Ionicons
-                  name="close-circle"
-                  size={18}
-                  color={colors.textTertiary}
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {loading && (
-            <Text style={[locStyles.hint, { color: colors.textTertiary }]}>
-              Searching...
-            </Text>
-          )}
-          {!!error && (
-            <Text style={[locStyles.hint, { color: "#EF4444" }]}>{error}</Text>
-          )}
-          {!loading && !error && query.length >= 2 && results.length === 0 && (
-            <Text style={[locStyles.hint, { color: colors.textTertiary }]}>
-              No results found.
-            </Text>
-          )}
-
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.place_id}
-            keyboardShouldPersistTaps="handled"
-            style={{ maxHeight: 280 }}
-            renderItem={({ item, index }) => (
-              <TouchableOpacity
-                style={[
-                  locStyles.resultRow,
-                  { borderTopColor: colors.border },
-                  index === 0 && { borderTopWidth: 0 },
-                ]}
-                onPress={() => {
-                  onSelect({
-                    name: item.structured_formatting.main_text,
-                    place_id: item.place_id,
-                  });
-                  handleClose();
-                }}
-                activeOpacity={0.85}
-              >
-                <View
-                  style={[
-                    locStyles.pinCircle,
-                    { backgroundColor: colors.primary + "18" },
-                  ]}
-                >
-                  <Ionicons name="location" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text
-                    style={[locStyles.mainText, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
-                    {item.structured_formatting.main_text}
-                  </Text>
-                  <Text
-                    style={[
-                      locStyles.secondaryText,
-                      { color: colors.textTertiary },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.structured_formatting.secondary_text}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
-
-const locStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 20,
-    paddingBottom: 40,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  title: { fontSize: 17, fontWeight: "800", marginBottom: 14 },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    marginBottom: 8,
-  },
-  searchInput: { flex: 1, fontSize: 15 },
-  hint: {
-    fontSize: 13,
-    textAlign: "center",
-    paddingVertical: 12,
-    fontWeight: "600",
-  },
-  resultRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-  },
-  pinCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mainText: { fontSize: 14, fontWeight: "700" },
-  secondaryText: { fontSize: 12, marginTop: 2 },
-});
-
 export default function UserProfileScreen() {
   const { username: raw } = useLocalSearchParams<{ username: string }>();
   const username = raw?.replace("@", "") ?? "";
@@ -401,7 +154,6 @@ export default function UserProfileScreen() {
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const [activeTab, setActiveTab] =
     useState<(typeof profileTabs)[number]>("Post");
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", raw],
@@ -422,6 +174,7 @@ export default function UserProfileScreen() {
           full_name: d.full_name ?? null,
           bio: d.bio ?? null,
           avatar_url: d.avatar_url ?? null,
+          banner_url: d.banner_url ?? null,
           location: d.location ?? null,
           is_private: d.is_private ?? false,
           is_founder: d.is_founder ?? false,
@@ -440,6 +193,7 @@ export default function UserProfileScreen() {
         full_name: d.full_name ?? null,
         bio: d.bio ?? null,
         avatar_url: d.avatar_url ?? null,
+        banner_url: d.banner_url ?? null,
         location: d.location ?? null,
         is_private: d.is_private ?? false,
         is_founder: d.is_founder ?? false,
@@ -591,7 +345,6 @@ export default function UserProfileScreen() {
         snap.docs.map(async (d) => {
           const x = d.data() as any;
           const createdAt = tsToIso(x.created_at_ts ?? x.created_at);
-
           let quotedPost: QuotedPostInfo | null = null;
           if (x.quote_post_id) {
             let quotedContent: string | null = x.quote_post?.content ?? null;
@@ -601,7 +354,6 @@ export default function UserProfileScreen() {
             )
               ? x.quote_post.media_urls
               : null;
-
             if (!quotedContent) {
               try {
                 const qSnap = await firestore()
@@ -618,7 +370,6 @@ export default function UserProfileScreen() {
                 }
               } catch {}
             }
-
             quotedPost = {
               id: x.quote_post_id,
               content: quotedContent,
@@ -626,7 +377,6 @@ export default function UserProfileScreen() {
               user: quotedUser,
             };
           }
-
           return {
             id: d.id,
             kind: "own",
@@ -639,7 +389,6 @@ export default function UserProfileScreen() {
           } as ProfileFeedItem;
         }),
       );
-
       return items;
     },
   });
@@ -655,25 +404,20 @@ export default function UserProfileScreen() {
         .where("user_id", "==", target!.id)
         .limit(50)
         .get();
-
       if (commentSnap.empty) return [];
-
       const comments = commentSnap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as any),
       }));
-
       const postIds = [
         ...new Set(comments.map((c) => c.post_id).filter(Boolean)),
       ];
-
       const postDocs = await Promise.all(
         postIds.map((id) => firestore().collection("posts").doc(id).get()),
       );
       const postMap = new Map(
         postDocs.filter((d) => d.exists).map((d) => [d.id, d.data() as any]),
       );
-
       return comments
         .map((c) => {
           const parentPost = postMap.get(c.post_id);
@@ -709,9 +453,7 @@ export default function UserProfileScreen() {
         .where("user_id", "==", target!.id)
         .limit(50)
         .get();
-
       if (repostSnap.empty) return [];
-
       const postIds: string[] = [];
       const repostedAt: Record<string, string> = {};
       repostSnap.docs.forEach((d) => {
@@ -723,11 +465,9 @@ export default function UserProfileScreen() {
           );
         }
       });
-
       const chunks: string[][] = [];
       for (let i = 0; i < postIds.length; i += 10)
         chunks.push(postIds.slice(i, i + 10));
-
       const items: ProfileFeedItem[] = [];
       for (const chunk of chunks) {
         const docSnaps = await Promise.all(
@@ -738,7 +478,6 @@ export default function UserProfileScreen() {
           const x = d.data() as any;
           if (x.is_visible === false) return;
           if (x.user_id === target!.id) return;
-
           const at =
             repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at);
           items.push({
@@ -759,7 +498,6 @@ export default function UserProfileScreen() {
           });
         });
       }
-
       return items;
     },
   });
@@ -873,11 +611,13 @@ export default function UserProfileScreen() {
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-      await firestore().collection("user_blocks").add({
-        blocker_id: user.uid,
-        blocked_id: target.id,
-        created_at: new Date().toISOString(),
-      });
+      await firestore()
+        .collection("user_blocks")
+        .add({
+          blocker_id: user.uid,
+          blocked_id: target.id,
+          created_at: new Date().toISOString(),
+        });
       return target.id;
     },
     onSuccess: (targetId) => {
@@ -929,6 +669,7 @@ export default function UserProfileScreen() {
     ? [colors.background, colors.background, colors.background]
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loadingProfile) {
     return (
       <LinearGradient
@@ -937,7 +678,7 @@ export default function UserProfileScreen() {
         style={{ flex: 1 }}
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          <View style={[styles.header, { backgroundColor: "transparent" }]}>
+          <View style={styles.header}>
             <View
               style={[
                 styles.headerBtn,
@@ -957,6 +698,7 @@ export default function UserProfileScreen() {
     );
   }
 
+  // ── Not found ──────────────────────────────────────────────────────────────
   if (!target) {
     return (
       <LinearGradient
@@ -965,7 +707,7 @@ export default function UserProfileScreen() {
         style={{ flex: 1 }}
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          <View style={[styles.header, { backgroundColor: "transparent" }]}>
+          <View style={styles.header}>
             <TouchableOpacity
               style={[
                 styles.headerBtn,
@@ -979,7 +721,7 @@ export default function UserProfileScreen() {
             <Text style={[styles.headerTitle, { color: colors.text }]}>
               Not Found
             </Text>
-            <View style={{ width: 40 }} />
+            <View style={{ width: 42 }} />
           </View>
           <View style={styles.emptyState}>
             <Ionicons
@@ -1001,6 +743,7 @@ export default function UserProfileScreen() {
     );
   }
 
+  // ── Main ───────────────────────────────────────────────────────────────────
   return (
     <LinearGradient
       colors={gradientColors as any}
@@ -1008,7 +751,8 @@ export default function UserProfileScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        <View style={[styles.header, { backgroundColor: "transparent" }]}>
+        {/* Fixed header */}
+        <View style={styles.header}>
           <TouchableOpacity
             style={[
               styles.headerBtn,
@@ -1055,121 +799,52 @@ export default function UserProfileScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
+          {/* ── Banner + overlapping avatar ──────────────────────────────── */}
+          <View style={styles.bannerWrap}>
+            {target.banner_url ? (
+              <Image
+                source={{ uri: target.banner_url }}
+                style={styles.bannerImage}
+              />
+            ) : (
+              <LinearGradient
+                colors={[colors.primary, colors.primary + "60"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.bannerImage}
+              />
+            )}
+            <View
+              style={[styles.avatarOverlap, { borderColor: colors.background }]}
+            >
+              {target.avatar_url ? (
+                <Image
+                  source={{ uri: target.avatar_url }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.avatarFallback,
+                    { backgroundColor: colors.primary },
+                  ]}
+                >
+                  <Text style={styles.avatarFallbackText}>
+                    {(target.username?.charAt(0) || "U").toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* ── Profile card ────────────────────────────────────────────── */}
           <View
             style={[
               styles.profileCard,
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <View style={styles.profileTopRow}>
-              <View style={styles.profileImageContainer}>
-                {target.avatar_url ? (
-                  <Image
-                    source={{ uri: target.avatar_url }}
-                    style={styles.profileImage}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.profileImagePlaceholder,
-                      { backgroundColor: colors.primary },
-                    ]}
-                  >
-                    <Text style={styles.profileImageText}>
-                      {(target.username?.charAt(0) || "U").toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: colors.text }]}>
-                    {loadingStats ? "…" : formatNumber(stats?.posts || 0)}
-                  </Text>
-                  <Text
-                    style={[styles.statLabel, { color: colors.textTertiary }]}
-                  >
-                    Post
-                  </Text>
-                </View>
-                <Pressable
-                  style={styles.statItem}
-                  onPress={() => {
-                    if (!isMe && hideFollowers) {
-                      Alert.alert(
-                        "Hidden",
-                        "This user has hidden their followers list.",
-                      );
-                      return;
-                    }
-                    router.push(`/user/${target.username}/followers`);
-                  }}
-                >
-                  <Text style={[styles.statValue, { color: colors.text }]}>
-                    {loadingStats ? "…" : followersDisplay}
-                  </Text>
-                  <Text
-                    style={[styles.statLabel, { color: colors.textTertiary }]}
-                  >
-                    Followers
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={styles.statItem}
-                  onPress={() => {
-                    if (!isMe && hideFollowing) {
-                      Alert.alert(
-                        "Hidden",
-                        "This user has hidden their following list.",
-                      );
-                      return;
-                    }
-                    router.push(`/user/${target.username}/following`);
-                  }}
-                >
-                  <Text style={[styles.statValue, { color: colors.text }]}>
-                    {loadingStats ? "…" : followingDisplay}
-                  </Text>
-                  <Text
-                    style={[styles.statLabel, { color: colors.textTertiary }]}
-                  >
-                    Following
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-
-            <View style={styles.nameRow}>
-              <Text style={[styles.displayName, { color: colors.text }]}>
-                {target.full_name || target.username}
-              </Text>
-              {!!target.is_founder && <FounderBadge />}
-            </View>
-            {!!target.bio && (
-              <Text style={[styles.bio, { color: colors.textTertiary }]}>
-                {target.bio}
-              </Text>
-            )}
-            {target.is_private && (
-              <View
-                style={[
-                  styles.privatePill,
-                  { backgroundColor: colors.surface },
-                ]}
-              >
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={14}
-                  color={colors.primary}
-                />
-                <Text
-                  style={[styles.privatePillText, { color: colors.primary }]}
-                >
-                  Private account
-                </Text>
-              </View>
-            )}
-
+            {/* Action buttons — top right, same as own profile */}
             {!isMe ? (
               <View style={styles.actionButtons}>
                 <TouchableOpacity
@@ -1189,7 +864,7 @@ export default function UserProfileScreen() {
                 >
                   <Text
                     style={[
-                      styles.followBtnText,
+                      styles.actionBtnText,
                       {
                         color:
                           isFollowing || isRequested ? colors.text : "#fff",
@@ -1207,10 +882,9 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    styles.messageBtn,
+                    styles.outlineBtn,
                     {
                       backgroundColor: colors.surface,
-                      borderWidth: 1,
                       borderColor: colors.border,
                     },
                     !canMessage && { opacity: 0.4 },
@@ -1219,16 +893,15 @@ export default function UserProfileScreen() {
                   onPress={handleMessage}
                   disabled={!canMessage}
                 >
-                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                  <Text style={[styles.actionBtnText, { color: colors.text }]}>
                     Message
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    styles.shareBtn,
+                    styles.iconBtn,
                     {
                       backgroundColor: colors.surface,
-                      borderWidth: 1,
                       borderColor: colors.border,
                     },
                   ]}
@@ -1246,42 +919,39 @@ export default function UserProfileScreen() {
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={[
-                    styles.messageBtn,
+                    styles.outlineBtn,
                     {
                       backgroundColor: colors.surface,
-                      borderWidth: 1,
                       borderColor: colors.border,
                     },
                   ]}
                   onPress={() => router.push("/profile/edit")}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                  <Text style={[styles.actionBtnText, { color: colors.text }]}>
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    styles.messageBtn,
+                    styles.outlineBtn,
                     {
                       backgroundColor: colors.surface,
-                      borderWidth: 1,
                       borderColor: colors.border,
                     },
                   ]}
                   onPress={() => router.push("/settings")}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.messageBtnText, { color: colors.text }]}>
+                  <Text style={[styles.actionBtnText, { color: colors.text }]}>
                     Settings
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    styles.shareBtn,
+                    styles.iconBtn,
                     {
                       backgroundColor: colors.surface,
-                      borderWidth: 1,
                       borderColor: colors.border,
                     },
                   ]}
@@ -1296,38 +966,158 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
               </View>
             )}
+
+            {/* Name + badge */}
+            <View style={styles.nameRow}>
+              <Text style={[styles.displayName, { color: colors.text }]}>
+                {target.full_name || target.username}
+              </Text>
+              {!!target.is_founder && <FounderBadge />}
+            </View>
+            <Text
+              style={[styles.usernameText, { color: colors.textSecondary }]}
+            >
+              @{target.username}
+            </Text>
+
+            {!!target.bio && (
+              <Text style={[styles.bio, { color: colors.textSecondary }]}>
+                {target.bio}
+              </Text>
+            )}
+
+            {!!target.location && (
+              <View style={styles.locationRow}>
+                <Ionicons
+                  name="location-outline"
+                  size={14}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={[styles.locationText, { color: colors.textTertiary }]}
+                >
+                  {target.location}
+                </Text>
+              </View>
+            )}
+
+            {target.is_private && (
+              <View
+                style={[
+                  styles.privatePill,
+                  { backgroundColor: colors.surface },
+                ]}
+              >
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={13}
+                  color={colors.primary}
+                />
+                <Text
+                  style={[styles.privatePillText, { color: colors.primary }]}
+                >
+                  Private account
+                </Text>
+              </View>
+            )}
+
+            {/* Stats row — Twitter style, below bio */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: colors.text }]}>
+                  {loadingStats ? "…" : formatNumber(stats?.posts || 0)}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
+                  Posts
+                </Text>
+              </View>
+              <Pressable
+                style={styles.statItem}
+                onPress={() => {
+                  if (!isMe && hideFollowers) {
+                    Alert.alert(
+                      "Hidden",
+                      "This user has hidden their followers list.",
+                    );
+                    return;
+                  }
+                  router.push(`/user/${target.username}/followers`);
+                }}
+              >
+                <Text style={[styles.statValue, { color: colors.text }]}>
+                  {loadingStats ? "…" : followersDisplay}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
+                  Followers
+                </Text>
+              </Pressable>
+              <Pressable
+                style={styles.statItem}
+                onPress={() => {
+                  if (!isMe && hideFollowing) {
+                    Alert.alert(
+                      "Hidden",
+                      "This user has hidden their following list.",
+                    );
+                    return;
+                  }
+                  router.push(`/user/${target.username}/following`);
+                }}
+              >
+                <Text style={[styles.statValue, { color: colors.text }]}>
+                  {loadingStats ? "…" : followingDisplay}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: colors.textTertiary }]}
+                >
+                  Following
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
+          {/* ── Underline tabs ───────────────────────────────────────────── */}
           <View
-            style={[styles.tabsContainer, { backgroundColor: colors.card }]}
+            style={[styles.tabsContainer, { borderBottomColor: colors.border }]}
           >
             {profileTabs.map((tab) => {
               const active = activeTab === tab;
               return (
                 <TouchableOpacity
                   key={tab}
-                  style={[
-                    styles.tab,
-                    active && { backgroundColor: colors.primary },
-                  ]}
                   onPress={() => setActiveTab(tab)}
-                  activeOpacity={0.85}
+                  activeOpacity={0.7}
+                  style={styles.tab}
                 >
                   <Text
                     style={[
                       styles.tabText,
-                      { color: colors.textTertiary },
-                      active && { color: "#fff", fontWeight: "800" },
+                      { color: active ? colors.text : colors.textTertiary },
+                      active && styles.tabTextActive,
                     ]}
                   >
                     {tab}
                   </Text>
+                  {active && (
+                    <View
+                      style={[
+                        styles.tabUnderline,
+                        { backgroundColor: colors.primary },
+                      ]}
+                    />
+                  )}
                 </TouchableOpacity>
               );
             })}
           </View>
 
+          {/* ── Tab content ──────────────────────────────────────────────── */}
           <View style={styles.contentSection}>
+            {/* POST */}
             {activeTab === "Post" && (
               <>
                 {!canViewPosts ? (
@@ -1382,7 +1172,6 @@ export default function UserProfileScreen() {
                       const isVid =
                         isVideoUrl(img) || item.post_type === "video";
                       const isQuote = !!item.quoted_post;
-
                       return (
                         <TouchableOpacity
                           key={`${item.kind}-${item.id}`}
@@ -1412,7 +1201,6 @@ export default function UserProfileScreen() {
                               </Text>
                             </View>
                           )}
-
                           {item.kind === "repost" && item.original_author && (
                             <View style={styles.repostAuthorRow}>
                               {item.original_author.avatar_url ? (
@@ -1459,7 +1247,6 @@ export default function UserProfileScreen() {
                               </Text>
                             </View>
                           )}
-
                           {!!item.content && (
                             <MentionHashtagText
                               content={item.content}
@@ -1477,7 +1264,6 @@ export default function UserProfileScreen() {
                               }
                             />
                           )}
-
                           {isQuote && item.quoted_post && (
                             <View
                               style={[
@@ -1488,7 +1274,7 @@ export default function UserProfileScreen() {
                                 },
                               ]}
                             >
-                              {item.quoted_post.user ? (
+                              {item.quoted_post.user && (
                                 <View style={styles.quotedAuthorRow}>
                                   {item.quoted_post.user.avatar_url ? (
                                     <Image
@@ -1537,7 +1323,7 @@ export default function UserProfileScreen() {
                                     </Text>
                                   </View>
                                 </View>
-                              ) : null}
+                              )}
                               {!!item.quoted_post.content ? (
                                 <MentionHashtagText
                                   content={item.quoted_post.content}
@@ -1574,7 +1360,6 @@ export default function UserProfileScreen() {
                               )}
                             </View>
                           )}
-
                           {!!img && !isQuote && (
                             <View
                               style={[
@@ -1629,6 +1414,7 @@ export default function UserProfileScreen() {
               </>
             )}
 
+            {/* REPLIES */}
             {activeTab === "Replies" && (
               <>
                 {!canViewPosts ? (
@@ -1740,6 +1526,7 @@ export default function UserProfileScreen() {
               </>
             )}
 
+            {/* TAGGED */}
             {activeTab === "Tagged" && (
               <View
                 style={[styles.emptyCard, { backgroundColor: colors.card }]}
@@ -1763,6 +1550,7 @@ export default function UserProfileScreen() {
               </View>
             )}
 
+            {/* MEDIA */}
             {activeTab === "Media" && (
               <>
                 {!canViewPosts ? (
@@ -1969,13 +1757,6 @@ export default function UserProfileScreen() {
             }}
           />
         )}
-
-        <LocationPicker
-          visible={showLocationPicker}
-          onSelect={() => setShowLocationPicker(false)}
-          onClose={() => setShowLocationPicker(false)}
-          colors={colors}
-        />
       </SafeAreaView>
 
       <ShareSheet
@@ -2010,11 +1791,40 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   headerTitle: { fontSize: 16, fontWeight: "800", maxWidth: "65%" },
+
+  // Banner + avatar
+  bannerWrap: {
+    width: "100%",
+    height: BANNER_HEIGHT + AVATAR_OVERLAP,
+    marginBottom: 0,
+  },
+  bannerImage: { width: "100%", height: BANNER_HEIGHT },
+  avatarOverlap: {
+    position: "absolute",
+    bottom: 0,
+    left: 20,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    borderWidth: 4,
+  },
+  avatar: { width: "100%", height: "100%", borderRadius: AVATAR_SIZE / 2 },
+  avatarFallback: {
+    width: "100%",
+    height: "100%",
+    borderRadius: AVATAR_SIZE / 2,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarFallbackText: { fontSize: 28, fontWeight: "800", color: "#fff" },
+
+  // Profile card
   profileCard: {
     borderRadius: 22,
     padding: 18,
+    paddingTop: 12,
     marginHorizontal: 16,
-    marginTop: 12,
+    marginTop: 6,
     marginBottom: 12,
     borderWidth: 1,
     shadowColor: "#000",
@@ -2023,80 +1833,85 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-  profileTopRow: {
+  actionButtons: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
+    gap: 8,
+    justifyContent: "flex-end",
+    marginBottom: 12,
   },
-  profileImageContainer: { marginRight: 18 },
-  profileImage: { width: 76, height: 76, borderRadius: 38 },
-  profileImagePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+  followBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 22,
+    alignItems: "center",
+  },
+  outlineBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 22,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
+    borderWidth: 1,
   },
-  profileImageText: { fontSize: 30, fontWeight: "800", color: "#fff" },
-  statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
-  statItem: { alignItems: "center" },
-  statValue: { fontSize: 18, fontWeight: "900" },
-  statLabel: { fontSize: 12, marginTop: 3, fontWeight: "700" },
+  actionBtnText: { fontSize: 14, fontWeight: "800" },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 2,
   },
   displayName: { fontSize: 17, fontWeight: "900" },
-  bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 10 },
+  usernameText: { fontSize: 14, marginBottom: 8 },
+  bio: { fontSize: 13.5, lineHeight: 19, marginBottom: 8 },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 8,
+  },
+  locationText: { fontSize: 13 },
   privatePill: {
     alignSelf: "flex-start",
     flexDirection: "row",
     gap: 6,
     alignItems: "center",
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 999,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   privatePillText: { fontSize: 12, fontWeight: "800" },
-  actionButtons: { flexDirection: "row", gap: 8, marginTop: 4 },
-  followBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 22,
-    alignItems: "center",
-  },
-  followBtnText: { fontSize: 14, fontWeight: "800" },
-  messageBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 22,
-    alignItems: "center",
-  },
-  messageBtnText: { fontSize: 14, fontWeight: "800" },
-  shareBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  statsRow: { flexDirection: "row", gap: 20, marginTop: 4 },
+  statItem: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  statValue: { fontSize: 15, fontWeight: "900" },
+  statLabel: { fontSize: 13, fontWeight: "600" },
+
+  // Underline tabs
   tabsContainer: {
     flexDirection: "row",
-    borderRadius: 22,
-    padding: 5,
-    marginHorizontal: 16,
+    marginHorizontal: 18,
+    borderBottomWidth: 1,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 2,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 18 },
-  tabText: { fontSize: 13, fontWeight: "700" },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 13 },
+  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabTextActive: { fontWeight: "900" },
+  tabUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: "56%",
+    borderRadius: 2,
+  },
+
+  // Content
   contentSection: { paddingHorizontal: 16, paddingBottom: 32 },
   postCard: {
     borderRadius: 18,
@@ -2146,23 +1961,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 8,
   },
-  quotedAuthorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  quotedAuthorRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   quotedAvatar: { width: 28, height: 28, borderRadius: 14 },
   quotedAvatarPlaceholder: { alignItems: "center", justifyContent: "center" },
   quotedAvatarInitial: { fontSize: 12, fontWeight: "800", color: "#fff" },
   quotedFullName: { fontSize: 13, fontWeight: "700" },
   quotedAuthor: { fontSize: 12, fontWeight: "500" },
   quotedContent: { fontSize: 13, lineHeight: 18 },
-  quotedMedia: {
-    width: "100%",
-    height: 140,
-    borderRadius: 10,
-    marginTop: 2,
-  },
+  quotedMedia: { width: "100%", height: 140, borderRadius: 10, marginTop: 2 },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 32,
