@@ -1,6 +1,10 @@
 // components/feed/AnnouncementCard.tsx
-// Firestore-backed announcement card shown at top of For You feed
-// Dismissible per announcement — stores dismissed ID in AsyncStorage
+// Firestore-backed announcement card shown at top of For You feed.
+// ✅ Swipe-down-to-dismiss — card follows your finger, springs back if
+//    you release before the threshold, slides off and fades if you go past.
+//    Matching Bluesky's pattern. No extra packages — PanResponder + Animated.
+// ✅ Dismissed once per announcement ID, persisted in AsyncStorage.
+//    Once dismissed it never shows again, even across app restarts.
 // Manage from Firebase Console: announcements collection
 // Fields: id (string), title (string), body (string), active (bool), created_at (string)
 // Optional: cta_label (string), cta_url (string), version (string)
@@ -12,10 +16,27 @@ import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
-import React, { useCallback, useEffect, useState } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Animated,
+  Image,
+  PanResponder,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 const DISMISSED_KEY = "nebulanet:dismissed_announcement";
+// How far down the user must drag before the card dismisses.
+// Below this threshold it springs back.
+const DISMISS_THRESHOLD = 80;
 
 type Announcement = {
   id: string;
@@ -50,10 +71,6 @@ async function fetchActiveAnnouncement(): Promise<Announcement | null> {
       version: d.version ?? null,
     };
   } catch (err) {
-    // ✅ NEW: this query needs a composite index (active + created_at).
-    // Previously, an index error here failed completely silently — the
-    // card just never appeared, with no visible error anywhere. Now it
-    // logs clearly so this can't silently regress again.
     console.warn("[Announcement] fetchActiveAnnouncement failed:", err);
     return null;
   }
@@ -64,13 +81,17 @@ export default function AnnouncementCard() {
   const [dismissed, setDismissed] = useState(false);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
 
+  // Animated values for the swipe gesture
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
   const { data: announcement } = useQuery({
     queryKey: ["active-announcement"],
     queryFn: fetchActiveAnnouncement,
-    staleTime: 5 * 60 * 1000, // re-check every 5 min
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Load dismissed announcement ID from storage
+  // Load dismissed announcement ID from storage on mount
   useEffect(() => {
     AsyncStorage.getItem(DISMISSED_KEY)
       .then((val) => {
@@ -79,14 +100,34 @@ export default function AnnouncementCard() {
       .catch(() => {});
   }, []);
 
+  // Reset animation values when a new announcement loads
+  useEffect(() => {
+    translateY.setValue(0);
+    opacity.setValue(1);
+  }, [announcement?.id]);
+
   const handleDismiss = useCallback(async () => {
     if (!announcement) return;
-    setDismissed(true);
-    setDismissedId(announcement.id);
+    // Animate off screen before marking dismissed
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: 300,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setDismissed(true);
+      setDismissedId(announcement.id);
+    });
     try {
       await AsyncStorage.setItem(DISMISSED_KEY, announcement.id);
     } catch {}
-  }, [announcement]);
+  }, [announcement, translateY, opacity]);
 
   const handleCTA = useCallback(() => {
     if (announcement?.cta_url) {
@@ -94,12 +135,64 @@ export default function AnnouncementCard() {
     }
   }, [announcement]);
 
-  // Don't show if no announcement, already dismissed this session, or
-  // this exact announcement was dismissed in a previous session. The
-  // persisted check below was previously commented out — the dismissal
-  // WAS being saved correctly to AsyncStorage, but never actually
-  // consulted, so the card reappeared on every fresh app launch
-  // regardless of whether the user had already dismissed it.
+  // PanResponder — only activates on downward drags, leaves
+  // horizontal scrolls and upward swipes to the parent FlatList.
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, gs) => {
+          // Claim the gesture only if moving more downward than sideways
+          return gs.dy > 8 && Math.abs(gs.dy) > Math.abs(gs.dx);
+        },
+        onPanResponderMove: (_e, gs) => {
+          // Only track downward movement, clamp upward to 0
+          const clampedY = Math.max(0, gs.dy);
+          translateY.setValue(clampedY);
+          // Fade out proportionally as the card moves down
+          const progress = Math.min(clampedY / DISMISS_THRESHOLD, 1);
+          opacity.setValue(1 - progress * 0.4);
+        },
+        onPanResponderRelease: (_e, gs) => {
+          if (gs.dy >= DISMISS_THRESHOLD || gs.vy > 0.8) {
+            // Past threshold or fast flick — dismiss
+            void handleDismiss();
+          } else {
+            // Below threshold — spring back
+            Animated.parallel([
+              Animated.spring(translateY, {
+                toValue: 0,
+                useNativeDriver: true,
+                tension: 120,
+                friction: 8,
+              }),
+              Animated.timing(opacity, {
+                toValue: 1,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+            ]).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          // Spring back if gesture is cancelled (e.g. parent scroll takes over)
+          Animated.parallel([
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 120,
+              friction: 8,
+            }),
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        },
+      }),
+    [handleDismiss, translateY, opacity],
+  );
+
   if (!announcement) return null;
   if (dismissed) return null;
   if (dismissedId === announcement.id) return null;
@@ -109,9 +202,19 @@ export default function AnnouncementCard() {
     : (["#7C3AED", "#5B21B6"] as const);
 
   return (
-    <View
-      style={[styles.container, { marginHorizontal: 14, marginBottom: 12 }]}
+    <Animated.View
+      style={[
+        styles.container,
+        { marginHorizontal: 14, marginBottom: 12 },
+        { transform: [{ translateY }], opacity },
+      ]}
+      {...panResponder.panHandlers}
     >
+      {/* Drag handle — subtle visual hint that this card is swipeable */}
+      <View style={styles.dragHandleWrap}>
+        <View style={styles.dragHandle} />
+      </View>
+
       <LinearGradient
         colors={gradientColors}
         start={{ x: 0, y: 0 }}
@@ -147,7 +250,7 @@ export default function AnnouncementCard() {
             </View>
           </View>
 
-          {/* Dismiss button */}
+          {/* X dismiss button — tap or swipe down both dismiss */}
           <TouchableOpacity
             onPress={handleDismiss}
             style={styles.dismissBtn}
@@ -181,10 +284,10 @@ export default function AnnouncementCard() {
             size={12}
             color="rgba(255,255,255,0.5)"
           />
-          <Text style={styles.footerText}>Official announcement</Text>
+          <Text style={styles.footerText}>Swipe down to dismiss</Text>
         </View>
       </LinearGradient>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -198,8 +301,24 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
+  dragHandleWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingTop: 8,
+    zIndex: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
   gradient: {
     padding: 16,
+    paddingTop: 22,
     borderRadius: 22,
   },
   header: {
@@ -214,9 +333,7 @@ const styles = StyleSheet.create({
     gap: 10,
     flex: 1,
   },
-  avatarWrap: {
-    position: "relative",
-  },
+  avatarWrap: { position: "relative" },
   avatar: {
     width: 40,
     height: 40,
@@ -237,11 +354,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  authorName: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "900",
-  },
+  authorName: { color: "#fff", fontSize: 15, fontWeight: "900" },
   authorHandle: {
     color: "rgba(255,255,255,0.6)",
     fontSize: 12,
@@ -254,11 +367,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
   },
-  versionText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "800",
-  },
+  versionText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   dismissBtn: {
     width: 28,
     height: 28,
@@ -292,16 +401,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginBottom: 12,
   },
-  ctaText: {
-    color: "#7C3AED",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
+  ctaText: { color: "#7C3AED", fontSize: 13, fontWeight: "800" },
+  footer: { flexDirection: "row", alignItems: "center", gap: 5 },
   footerText: {
     color: "rgba(255,255,255,0.5)",
     fontSize: 11,

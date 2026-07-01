@@ -394,6 +394,9 @@ export default function HomeScreen() {
                 source={require("@/assets/images/icon.png")}
                 style={styles.brandLogo}
               />
+              <Text style={[styles.brandName, { color: colors.text }]}>
+                NebulaNet
+              </Text>
             </View>
           }
           right={
@@ -1001,6 +1004,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   brandLogo: { width: 44, height: 44, borderRadius: 12 },
+  brandName: {
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+  },
   bellWrap: {
     width: 44,
     height: 44,
