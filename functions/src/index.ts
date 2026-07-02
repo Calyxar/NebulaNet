@@ -1079,7 +1079,16 @@ export const syncNewsFromCurrents = onSchedule(
               author: a.author ?? null,
               image: a.image ?? null,
               language: a.language ?? "en",
-              category: Array.isArray(a.category) ? a.category : [category],
+              // ✅ FIX: always stamp the *requested* category onto the doc.
+              // Currents' own category tags for e.g. the "general" feed often
+              // don't contain the literal string "general", which left that
+              // tab's array-contains query with zero matches.
+              category: Array.from(
+                new Set([
+                  ...(Array.isArray(a.category) ? a.category : []),
+                  category,
+                ]),
+              ),
               published: a.published ?? null,
               synced_at: FieldValue.serverTimestamp(),
             },
