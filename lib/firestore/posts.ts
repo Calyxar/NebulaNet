@@ -1015,7 +1015,7 @@ const FOR_YOU_WEIGHTS = {
 // How many days back the candidate pool reaches. Wider = more variety
 // but more candidates to score; narrower = faster but can feel stale
 // if your platform doesn't have a lot of daily post volume yet.
-const FOR_YOU_CANDIDATE_WINDOW_DAYS = 14;
+const FOR_YOU_CANDIDATE_WINDOW_DAYS = 60;
 const FOR_YOU_CANDIDATE_POOL_SIZE = 100;
 
 function hoursSince(iso: string): number {

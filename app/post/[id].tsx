@@ -34,7 +34,6 @@ import {
   type CommentWithAuthor,
 } from "@/hooks/usePosts";
 import { useOptimisticSharePost } from "@/hooks/useShares";
-import { db } from "@/lib/firebase";
 import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { formatDate } from "@/utils/format";
@@ -301,6 +300,12 @@ export default function PostDetailScreen() {
         return;
       }
       await ref.delete();
+      await firestore()
+        .collection("posts")
+        .doc(post.id)
+        .update({
+          comment_count: firestore.FieldValue.increment(-1),
+        });
       qc.invalidateQueries({ queryKey: ["comments", post.id] });
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to delete comment");
@@ -312,7 +317,7 @@ export default function PostDetailScreen() {
     setIsDeleting(true);
     try {
       if (!viewerId) throw new Error("Not logged in");
-      const ref = db.collection("posts").doc(post.id);
+      const ref = firestore().collection("posts").doc(post.id);
       const snap = await ref.get();
       if (!snap.exists) throw new Error("Post not found");
       const data: any = snap.data();

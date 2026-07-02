@@ -5,6 +5,9 @@
 //    Matching Bluesky's pattern. No extra packages — PanResponder + Animated.
 // ✅ Dismissed once per announcement ID, persisted in AsyncStorage.
 //    Once dismissed it never shows again, even across app restarts.
+// ✅ storageLoaded gate — prevents the card flashing briefly on mount
+//    before AsyncStorage has loaded the dismissed ID. Returns null until
+//    storage check is complete.
 // Manage from Firebase Console: announcements collection
 // Fields: id (string), title (string), body (string), active (bool), created_at (string)
 // Optional: cta_label (string), cta_url (string), version (string)
@@ -34,8 +37,6 @@ import {
 } from "react-native";
 
 const DISMISSED_KEY = "nebulanet:dismissed_announcement";
-// How far down the user must drag before the card dismisses.
-// Below this threshold it springs back.
 const DISMISS_THRESHOLD = 80;
 
 type Announcement = {
@@ -80,8 +81,11 @@ export default function AnnouncementCard() {
   const { colors, isDark } = useTheme();
   const [dismissed, setDismissed] = useState(false);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
+  // ✅ Gate: don't render anything until AsyncStorage has been checked.
+  // Without this, the card briefly flashes on every launch before the
+  // dismissed ID loads, even if the user already dismissed it.
+  const [storageLoaded, setStorageLoaded] = useState(false);
 
-  // Animated values for the swipe gesture
   const translateY = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
@@ -91,13 +95,14 @@ export default function AnnouncementCard() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Load dismissed announcement ID from storage on mount
+  // Load dismissed ID from storage — set storageLoaded regardless of outcome
   useEffect(() => {
     AsyncStorage.getItem(DISMISSED_KEY)
       .then((val) => {
         if (val) setDismissedId(val);
+        setStorageLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => setStorageLoaded(true));
   }, []);
 
   // Reset animation values when a new announcement loads
@@ -108,7 +113,6 @@ export default function AnnouncementCard() {
 
   const handleDismiss = useCallback(async () => {
     if (!announcement) return;
-    // Animate off screen before marking dismissed
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: 300,
@@ -135,29 +139,22 @@ export default function AnnouncementCard() {
     }
   }, [announcement]);
 
-  // PanResponder — only activates on downward drags, leaves
-  // horizontal scrolls and upward swipes to the parent FlatList.
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_e, gs) => {
-          // Claim the gesture only if moving more downward than sideways
           return gs.dy > 8 && Math.abs(gs.dy) > Math.abs(gs.dx);
         },
         onPanResponderMove: (_e, gs) => {
-          // Only track downward movement, clamp upward to 0
           const clampedY = Math.max(0, gs.dy);
           translateY.setValue(clampedY);
-          // Fade out proportionally as the card moves down
           const progress = Math.min(clampedY / DISMISS_THRESHOLD, 1);
           opacity.setValue(1 - progress * 0.4);
         },
         onPanResponderRelease: (_e, gs) => {
           if (gs.dy >= DISMISS_THRESHOLD || gs.vy > 0.8) {
-            // Past threshold or fast flick — dismiss
             void handleDismiss();
           } else {
-            // Below threshold — spring back
             Animated.parallel([
               Animated.spring(translateY, {
                 toValue: 0,
@@ -174,7 +171,6 @@ export default function AnnouncementCard() {
           }
         },
         onPanResponderTerminate: () => {
-          // Spring back if gesture is cancelled (e.g. parent scroll takes over)
           Animated.parallel([
             Animated.spring(translateY, {
               toValue: 0,
@@ -193,6 +189,8 @@ export default function AnnouncementCard() {
     [handleDismiss, translateY, opacity],
   );
 
+  // ✅ Don't render until storage is loaded — prevents flash
+  if (!storageLoaded) return null;
   if (!announcement) return null;
   if (dismissed) return null;
   if (dismissedId === announcement.id) return null;
@@ -210,7 +208,6 @@ export default function AnnouncementCard() {
       ]}
       {...panResponder.panHandlers}
     >
-      {/* Drag handle — subtle visual hint that this card is swipeable */}
       <View style={styles.dragHandleWrap}>
         <View style={styles.dragHandle} />
       </View>
@@ -221,7 +218,6 @@ export default function AnnouncementCard() {
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
       >
-        {/* Header row */}
         <View style={styles.header}>
           <View style={styles.authorRow}>
             <View style={styles.avatarWrap}>
@@ -250,7 +246,6 @@ export default function AnnouncementCard() {
             </View>
           </View>
 
-          {/* X dismiss button — tap or swipe down both dismiss */}
           <TouchableOpacity
             onPress={handleDismiss}
             style={styles.dismissBtn}
@@ -261,11 +256,9 @@ export default function AnnouncementCard() {
           </TouchableOpacity>
         </View>
 
-        {/* Content */}
         <Text style={styles.title}>{announcement.title}</Text>
         <Text style={styles.body}>{announcement.body}</Text>
 
-        {/* CTA button */}
         {!!announcement.cta_label && !!announcement.cta_url && (
           <TouchableOpacity
             style={styles.ctaBtn}
@@ -277,7 +270,6 @@ export default function AnnouncementCard() {
           </TouchableOpacity>
         )}
 
-        {/* Footer */}
         <View style={styles.footer}>
           <Ionicons
             name="megaphone-outline"
