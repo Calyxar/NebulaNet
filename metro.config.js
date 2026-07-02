@@ -30,11 +30,6 @@ config.watchFolders = [
 // ✅ Stub native-only libraries on web
 // These libraries use native modules that don't exist on web
 const WEB_STUBS = {
-  "react-native-google-mobile-ads": path.resolve(
-    __dirname,
-    "mocks",
-    "react-native-google-mobile-ads.js",
-  ),
   "react-native-image-viewing": path.resolve(
     __dirname,
     "mocks",

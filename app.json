@@ -30,8 +30,7 @@
         "NSMicrophoneUsageDescription": "Allow NebulaNet to use your microphone for video posts."
       },
       "config": {
-        "usesNonExemptEncryption": false,
-        "googleMobileAdsAppId": "ca-app-pub-7224753372359384~6941170298"
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -77,7 +76,6 @@
         "backgroundColor": "#0B0F1A"
       },
       "permissions": [
-        "com.google.android.gms.permission.AD_ID",
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
         "VIBRATE",
@@ -155,13 +153,6 @@
           "androidDebugToken": ""
         }
       ],
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-7224753372359384~6941170298",
-          "iosAppId": "ca-app-pub-7224753372359384~6941170298"
-        }
-      ],
       "@react-native-community/datetimepicker"
     ],
     "extra": {
@@ -172,11 +163,7 @@
       "appUrl": "https://nebulanet.space",
       "enableAnalytics": false,
       "enableDebug": true,
-      "appVersion": "1.1.0",
-      "admob": {
-        "bannerId": "ca-app-pub-7224753372359384/3062448071",
-        "interstitialId": "ca-app-pub-7224753372359384/7354036555"
-      }
+      "appVersion": "1.1.0"
     },
     "experiments": {
       "typedRoutes": true,
