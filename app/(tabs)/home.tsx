@@ -1,16 +1,12 @@
 // app/(tabs)/home.tsx ✅
-// ✅ Quote repost cards show embedded quoted post
-// ✅ Reposted-by-you label on is_repost posts
-// ✅ Bell notification button
-// ✅ Real-time profile sync
-// ✅ Route by user_id
-// ✅ AnnouncementCard shown at top of For You feed
-// ✅ Header now shows logo only (no "NebulaNet" text), matching
-//    Twitter/Bluesky's icon-only header pattern.
-// ✅ For You/Following/My Community tabs switched from pill-background
-//    to underline style, matching Explore, Profile, and Notifications.
-// ✅ Community picker filters out nameless/broken community docs so the
-//    "C" fallback letter never appears for communities with no name set.
+// ✅ Twitter-style collapsible header: logo/bell + stories scroll away,
+//    For You / Following / Communities tabs stay PINNED at the top.
+// ✅ Tabs are swipeable between feeds (react-native-collapsible-tab-view).
+// ✅ Each tab is its own lazily-mounted feed list — no more nested scroll
+//    conflicts from the old single-FlatList-with-giant-header approach.
+// ✅ ALL ads removed (banner ads in feed + interstitial on post open).
+// ✅ Quote repost cards, reposted-by-you label, polls, NSFW filter,
+//    feed density, announcement card (For You only) all preserved.
 
 import AnnouncementCard from "@/components/feed/AnnouncementCard";
 import VideoPlayer from "@/components/media/VideoPlayer";
@@ -19,7 +15,6 @@ import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import PollCard from "@/components/post/PollCard";
 import StoryAvatar from "@/components/StoryAvatar";
-import { BANNER_AD_UNIT_ID, useInterstitialAd } from "@/hooks/useAdMob";
 import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
 import type { Post } from "@/hooks/useFeed";
@@ -59,7 +54,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
+import { MaterialTabBar, Tabs } from "react-native-collapsible-tab-view";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -73,7 +68,6 @@ import {
 } from "react-native-safe-area-context";
 
 type FeedTab = "for-you" | "following" | "my-community";
-const AD_EVERY_N_POSTS = 5;
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -165,42 +159,6 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
   );
 }
 
-function FeedBannerAd({ colors }: { colors: any }) {
-  const [failed, setFailed] = useState(false);
-  if (!BANNER_AD_UNIT_ID || failed) return null;
-  return (
-    <View style={[adStyles.wrap, { backgroundColor: colors.card }]}>
-      <Text style={[adStyles.label, { color: colors.textTertiary }]}>
-        Sponsored
-      </Text>
-      <BannerAd
-        unitId={BANNER_AD_UNIT_ID}
-        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        requestOptions={{ requestNonPersonalizedAdsOnly: false }}
-        onAdFailedToLoad={() => setFailed(true)}
-      />
-    </View>
-  );
-}
-
-const adStyles = StyleSheet.create({
-  wrap: {
-    marginHorizontal: 14,
-    marginBottom: 12,
-    borderRadius: 22,
-    overflow: "hidden",
-    alignItems: "center",
-    paddingTop: 6,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-});
-
 function QuotedPostCard({
   quotedPost,
   colors,
@@ -275,18 +233,297 @@ function QuotedPostCard({
   );
 }
 
-type FeedItem = Post | { __type: "ad"; id: string };
+// ─────────────────────────────────────────────────────────────────────────────
+// Post card — extracted so all three tab feeds share one renderer.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+function PostCard({
+  post,
+  colors,
+  isDark,
+  feedDensity,
+  mediaHeight,
+  onLike,
+  onSave,
+}: {
+  post: Post;
+  colors: any;
+  isDark: boolean;
+  feedDensity: string;
+  mediaHeight: number;
+  onLike: (id: string) => void;
+  onSave: (id: string) => void;
+}) {
+  const isRepost = !!(post as any).is_repost;
+  const isQuote = !!(post as any).quote_post_id;
+  const quotedPost = (post as any).quote_post;
+  const author = post.user?.full_name || post.user?.username || "User";
+  const avatar = post.user?.avatar_url;
+  const media = post.media_urls?.[0];
+  const video = isVideoPost(post);
+  const isPoll = post.post_type === "poll" && !!(post as any).poll;
+  const liked = !!post.is_liked;
+  const saved = !!post.is_saved;
+  const likeColor = liked ? "#FF375F" : colors.text;
+  const saveColor = saved ? colors.primary : colors.text;
+  const repostCount = (post as any).repost_count ?? 0;
+  const repostColor = repostCount > 0 ? colors.primary : colors.text;
+  const padding =
+    feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
+  const mb =
+    feedDensity === "compact" ? 6 : feedDensity === "relaxed" ? 18 : 12;
+
+  // ✅ Ads removed: opening a post no longer triggers an interstitial.
+  const openPost = (postId: string) => router.push(`/post/${postId}` as any);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={isPoll ? 1 : 0.92}
+      onPress={() => !isPoll && openPost(post.id)}
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          shadowOpacity: isDark ? 0.22 : 0.05,
+          padding,
+          marginBottom: mb,
+        },
+      ]}
+    >
+      {isRepost && (
+        <View style={styles.repostLabel}>
+          <Repeat2 size={13} color={colors.textTertiary} strokeWidth={2.5} />
+          <Text
+            style={[styles.repostLabelText, { color: colors.textTertiary }]}
+          >
+            You reposted
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.cardTop}>
+        <TouchableOpacity
+          style={styles.authorRow}
+          onPress={() =>
+            post.user_id && router.push(`/user/${post.user_id}` as any)
+          }
+          activeOpacity={0.85}
+        >
+          {avatar ? (
+            <Image source={{ uri: avatar }} style={styles.avatar} />
+          ) : (
+            <View
+              style={[
+                styles.avatar,
+                {
+                  backgroundColor: colors.surface,
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: colors.primary,
+                  fontWeight: "700",
+                  fontSize: 16,
+                }}
+              >
+                {author[0]?.toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View>
+            <Text style={[styles.author, { color: colors.text }]}>
+              {author}
+            </Text>
+            <Text style={[styles.time, { color: colors.textTertiary }]}>
+              {timeAgo(post.created_at)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            Alert.alert("Post Options", undefined, [
+              { text: "View Post", onPress: () => openPost(post.id) },
+              { text: "Cancel", style: "cancel" },
+            ]);
+          }}
+        >
+          <MoreVertical size={20} color={colors.textTertiary} />
+        </TouchableOpacity>
+      </View>
+
+      {isPoll ? (
+        <>
+          {!!post.title && (
+            <Text
+              style={[styles.pollQuestion, { color: colors.text }]}
+              numberOfLines={3}
+            >
+              {post.title}
+            </Text>
+          )}
+          <PollCard
+            postId={post.id}
+            poll={(post as any).poll}
+            accentColor={colors.primary}
+            textColor={colors.text}
+            subColor={colors.textTertiary}
+            cardBg={colors.surface}
+            borderColor={colors.border}
+          />
+        </>
+      ) : (
+        <>
+          {!!post.content && (
+            <MentionHashtagText
+              content={post.content}
+              style={[styles.content, { color: colors.text }]}
+              numberOfLines={6}
+              hashtagColor={colors.primary}
+              onPress={() => openPost(post.id)}
+            />
+          )}
+
+          {isQuote && quotedPost && (
+            <QuotedPostCard quotedPost={quotedPost} colors={colors} />
+          )}
+
+          {!!media &&
+            !isQuote &&
+            (video ? (
+              <VideoPlayer
+                uri={media}
+                style={{
+                  height: mediaHeight,
+                  borderRadius: 18,
+                  marginBottom: 12,
+                }}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.mediaWrap,
+                  { height: mediaHeight, backgroundColor: colors.surface },
+                ]}
+              >
+                <Image
+                  source={{ uri: media }}
+                  style={styles.media}
+                  resizeMode="cover"
+                />
+              </View>
+            ))}
+        </>
+      )}
+
+      <View style={[styles.actions, { borderTopColor: colors.border }]}>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onLike(post.id);
+          }}
+          activeOpacity={0.7}
+        >
+          <Heart
+            size={20}
+            color={likeColor}
+            fill={liked ? "#FF375F" : "none"}
+            strokeWidth={2.5}
+          />
+          <Text style={[styles.actionText, { color: likeColor }]}>
+            {post.like_count ?? 0}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            openPost(post.id);
+          }}
+          activeOpacity={0.7}
+        >
+          <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
+          <Text style={[styles.actionText, { color: colors.text }]}>
+            {post.comment_count ?? 0}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            openPost(post.id);
+          }}
+          activeOpacity={0.7}
+        >
+          <Repeat2 size={20} color={repostColor} strokeWidth={2.5} />
+          <Text style={[styles.actionText, { color: repostColor }]}>
+            {repostCount}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            openPost(post.id);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="share-outline" size={20} color={colors.text} />
+          <Text style={[styles.actionText, { color: colors.text }]}>
+            {post.share_count ?? 0}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onSave(post.id);
+          }}
+          activeOpacity={0.7}
+        >
+          <Bookmark
+            size={20}
+            color={saveColor}
+            fill={saved ? colors.primary : "none"}
+            strokeWidth={2.5}
+          />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One feed list per tab. Each mounts lazily and owns its own query,
+// pagination, refresh, and skeletons. Uses Tabs.FlatList so scrolling
+// drives the collapsible header.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FeedList({
+  tab,
+  communityIds,
+  showNSFW,
+  ListHeaderComponent,
+  emptyTitle,
+  emptySubtitle,
+}: {
+  tab: FeedTab;
+  communityIds: string[];
+  showNSFW: boolean;
+  ListHeaderComponent?: React.ReactElement | null;
+  emptyTitle: string;
+  emptySubtitle: string;
+}) {
   const { colors, isDark } = useTheme();
-  const { user } = useAuth();
-  const { maybeShowInterstitial } = useInterstitialAd();
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const feedDensity = useFeedDensity();
-
-  useCurrentUserProfileSync();
-  const unreadCount = useUnreadNotificationsCount();
 
   const mediaHeight = useMemo(
     () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
@@ -297,7 +534,218 @@ export default function HomeScreen() {
     [insets.bottom],
   );
 
-  const [activeTab, setActiveTab] = useState<FeedTab>("for-you");
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+    isRefetching,
+    isLoading,
+  } = useInfiniteFeedPosts(tab, { communityIds });
+
+  const posts = useMemo(
+    () => data?.pages.flatMap((p) => p.posts) ?? [],
+    [data],
+  );
+  const filteredPosts = useMemo(
+    () => (showNSFW ? posts : posts.filter((post) => !hasNSFWContent(post))),
+    [posts, showNSFW],
+  );
+
+  const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
+    useFeedInteractions();
+
+  const renderItem = useCallback(
+    ({ item }: { item: Post }) => (
+      <PostCard
+        post={item}
+        colors={colors}
+        isDark={isDark}
+        feedDensity={feedDensity}
+        mediaHeight={mediaHeight}
+        onLike={onLike}
+        onSave={onSave}
+      />
+    ),
+    [colors, isDark, feedDensity, mediaHeight, onLike, onSave],
+  );
+
+  return (
+    <Tabs.FlatList
+      data={filteredPosts}
+      keyExtractor={(item: Post) => item.id}
+      renderItem={renderItem}
+      ListHeaderComponent={ListHeaderComponent}
+      onEndReached={() => hasNextPage && fetchNextPage()}
+      onEndReachedThreshold={0.45}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+      ListEmptyComponent={
+        isLoading ? (
+          <View style={{ paddingTop: 8 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <SkeletonPost
+                key={i}
+                colors={colors}
+                isDark={isDark}
+                feedDensity={feedDensity}
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyFeed}>
+            <Ionicons
+              name="planet-outline"
+              size={34}
+              color={colors.textTertiary}
+            />
+            <Text style={[styles.emptyFeedTitle, { color: colors.text }]}>
+              {emptyTitle}
+            </Text>
+            <Text
+              style={[styles.emptyFeedSubtitle, { color: colors.textTertiary }]}
+            >
+              {emptySubtitle}
+            </Text>
+          </View>
+        )
+      }
+      ListFooterComponent={
+        isFetchingNextPage ? (
+          <View style={{ paddingVertical: 20 }}>
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        ) : null
+      }
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={onViewableItemsChanged}
+      contentContainerStyle={{ paddingTop: 12, paddingBottom: bottomPad }}
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Communities tab header: search box + horizontal community pills.
+// Lives INSIDE the Communities tab list (not the global header) so it
+// only appears on that tab, exactly like before.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CommunityPanel({
+  communitySearch,
+  setCommunitySearch,
+  filteredCommunities,
+  colors,
+  isDark,
+}: any) {
+  return (
+    <View style={styles.myCommunityPanel}>
+      <View
+        style={[
+          styles.communitySearchWrap,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            shadowOpacity: isDark ? 0.22 : 0.06,
+          },
+        ]}
+      >
+        <Ionicons name="search" size={18} color={colors.textTertiary} />
+        <TextInput
+          value={communitySearch}
+          onChangeText={setCommunitySearch}
+          placeholder="Search your communities..."
+          placeholderTextColor={colors.textTertiary}
+          style={[styles.communitySearchInput, { color: colors.text }]}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+        {!!communitySearch.trim() && (
+          <TouchableOpacity
+            onPress={() => setCommunitySearch("")}
+            activeOpacity={0.85}
+            style={[styles.clearBtnSmall, { backgroundColor: colors.surface }]}
+          >
+            <Ionicons name="close" size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
+        )}
+      </View>
+      {filteredCommunities.length > 0 ? (
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={filteredCommunities}
+          keyExtractor={(c: any) => c.id}
+          contentContainerStyle={{ paddingRight: 16, paddingLeft: 16 }}
+          renderItem={({ item }: any) => (
+            <TouchableOpacity
+              style={styles.communityPill}
+              onPress={() => router.push(`/community/${item.slug}` as any)}
+              activeOpacity={0.85}
+            >
+              {item.image_url ? (
+                <Image
+                  source={{ uri: item.image_url }}
+                  style={styles.communityAvatar}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.communityAvatar,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: colors.primary, fontWeight: "900" }}>
+                    {(item.name?.[0] ?? "?").toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text
+                style={[styles.communityName, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {item.name}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+      ) : (
+        <View
+          style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 }}
+        >
+          <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
+            {communitySearch.trim()
+              ? `No communities match "${communitySearch.trim()}".`
+              : "You haven't joined any communities yet."}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function HomeScreen() {
+  const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+
+  useCurrentUserProfileSync();
+  const unreadCount = useUnreadNotificationsCount();
+
   const [communitySearch, setCommunitySearch] = useState("");
 
   const { data: storiesRaw } = useActiveStories();
@@ -318,43 +766,6 @@ export default function HomeScreen() {
 
   const showNSFW = userPrefs?.show_nsfw ?? false;
 
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    refetch,
-    isRefetching,
-    isLoading,
-  } = useInfiniteFeedPosts(activeTab, { communityIds: myCommunityIds });
-
-  const posts = useMemo(
-    () => data?.pages.flatMap((p) => p.posts) ?? [],
-    [data],
-  );
-  const filteredPosts = useMemo(
-    () => (showNSFW ? posts : posts.filter((post) => !hasNSFWContent(post))),
-    [posts, showNSFW],
-  );
-
-  const feedItems = useMemo<FeedItem[]>(() => {
-    const items: FeedItem[] = [];
-    filteredPosts.forEach((post, i) => {
-      items.push(post);
-      if ((i + 1) % AD_EVERY_N_POSTS === 0)
-        items.push({ __type: "ad", id: `ad_${i}` });
-    });
-    return items;
-  }, [filteredPosts]);
-
-  const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
-    useFeedInteractions();
-
-  const openPost = (postId: string) => {
-    maybeShowInterstitial();
-    router.push(`/post/${postId}` as any);
-  };
-
   const stories = useMemo(() => {
     const list = storiesRaw ?? [];
     const map = new Map<string, any>();
@@ -374,8 +785,6 @@ export default function HomeScreen() {
     );
   }, [storiesRaw]);
 
-  // ✅ FIX: filter out communities with no meaningful name so the "C"
-  // fallback letter never appears for nameless/broken community docs.
   const filteredCommunities = useMemo(() => {
     const q = communitySearch.trim().toLowerCase();
     const named = myCommunities.filter((c) => !!c.name?.trim());
@@ -383,9 +792,14 @@ export default function HomeScreen() {
     return named.filter((c) => (c.name ?? "").toLowerCase().includes(q));
   }, [communitySearch, myCommunities]);
 
-  const Header = useMemo(
+  // Collapsible header: logo row + stories. This whole block scrolls away;
+  // the tab bar below it stays pinned (Tabs.Container handles that).
+  const renderHeader = useCallback(
     () => (
-      <>
+      <View
+        style={{ backgroundColor: colors.background }}
+        pointerEvents="box-none"
+      >
         <AppHeader
           backgroundColor={colors.background}
           leftWide={
@@ -428,9 +842,7 @@ export default function HomeScreen() {
           }
         />
 
-        <View
-          style={[styles.storiesWrap, { backgroundColor: colors.background }]}
-        >
+        <View style={styles.storiesWrap}>
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -484,515 +896,98 @@ export default function HomeScreen() {
             }}
           />
         </View>
-
-        {/* ✅ Underline tabs — matches Explore, Profile, Notifications */}
-        <View
-          style={[
-            styles.segmentWrap,
-            {
-              backgroundColor: colors.background,
-              borderBottomColor: colors.border,
-            },
-          ]}
-        >
-          <View style={styles.segment}>
-            <SegBtn
-              label="For You"
-              active={activeTab === "for-you"}
-              onPress={() => setActiveTab("for-you")}
-              colors={colors}
-            />
-            <SegBtn
-              label="Following"
-              active={activeTab === "following"}
-              onPress={() => setActiveTab("following")}
-              colors={colors}
-            />
-            <SegBtn
-              label="My Community"
-              active={activeTab === "my-community"}
-              onPress={() => setActiveTab("my-community")}
-              colors={colors}
-            />
-          </View>
-        </View>
-
-        {/* ✅ Announcement card — only shown on For You tab */}
-        {activeTab === "for-you" && <AnnouncementCard />}
-
-        {activeTab === "my-community" && (
-          <View
-            style={[
-              styles.myCommunityPanel,
-              { backgroundColor: colors.background },
-            ]}
-          >
-            <View
-              style={[
-                styles.communitySearchWrap,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  shadowOpacity: isDark ? 0.22 : 0.06,
-                },
-              ]}
-            >
-              <Ionicons name="search" size={18} color={colors.textTertiary} />
-              <TextInput
-                value={communitySearch}
-                onChangeText={setCommunitySearch}
-                placeholder="Search your communities..."
-                placeholderTextColor={colors.textTertiary}
-                style={[styles.communitySearchInput, { color: colors.text }]}
-                autoCorrect={false}
-                autoCapitalize="none"
-                returnKeyType="search"
-              />
-              {!!communitySearch.trim() && (
-                <TouchableOpacity
-                  onPress={() => setCommunitySearch("")}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.clearBtnSmall,
-                    { backgroundColor: colors.surface },
-                  ]}
-                >
-                  <Ionicons
-                    name="close"
-                    size={16}
-                    color={colors.textTertiary}
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-            {filteredCommunities.length > 0 ? (
-              <FlatList
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                data={filteredCommunities}
-                keyExtractor={(c) => c.id}
-                contentContainerStyle={{ paddingRight: 16, paddingLeft: 16 }}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.communityPill}
-                    onPress={() =>
-                      router.push(`/community/${item.slug}` as any)
-                    }
-                    activeOpacity={0.85}
-                  >
-                    {item.image_url ? (
-                      <Image
-                        source={{ uri: item.image_url }}
-                        style={styles.communityAvatar}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.communityAvatar,
-                          {
-                            backgroundColor: colors.surface,
-                            borderColor: colors.border,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={{ color: colors.primary, fontWeight: "900" }}
-                        >
-                          {(item.name?.[0] ?? "?").toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <Text
-                      style={[styles.communityName, { color: colors.text }]}
-                      numberOfLines={1}
-                    >
-                      {item.name}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              />
-            ) : (
-              <View
-                style={{
-                  paddingHorizontal: 16,
-                  paddingTop: 8,
-                  paddingBottom: 2,
-                }}
-              >
-                <Text style={{ color: colors.textTertiary, fontWeight: "800" }}>
-                  {communitySearch.trim()
-                    ? `No communities match "${communitySearch.trim()}".`
-                    : "You haven't joined any communities yet."}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-      </>
+      </View>
     ),
-    [
-      activeTab,
-      unreadCount,
-      colors,
-      isDark,
-      stories,
-      filteredCommunities,
-      communitySearch,
-    ],
+    [colors, unreadCount, stories],
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: FeedItem }) => {
-      if ("__type" in item && item.__type === "ad")
-        return <FeedBannerAd colors={colors} />;
-
-      const post = item as Post;
-      const isRepost = !!(post as any).is_repost;
-      const isQuote = !!(post as any).quote_post_id;
-      const quotedPost = (post as any).quote_post;
-      const author = post.user?.full_name || post.user?.username || "User";
-      const avatar = post.user?.avatar_url;
-      const media = post.media_urls?.[0];
-      const video = isVideoPost(post);
-      const isPoll = post.post_type === "poll" && !!(post as any).poll;
-      const liked = !!post.is_liked;
-      const saved = !!post.is_saved;
-      const likeColor = liked ? "#FF375F" : colors.text;
-      const saveColor = saved ? colors.primary : colors.text;
-      const repostCount = (post as any).repost_count ?? 0;
-      const repostColor = repostCount > 0 ? colors.primary : colors.text;
-      const padding =
-        feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
-      const mb =
-        feedDensity === "compact" ? 6 : feedDensity === "relaxed" ? 18 : 12;
-
-      return (
-        <TouchableOpacity
-          activeOpacity={isPoll ? 1 : 0.92}
-          onPress={() => !isPoll && openPost(post.id)}
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.card,
-              shadowOpacity: isDark ? 0.22 : 0.05,
-              padding,
-              marginBottom: mb,
-            },
-          ]}
-        >
-          {isRepost && (
-            <View style={styles.repostLabel}>
-              <Repeat2
-                size={13}
-                color={colors.textTertiary}
-                strokeWidth={2.5}
-              />
-              <Text
-                style={[styles.repostLabelText, { color: colors.textTertiary }]}
-              >
-                You reposted
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.cardTop}>
-            <TouchableOpacity
-              style={styles.authorRow}
-              onPress={() =>
-                post.user_id && router.push(`/user/${post.user_id}` as any)
-              }
-              activeOpacity={0.85}
-            >
-              {avatar ? (
-                <Image source={{ uri: avatar }} style={styles.avatar} />
-              ) : (
-                <View
-                  style={[
-                    styles.avatar,
-                    {
-                      backgroundColor: colors.surface,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: colors.primary,
-                      fontWeight: "700",
-                      fontSize: 16,
-                    }}
-                  >
-                    {author[0]?.toUpperCase()}
-                  </Text>
-                </View>
-              )}
-              <View>
-                <Text style={[styles.author, { color: colors.text }]}>
-                  {author}
-                </Text>
-                <Text style={[styles.time, { color: colors.textTertiary }]}>
-                  {timeAgo(post.created_at)}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                Alert.alert("Post Options", undefined, [
-                  { text: "View Post", onPress: () => openPost(post.id) },
-                  { text: "Cancel", style: "cancel" },
-                ]);
-              }}
-            >
-              <MoreVertical size={20} color={colors.textTertiary} />
-            </TouchableOpacity>
-          </View>
-
-          {isPoll ? (
-            <>
-              {!!post.title && (
-                <Text
-                  style={[styles.pollQuestion, { color: colors.text }]}
-                  numberOfLines={3}
-                >
-                  {post.title}
-                </Text>
-              )}
-              <PollCard
-                postId={post.id}
-                poll={(post as any).poll}
-                accentColor={colors.primary}
-                textColor={colors.text}
-                subColor={colors.textTertiary}
-                cardBg={colors.surface}
-                borderColor={colors.border}
-              />
-            </>
-          ) : (
-            <>
-              {!!post.content && (
-                <MentionHashtagText
-                  content={post.content}
-                  style={[styles.content, { color: colors.text }]}
-                  numberOfLines={6}
-                  hashtagColor={colors.primary}
-                  onPress={() => openPost(post.id)}
-                />
-              )}
-
-              {isQuote && quotedPost && (
-                <QuotedPostCard quotedPost={quotedPost} colors={colors} />
-              )}
-
-              {!!media &&
-                !isQuote &&
-                (video ? (
-                  <VideoPlayer
-                    uri={media}
-                    style={{
-                      height: mediaHeight,
-                      borderRadius: 18,
-                      marginBottom: 12,
-                    }}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.mediaWrap,
-                      { height: mediaHeight, backgroundColor: colors.surface },
-                    ]}
-                  >
-                    <Image
-                      source={{ uri: media }}
-                      style={styles.media}
-                      resizeMode="cover"
-                    />
-                  </View>
-                ))}
-            </>
-          )}
-
-          <View style={[styles.actions, { borderTopColor: colors.border }]}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                onLike(post.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <Heart
-                size={20}
-                color={likeColor}
-                fill={liked ? "#FF375F" : "none"}
-                strokeWidth={2.5}
-              />
-              <Text style={[styles.actionText, { color: likeColor }]}>
-                {post.like_count ?? 0}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                openPost(post.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
-              <Text style={[styles.actionText, { color: colors.text }]}>
-                {post.comment_count ?? 0}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                openPost(post.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <Repeat2 size={20} color={repostColor} strokeWidth={2.5} />
-              <Text style={[styles.actionText, { color: repostColor }]}>
-                {repostCount}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                openPost(post.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="share-outline" size={20} color={colors.text} />
-              <Text style={[styles.actionText, { color: colors.text }]}>
-                {post.share_count ?? 0}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                onSave(post.id);
-              }}
-              activeOpacity={0.7}
-            >
-              <Bookmark
-                size={20}
-                color={saveColor}
-                fill={saved ? colors.primary : "none"}
-                strokeWidth={2.5}
-              />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      );
-    },
-    [
-      onLike,
-      onSave,
-      mediaHeight,
-      colors,
-      isDark,
-      maybeShowInterstitial,
-      feedDensity,
-    ],
+  // Pinned tab bar — Twitter-style even-width tabs with sliding underline.
+  const renderTabBar = useCallback(
+    (props: any) => (
+      <MaterialTabBar
+        {...props}
+        scrollEnabled={false}
+        activeColor={colors.text}
+        inactiveColor={colors.textTertiary}
+        indicatorStyle={{
+          backgroundColor: colors.primary,
+          height: 3,
+          borderRadius: 2,
+        }}
+        labelStyle={{
+          fontSize: 13,
+          fontWeight: "800",
+          textTransform: "none",
+        }}
+        style={{
+          backgroundColor: colors.background,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          shadowOpacity: 0,
+          elevation: 0,
+        }}
+      />
+    ),
+    [colors],
   );
-
-  if (isLoading) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        {Header}
-        <View style={{ paddingTop: 8 }}>
-          {Array.from({ length: 3 }).map((_, i) => (
-            <SkeletonPost
-              key={i}
-              colors={colors}
-              isDark={isDark}
-              feedDensity={feedDensity}
-            />
-          ))}
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
-      edges={["left", "right"]}
+      edges={["top", "left", "right"]}
     >
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      <FlatList
-        data={feedItems}
-        keyExtractor={(item) => ("__type" in item ? item.id : item.id)}
-        ListHeaderComponent={Header}
-        renderItem={renderItem}
-        onEndReached={() => hasNextPage && fetchNextPage()}
-        onEndReachedThreshold={0.45}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
-          />
-        }
-        ListFooterComponent={
-          isFetchingNextPage ? (
-            <View style={{ paddingVertical: 20 }}>
-              <ActivityIndicator size="small" color={colors.primary} />
-            </View>
-          ) : null
-        }
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        contentContainerStyle={{ paddingBottom: bottomPad }}
-        showsVerticalScrollIndicator={false}
-      />
-    </SafeAreaView>
-  );
-}
-
-// ✅ Underline tab button — matches Explore, Profile, Notifications.
-// Replaced the old pill-background SegBtn.
-function SegBtn({
-  label,
-  active,
-  onPress,
-  colors,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  colors: any;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.7}
-      style={styles.segBtn}
-    >
-      <Text
-        style={[
-          styles.segText,
-          { color: active ? colors.text : colors.textTertiary },
-          active && styles.segTextActive,
-        ]}
+      <Tabs.Container
+        renderHeader={renderHeader}
+        renderTabBar={renderTabBar}
+        headerContainerStyle={{
+          backgroundColor: colors.background,
+          shadowOpacity: 0,
+          elevation: 0,
+        }}
+        containerStyle={{ backgroundColor: colors.background }}
+        lazy
+        allowHeaderOverscroll
       >
-        {label}
-      </Text>
-      {active && (
-        <View
-          style={[styles.segUnderline, { backgroundColor: colors.primary }]}
-        />
-      )}
-    </TouchableOpacity>
+        <Tabs.Tab name="For You">
+          <FeedList
+            tab="for-you"
+            communityIds={myCommunityIds}
+            showNSFW={showNSFW}
+            ListHeaderComponent={<AnnouncementCard />}
+            emptyTitle="Nothing here yet"
+            emptySubtitle="Posts from across NebulaNet will appear here."
+          />
+        </Tabs.Tab>
+        <Tabs.Tab name="Following">
+          <FeedList
+            tab="following"
+            communityIds={myCommunityIds}
+            showNSFW={showNSFW}
+            emptyTitle="No posts from people you follow"
+            emptySubtitle="Follow more people to fill this feed with their posts."
+          />
+        </Tabs.Tab>
+        <Tabs.Tab name="Communities">
+          <FeedList
+            tab="my-community"
+            communityIds={myCommunityIds}
+            showNSFW={showNSFW}
+            ListHeaderComponent={
+              <CommunityPanel
+                communitySearch={communitySearch}
+                setCommunitySearch={setCommunitySearch}
+                filteredCommunities={filteredCommunities}
+                colors={colors}
+                isDark={isDark}
+              />
+            }
+            emptyTitle="No community posts yet"
+            emptySubtitle="Join communities to see their posts here."
+          />
+        </Tabs.Tab>
+      </Tabs.Container>
+    </SafeAreaView>
   );
 }
 
@@ -1050,29 +1045,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 6,
   },
-  // ✅ Underline tab container — no more pill card
-  segmentWrap: {
-    paddingHorizontal: 18,
-    borderBottomWidth: 1,
-  },
-  segment: {
-    flexDirection: "row",
-  },
-  segBtn: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 13,
-  },
-  segText: { fontSize: 13, fontWeight: "700" },
-  segTextActive: { fontWeight: "900" },
-  segUnderline: {
-    position: "absolute",
-    bottom: -1,
-    height: 3,
-    width: "56%",
-    borderRadius: 2,
-  },
-  myCommunityPanel: { paddingBottom: 10, paddingTop: 12 },
+  myCommunityPanel: { paddingBottom: 10, paddingTop: 2 },
   communitySearchWrap: {
     marginHorizontal: 14,
     marginBottom: 10,
@@ -1116,6 +1089,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
     maxWidth: 86,
+  },
+  emptyFeed: {
+    alignItems: "center",
+    paddingHorizontal: 32,
+    paddingTop: 48,
+    gap: 8,
+  },
+  emptyFeedTitle: { fontSize: 16, fontWeight: "900", textAlign: "center" },
+  emptyFeedSubtitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 18,
   },
   card: {
     marginHorizontal: 14,

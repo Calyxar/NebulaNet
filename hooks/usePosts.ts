@@ -172,33 +172,22 @@ export function useInfiniteFeedPosts(
         ? { ...base, communityIds: opts?.communityIds ?? [] }
         : base;
 
-  console.log("[FEED DEBUG]", activeTab, JSON.stringify(filters));
-
-  // ✅ For You now uses the ranked algorithm instead of plain
-  // newest/popular sort — see lib/firestore/posts.ts getForYouFeed().
-  // following/my-community still use the existing infinite-paginated
-  // getPosts() path, since pagination is meaningful there in a way it
-  // isn't for a re-scored ranking.
+  // ✅ For You uses the ranked algorithm (getForYouFeed in
+  // lib/firestore/posts.ts); following/my-community use the standard
+  // infinite-paginated getPosts() path.
   const forYouQuery = useInfiniteForYouFeed({
     enabled: activeTab === "for-you",
   });
   const standardQuery = useInfinitePosts(filters);
   const query = activeTab === "for-you" ? forYouQuery : standardQuery;
 
-  // ✅ Twitter-style fallback: when the following feed has fewer than 5 posts
-  // on the first page, blend in For You (ranked) posts so the feed never
-  // feels empty. Fallback posts are tagged is_suggested so the UI can label
-  // them. Only runs the ranked fallback query when actually needed — was
-  // previously calling useInfinitePosts(base) unconditionally on every
-  // render regardless of tab, which was wasteful.
-  const needsFallback =
-    activeTab === "following" &&
-    !!query.data &&
-    (query.data.pages[0]?.posts.length ?? 0) < 5;
-
-  const fallbackQuery = useInfiniteForYouFeed({ enabled: needsFallback });
-
-  let data = showNsfw
+  // ✅ FIXED: Following is now STRICT — only posts from accepted follows.
+  // The old "<5 posts → blend in For You" fallback injected unlabeled
+  // suggested posts into the Following feed, which made it look like the
+  // follow filter was broken. Removed entirely. If the user follows nobody
+  // (or the people they follow haven't posted), the feed is legitimately
+  // empty and the UI shows the "follow more people" empty state instead.
+  const data = showNsfw
     ? query.data
     : query.data
       ? {
@@ -210,29 +199,10 @@ export function useInfiniteFeedPosts(
         }
       : query.data;
 
-  if (needsFallback && fallbackQuery.data && data) {
-    const existingIds = new Set(data.pages[0]?.posts.map((p) => p.id) ?? []);
-    const fallbackPosts = (fallbackQuery.data.pages[0]?.posts ?? [])
-      .filter((p) => !existingIds.has(p.id))
-      .filter((p) => showNsfw || !(p as any).is_nsfw)
-      .map((p) => ({ ...p, is_suggested: true }) as any);
-
-    data = {
-      ...data,
-      pages: [
-        {
-          ...data.pages[0],
-          posts: [...(data.pages[0]?.posts ?? []), ...fallbackPosts],
-        },
-        ...data.pages.slice(1),
-      ],
-    };
-  }
-
   return { ...query, data };
 }
 
-// ✅ NEW: wraps getForYouFeed() (the ranked algorithm) in the same
+// ✅ Wraps getForYouFeed() (the ranked algorithm) in the same
 // InfiniteData<PaginatedPosts> shape the rest of the codebase expects,
 // so it's a drop-in for useInfinitePosts() wherever For You ranking is
 // needed. Re-scores fresh on every fetch (pull-to-refresh) rather than
