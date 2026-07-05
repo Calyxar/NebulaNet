@@ -30,6 +30,7 @@ type Props = {
   backgroundColor?: string;
   containerStyle?: ViewStyle;
   titleAlign?: "center" | "left";
+  compact?: boolean; // ✅ Added compact prop to reduce header height for certain screens
 };
 
 const HEADER_ROW_HEIGHT = 56;
@@ -47,6 +48,7 @@ export default function AppHeader({
   backgroundColor,
   containerStyle,
   titleAlign = "center",
+  compact,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -106,7 +108,7 @@ export default function AppHeader({
         containerStyle,
       ]}
     >
-      <View style={styles.row}>
+      <View style={[styles.row, compact && { height: 46 }]}>
         {hasTitle ? (
           LeftNode
         ) : (

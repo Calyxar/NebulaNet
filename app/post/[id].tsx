@@ -24,17 +24,16 @@ import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import { PostCardSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  postKeys,
   useAddComment,
   useComments,
   usePost,
   useToggleBookmark,
   useToggleCommentLike,
   useToggleLike,
-  type CommentWithAuthor,
+  useToggleRepost,
+  type CommentWithAuthor
 } from "@/hooks/usePosts";
 import { useOptimisticSharePost } from "@/hooks/useShares";
-import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { formatDate } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
@@ -133,7 +132,6 @@ export default function PostDetailScreen() {
   const [showAllComments, setShowAllComments] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isReposted, setIsReposted] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const [shareCount, setShareCount] = useState(0);
 
@@ -150,7 +148,9 @@ export default function PostDetailScreen() {
   const { data: comments = [], isLoading: isLoadingComments } = useComments(
     postId ?? "",
   );
+  const isReposted = !!post?.is_reposted;
   const toggleLikeMutation = useToggleLike();
+  const toggleRepostMutation = useToggleRepost();
   const toggleBookmarkMutation = useToggleBookmark();
   const addCommentMutation = useAddComment();
   const toggleCommentLikeMutation = useToggleCommentLike();
@@ -174,12 +174,6 @@ export default function PostDetailScreen() {
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
-
-  useEffect(() => {
-    if (post?.id) {
-      getRepostStatus(post.id).then(setIsReposted);
-    }
-  }, [post?.id]);
 
   useEffect(() => {
     if (post?.share_count !== undefined) {
@@ -211,21 +205,9 @@ export default function PostDetailScreen() {
     }
   };
 
-  const handleRepost = async () => {
+  const handleRepost = () => {
     if (!post) return;
-    try {
-      const newStatus = await toggleRepost(post.id, isReposted);
-      setIsReposted(newStatus);
-      qc.invalidateQueries({ queryKey: postKeys.detail(post.id) });
-      qc.invalidateQueries({ queryKey: postKeys.lists() });
-      qc.invalidateQueries({ queryKey: ["my-reposts"] });
-    } catch (e: any) {
-      console.error("[repost] code:", e?.code, "msg:", e?.message);
-      Alert.alert(
-        "Error",
-        `${e?.code ?? ""} ${e?.message ?? "Failed to repost"}`,
-      );
-    }
+    toggleRepostMutation.mutate({ postId: post.id, isReposted });
   };
 
   const handleQuoteRepost = () => {

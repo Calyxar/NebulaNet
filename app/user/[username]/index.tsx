@@ -611,13 +611,11 @@ export default function UserProfileScreen() {
   const blockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid || !target?.id) throw new Error("Missing ids");
-      await firestore()
-        .collection("user_blocks")
-        .add({
-          blocker_id: user.uid,
-          blocked_id: target.id,
-          created_at: new Date().toISOString(),
-        });
+      await firestore().collection("user_blocks").add({
+        blocker_id: user.uid,
+        blocked_id: target.id,
+        created_at: new Date().toISOString(),
+      });
       return target.id;
     },
     onSuccess: (targetId) => {
@@ -1795,13 +1793,14 @@ const styles = StyleSheet.create({
   // Banner + avatar
   bannerWrap: {
     width: "100%",
-    height: BANNER_HEIGHT + AVATAR_OVERLAP,
+    height: BANNER_HEIGHT,
     marginBottom: 0,
+    zIndex: 10,
   },
   bannerImage: { width: "100%", height: BANNER_HEIGHT },
   avatarOverlap: {
     position: "absolute",
-    bottom: 0,
+    bottom: -AVATAR_OVERLAP,
     left: 20,
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
@@ -1822,9 +1821,9 @@ const styles = StyleSheet.create({
   profileCard: {
     borderRadius: 22,
     padding: 18,
-    paddingTop: 12,
+    paddingTop: AVATAR_OVERLAP + 10,
     marginHorizontal: 16,
-    marginTop: 6,
+    marginTop: 0,
     marginBottom: 12,
     borderWidth: 1,
     shadowColor: "#000",

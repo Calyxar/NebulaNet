@@ -2,7 +2,7 @@
 // Twitter-style quote repost screen
 // Accessed via router.push(`/create/quote?postId=${post.id}`)
 
-import { useCreatePost } from "@/hooks/usePosts";
+import { postKeys, useCreatePost } from "@/hooks/usePosts";
 import { auth } from "@/lib/firebase";
 import { getPostById } from "@/lib/firestore/posts";
 import { toggleRepost } from "@/lib/firestore/reposts";
@@ -40,7 +40,7 @@ export default function QuoteRepostScreen() {
   const [posting, setPosting] = useState(false);
 
   const { data: quotedPost, isLoading } = useQuery({
-    queryKey: ["post", postId],
+    queryKey: postKeys.detail(postId ?? "no-id"),
     enabled: !!postId,
     queryFn: () => getPostById(postId!),
   });
@@ -66,10 +66,13 @@ export default function QuoteRepostScreen() {
       });
 
       // 2. Also mark as reposted so it shows in activity tab
-      try {
-        await toggleRepost(quotedPost.id, false);
-      } catch {}
-
+      //    (skip if already reposted — deterministic doc IDs mean set()
+      //    would silently overwrite but still double-increment the count)
+      if (!quotedPost.is_reposted) {
+        try {
+          await toggleRepost(quotedPost.id, false);
+        } catch {}
+      }
       router.back();
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to post quote");

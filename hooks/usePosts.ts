@@ -508,10 +508,22 @@ export function useToggleRepost() {
       return toggleRepost(vars.postId, vars.isReposted);
     },
     onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: postKeys.detail(vars.postId) });
       await qc.cancelQueries({ queryKey: postKeys.lists() });
+      const prevDetail = qc.getQueryData<Post>(postKeys.detail(vars.postId));
       const prevLists = qc.getQueriesData<InfiniteData<PaginatedPosts>>({
         queryKey: postKeys.lists(),
       });
+      if (prevDetail) {
+        qc.setQueryData<Post>(postKeys.detail(vars.postId), {
+          ...prevDetail,
+          is_reposted: !vars.isReposted,
+          repost_count: Math.max(
+            0,
+            (prevDetail.repost_count ?? 0) + (vars.isReposted ? -1 : 1),
+          ),
+        });
+      }
       qc.setQueriesData<InfiniteData<PaginatedPosts>>(
         { queryKey: postKeys.lists() },
         (old) =>
@@ -523,19 +535,21 @@ export function useToggleRepost() {
                   ? p
                   : {
                       ...p,
+                      is_reposted: !vars.isReposted,
                       repost_count: Math.max(
                         0,
-                        ((p as any).repost_count ?? 0) +
-                          (vars.isReposted ? -1 : 1),
+                        (p.repost_count ?? 0) + (vars.isReposted ? -1 : 1),
                       ),
                     },
               ),
             { allPages: true },
           ),
       );
-      return { prevLists };
+      return { prevDetail, prevLists };
     },
-    onError: (_err, _vars, ctx: any) => {
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prevDetail)
+        qc.setQueryData(postKeys.detail(vars.postId), ctx.prevDetail);
       ctx?.prevLists?.forEach(([key, data]: any) => {
         qc.setQueryData(key, data);
       });

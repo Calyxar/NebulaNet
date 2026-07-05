@@ -245,6 +245,7 @@ function PostCard({
   mediaHeight,
   onLike,
   onSave,
+  onRepost,
 }: {
   post: Post;
   colors: any;
@@ -253,6 +254,7 @@ function PostCard({
   mediaHeight: number;
   onLike: (id: string) => void;
   onSave: (id: string) => void;
+  onRepost: (id: string) => void;
 }) {
   const isRepost = !!(post as any).is_repost;
   const isQuote = !!(post as any).quote_post_id;
@@ -267,7 +269,8 @@ function PostCard({
   const likeColor = liked ? "#FF375F" : colors.text;
   const saveColor = saved ? colors.primary : colors.text;
   const repostCount = (post as any).repost_count ?? 0;
-  const repostColor = repostCount > 0 ? colors.primary : colors.text;
+  const reposted = !!(post as any).is_reposted;
+  const repostColor = reposted ? "#00BA7C" : colors.text;
   const padding =
     feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
   const mb =
@@ -457,7 +460,19 @@ function PostCard({
           style={styles.actionBtn}
           onPress={(e) => {
             e.stopPropagation?.();
-            openPost(post.id);
+            Alert.alert(reposted ? "Undo Repost?" : "Repost", undefined, [
+              {
+                text: reposted ? "Undo Repost" : "Repost",
+                style: reposted ? "destructive" : "default",
+                onPress: () => onRepost(post.id),
+              },
+              {
+                text: "Quote",
+                onPress: () =>
+                  router.push(`/create/quote?postId=${post.id}` as any),
+              },
+              { text: "Cancel", style: "cancel" },
+            ]);
           }}
           activeOpacity={0.7}
         >
@@ -553,8 +568,13 @@ function FeedList({
     [posts, showNSFW],
   );
 
-  const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
-    useFeedInteractions();
+  const {
+    onLike,
+    onSave,
+    onRepost,
+    viewabilityConfig,
+    onViewableItemsChanged,
+  } = useFeedInteractions();
 
   const renderItem = useCallback(
     ({ item }: { item: Post }) => (
@@ -566,9 +586,10 @@ function FeedList({
         mediaHeight={mediaHeight}
         onLike={onLike}
         onSave={onSave}
+        onRepost={onRepost}
       />
     ),
-    [colors, isDark, feedDensity, mediaHeight, onLike, onSave],
+    [colors, isDark, feedDensity, mediaHeight, onLike, onSave, onRepost],
   );
 
   return (
@@ -998,16 +1019,16 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
-  brandLogo: { width: 44, height: 44, borderRadius: 12 },
+  brandLogo: { width: 32, height: 32, borderRadius: 9 },
   brandName: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: "900",
     letterSpacing: -0.5,
   },
   bellWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -1026,24 +1047,24 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
-  storiesWrap: { paddingLeft: 16, paddingVertical: 12 },
-  storyItem: { alignItems: "center", marginRight: 16, width: 76 },
+  storiesWrap: { paddingLeft: 16, paddingTop: 6, paddingBottom: 8 },
+  storyItem: { alignItems: "center", marginRight: 14, width: 64 },
   addStoryCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 2,
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   storyLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    maxWidth: 76,
+    maxWidth: 64,
     textAlign: "center",
-    marginTop: 6,
+    marginTop: 2,
   },
   myCommunityPanel: { paddingBottom: 10, paddingTop: 2 },
   communitySearchWrap: {

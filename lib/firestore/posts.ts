@@ -73,6 +73,7 @@ export interface Post {
   community: CommunityRow | null;
   is_liked?: boolean;
   is_saved?: boolean;
+  is_reposted?: boolean;
   is_owned?: boolean;
 }
 
@@ -351,10 +352,15 @@ async function uploadMediaForPost(
 
 async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
   if (!uid || !postIds.length)
-    return { liked: new Set<string>(), saved: new Set<string>() };
+    return {
+      liked: new Set<string>(),
+      saved: new Set<string>(),
+      reposted: new Set<string>(),
+    };
   const chunks = chunk(postIds, 10);
   const liked = new Set<string>();
   const saved = new Set<string>();
+  const reposted = new Set<string>();
   await Promise.all([
     (async () => {
       for (const c of chunks) {
@@ -376,8 +382,19 @@ async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
         s.docs.forEach((d) => saved.add((d.data() as any).post_id));
       }
     })(),
+    (async () => {
+      // Deterministic doc IDs — direct gets, no query/index needed
+      const snaps = await Promise.all(
+        postIds.map((pid) =>
+          firestore().collection("reposts").doc(`${uid}_${pid}`).get(),
+        ),
+      );
+      snaps.forEach((s, i) => {
+        if (s.data() !== undefined) reposted.add(postIds[i]);
+      });
+    })(),
   ]);
-  return { liked, saved };
+  return { liked, saved, reposted };
 }
 
 /* =========================================================
@@ -586,14 +603,19 @@ export async function getPosts(
       .slice(0, limit);
 
     const ids = raw.map((p) => p.id);
-    const { liked, saved } = viewerId
+    const { liked, saved, reposted } = viewerId
       ? await fetchMyLikeSaveFlags(viewerId, ids)
-      : { liked: new Set<string>(), saved: new Set<string>() };
+      : {
+          liked: new Set<string>(),
+          saved: new Set<string>(),
+          reposted: new Set<string>(),
+        };
 
     const posts = raw.map((p) =>
       docToPost(p.id, p, {
         is_liked: viewerId ? liked.has(p.id) : false,
         is_saved: viewerId ? saved.has(p.id) : false,
+        is_reposted: viewerId ? reposted.has(p.id) : false,
         is_owned: viewerId ? p.user_id === viewerId : false,
       }),
     );
@@ -658,14 +680,19 @@ export async function getPosts(
     .filter((p) => p.is_visible !== false)
     .slice(0, limit);
   const ids = raw.map((p) => p.id);
-  const { liked, saved } = viewerId
+  const { liked, saved, reposted } = viewerId
     ? await fetchMyLikeSaveFlags(viewerId, ids)
-    : { liked: new Set<string>(), saved: new Set<string>() };
+    : {
+        liked: new Set<string>(),
+        saved: new Set<string>(),
+        reposted: new Set<string>(),
+      };
 
   const posts = raw.map((p) =>
     docToPost(p.id, p, {
       is_liked: viewerId ? liked.has(p.id) : false,
       is_saved: viewerId ? saved.has(p.id) : false,
+      is_reposted: viewerId ? reposted.has(p.id) : false,
       is_owned: viewerId ? p.user_id === viewerId : false,
     }),
   );
@@ -689,14 +716,16 @@ export async function getPosts(
 
     if (newReposts.length > 0) {
       const repostIds = newReposts.map((p) => p.id);
-      const { liked: rLiked, saved: rSaved } = await fetchMyLikeSaveFlags(
-        viewerId,
-        repostIds,
-      );
+      const {
+        liked: rLiked,
+        saved: rSaved,
+        reposted: rReposted,
+      } = await fetchMyLikeSaveFlags(viewerId, repostIds);
       const flaggedReposts = newReposts.map((p) => ({
         ...p,
         is_liked: rLiked.has(p.id),
         is_saved: rSaved.has(p.id),
+        is_reposted: true,
       }));
 
       merged = [...posts, ...flaggedReposts].sort((a, b) => {
@@ -743,8 +772,9 @@ export async function getPostById(id: string): Promise<Post | null> {
 
   let is_liked = false;
   let is_saved = false;
+  let is_reposted = false;
   if (viewerId) {
-    const [likeSnap, saveSnap] = await Promise.all([
+    const [likeSnap, saveSnap, repostSnap] = await Promise.all([
       firestore()
         .collection("likes")
         .where("user_id", "==", viewerId)
@@ -757,13 +787,16 @@ export async function getPostById(id: string): Promise<Post | null> {
         .where("post_id", "==", clean)
         .limit(1)
         .get(),
+      firestore().collection("reposts").doc(`${viewerId}_${clean}`).get(),
     ]);
     is_liked = !likeSnap.empty;
     is_saved = !saveSnap.empty;
+    is_reposted = repostSnap.data() !== undefined;
   }
   return docToPost(snap.id, d, {
     is_liked,
     is_saved,
+    is_reposted,
     is_owned: viewerId ? d.user_id === viewerId : false,
   });
 }
@@ -1145,14 +1178,19 @@ export async function getForYouFeed(
 
   // Attach is_liked/is_saved/is_owned the same way getPosts() does
   const ids = top.map((p) => p.id);
-  const { liked, saved } = viewerId
+  const { liked, saved, reposted } = viewerId
     ? await fetchMyLikeSaveFlags(viewerId, ids)
-    : { liked: new Set<string>(), saved: new Set<string>() };
+    : {
+        liked: new Set<string>(),
+        saved: new Set<string>(),
+        reposted: new Set<string>(),
+      };
 
   const posts = top.map((p) =>
     docToPost(p.id, p, {
       is_liked: viewerId ? liked.has(p.id) : false,
       is_saved: viewerId ? saved.has(p.id) : false,
+      is_reposted: viewerId ? reposted.has(p.id) : false,
       is_owned: viewerId ? p.user_id === viewerId : false,
     }),
   );
