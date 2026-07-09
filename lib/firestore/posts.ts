@@ -1195,8 +1195,40 @@ export async function getForYouFeed(
     }),
   );
 
+  // Merge in the viewer's own reposts, same as getPosts() does —
+  // without this, reposts never surface on For You since it's a
+  // separate query path from the standard feed.
+  let merged = posts;
+  if (viewerId) {
+    const repostItems = await getRepostFeedItems(
+      viewerId,
+      limit,
+      viewerIsMinor,
+    );
+    const ownIds = new Set(posts.map((p) => p.id));
+    const newReposts = repostItems.filter((r) => !ownIds.has(r.id));
+    if (newReposts.length > 0) {
+      const repostIds = newReposts.map((p) => p.id);
+      const { liked: rLiked, saved: rSaved } = await fetchMyLikeSaveFlags(
+        viewerId,
+        repostIds,
+      );
+      const flaggedReposts = newReposts.map((p) => ({
+        ...p,
+        is_liked: rLiked.has(p.id),
+        is_saved: rSaved.has(p.id),
+        is_reposted: true,
+      }));
+      merged = [...posts, ...flaggedReposts].sort(
+        (a, b) =>
+          new Date((b as any).reposted_at ?? b.created_at).getTime() -
+          new Date((a as any).reposted_at ?? a.created_at).getTime(),
+      );
+    }
+  }
+
   return {
-    posts,
+    posts: merged,
     total: -1,
     // Cursor pagination isn't meaningful for a re-scored ranking on
     // every load — "hasMore" reflects whether the candidate pool itself

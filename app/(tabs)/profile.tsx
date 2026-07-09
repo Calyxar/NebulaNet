@@ -242,11 +242,13 @@ export default function ProfileScreen() {
             chunks.push(postIds.slice(i, i + 10));
 
           for (const chunk of chunks) {
-            const snap = await firestore()
-              .collection("posts")
-              .where(firestore.FieldPath.documentId(), "in", chunk)
-              .get();
-            snap.docs.forEach((d) => {
+            const docSnaps = await Promise.all(
+              chunk.map((postId) =>
+                firestore().collection("posts").doc(postId).get(),
+              ),
+            );
+            docSnaps.forEach((d) => {
+              if (!d.exists) return;
               const x = d.data() as any;
               items.push({
                 id: d.id,
@@ -810,17 +812,42 @@ export default function ProfileScreen() {
                               ]}
                             >
                               {item.quoted_post.user && (
-                                <Text
-                                  style={[
-                                    styles.quotedAuthor,
-                                    { color: colors.textSecondary },
-                                  ]}
-                                >
-                                  @
-                                  {item.quoted_post.user.username ??
-                                    item.quoted_post.user.full_name ??
-                                    "User"}
-                                </Text>
+                                <View style={styles.quotedAuthorRow}>
+                                  {item.quoted_post.user.avatar_url ? (
+                                    <Image
+                                      source={{
+                                        uri: item.quoted_post.user.avatar_url,
+                                      }}
+                                      style={styles.quotedAvatar}
+                                    />
+                                  ) : (
+                                    <View
+                                      style={[
+                                        styles.quotedAvatar,
+                                        styles.quotedAvatarFallback,
+                                        { backgroundColor: colors.primary },
+                                      ]}
+                                    >
+                                      <Text style={styles.quotedAvatarLetter}>
+                                        {(
+                                          item.quoted_post.user.username?.[0] ??
+                                          "U"
+                                        ).toUpperCase()}
+                                      </Text>
+                                    </View>
+                                  )}
+                                  <Text
+                                    style={[
+                                      styles.quotedAuthor,
+                                      { color: colors.text },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {item.quoted_post.user.full_name ??
+                                      item.quoted_post.user.username ??
+                                      "User"}
+                                  </Text>
+                                </View>
                               )}
                               {!!item.quoted_post.content && (
                                 <Text
@@ -837,18 +864,51 @@ export default function ProfileScreen() {
                           )}
 
                           {item.type === "repost" && (
-                            <Text
+                            <View
                               style={[
-                                styles.repostByline,
-                                { color: colors.textTertiary },
+                                styles.quotedCard,
+                                {
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.surface,
+                                },
                               ]}
-                              numberOfLines={1}
                             >
-                              Originally by @
-                              {item.original_user?.username ??
-                                item.original_user?.full_name ??
-                                "someone"}
-                            </Text>
+                              <View style={styles.quotedAuthorRow}>
+                                {item.original_user?.avatar_url ? (
+                                  <Image
+                                    source={{
+                                      uri: item.original_user.avatar_url,
+                                    }}
+                                    style={styles.quotedAvatar}
+                                  />
+                                ) : (
+                                  <View
+                                    style={[
+                                      styles.quotedAvatar,
+                                      styles.quotedAvatarFallback,
+                                      { backgroundColor: colors.primary },
+                                    ]}
+                                  >
+                                    <Text style={styles.quotedAvatarLetter}>
+                                      {(
+                                        item.original_user?.username?.[0] ?? "U"
+                                      ).toUpperCase()}
+                                    </Text>
+                                  </View>
+                                )}
+                                <Text
+                                  style={[
+                                    styles.quotedAuthor,
+                                    { color: colors.text },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {item.original_user?.full_name ??
+                                    item.original_user?.username ??
+                                    "someone"}
+                                </Text>
+                              </View>
+                            </View>
                           )}
 
                           {!!img && (
@@ -1058,7 +1118,8 @@ const styles = StyleSheet.create({
   },
   bannerWrap: {
     width: "100%",
-    height: BANNER_HEIGHT + AVATAR_OVERLAP,
+    height: BANNER_HEIGHT,
+    zIndex: 10,
   },
   bannerImage: {
     width: "100%",
@@ -1066,7 +1127,7 @@ const styles = StyleSheet.create({
   },
   avatarOverlap: {
     position: "absolute",
-    bottom: 0,
+    bottom: -AVATAR_OVERLAP,
     left: 16,
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
@@ -1096,9 +1157,9 @@ const styles = StyleSheet.create({
   profileCard: {
     borderRadius: 22,
     padding: 18,
-    paddingTop: 12,
+    paddingTop: AVATAR_OVERLAP + 10,
     marginHorizontal: 16,
-    marginTop: 6,
+    marginTop: 0,
     marginBottom: 12,
     borderWidth: 1,
     shadowColor: "#000",
@@ -1208,7 +1269,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 4,
   },
-  quotedAuthor: { fontSize: 12, fontWeight: "700" },
+  quotedAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  quotedAvatar: { width: 22, height: 22, borderRadius: 11 },
+  quotedAvatarFallback: { alignItems: "center", justifyContent: "center" },
+  quotedAvatarLetter: { fontSize: 10, fontWeight: "800", color: "#fff" },
+  quotedAuthor: { fontSize: 13, fontWeight: "700" },
   quotedContent: { fontSize: 13, lineHeight: 18 },
   emptyCard: {
     borderRadius: 22,

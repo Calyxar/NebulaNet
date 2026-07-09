@@ -822,6 +822,7 @@ export default function HomeScreen() {
         pointerEvents="box-none"
       >
         <AppHeader
+          compact
           backgroundColor={colors.background}
           leftWide={
             <View style={styles.brandRow}>
