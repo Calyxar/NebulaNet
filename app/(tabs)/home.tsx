@@ -1,6 +1,8 @@
 // app/(tabs)/home.tsx ✅
-// ✅ Twitter-style collapsible header: logo/bell + stories scroll away,
-//    For You / Following / Communities tabs stay PINNED at the top.
+// ✅ Twitter-style collapsible header: logo/bell scrolls away (pinned tab
+//    bar below it). Stories now live INSIDE the For You feed's list header
+//    instead of the sticky Tabs.Container header — they scroll away with
+//    the first post instead of permanently reserving space above the tabs.
 // ✅ Tabs are swipeable between feeds (react-native-collapsible-tab-view).
 // ✅ Each tab is its own lazily-mounted feed list — no more nested scroll
 //    conflicts from the old single-FlatList-with-giant-header approach.
@@ -515,6 +517,75 @@ function PostCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stories row — used to live in the sticky Tabs.Container header (renderHeader
+// below). Moved here so it can be rendered as the top of the For You tab's
+// ListHeaderComponent instead: it now scrolls away with the feed on the very
+// first swipe, rather than permanently reserving ~90px above the tab bar on
+// every tab. Only the For You tab passes this in (see storiesElement prop
+// on FeedList below) — matches Twitter/Bluesky, which don't repeat a stories
+// shelf across every tab.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StoriesRow({ stories, colors }: { stories: any[]; colors: any }) {
+  return (
+    <View style={styles.storiesWrap}>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={[{ id: "add" }, ...(stories ?? [])] as any[]}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingRight: 16 }}
+        renderItem={({ item }) => {
+          if (item.id === "add") {
+            return (
+              <TouchableOpacity
+                style={styles.storyItem}
+                onPress={() => router.push("/create/story")}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.addStoryCircle,
+                    {
+                      borderColor: colors.primary,
+                      backgroundColor: colors.card,
+                    },
+                  ]}
+                >
+                  <Ionicons name="add" size={24} color={colors.primary} />
+                </View>
+                <Text style={[styles.storyLabel, { color: colors.text }]}>
+                  Add Story
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+          const p = item.profiles;
+          const label = p?.username || p?.full_name || "User";
+          return (
+            <View style={styles.storyItem}>
+              <StoryAvatar
+                userId={item.user_id}
+                avatarUrl={p?.avatar_url}
+                name={label}
+                size={52}
+                onPress={() => router.push(`/story/${item.id}` as any)}
+              />
+              <Text
+                style={[styles.storyLabel, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {label}
+              </Text>
+            </View>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // One feed list per tab. Each mounts lazily and owns its own query,
 // pagination, refresh, and skeletons. Uses Tabs.FlatList so scrolling
 // drives the collapsible header.
@@ -525,6 +596,7 @@ function FeedList({
   communityIds,
   showNSFW,
   ListHeaderComponent,
+  storiesElement,
   emptyTitle,
   emptySubtitle,
 }: {
@@ -532,6 +604,7 @@ function FeedList({
   communityIds: string[];
   showNSFW: boolean;
   ListHeaderComponent?: React.ReactElement | null;
+  storiesElement?: React.ReactElement | null;
   emptyTitle: string;
   emptySubtitle: string;
 }) {
@@ -597,7 +670,12 @@ function FeedList({
       data={filteredPosts}
       keyExtractor={(item: Post) => item.id}
       renderItem={renderItem}
-      ListHeaderComponent={ListHeaderComponent}
+      ListHeaderComponent={
+        <>
+          {storiesElement}
+          {ListHeaderComponent}
+        </>
+      }
       onEndReached={() => hasNextPage && fetchNextPage()}
       onEndReachedThreshold={0.45}
       refreshControl={
@@ -813,8 +891,9 @@ export default function HomeScreen() {
     return named.filter((c) => (c.name ?? "").toLowerCase().includes(q));
   }, [communitySearch, myCommunities]);
 
-  // Collapsible header: logo row + stories. This whole block scrolls away;
-  // the tab bar below it stays pinned (Tabs.Container handles that).
+  // Collapsible header: logo row only now — stories moved into the For You
+  // tab's ListHeaderComponent (see StoriesRow above) so they scroll away
+  // with the feed instead of permanently sitting above the pinned tab bar.
   const renderHeader = useCallback(
     () => (
       <View
@@ -863,64 +942,9 @@ export default function HomeScreen() {
             </TouchableOpacity>
           }
         />
-
-        <View style={styles.storiesWrap}>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={[{ id: "add" }, ...(stories ?? [])] as any[]}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingRight: 16 }}
-            renderItem={({ item }) => {
-              if (item.id === "add") {
-                return (
-                  <TouchableOpacity
-                    style={styles.storyItem}
-                    onPress={() => router.push("/create/story")}
-                    activeOpacity={0.7}
-                  >
-                    <View
-                      style={[
-                        styles.addStoryCircle,
-                        {
-                          borderColor: colors.primary,
-                          backgroundColor: colors.card,
-                        },
-                      ]}
-                    >
-                      <Ionicons name="add" size={28} color={colors.primary} />
-                    </View>
-                    <Text style={[styles.storyLabel, { color: colors.text }]}>
-                      Add Story
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }
-              const p = item.profiles;
-              const label = p?.username || p?.full_name || "User";
-              return (
-                <View style={styles.storyItem}>
-                  <StoryAvatar
-                    userId={item.user_id}
-                    avatarUrl={p?.avatar_url}
-                    name={label}
-                    size={64}
-                    onPress={() => router.push(`/story/${item.id}` as any)}
-                  />
-                  <Text
-                    style={[styles.storyLabel, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
-                    {label}
-                  </Text>
-                </View>
-              );
-            }}
-          />
-        </View>
       </View>
     ),
-    [colors, unreadCount, stories],
+    [colors, unreadCount],
   );
 
   // Pinned tab bar — Twitter-style even-width tabs with sliding underline.
@@ -976,6 +1000,7 @@ export default function HomeScreen() {
             tab="for-you"
             communityIds={myCommunityIds}
             showNSFW={showNSFW}
+            storiesElement={<StoriesRow stories={stories} colors={colors} />}
             ListHeaderComponent={<AnnouncementCard />}
             emptyTitle="Nothing here yet"
             emptySubtitle="Posts from across NebulaNet will appear here."
