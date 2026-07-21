@@ -22,7 +22,9 @@ import React, {
 } from "react";
 
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
-import firestore from "@react-native-firebase/firestore";
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
 import { router } from "expo-router";
 import { Alert, Platform, ToastAndroid } from "react-native";
 
@@ -47,6 +49,11 @@ export interface Profile {
   is_founder?: boolean;
   created_at: string;
   updated_at: string;
+  birthdate?: string | null;
+  age_group?: "under_13" | "teen" | "adult" | null;
+  birthDate?: FirebaseFirestoreTypes.Timestamp | null;
+  birthMMDD?: string | null;
+  showBirthday?: boolean;
 }
 
 export interface UserSettings {

@@ -5,6 +5,11 @@
 // ✅ FIXED: restored the subtitle useMemo, which was accidentally dropped
 //           in a previous edit — the JSX below still referenced it,
 //           causing a "Cannot find name 'subtitle'" compile error.
+// ✅ FIXED: handleBlock used `db.collection("user_blocks").add(...)` (the
+//           legacy Web SDK from @/lib/firebase) — the only call in this
+//           file that hadn't been migrated to firestore() like everything
+//           else here. Same recurring db-vs-firestore() pattern found
+//           across the project; fixed to match the rest of this file.
 
 import ChatActionsSheet, {
   type ChatActionsSheetRef,
@@ -16,7 +21,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { usePresence } from "@/hooks/usePresence";
-import { db } from "@/lib/firebase";
 import { useTheme } from "@/providers/ThemeProvider";
 import firestore from "@react-native-firebase/firestore";
 import { Stack, router, useLocalSearchParams } from "expo-router";
@@ -153,7 +157,9 @@ export default function ChatConversationScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await db.collection("user_blocks").add({
+              // ✅ FIX: firestore() (native SDK), was db.collection(...)
+              // (legacy Web SDK) — the only unmigrated call in this file.
+              await firestore().collection("user_blocks").add({
                 blocker_id: user?.uid,
                 blocked_id: otherUserId,
                 created_at: new Date().toISOString(),

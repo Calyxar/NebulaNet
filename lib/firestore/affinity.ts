@@ -1,117 +1,109 @@
-// lib/firestore/affinity.ts — FOR YOU RANKING ✅
-// Tracks how much a viewer interacts with each author they engage with.
-// Used by the For You feed ranking algorithm as the "author affinity"
-// signal — the single highest-value, cheapest-to-compute personalization
-// signal (do you actually engage with this person's content).
-//
-// Design choices:
-// - One doc per (viewer, author) pair, doc ID mirrors the existing
-//   likes/{uid}_{postId} pattern for consistency: author_affinity/{viewerId}_{authorId}
-// - Score only ever increases. Unliking/un-reposting does NOT decrease
-//   affinity — a moment of hesitation or accidental double-tap shouldn't
-//   erase a real signal of interest. This matches how real platforms
-//   treat negative actions (they're a separate, distinct signal, not an
-//   undo of the positive one).
-// - Weighted by interaction type: comments and reposts signal more
-//   genuine interest than a like (more effort = stronger signal), so
-//   they're weighted higher.
-// - Self-affinity is never recorded (liking/commenting on your own post
-//   tells us nothing about who else you're interested in).
+// lib/firestore/affinity.ts ✅
+// Backs the "Not interested" post action. Stores per-user muted authors
+// and muted hashtags, read by computeForYouRankedPool() in posts.ts to
+// hard-exclude muted authors and soft-penalize muted topics when ranking
+// the For You feed.
 
-import { auth, db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
 
-export const AFFINITY_WEIGHTS = {
-  like: 1,
-  comment: 3,
-  repost: 4,
-} as const;
+export type UserAffinity = {
+  muted_authors: string[];
+  muted_topics: string[];
+};
 
-export type AffinityInteractionType = keyof typeof AFFINITY_WEIGHTS;
-
-function affinityDocId(viewerId: string, authorId: string): string {
-  return `${viewerId}_${authorId}`;
+const EMPTY_AFFINITY: UserAffinity = { muted_authors: [], muted_topics: [] };
+export async function getUserAffinity(userId: string): Promise<UserAffinity> {
+  const snap = await firestore().collection("user_affinity").doc(userId).get();
+  if (!snap.exists()) return EMPTY_AFFINITY;
+  const d = snap.data() as any;
+  return {
+    muted_authors: Array.isArray(d.muted_authors) ? d.muted_authors : [],
+    muted_topics: Array.isArray(d.muted_topics) ? d.muted_topics : [],
+  };
 }
 
-/**
- * Records that the current viewer interacted with the given author's
- * content. Fire-and-forget by design — affinity tracking should never
- * block or fail the actual like/comment/repost action it's recording.
- * Call this AFTER the real interaction write has already succeeded.
- */
-export async function recordAffinity(
+// Extracts #hashtags from post content, lowercased, no dupes.
+function extractHashtags(content: string | null | undefined): string[] {
+  if (!content) return [];
+  const matches = content.match(/#[a-zA-Z0-9_]+/g) ?? [];
+  return Array.from(new Set(matches.map((h) => h.slice(1).toLowerCase())));
+}
+
+// Marks a post's author (always) and its hashtags (if any) as
+// not-interested. Uses arrayUnion so repeated taps on different posts by
+// the same muted author, or with overlapping hashtags, don't create
+// duplicates.
+export async function markNotInterested(
+  userId: string,
   authorId: string,
-  type: AffinityInteractionType,
+  postContent: string | null | undefined,
 ): Promise<void> {
-  try {
-    const viewer = auth.currentUser;
-    if (!viewer) return;
-    const viewerId = viewer.uid;
-
-    // Don't track affinity toward yourself — it's not a useful signal
-    // for "who else should we show you more of."
-    if (viewerId === authorId) return;
-
-    const weight = AFFINITY_WEIGHTS[type];
-    const ref = db
-      .collection("author_affinity")
-      .doc(affinityDocId(viewerId, authorId));
-
-    await ref.set(
+  const hashtags = extractHashtags(postContent);
+  await firestore()
+    .collection("user_affinity")
+    .doc(userId)
+    .set(
       {
-        viewer_id: viewerId,
-        author_id: authorId,
-        score: firestore.FieldValue.increment(weight),
-        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        muted_authors: firestore.FieldValue.arrayUnion(authorId),
+        ...(hashtags.length > 0 && {
+          muted_topics: firestore.FieldValue.arrayUnion(...hashtags),
+        }),
+        updated_at: firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
-  } catch (err) {
-    // ✅ Never let affinity tracking failures surface to the user or
-    // interrupt the real interaction (like/comment/repost) they took.
-    console.warn("recordAffinity failed (non-fatal):", err);
-  }
 }
 
-/**
- * Fetches the viewer's affinity scores for a given set of author ids.
- * Returns a map of authorId -> score (0 if no affinity doc exists yet).
- * Used by the For You ranking algorithm to score candidate posts.
- */
-export async function getAffinityScores(
-  viewerId: string,
-  authorIds: string[],
+// ✅ Phase C — dwell-time signal (positive, implicit). Kept as its own
+// subcollection rather than a field on user_affinity: view counts churn
+// far more often than an explicit mute list (every scroll vs. an
+// occasional tap), so writing them into the same doc as muted_authors/
+// muted_topics would mean every view write risks clobbering a concurrent
+// mute write (or vice versa) without a transaction. A per-author doc
+// keyed by authorId avoids that entirely — each view just increments its
+// own doc, independent of anything else in this collection.
+//
+// This is intentionally a much weaker signal than an explicit mute or
+// like: it only means "this was in view for at least the configured
+// minimumViewTime," not that the user liked or even read it closely.
+export async function trackPostView(
+  userId: string,
+  authorId: string,
+): Promise<void> {
+  await firestore()
+    .collection("user_affinity")
+    .doc(userId)
+    .collection("author_views")
+    .doc(authorId)
+    .set(
+      {
+        view_count: firestore.FieldValue.increment(1),
+        last_viewed_at: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}
+
+// Returns a Map of authorId -> view_count for the given user. Only
+// fetches authors with at least MIN_VIEWS_FOR_SIGNAL views, since a
+// single view is noise, not a signal — keeps the read small and the
+// ranking boost meaningful rather than applying to every author a user
+// has ever scrolled past once.
+const MIN_VIEWS_FOR_SIGNAL = 3;
+
+export async function getAuthorViewCounts(
+  userId: string,
 ): Promise<Map<string, number>> {
-  const scores = new Map<string, number>();
-  if (!viewerId || authorIds.length === 0) return scores;
+  const snap = await firestore()
+    .collection("user_affinity")
+    .doc(userId)
+    .collection("author_views")
+    .where("view_count", ">=", MIN_VIEWS_FOR_SIGNAL)
+    .get();
 
-  const uniqueAuthorIds = Array.from(new Set(authorIds));
-
-  // Firestore "in" queries cap at 10 — chunk like the rest of the codebase does
-  const chunks: string[][] = [];
-  for (let i = 0; i < uniqueAuthorIds.length; i += 10) {
-    chunks.push(uniqueAuthorIds.slice(i, i + 10));
-  }
-
-  await Promise.all(
-    chunks.map(async (chunk) => {
-      try {
-        const snap = await db
-          .collection("author_affinity")
-          .where("viewer_id", "==", viewerId)
-          .where("author_id", "in", chunk)
-          .get();
-        snap.docs.forEach((d) => {
-          const data = d.data() as any;
-          if (data?.author_id && typeof data?.score === "number") {
-            scores.set(data.author_id, data.score);
-          }
-        });
-      } catch (err) {
-        console.warn("getAffinityScores chunk failed:", err);
-      }
-    }),
-  );
-
-  return scores;
+  const counts = new Map<string, number>();
+  snap.docs.forEach((d) => {
+    counts.set(d.id, (d.data() as any).view_count ?? 0);
+  });
+  return counts;
 }

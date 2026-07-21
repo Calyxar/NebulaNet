@@ -3,14 +3,29 @@
 // Fix 2: fetchMembersSafe guards pSnap.exists() properly
 // Fix 3: Media grid falls back to camelCase mediaUrls + added debug
 // Fix 4: See create-post screen (paste that file separately)
+// ✅ FIXED: this file was using the legacy Web SDK (`db` from
+//    @/lib/firebase) for every Firestore call — same pattern found in
+//    app/profile/requests.tsx and app/profile/blocked.tsx, apparently
+//    missed in the project's migration to @react-native-firebase. Now uses
+//    firestore() throughout, matching the rest of the app.
+// ✅ FIXED: the comment above the pSnap existence check said "use .exists
+//    (not .exists())" — that's backwards for this project's Firestore
+//    typings (confirmed earlier via the TS compiler: .exists() must be
+//    called as a function here) and directly contradicted the code right
+//    below it, which was already correctly calling `.exists()`. Comment
+//    corrected so it doesn't mislead a future edit into "fixing" working
+//    code, which is exactly what happened once already in this project.
+// ✅ REDESIGNED: this screen had no LinearGradient background and no
+//    uiScale/fontScale — brought onto the same blue-gradient / scaled-
+//    sizing pattern used by Profile, Explore, and the rest of the redesign.
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import { deleteCommunityRequest } from "@/lib/firestore/deleteCommunity";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -126,7 +141,7 @@ export default function CommunityScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
 
   const [community, setCommunity] = useState<Community | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -145,13 +160,18 @@ export default function CommunityScreen() {
   const [joining, setJoining] = useState(false);
   const [deletingCommunity, setDeletingCommunity] = useState(false);
 
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
+
   const heroHeight = useMemo(
     () => Math.round(Math.min(200, Math.max(140, width * 0.42))),
     [width],
   );
 
   const fetchCommunityBySlug = useCallback(async (slugValue: string) => {
-    const snap = await db
+    // ✅ FIX: firestore() (native SDK), was db.collection(...) (legacy Web SDK)
+    const snap = await firestore()
       .collection("communities")
       .where("slug", "==", slugValue)
       .limit(1)
@@ -161,9 +181,9 @@ export default function CommunityScreen() {
     return { id: d.id, ...d.data() } as unknown as Community;
   }, []);
 
-  // FIX 2: properly guard pSnap.exists before calling .data()
+  // FIX 2: properly guard pSnap.exists() before calling .data()
   const fetchMembersSafe = useCallback(async (communityId: string) => {
-    const membersSnap = await db
+    const membersSnap = await firestore()
       .collection("community_members")
       .where("community_id", "==", communityId)
       .get();
@@ -172,8 +192,12 @@ export default function CommunityScreen() {
       membersSnap.docs.map(async (d) => {
         const data = d.data() as any;
         try {
-          const pSnap = await db.collection("profiles").doc(data.user_id).get();
-          // ✅ FIX 2: use .exists (not .exists()) for @react-native-firebase
+          const pSnap = await firestore()
+            .collection("profiles")
+            .doc(data.user_id)
+            .get();
+          // ✅ .exists() is called as a function — confirmed correct for
+          // this project's @react-native-firebase typings.
           const p = pSnap.exists() ? (pSnap.data() as any) : null;
           return {
             user_id: data.user_id,
@@ -215,13 +239,13 @@ export default function CommunityScreen() {
       if (user?.uid) {
         try {
           const [memberSnap, modSnap] = await Promise.all([
-            db
+            firestore()
               .collection("community_members")
               .where("community_id", "==", c.id)
               .where("user_id", "==", user.uid)
               .limit(1)
               .get(),
-            db
+            firestore()
               .collection("community_moderators")
               .where("community_id", "==", c.id)
               .where("user_id", "==", user.uid)
@@ -245,7 +269,7 @@ export default function CommunityScreen() {
 
       const [postsTyped, rulesTyped, membersTyped] = await Promise.all([
         canViewPrivate
-          ? db
+          ? firestore()
               .collection("posts")
               .where("community_id", "==", c.id)
               .orderBy("created_at", "desc")
@@ -256,7 +280,7 @@ export default function CommunityScreen() {
               )
           : Promise.resolve([] as Post[]),
         canViewPrivate
-          ? db
+          ? firestore()
               .collection("community_rules")
               .where("community_id", "==", c.id)
               .get()
@@ -338,7 +362,7 @@ export default function CommunityScreen() {
             ? community.member_count
             : 0;
         const next = Math.max(0, current + delta);
-        await db
+        await firestore()
           .collection("communities")
           .doc(community.id)
           .update({ member_count: next });
@@ -358,7 +382,7 @@ export default function CommunityScreen() {
     }
     setJoining(true);
     try {
-      await db.collection("community_members").add({
+      await firestore().collection("community_members").add({
         community_id: community.id,
         user_id: user.uid,
         joined_at: firestore.FieldValue.serverTimestamp(),
@@ -381,7 +405,7 @@ export default function CommunityScreen() {
     }
     setJoining(true);
     try {
-      const leaveSnap = await db
+      const leaveSnap = await firestore()
         .collection("community_members")
         .where("community_id", "==", community.id)
         .where("user_id", "==", user.uid)
@@ -476,13 +500,26 @@ export default function CommunityScreen() {
               backgroundColor: colors.card,
               borderColor: colors.border,
               shadowOpacity: isDark ? 0.22 : 0.05,
+              borderRadius: 22 * uiScale,
+              padding: 14 * uiScale,
+              marginBottom: 12 * uiScale,
             },
           ]}
         >
-          <View style={styles.postTop}>
-            <View style={styles.authorRow}>
+          <View style={[styles.postTop, { marginBottom: 10 * uiScale }]}>
+            <View style={[styles.authorRow, { gap: 10 * uiScale }]}>
               {avatar ? (
-                <Image source={{ uri: avatar }} style={styles.avatar} />
+                <Image
+                  source={{ uri: avatar }}
+                  style={[
+                    styles.avatar,
+                    {
+                      width: 40 * uiScale,
+                      height: 40 * uiScale,
+                      borderRadius: 20 * uiScale,
+                    },
+                  ]}
+                />
               ) : (
                 <View
                   style={[
@@ -490,6 +527,9 @@ export default function CommunityScreen() {
                     {
                       backgroundColor: colors.surface,
                       borderColor: colors.border,
+                      width: 40 * uiScale,
+                      height: 40 * uiScale,
+                      borderRadius: 20 * uiScale,
                     },
                   ]}
                 >
@@ -500,12 +540,20 @@ export default function CommunityScreen() {
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text
-                  style={[styles.author, { color: colors.text }]}
+                  style={[
+                    styles.author,
+                    { color: colors.text, fontSize: 14 * fontScale },
+                  ]}
                   numberOfLines={1}
                 >
                   {name}
                 </Text>
-                <Text style={[styles.time, { color: colors.textTertiary }]}>
+                <Text
+                  style={[
+                    styles.time,
+                    { color: colors.textTertiary, fontSize: 12 * fontScale },
+                  ]}
+                >
                   {formatTimeAgo(item.created_at)}
                 </Text>
               </View>
@@ -519,7 +567,10 @@ export default function CommunityScreen() {
 
           {!!item.content && (
             <Text
-              style={[styles.content, { color: colors.text }]}
+              style={[
+                styles.content,
+                { color: colors.text, fontSize: 14 * fontScale },
+              ]}
               numberOfLines={6}
             >
               {item.content}
@@ -528,7 +579,14 @@ export default function CommunityScreen() {
 
           {!!firstMedia && (
             <View
-              style={[styles.mediaWrap, { backgroundColor: colors.surface }]}
+              style={[
+                styles.mediaWrap,
+                {
+                  backgroundColor: colors.surface,
+                  height: 220 * uiScale,
+                  borderRadius: 18 * uiScale,
+                },
+              ]}
             >
               <Image source={{ uri: firstMedia }} style={styles.mediaHero} />
               {isVideoUrl(firstMedia) && (
@@ -541,17 +599,17 @@ export default function CommunityScreen() {
         </TouchableOpacity>
       );
     },
-    [colors, isDark],
+    [colors, isDark, uiScale, fontScale],
   );
 
   const numColumns = 3;
-  const gap = 10;
+  const gap = 10 * uiScale;
 
   const gridSide = useMemo(() => {
-    const pad = 14 * 2;
+    const pad = 14 * uiScale * 2;
     const totalGaps = gap * (numColumns - 1);
     return Math.floor((width - pad - totalGaps) / numColumns);
-  }, [width]);
+  }, [width, uiScale, gap]);
 
   const renderMedia = useCallback(
     ({ item }: { item: MediaGridItem }) => {
@@ -563,7 +621,7 @@ export default function CommunityScreen() {
           style={{
             width: gridSide,
             height: gridSide,
-            borderRadius: 14,
+            borderRadius: 14 * uiScale,
             overflow: "hidden",
             backgroundColor: colors.surface,
           }}
@@ -580,530 +638,633 @@ export default function CommunityScreen() {
         </TouchableOpacity>
       );
     },
-    [gridSide, colors.surface],
+    [gridSide, colors.surface, uiScale],
   );
 
   if (loading) {
     return (
-      <SafeAreaView
-        style={{ flex: 1, backgroundColor: colors.background }}
-        edges={["top", "left", "right"]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      </SafeAreaView>
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
   if (!community) {
     return (
-      <SafeAreaView
-        style={{ flex: 1, backgroundColor: colors.background }}
-        edges={["top", "left", "right"]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
       >
-        <View style={styles.center}>
-          <Text style={{ color: colors.text }}>Community not found</Text>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <View style={styles.center}>
+            <Text style={{ color: colors.text }}>Community not found</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
   const showPrivatePill = normalizeBool(community.is_private);
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      edges={["top", "left", "right"]}
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.42, 1]}
+      style={{ flex: 1 }}
     >
-      <AppHeader
-        backgroundColor={colors.background}
-        leftWide={
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => router.back()}
-              style={[
-                styles.iconCircle,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.22 : 0.06,
-                },
-              ]}
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        <AppHeader
+          backgroundColor="transparent"
+          leftWide={
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12 * uiScale,
+                flex: 1,
+                minWidth: 0,
+              }}
             >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
-            </TouchableOpacity>
-
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text
-                style={[styles.headerTitle, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                {community.name}
-              </Text>
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  marginTop: 4,
-                }}
-              >
-                {!!memberCountLabel && (
-                  <Text
-                    style={{
-                      color: colors.textTertiary,
-                      fontWeight: "800",
-                      fontSize: 12,
-                    }}
-                  >
-                    {memberCountLabel}
-                  </Text>
-                )}
-                {showPrivatePill && (
-                  <View
-                    style={[
-                      styles.privatePill,
-                      {
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="lock-closed"
-                      size={12}
-                      color={colors.primary}
-                    />
-                    <Text
-                      style={{
-                        color: colors.primary,
-                        fontWeight: "900",
-                        fontSize: 12,
-                      }}
-                    >
-                      Private
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          </View>
-        }
-        right={
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            {!isOwner && (
               <TouchableOpacity
-                onPress={isJoined ? leaveCommunity : joinCommunity}
-                disabled={joining}
                 activeOpacity={0.85}
+                onPress={() => router.back()}
                 style={[
-                  styles.joinBtn,
+                  styles.iconCircle,
                   {
-                    backgroundColor: isJoined ? colors.card : colors.primary,
-                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    shadowOpacity: isDark ? 0.22 : 0.06,
+                    width: 44 * uiScale,
+                    height: 44 * uiScale,
+                    borderRadius: 22 * uiScale,
                   },
                 ]}
               >
+                <Ionicons name="arrow-back" size={20} color={colors.text} />
+              </TouchableOpacity>
+
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <Text
+                  style={[
+                    styles.headerTitle,
+                    { color: colors.text, fontSize: 18 * fontScale },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {community.name}
+                </Text>
+                <View
                   style={{
-                    color: isJoined ? colors.primary : "#fff",
-                    fontWeight: "900",
-                    fontSize: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8 * uiScale,
+                    marginTop: 4 * uiScale,
                   }}
                 >
-                  {joining ? "..." : isJoined ? "Joined" : "Join"}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {isOwner && (
-              <TouchableOpacity
-                onPress={confirmDeleteCommunity}
-                disabled={deletingCommunity}
-                activeOpacity={0.85}
-                style={[
-                  styles.manageBtn,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-              >
-                <Ionicons name="trash-outline" size={16} color="#EF4444" />
-              </TouchableOpacity>
-            )}
-            {canManage && (
-              <TouchableOpacity
-                onPress={() =>
-                  router.push(`/community/${community.slug}/manage` as any)
-                }
-                activeOpacity={0.85}
-                style={[
-                  styles.manageBtn,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-              >
-                <Ionicons
-                  name="settings-outline"
-                  size={16}
-                  color={colors.text}
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-        }
-      />
-
-      {!!community.image_url && (
-        <View
-          style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6 }}
-        >
-          <Image
-            source={{ uri: community.image_url }}
-            style={[
-              styles.hero,
-              {
-                height: heroHeight,
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-              },
-            ]}
-          />
-        </View>
-      )}
-
-      {!!community.description && (
-        <Text
-          style={[
-            styles.headerSub,
-            {
-              color: colors.textTertiary,
-              paddingHorizontal: 14,
-              paddingBottom: 8,
-            },
-          ]}
-        >
-          {community.description}
-        </Text>
-      )}
-
-      {isLocked ? (
-        <View
-          style={[
-            styles.lockedContainer,
-            { paddingBottom: 20 + insets.bottom },
-          ]}
-        >
-          <View
-            style={[
-              styles.lockIcon,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <Ionicons name="lock-closed" size={28} color={colors.primary} />
-          </View>
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 18,
-              fontWeight: "900",
-              marginTop: 12,
-            }}
-          >
-            This community is private
-          </Text>
-          <Text
-            style={{
-              color: colors.textTertiary,
-              marginTop: 8,
-              textAlign: "center",
-              lineHeight: 20,
-            }}
-          >
-            Join to view posts, members, rules, and media.
-          </Text>
-          <TouchableOpacity
-            style={[styles.lockJoinBtn, { backgroundColor: colors.primary }]}
-            onPress={joinCommunity}
-            activeOpacity={0.9}
-            disabled={joining}
-          >
-            <Text style={{ color: "#fff", fontWeight: "900" }}>
-              {joining ? "Joining..." : "Join Community"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <>
-          <View
-            style={[
-              styles.tabsWrap,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                shadowOpacity: isDark ? 0.22 : 0.05,
-              },
-            ]}
-          >
-            {(["feed", "members", "rules", "media"] as const).map((t) => {
-              const active = activeTab === t;
-              return (
+                  {!!memberCountLabel && (
+                    <Text
+                      style={{
+                        color: colors.textTertiary,
+                        fontWeight: "800",
+                        fontSize: 12 * fontScale,
+                      }}
+                    >
+                      {memberCountLabel}
+                    </Text>
+                  )}
+                  {showPrivatePill && (
+                    <View
+                      style={[
+                        styles.privatePill,
+                        {
+                          backgroundColor: colors.surface,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="lock-closed"
+                        size={12}
+                        color={colors.primary}
+                      />
+                      <Text
+                        style={{
+                          color: colors.primary,
+                          fontWeight: "900",
+                          fontSize: 12 * fontScale,
+                        }}
+                      >
+                        Private
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          }
+          right={
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10 * uiScale,
+              }}
+            >
+              {!isOwner && (
                 <TouchableOpacity
-                  key={t}
-                  onPress={() => setActiveTab(t)}
+                  onPress={isJoined ? leaveCommunity : joinCommunity}
+                  disabled={joining}
                   activeOpacity={0.85}
                   style={[
-                    styles.tabBtn,
-                    active && { backgroundColor: colors.primary },
+                    styles.joinBtn,
+                    {
+                      backgroundColor: isJoined ? colors.card : colors.primary,
+                      borderColor: colors.border,
+                      paddingHorizontal: 14 * uiScale,
+                      paddingVertical: 9 * uiScale,
+                      minWidth: 86 * uiScale,
+                    },
                   ]}
                 >
                   <Text
                     style={{
-                      color: active ? "#fff" : colors.textTertiary,
+                      color: isJoined ? colors.primary : "#fff",
                       fontWeight: "900",
-                      fontSize: 12,
+                      fontSize: 12 * fontScale,
                     }}
                   >
-                    {t.toUpperCase()}
+                    {joining ? "..." : isJoined ? "Joined" : "Join"}
                   </Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
+              )}
+              {isOwner && (
+                <TouchableOpacity
+                  onPress={confirmDeleteCommunity}
+                  disabled={deletingCommunity}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.manageBtn,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                      width: 44 * uiScale,
+                      height: 44 * uiScale,
+                      borderRadius: 22 * uiScale,
+                    },
+                  ]}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+              {canManage && (
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push(`/community/${community.slug}/manage` as any)
+                  }
+                  activeOpacity={0.85}
+                  style={[
+                    styles.manageBtn,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                      width: 44 * uiScale,
+                      height: 44 * uiScale,
+                      borderRadius: 22 * uiScale,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="settings-outline"
+                    size={16}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          }
+        />
 
-          {activeTab === "feed" && (
-            <FlatList<Post>
-              data={posts}
-              keyExtractor={(i) => i.id}
-              renderItem={renderPost}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                />
-              }
-              contentContainerStyle={{
-                padding: 14,
-                paddingBottom: 14 + insets.bottom,
-              }}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.centerPad}>
-                  <Text
-                    style={{ color: colors.textTertiary, fontWeight: "800" }}
-                  >
-                    No posts yet.
-                  </Text>
-                </View>
-              }
+        {!!community.image_url && (
+          <View
+            style={{
+              paddingHorizontal: 14 * uiScale,
+              paddingTop: 8 * uiScale,
+              paddingBottom: 6 * uiScale,
+            }}
+          >
+            <Image
+              source={{ uri: community.image_url }}
+              style={[
+                styles.hero,
+                {
+                  height: heroHeight,
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  borderRadius: 18 * uiScale,
+                },
+              ]}
             />
-          )}
+          </View>
+        )}
 
-          {activeTab === "members" && (
-            <FlatList<Member>
-              data={members}
-              keyExtractor={(i) => i.user_id}
-              renderItem={({ item }) => {
-                // FIX 1: show username AND joined date
-                const displayName =
-                  item.profile?.full_name ||
-                  item.profile?.username ||
-                  "Unknown Member";
-                const username = item.profile?.username
-                  ? `@${item.profile.username}`
-                  : null;
-                const joinedDate = formatJoinedDate(item.joined_at);
+        {!!community.description && (
+          <Text
+            style={[
+              styles.headerSub,
+              {
+                color: colors.textTertiary,
+                paddingHorizontal: 14 * uiScale,
+                paddingBottom: 8 * uiScale,
+                fontSize: 12.5 * fontScale,
+              },
+            ]}
+          >
+            {community.description}
+          </Text>
+        )}
 
+        {isLocked ? (
+          <View
+            style={[
+              styles.lockedContainer,
+              { paddingBottom: 20 + insets.bottom },
+            ]}
+          >
+            <View
+              style={[
+                styles.lockIcon,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  width: 64 * uiScale,
+                  height: 64 * uiScale,
+                  borderRadius: 32 * uiScale,
+                },
+              ]}
+            >
+              <Ionicons name="lock-closed" size={28} color={colors.primary} />
+            </View>
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 18 * fontScale,
+                fontWeight: "900",
+                marginTop: 12 * uiScale,
+              }}
+            >
+              This community is private
+            </Text>
+            <Text
+              style={{
+                color: colors.textTertiary,
+                marginTop: 8 * uiScale,
+                textAlign: "center",
+                lineHeight: 20,
+                fontSize: 14 * fontScale,
+              }}
+            >
+              Join to view posts, members, rules, and media.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.lockJoinBtn,
+                {
+                  backgroundColor: colors.primary,
+                  borderRadius: 16 * uiScale,
+                  paddingHorizontal: 18 * uiScale,
+                  paddingVertical: 12 * uiScale,
+                  marginTop: 16 * uiScale,
+                },
+              ]}
+              onPress={joinCommunity}
+              activeOpacity={0.9}
+              disabled={joining}
+            >
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                  fontSize: 14 * fontScale,
+                }}
+              >
+                {joining ? "Joining..." : "Join Community"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View
+              style={[
+                styles.tabsWrap,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  shadowOpacity: isDark ? 0.22 : 0.05,
+                  marginHorizontal: 14 * uiScale,
+                  marginTop: 6 * uiScale,
+                  marginBottom: 12 * uiScale,
+                  borderRadius: 24 * uiScale,
+                  padding: 6 * uiScale,
+                  gap: 8 * uiScale,
+                },
+              ]}
+            >
+              {(["feed", "members", "rules", "media"] as const).map((t) => {
+                const active = activeTab === t;
                 return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => setActiveTab(t)}
+                    activeOpacity={0.85}
+                    style={[
+                      styles.tabBtn,
+                      {
+                        height: 38 * uiScale,
+                        borderRadius: 19 * uiScale,
+                      },
+                      active && { backgroundColor: colors.primary },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: active ? "#fff" : colors.textTertiary,
+                        fontWeight: "900",
+                        fontSize: 12 * fontScale,
+                      }}
+                    >
+                      {t.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {activeTab === "feed" && (
+              <FlatList<Post>
+                data={posts}
+                keyExtractor={(i) => i.id}
+                renderItem={renderPost}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor={colors.primary}
+                  />
+                }
+                contentContainerStyle={{
+                  padding: 14 * uiScale,
+                  paddingBottom: 14 * uiScale + insets.bottom,
+                }}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={
+                  <View style={styles.centerPad}>
+                    <Text
+                      style={{ color: colors.textTertiary, fontWeight: "800" }}
+                    >
+                      No posts yet.
+                    </Text>
+                  </View>
+                }
+              />
+            )}
+
+            {activeTab === "members" && (
+              <FlatList<Member>
+                data={members}
+                keyExtractor={(i) => i.user_id}
+                renderItem={({ item }) => {
+                  // FIX 1: show username AND joined date
+                  const displayName =
+                    item.profile?.full_name ||
+                    item.profile?.username ||
+                    "Unknown Member";
+                  const username = item.profile?.username
+                    ? `@${item.profile.username}`
+                    : null;
+                  const joinedDate = formatJoinedDate(item.joined_at);
+
+                  return (
+                    <View
+                      style={[
+                        styles.rowCard,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: colors.border,
+                          borderRadius: 18 * uiScale,
+                          padding: 12 * uiScale,
+                          gap: 12 * uiScale,
+                        },
+                      ]}
+                    >
+                      {item.profile?.avatar_url ? (
+                        <Image
+                          source={{ uri: item.profile.avatar_url }}
+                          style={[
+                            styles.memberAvatar,
+                            {
+                              width: 44 * uiScale,
+                              height: 44 * uiScale,
+                              borderRadius: 22 * uiScale,
+                            },
+                          ]}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.memberAvatar,
+                            {
+                              backgroundColor: colors.surface,
+                              borderColor: colors.border,
+                              width: 44 * uiScale,
+                              height: 44 * uiScale,
+                              borderRadius: 22 * uiScale,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{ color: colors.primary, fontWeight: "900" }}
+                          >
+                            {safeFirstLetter(displayName)}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        {/* Display name (full_name or username) */}
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: colors.text, fontSize: 14 * fontScale },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {displayName}
+                        </Text>
+                        {/* @username — only shown if different from displayName */}
+                        {username && username !== displayName && (
+                          <Text
+                            style={[
+                              styles.rowSub,
+                              {
+                                color: colors.textTertiary,
+                                fontSize: 12 * fontScale,
+                              },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {username}
+                          </Text>
+                        )}
+                        {/* Joined date */}
+                        {joinedDate && (
+                          <Text
+                            style={{
+                              color: colors.textTertiary,
+                              fontSize: 11 * fontScale,
+                              fontWeight: "700",
+                              marginTop: 3 * uiScale,
+                            }}
+                          >
+                            Joined {joinedDate}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                }}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor={colors.primary}
+                  />
+                }
+                contentContainerStyle={{
+                  padding: 14 * uiScale,
+                  gap: 10 * uiScale,
+                  paddingBottom: 14 * uiScale + insets.bottom,
+                }}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={
+                  <View style={styles.centerPad}>
+                    <Text
+                      style={{ color: colors.textTertiary, fontWeight: "800" }}
+                    >
+                      No members found.
+                    </Text>
+                  </View>
+                }
+              />
+            )}
+
+            {activeTab === "rules" && (
+              <FlatList<Rule>
+                data={rules}
+                keyExtractor={(i) => i.id}
+                renderItem={({ item }) => (
                   <View
                     style={[
                       styles.rowCard,
                       {
                         backgroundColor: colors.card,
                         borderColor: colors.border,
+                        borderRadius: 18 * uiScale,
+                        padding: 12 * uiScale,
                       },
                     ]}
                   >
-                    {item.profile?.avatar_url ? (
-                      <Image
-                        source={{ uri: item.profile.avatar_url }}
-                        style={styles.memberAvatar}
-                      />
-                    ) : (
-                      <View
+                    <View style={{ flex: 1 }}>
+                      <Text
                         style={[
-                          styles.memberAvatar,
-                          {
-                            backgroundColor: colors.surface,
-                            borderColor: colors.border,
-                          },
+                          styles.rowTitle,
+                          { color: colors.text, fontSize: 14 * fontScale },
                         ]}
                       >
-                        <Text
-                          style={{ color: colors.primary, fontWeight: "900" }}
-                        >
-                          {safeFirstLetter(displayName)}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      {/* Display name (full_name or username) */}
-                      <Text
-                        style={[styles.rowTitle, { color: colors.text }]}
-                        numberOfLines={1}
-                      >
-                        {displayName}
+                        {item.title}
                       </Text>
-                      {/* @username — only shown if different from displayName */}
-                      {username && username !== displayName && (
+                      {!!item.description && (
                         <Text
                           style={[
-                            styles.rowSub,
-                            { color: colors.textTertiary },
+                            styles.ruleBody,
+                            {
+                              color: colors.textTertiary,
+                              fontSize: 12.5 * fontScale,
+                            },
                           ]}
-                          numberOfLines={1}
                         >
-                          {username}
-                        </Text>
-                      )}
-                      {/* Joined date */}
-                      {joinedDate && (
-                        <Text
-                          style={{
-                            color: colors.textTertiary,
-                            fontSize: 11,
-                            fontWeight: "700",
-                            marginTop: 3,
-                          }}
-                        >
-                          Joined {joinedDate}
+                          {item.description}
                         </Text>
                       )}
                     </View>
                   </View>
-                );
-              }}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                />
-              }
-              contentContainerStyle={{
-                padding: 14,
-                gap: 10,
-                paddingBottom: 14 + insets.bottom,
-              }}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.centerPad}>
-                  <Text
-                    style={{ color: colors.textTertiary, fontWeight: "800" }}
-                  >
-                    No members found.
-                  </Text>
-                </View>
-              }
-            />
-          )}
-
-          {activeTab === "rules" && (
-            <FlatList<Rule>
-              data={rules}
-              keyExtractor={(i) => i.id}
-              renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.rowCard,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowTitle, { color: colors.text }]}>
-                      {item.title}
+                )}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor={colors.primary}
+                  />
+                }
+                contentContainerStyle={{
+                  padding: 14 * uiScale,
+                  gap: 10 * uiScale,
+                  paddingBottom: 14 * uiScale + insets.bottom,
+                }}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={
+                  <View style={styles.centerPad}>
+                    <Text
+                      style={{ color: colors.textTertiary, fontWeight: "800" }}
+                    >
+                      No rules set.
                     </Text>
-                    {!!item.description && (
-                      <Text
-                        style={[
-                          styles.ruleBody,
-                          { color: colors.textTertiary },
-                        ]}
-                      >
-                        {item.description}
-                      </Text>
-                    )}
                   </View>
-                </View>
-              )}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                />
-              }
-              contentContainerStyle={{
-                padding: 14,
-                gap: 10,
-                paddingBottom: 14 + insets.bottom,
-              }}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.centerPad}>
-                  <Text
-                    style={{ color: colors.textTertiary, fontWeight: "800" }}
-                  >
-                    No rules set.
-                  </Text>
-                </View>
-              }
-            />
-          )}
+                }
+              />
+            )}
 
-          {activeTab === "media" && (
-            <FlatList<MediaGridItem>
-              data={media}
-              keyExtractor={(i) => `${i.postId}:${i.url}`}
-              numColumns={3}
-              columnWrapperStyle={{ gap: 10 }}
-              contentContainerStyle={{
-                padding: 14,
-                gap: 10,
-                paddingBottom: 14 + insets.bottom,
-              }}
-              renderItem={renderMedia}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                />
-              }
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.centerPad}>
-                  <Text
-                    style={{ color: colors.textTertiary, fontWeight: "800" }}
-                  >
-                    No media yet.
-                  </Text>
-                </View>
-              }
-            />
-          )}
-        </>
-      )}
-    </SafeAreaView>
+            {activeTab === "media" && (
+              <FlatList<MediaGridItem>
+                data={media}
+                keyExtractor={(i) => `${i.postId}:${i.url}`}
+                numColumns={3}
+                columnWrapperStyle={{ gap }}
+                contentContainerStyle={{
+                  padding: 14 * uiScale,
+                  gap,
+                  paddingBottom: 14 * uiScale + insets.bottom,
+                }}
+                renderItem={renderMedia}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor={colors.primary}
+                  />
+                }
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={
+                  <View style={styles.centerPad}>
+                    <Text
+                      style={{ color: colors.textTertiary, fontWeight: "800" }}
+                    >
+                      No media yet.
+                    </Text>
+                  </View>
+                }
+              />
+            )}
+          </>
+        )}
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
@@ -1111,9 +1272,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   centerPad: { paddingVertical: 28, alignItems: "center" },
   iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -1121,8 +1279,8 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-  headerTitle: { fontSize: 18, fontWeight: "900" },
-  headerSub: { fontSize: 12.5, fontWeight: "700", marginTop: 2 },
+  headerTitle: { fontWeight: "900" },
+  headerSub: { fontWeight: "700", marginTop: 2 },
   privatePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1133,32 +1291,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   joinBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
     borderRadius: 999,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 86,
   },
   manageBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  hero: { width: "100%", borderRadius: 18, borderWidth: 1 },
+  hero: { width: "100%", borderWidth: 1 },
   tabsWrap: {
-    marginHorizontal: 14,
-    marginTop: 6,
-    marginBottom: 12,
-    borderRadius: 24,
     borderWidth: 1,
-    padding: 6,
     flexDirection: "row",
-    gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
@@ -1166,16 +1312,11 @@ const styles = StyleSheet.create({
   },
   tabBtn: {
     flex: 1,
-    height: 38,
-    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
   postCard: {
-    borderRadius: 22,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
@@ -1185,35 +1326,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
   },
   authorRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
     flex: 1,
     minWidth: 0,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
-  author: { fontSize: 14, fontWeight: "900" },
-  time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
+  author: { fontWeight: "900" },
+  time: { fontWeight: "700", marginTop: 2 },
   content: {
-    fontSize: 14,
     lineHeight: 20,
     marginBottom: 10,
     fontWeight: "600",
   },
   mediaWrap: {
     width: "100%",
-    height: 220,
-    borderRadius: 18,
     overflow: "hidden",
     position: "relative",
   },
@@ -1234,24 +1367,18 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   rowCard: {
-    borderRadius: 18,
     borderWidth: 1,
-    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
   },
   memberAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
-  rowTitle: { fontSize: 14, fontWeight: "900" },
-  rowSub: { fontSize: 12, fontWeight: "800", marginTop: 3 },
-  ruleBody: { marginTop: 8, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  rowTitle: { fontWeight: "900" },
+  rowSub: { fontWeight: "800", marginTop: 3 },
+  ruleBody: { marginTop: 8, fontWeight: "700", lineHeight: 18 },
   mediaBadge: {
     position: "absolute",
     right: 8,
@@ -1268,17 +1395,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   lockIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
-  lockJoinBtn: {
-    marginTop: 16,
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
+  lockJoinBtn: {},
 });

@@ -5,8 +5,33 @@
 //    Banner + avatar now render together the same way the redesigned
 //    profile screen displays them (avatar overlapping the banner's bottom
 //    edge), so editing here matches what you'll actually see on your profile.
+// ✅ NEW: saveNewBirthdate now also writes birthDate (Timestamp) + birthMMDD
+//    alongside the existing birthdate string + age_group, so changing your
+//    DOB here stays in sync with the birthday badge/balloons and the daily
+//    Cloud Function sweep — both of which read birthDate/birthMMDD, not
+//    the legacy birthdate string.
+// ✅ NEW: showBirthday toggle — separate from "birthdate not shown
+//    publicly" (which is about your actual date/age). This only controls
+//    whether the day/month shows a birthday badge to others.
+// ✅ FIXED: added a username max-length validation (20 chars). This closes
+//    a real collision risk flagged during the app/user/[username]/index.tsx
+//    review: that screen's `isUid` check treats any 28-char alphanumeric
+//    route param as a Firebase UID (28 chars is the standard UID length).
+//    Without a username cap, a user could in principle choose a 28-char
+//    alphanumeric username and have their own profile route misidentify
+//    it as a UID lookup. Capping usernames well below 28 here makes that
+//    collision structurally impossible instead of relying on the heuristic
+//    alone. 20 chars matches common platform conventions (comfortably
+//    under the 28-char boundary) and is enforced both on save and via
+//    maxLength on the input itself.
+// ✅ NEW: after a successful save, invalidates the chat layer's cached copy
+//    of this user's profile (lib/firestore/chat.ts's profileCache) so an
+//    avatar or name change shows up immediately in conversations and
+//    messages, instead of waiting for the app to restart. See
+//    lib/firestore/chat.ts for why that cache needed an invalidation path.
 
 import { useAuth } from "@/hooks/useAuth";
+import { invalidateProfileCache } from "@/lib/firestore/chat";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
@@ -25,6 +50,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -37,6 +63,10 @@ const { width: SCREEN_W } = Dimensions.get("window");
 const IS_SMALL = SCREEN_W < 380;
 const BANNER_HEIGHT = 140;
 const EDIT_AVATAR_SIZE = 96;
+// ✅ NEW: keeps usernames well clear of the 28-char Firebase UID length
+// that app/user/[username]/index.tsx uses to distinguish a UID route
+// param from a username route param.
+const USERNAME_MAX_LENGTH = 20;
 
 function guessExtFromUri(uri: string) {
   const clean = uri.split("?")[0];
@@ -69,6 +99,11 @@ function formatBirthdate(iso: string): string {
   if (!iso) return "Not set";
   const [year, month, day] = iso.split("-");
   return `${month}/${day}/${year}`;
+}
+// ✅ NEW: builds the MM-DD key the birthday badge, balloons, and the daily
+// Cloud Function sweep all key off — same format as (auth)/birthdate.tsx.
+function buildBirthMMDD(month: number, day: number): string {
+  return `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 // ─── DOB Sheet ────────────────────────────────────────────────────────────────
@@ -184,18 +219,20 @@ function BirthdateSheet({
           { text: "Cancel", style: "cancel" },
           {
             text: "Continue",
-            onPress: () => saveNewBirthdate(newBirthdateIso, newAgeGroup),
+            onPress: () =>
+              saveNewBirthdate(newBirthdateIso, newAgeGroup, newBirthdateDate),
           },
         ],
       );
       return;
     }
-    await saveNewBirthdate(newBirthdateIso, newAgeGroup);
+    await saveNewBirthdate(newBirthdateIso, newAgeGroup, newBirthdateDate);
   };
 
   const saveNewBirthdate = async (
     birthdateIso: string,
     newAgeGroup: string,
+    birthdateDate: Date,
   ) => {
     if (!uid) return;
     setSaving(true);
@@ -211,12 +248,25 @@ function BirthdateSheet({
         } as any);
         return;
       }
-      await firestore().collection("profiles").doc(uid).update({
-        birthdate: birthdateIso,
-        age_group: newAgeGroup,
-        updated_at: new Date().toISOString(),
-        updated_at_ts: firestore.FieldValue.serverTimestamp(),
-      });
+      // ✅ NEW: birthDate (Timestamp) + birthMMDD written alongside the
+      // legacy birthdate string, so the birthday badge/balloons and the
+      // daily Cloud Function sweep pick up the change immediately instead
+      // of staying pinned to whatever date was set at signup.
+      const birthMMDD = buildBirthMMDD(
+        birthdateDate.getMonth() + 1,
+        birthdateDate.getDate(),
+      );
+      await firestore()
+        .collection("profiles")
+        .doc(uid)
+        .update({
+          birthdate: birthdateIso,
+          birthDate: firestore.Timestamp.fromDate(birthdateDate),
+          birthMMDD,
+          age_group: newAgeGroup,
+          updated_at: new Date().toISOString(),
+          updated_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
       await firestore()
         .collection("user_settings")
         .doc(uid)
@@ -468,6 +518,13 @@ export default function EditProfileScreen() {
   const [banner, setBanner] = useState((profile as any)?.banner_url || "");
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [showBirthdateSheet, setShowBirthdateSheet] = useState(false);
+  // ✅ NEW: showBirthday toggle state — separate concept from the DOB value
+  // itself. This only controls whether the day/month triggers the birthday
+  // badge/balloons for other people; the actual date and age stay private.
+  const [showBirthday, setShowBirthday] = useState(
+    (profile as any)?.showBirthday ?? false,
+  );
+  const [isSavingBirthdayToggle, setIsSavingBirthdayToggle] = useState(false);
 
   const currentBirthdate = (profile as any)?.birthdate as string | null;
   const currentAgeGroup = (profile as any)?.age_group as string | null;
@@ -482,6 +539,7 @@ export default function EditProfileScreen() {
       });
       setAvatar(profile.avatar_url || "");
       setBanner((profile as any)?.banner_url || "");
+      setShowBirthday((profile as any)?.showBirthday ?? false);
     }
   }, [profile]);
 
@@ -596,6 +654,33 @@ export default function EditProfileScreen() {
     }
   };
 
+  // ✅ NEW: showBirthday saves immediately on toggle, same instant-save feel
+  // as the avatar/banner pickers, rather than waiting for "Continue". If the
+  // write fails, the switch snaps back so the UI never lies about what's
+  // actually saved.
+  const handleToggleShowBirthday = async (next: boolean) => {
+    if (!user?.uid) return;
+    const previous = showBirthday;
+    setShowBirthday(next);
+    setIsSavingBirthdayToggle(true);
+    try {
+      await firestore().collection("profiles").doc(user.uid).update({
+        showBirthday: next,
+        updated_at: new Date().toISOString(),
+        updated_at_ts: firestore.FieldValue.serverTimestamp(),
+      });
+      qc.invalidateQueries({ queryKey: ["profile", user.uid] });
+    } catch (err: any) {
+      setShowBirthday(previous);
+      Alert.alert(
+        "Couldn't update",
+        err?.message || "Failed to update birthday visibility.",
+      );
+    } finally {
+      setIsSavingBirthdayToggle(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.username.trim()) {
       Alert.alert("Validation Error", "Username is required");
@@ -603,6 +688,16 @@ export default function EditProfileScreen() {
     }
     if (formData.username.length < 3) {
       Alert.alert("Validation Error", "Username must be at least 3 characters");
+      return;
+    }
+    // ✅ NEW: caps username length well below the 28-char Firebase UID
+    // length, closing the isUid-collision risk flagged when reviewing
+    // app/user/[username]/index.tsx.
+    if (formData.username.length > USERNAME_MAX_LENGTH) {
+      Alert.alert(
+        "Validation Error",
+        `Username must be ${USERNAME_MAX_LENGTH} characters or fewer`,
+      );
       return;
     }
     if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
@@ -625,6 +720,10 @@ export default function EditProfileScreen() {
         }),
       };
       await updateProfileMutation.mutateAsync(updates);
+      // ✅ NEW: bust the chat layer's cached copy of this user's profile so
+      // an avatar or name change shows up immediately in conversations and
+      // messages, instead of waiting for the app to restart.
+      if (user?.uid) invalidateProfileCache(user.uid);
       Alert.alert("Success", "Profile updated successfully!", [
         { text: "OK", onPress: () => router.replace("/(tabs)/profile") },
       ]);
@@ -803,6 +902,7 @@ export default function EditProfileScreen() {
                   placeholder: "Enter your full name",
                   icon: "person-outline",
                   capitalize: "words" as const,
+                  maxLength: undefined as number | undefined,
                 },
                 {
                   label: "Username",
@@ -810,6 +910,9 @@ export default function EditProfileScreen() {
                   placeholder: "username",
                   icon: "at",
                   capitalize: "none" as const,
+                  // ✅ NEW: hard-stops typing past the cap, in addition to
+                  // the handleSave validation above.
+                  maxLength: USERNAME_MAX_LENGTH as number | undefined,
                 },
                 {
                   label: "Location",
@@ -817,44 +920,55 @@ export default function EditProfileScreen() {
                   placeholder: "Let others know where you're based",
                   icon: "location-outline",
                   capitalize: "words" as const,
+                  maxLength: undefined as number | undefined,
                 },
-              ].map(({ label, field, placeholder, icon, capitalize }) => (
-                <View key={field} style={styles.inputGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>
-                    {label}
-                  </Text>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={icon as any}
-                      size={20}
-                      color={colors.textTertiary}
-                      style={styles.inputIcon}
-                    />
-                    <TextInput
-                      style={[styles.input, { color: colors.text }]}
-                      value={(formData as any)[field]}
-                      onChangeText={(t) =>
-                        setFormData({
-                          ...formData,
-                          [field]: field === "username" ? t.toLowerCase() : t,
-                        })
-                      }
-                      placeholder={placeholder}
-                      placeholderTextColor={colors.placeholder}
-                      autoCapitalize={capitalize}
-                      editable={!isLoading}
-                    />
+              ].map(
+                ({
+                  label,
+                  field,
+                  placeholder,
+                  icon,
+                  capitalize,
+                  maxLength,
+                }) => (
+                  <View key={field} style={styles.inputGroup}>
+                    <Text style={[styles.label, { color: colors.text }]}>
+                      {label}
+                    </Text>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        {
+                          backgroundColor: colors.surface,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={icon as any}
+                        size={20}
+                        color={colors.textTertiary}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={[styles.input, { color: colors.text }]}
+                        value={(formData as any)[field]}
+                        onChangeText={(t) =>
+                          setFormData({
+                            ...formData,
+                            [field]: field === "username" ? t.toLowerCase() : t,
+                          })
+                        }
+                        placeholder={placeholder}
+                        placeholderTextColor={colors.placeholder}
+                        autoCapitalize={capitalize}
+                        editable={!isLoading}
+                        maxLength={maxLength}
+                      />
+                    </View>
                   </View>
-                </View>
-              ))}
+                ),
+              )}
 
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.text }]}>Bio</Text>
@@ -962,6 +1076,45 @@ export default function EditProfileScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* ✅ NEW: showBirthday toggle — deliberately separate from the
+                  row above. Your actual date and age never become public;
+                  this only lets the day/month trigger a birthday badge and
+                  balloon animation on your profile for others to see. */}
+              <View
+                style={[
+                  styles.birthdayToggleRow,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text
+                    style={[styles.birthdayToggleLabel, { color: colors.text }]}
+                  >
+                    Show birthday on my profile
+                  </Text>
+                  <Text
+                    style={[
+                      styles.birthdayToggleSub,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    Lets others see a birthday badge on the day — your year and
+                    age always stay private.
+                  </Text>
+                </View>
+                <Switch
+                  value={showBirthday}
+                  onValueChange={handleToggleShowBirthday}
+                  disabled={isSavingBirthdayToggle || !currentBirthdate}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+
               <View
                 style={[
                   styles.ageNotice,
@@ -1052,7 +1205,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "800" },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
-  // ✅ NEW: banner + overlapping avatar container
   bannerSection: {
     marginBottom: 24 + EDIT_AVATAR_SIZE / 2,
   },
@@ -1175,6 +1327,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   dobChangeBtnText: { fontSize: IS_SMALL ? 13 : 14, fontWeight: "700" },
+  birthdayToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+  },
+  birthdayToggleLabel: { fontSize: 14, fontWeight: "700" },
+  birthdayToggleSub: { fontSize: 11.5, lineHeight: 15, marginTop: 3 },
   ageNotice: {
     flexDirection: "row",
     alignItems: "flex-start",

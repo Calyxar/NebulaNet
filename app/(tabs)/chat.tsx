@@ -2,6 +2,10 @@
 // ✅ Removed the empty storiesContainer/ScrollView that was rendering
 //    nothing but a border line under the header — dead code that was
 //    taking up vertical space before the conversation list.
+// ✅ UI CONSISTENCY PASS: wrapped in the shared blue gradient used by
+//    Profile/Explore/Communities/Notifications (this screen previously had
+//    no gradient at all — just a flat background), and threaded
+//    uiScale/fontScale through header buttons and empty-state sizing.
 import ConversationItem from "@/components/chat/ConversationItem";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -10,6 +14,7 @@ import { useChat } from "@/hooks/useChat";
 import { type ChatConversation } from "@/lib/firestore/chat";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useMemo } from "react";
 import {
@@ -29,13 +34,19 @@ import {
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const { conversations, loading, loadConversations } = useChat();
 
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
   );
+
+  // ✅ Aligned with the blue gradient used by Profile/Explore/Communities/
+  // Notifications — this screen previously had none at all.
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const formatTimestamp = (dateString?: string): string => {
     if (!dateString) return "";
@@ -85,109 +96,146 @@ export default function ChatScreen() {
     <>
       <StatusBar
         barStyle={isDark ? "light-content" : "dark-content"}
-        backgroundColor={colors.background}
+        translucent
+        backgroundColor="transparent"
       />
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
-        edges={["left", "right"]}
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={styles.gradient}
       >
-        <AppHeader
-          title="Chat"
-          backgroundColor={colors.background}
-          rightWide={
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={[
-                  styles.iconButton,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-                activeOpacity={0.7}
-                onPress={() => router.push("/chat/search")}
-              >
-                <Ionicons name="search-outline" size={22} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.addButton, { backgroundColor: colors.primary }]}
-                activeOpacity={0.85}
-                onPress={() => router.push("/chat/new")}
-              >
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.addButtonText}>New Chat</Text>
-              </TouchableOpacity>
-            </View>
-          }
-        />
-
-        {loading.conversations && conversations.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        ) : conversations.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="chatbubble-outline"
-              size={64}
-              color={colors.border}
-            />
-            <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
-              No conversations yet
-            </Text>
-            <Text
-              style={[styles.emptyStateText, { color: colors.textSecondary }]}
-            >
-              Start a conversation with someone!
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={conversations}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ConversationItem
-                id={item.id}
-                name={getConversationName(item, user?.uid)}
-                lastMessage={item.last_message?.content ?? ""}
-                attachments={item.last_message?.attachments ?? null}
-                mediaType={item.last_message?.media_type ?? null}
-                timestamp={formatTimestamp(item.updated_at)}
-                unreadCount={item.unread_count ?? 0}
-                otherUserId={
-                  !item.is_group
-                    ? (item.participants?.find((p) => p.user_id !== user?.uid)
-                        ?.user_id ?? null)
-                    : null
-                }
-                isTyping={item.is_typing ?? false}
-                isPinned={item.is_pinned ?? false}
-                avatar={getAvatarUrl(item, user?.uid)}
-                onPress={() =>
-                  router.push({
-                    pathname: "/chat/[id]",
-                    params: { id: item.id },
-                  })
-                }
-              />
-            )}
-            contentContainerStyle={[
-              styles.listContent,
-              { paddingBottom: bottomPad },
-            ]}
-            refreshing={loading.conversations}
-            onRefresh={loadConversations}
+        <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+          <AppHeader
+            title="Chat"
+            backgroundColor="transparent"
+            rightWide={
+              <View style={[styles.headerActions, { gap: 10 * uiScale }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.iconButton,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                      width: 40 * uiScale,
+                      height: 40 * uiScale,
+                      borderRadius: 20 * uiScale,
+                    },
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => router.push("/chat/search")}
+                >
+                  <Ionicons
+                    name="search-outline"
+                    size={22}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.addButton,
+                    {
+                      backgroundColor: colors.primary,
+                      paddingHorizontal: 14 * uiScale,
+                      height: 40 * uiScale,
+                      gap: 6 * uiScale,
+                    },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={() => router.push("/chat/new")}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text
+                    style={[styles.addButtonText, { fontSize: 13 * fontScale }]}
+                  >
+                    New Chat
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            }
           />
-        )}
-      </SafeAreaView>
+
+          {loading.conversations && conversations.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : conversations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="chatbubble-outline"
+                size={64}
+                color={colors.border}
+              />
+              <Text
+                style={[
+                  styles.emptyStateTitle,
+                  {
+                    color: colors.text,
+                    fontSize: 20 * fontScale,
+                    marginTop: 16 * uiScale,
+                    marginBottom: 8 * uiScale,
+                  },
+                ]}
+              >
+                No conversations yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptyStateText,
+                  { color: colors.textSecondary, fontSize: 15 * fontScale },
+                ]}
+              >
+                Start a conversation with someone!
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={conversations}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <ConversationItem
+                  id={item.id}
+                  name={getConversationName(item, user?.uid)}
+                  lastMessage={item.last_message?.content ?? ""}
+                  attachments={item.last_message?.attachments ?? null}
+                  mediaType={item.last_message?.media_type ?? null}
+                  timestamp={formatTimestamp(item.updated_at)}
+                  unreadCount={item.unread_count ?? 0}
+                  otherUserId={
+                    !item.is_group
+                      ? (item.participants?.find((p) => p.user_id !== user?.uid)
+                          ?.user_id ?? null)
+                      : null
+                  }
+                  isTyping={item.is_typing ?? false}
+                  isPinned={item.is_pinned ?? false}
+                  avatar={getAvatarUrl(item, user?.uid)}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/chat/[id]",
+                      params: { id: item.id },
+                    })
+                  }
+                />
+              )}
+              contentContainerStyle={[
+                styles.listContent,
+                { paddingBottom: bottomPad },
+              ]}
+              refreshing={loading.conversations}
+              onRefresh={loadConversations}
+            />
+          )}
+        </SafeAreaView>
+      </LinearGradient>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  gradient: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
+  headerActions: { flexDirection: "row", alignItems: "center" },
   iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -196,12 +244,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 14,
-    height: 40,
     borderRadius: 999,
-    gap: 6,
   },
-  addButtonText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  addButtonText: { fontWeight: "700", color: "#fff" },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   emptyState: {
     flex: 1,
@@ -210,11 +255,8 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   emptyStateTitle: {
-    fontSize: 20,
     fontWeight: "700",
-    marginTop: 16,
-    marginBottom: 8,
   },
-  emptyStateText: { fontSize: 15, textAlign: "center", lineHeight: 22 },
+  emptyStateText: { textAlign: "center", lineHeight: 22 },
   listContent: { paddingTop: 0 },
 });

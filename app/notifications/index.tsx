@@ -1,6 +1,14 @@
 // app/notifications/index.tsx ✅ — tab screen with back handler
 // ✅ Tabs switched from pill-background to underline style, matching
 //    Explore and Profile, so the whole app uses one consistent tab pattern.
+// ✅ UI CONSISTENCY PASS: gradient aligned to the shared blue tokens used
+//    by Profile/Explore/Communities (was a different purple tint), and
+//    uiScale/fontScale threaded through row/avatar/tab/card sizing.
+// ✅ FIXED: NotificationRow's bodyText switch was missing a "repost"
+//    case — fell through to the generic default even though push
+//    notifications (hooks/useNotifications.ts's getNotificationTitle)
+//    already handled it correctly. Now matches that wording.
+
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
@@ -28,13 +36,44 @@ import {
 
 type FilterTab = "all" | "unread";
 
-function NotificationRowSkeleton({ colors }: { colors: any }) {
+function NotificationRowSkeleton({
+  colors,
+  uiScale,
+}: {
+  colors: any;
+  uiScale: number;
+}) {
   return (
-    <View style={[styles.row, { backgroundColor: colors.card }]}>
-      <View style={styles.avatarWrap}>
-        <View style={[styles.avatar, { backgroundColor: colors.surface }]} />
+    <View
+      style={[
+        styles.row,
+        {
+          backgroundColor: colors.card,
+          paddingHorizontal: 14 * uiScale,
+          paddingVertical: 13 * uiScale,
+          gap: 12 * uiScale,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.avatarWrap,
+          { width: 48 * uiScale, height: 48 * uiScale },
+        ]}
+      >
+        <View
+          style={[
+            styles.avatar,
+            {
+              backgroundColor: colors.surface,
+              width: 48 * uiScale,
+              height: 48 * uiScale,
+              borderRadius: 24 * uiScale,
+            },
+          ]}
+        />
       </View>
-      <View style={{ flex: 1, gap: 7 }}>
+      <View style={{ flex: 1, gap: 7 * uiScale }}>
         <View
           style={[
             styles.skeletonLine,
@@ -56,6 +95,8 @@ function NotificationRow({
   item,
   colors,
   isDark,
+  uiScale,
+  fontScale,
   onPress,
   onLongPress,
   getIcon,
@@ -64,6 +105,8 @@ function NotificationRow({
   item: Notification;
   colors: any;
   isDark: boolean;
+  uiScale: number;
+  fontScale: number;
   onPress: () => void;
   onLongPress: () => void;
   getIcon: (type: Notification["type"]) => string;
@@ -110,6 +153,10 @@ function NotificationRow({
           : `${base} invited you to a community`;
       case "post_shared":
         return `${base} shared your post`;
+      // ✅ FIXED: was missing — matches getNotificationTitle's wording in
+      // hooks/useNotifications.ts, which push notifications already used.
+      case "repost":
+        return `${base} reposted your post`;
       case "story_comment":
         return item.comment?.content
           ? `${base}: "${item.comment.content.slice(0, 80)}"`
@@ -138,67 +185,157 @@ function NotificationRow({
             ? colors.card
             : colors.primary + (isDark ? "14" : "0D"),
           borderBottomColor: colors.border,
+          paddingHorizontal: 14 * uiScale,
+          paddingVertical: 13 * uiScale,
+          gap: 12 * uiScale,
         },
       ]}
     >
-      <View style={styles.avatarWrap}>
+      <View
+        style={[
+          styles.avatarWrap,
+          { width: 48 * uiScale, height: 48 * uiScale },
+        ]}
+      >
         {item.sender?.avatar_url ? (
           <Image
             source={{ uri: item.sender.avatar_url }}
-            style={[styles.avatar, { backgroundColor: colors.surface }]}
+            style={[
+              styles.avatar,
+              {
+                backgroundColor: colors.surface,
+                width: 48 * uiScale,
+                height: 48 * uiScale,
+                borderRadius: 24 * uiScale,
+              },
+            ]}
           />
         ) : (
           <View
             style={[
               styles.avatar,
               styles.avatarFallback,
-              { backgroundColor: colors.surface },
+              {
+                backgroundColor: colors.surface,
+                width: 48 * uiScale,
+                height: 48 * uiScale,
+                borderRadius: 24 * uiScale,
+              },
             ]}
           >
             <Text
-              style={[styles.avatarFallbackText, { color: colors.primary }]}
+              style={[
+                styles.avatarFallbackText,
+                { color: colors.primary, fontSize: 17 * fontScale },
+              ]}
             >
               {(senderName[0] || "?").toUpperCase()}
             </Text>
           </View>
         )}
-        <View style={[styles.iconBadge, { backgroundColor: iconColor }]}>
+        <View
+          style={[
+            styles.iconBadge,
+            {
+              backgroundColor: iconColor,
+              width: 20 * uiScale,
+              height: 20 * uiScale,
+              borderRadius: 10 * uiScale,
+            },
+          ]}
+        >
           <Ionicons name={iconName as any} size={10} color="#fff" />
         </View>
       </View>
-      <View style={styles.rowBody}>
+      <View style={[styles.rowBody, { gap: 3 * uiScale }]}>
         <Text
-          style={[styles.rowText, { color: colors.text }]}
+          style={[
+            styles.rowText,
+            { color: colors.text, fontSize: 13.5 * fontScale },
+          ]}
           numberOfLines={2}
         >
           {bodyText}
         </Text>
-        <Text style={[styles.rowTime, { color: colors.textTertiary }]}>
+        <Text
+          style={[
+            styles.rowTime,
+            { color: colors.textTertiary, fontSize: 11.5 * fontScale },
+          ]}
+        >
           {timeAgo(item.created_at)}
         </Text>
       </View>
       {!item.is_read && (
-        <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
+        <View
+          style={[
+            styles.unreadDot,
+            {
+              backgroundColor: colors.primary,
+              width: 8 * uiScale,
+              height: 8 * uiScale,
+              borderRadius: 4 * uiScale,
+            },
+          ]}
+        />
       )}
     </TouchableOpacity>
   );
 }
 
-function SectionHeader({ title, colors }: { title: string; colors: any }) {
+function SectionHeader({
+  title,
+  colors,
+  uiScale,
+  fontScale,
+}: {
+  title: string;
+  colors: any;
+  uiScale: number;
+  fontScale: number;
+}) {
   return (
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>
+    <View
+      style={[
+        styles.sectionHeader,
+        { paddingTop: 16 * uiScale, paddingBottom: 8 * uiScale },
+      ]}
+    >
+      <Text
+        style={[
+          styles.sectionTitle,
+          { color: colors.textTertiary, fontSize: 12 * fontScale },
+        ]}
+      >
         {title}
       </Text>
     </View>
   );
 }
 
-function EmptyState({ filter, colors }: { filter: FilterTab; colors: any }) {
+function EmptyState({
+  filter,
+  colors,
+  uiScale,
+  fontScale,
+}: {
+  filter: FilterTab;
+  colors: any;
+  uiScale: number;
+  fontScale: number;
+}) {
   return (
     <View style={styles.emptyState}>
       <View
-        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
+        style={[
+          styles.emptyIconCircle,
+          {
+            backgroundColor: colors.surface,
+            width: 72 * uiScale,
+            height: 72 * uiScale,
+            borderRadius: 36 * uiScale,
+          },
+        ]}
       >
         <Ionicons
           name={
@@ -210,10 +347,20 @@ function EmptyState({ filter, colors }: { filter: FilterTab; colors: any }) {
           color={colors.primary}
         />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>
+      <Text
+        style={[
+          styles.emptyTitle,
+          { color: colors.text, fontSize: 20 * fontScale },
+        ]}
+      >
         {filter === "unread" ? "You're all caught up" : "No notifications yet"}
       </Text>
-      <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
+      <Text
+        style={[
+          styles.emptySubtitle,
+          { color: colors.textTertiary, fontSize: 14 * fontScale },
+        ]}
+      >
         {filter === "unread"
           ? "No unread notifications right now."
           : "When people like, comment, or follow you, it'll show up here."}
@@ -224,7 +371,7 @@ function EmptyState({ filter, colors }: { filter: FilterTab; colors: any }) {
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const { showActionSheetWithOptions } = useActionSheet();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
 
@@ -244,7 +391,6 @@ export default function NotificationsScreen() {
     [insets.bottom],
   );
 
-  // ✅ Hardware back goes to home instead of exiting app
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
@@ -260,7 +406,7 @@ export default function NotificationsScreen() {
 
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
-    : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const filtered = useMemo(() => {
     if (activeFilter === "unread")
@@ -323,7 +469,7 @@ export default function NotificationsScreen() {
       />
       <LinearGradient
         colors={gradientColors as any}
-        locations={[0, 0.35, 1]}
+        locations={[0, 0.42, 1]}
         style={styles.gradient}
       >
         <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -340,6 +486,9 @@ export default function NotificationsScreen() {
                     {
                       backgroundColor: colors.primary + "18",
                       borderColor: colors.primary + "30",
+                      paddingHorizontal: 12 * uiScale,
+                      paddingVertical: 8 * uiScale,
+                      gap: 5 * uiScale,
                     },
                   ]}
                 >
@@ -352,7 +501,12 @@ export default function NotificationsScreen() {
                       color={colors.primary}
                     />
                   )}
-                  <Text style={[styles.markAllText, { color: colors.primary }]}>
+                  <Text
+                    style={[
+                      styles.markAllText,
+                      { color: colors.primary, fontSize: 13 * fontScale },
+                    ]}
+                  >
                     Mark all read
                   </Text>
                 </TouchableOpacity>
@@ -360,8 +514,15 @@ export default function NotificationsScreen() {
             }
           />
 
-          {/* Underline tabs — matches Explore and Profile */}
-          <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
+          <View
+            style={[
+              styles.tabsRow,
+              {
+                borderBottomColor: colors.border,
+                marginHorizontal: 18 * uiScale,
+              },
+            ]}
+          >
             {(["all", "unread"] as FilterTab[]).map((tab) => {
               const isActive = activeFilter === tab;
               const label =
@@ -373,12 +534,15 @@ export default function NotificationsScreen() {
                   key={tab}
                   onPress={() => setActiveFilter(tab)}
                   activeOpacity={0.7}
-                  style={styles.tabItem}
+                  style={[styles.tabItem, { paddingVertical: 13 * uiScale }]}
                 >
                   <Text
                     style={[
                       styles.tabText,
-                      { color: isActive ? colors.text : colors.textTertiary },
+                      {
+                        color: isActive ? colors.text : colors.textTertiary,
+                        fontSize: 13.5 * fontScale,
+                      },
                       isActive && styles.tabTextActive,
                     ]}
                   >
@@ -404,17 +568,28 @@ export default function NotificationsScreen() {
                 {
                   backgroundColor: colors.card,
                   shadowOpacity: isDark ? 0.2 : 0.05,
+                  marginHorizontal: 18 * uiScale,
+                  borderRadius: 22 * uiScale,
                 },
               ]}
             >
               {Array(6)
                 .fill(null)
                 .map((_, i) => (
-                  <NotificationRowSkeleton key={i} colors={colors} />
+                  <NotificationRowSkeleton
+                    key={i}
+                    colors={colors}
+                    uiScale={uiScale}
+                  />
                 ))}
             </View>
           ) : sections.length === 0 ? (
-            <EmptyState filter={activeFilter} colors={colors} />
+            <EmptyState
+              filter={activeFilter}
+              colors={colors}
+              uiScale={uiScale}
+              fontScale={fontScale}
+            />
           ) : (
             <SectionList
               sections={sections}
@@ -423,10 +598,18 @@ export default function NotificationsScreen() {
               stickySectionHeadersEnabled={false}
               contentContainerStyle={[
                 styles.listContent,
-                { paddingBottom: bottomPad, paddingHorizontal: 18 },
+                {
+                  paddingBottom: bottomPad,
+                  paddingHorizontal: 18 * uiScale,
+                },
               ]}
               renderSectionHeader={({ section }) => (
-                <SectionHeader title={section.title} colors={colors} />
+                <SectionHeader
+                  title={section.title}
+                  colors={colors}
+                  uiScale={uiScale}
+                  fontScale={fontScale}
+                />
               )}
               renderItem={({ item, index, section }) => {
                 const isFirst = index === 0;
@@ -438,10 +621,10 @@ export default function NotificationsScreen() {
                       {
                         backgroundColor: colors.card,
                         shadowOpacity: isDark ? 0.2 : 0.05,
-                        borderTopLeftRadius: isFirst ? 22 : 0,
-                        borderTopRightRadius: isFirst ? 22 : 0,
-                        borderBottomLeftRadius: isLast ? 22 : 0,
-                        borderBottomRightRadius: isLast ? 22 : 0,
+                        borderTopLeftRadius: isFirst ? 22 * uiScale : 0,
+                        borderTopRightRadius: isFirst ? 22 * uiScale : 0,
+                        borderBottomLeftRadius: isLast ? 22 * uiScale : 0,
+                        borderBottomRightRadius: isLast ? 22 * uiScale : 0,
                       },
                     ]}
                   >
@@ -449,6 +632,8 @@ export default function NotificationsScreen() {
                       item={item}
                       colors={colors}
                       isDark={isDark}
+                      uiScale={uiScale}
+                      fontScale={fontScale}
                       onPress={() => handlePress(item)}
                       onLongPress={() => handleLongPress(item)}
                       getIcon={getNotificationIcon}
@@ -464,7 +649,10 @@ export default function NotificationsScreen() {
                   <View
                     style={[
                       styles.separatorLine,
-                      { backgroundColor: colors.border, marginLeft: 74 },
+                      {
+                        backgroundColor: colors.border,
+                        marginLeft: 74 * uiScale,
+                      },
                     ]}
                   />
                 </View>
@@ -483,23 +671,17 @@ const styles = StyleSheet.create({
   markAllBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
   },
-  markAllText: { fontSize: 13, fontWeight: "700" },
-  // Underline tab bar — matches Explore/Profile, replaces the old
-  // rounded-pill segmented control.
+  markAllText: { fontWeight: "700" },
   tabsRow: {
     flexDirection: "row",
-    marginHorizontal: 18,
     paddingTop: 4,
     borderBottomWidth: 1,
   },
-  tabItem: { flex: 1, alignItems: "center", paddingVertical: 13 },
-  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabItem: { flex: 1, alignItems: "center" },
+  tabText: { fontWeight: "700" },
   tabTextActive: { fontWeight: "900" },
   tabUnderline: {
     position: "absolute",
@@ -509,9 +691,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   listContent: { paddingTop: 8 },
-  sectionHeader: { paddingHorizontal: 4, paddingTop: 16, paddingBottom: 8 },
+  sectionHeader: { paddingHorizontal: 4 },
   sectionTitle: {
-    fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -526,36 +707,28 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    gap: 12,
   },
-  avatarWrap: { position: "relative", width: 48, height: 48, flexShrink: 0 },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatarWrap: { position: "relative", flexShrink: 0 },
+  avatar: {},
   avatarFallback: { alignItems: "center", justifyContent: "center" },
-  avatarFallbackText: { fontSize: 17, fontWeight: "900" },
+  avatarFallbackText: { fontWeight: "900" },
   iconBadge: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#fff",
   },
-  rowBody: { flex: 1, minWidth: 0, gap: 3 },
-  rowText: { fontSize: 13.5, lineHeight: 19, fontWeight: "600" },
-  rowTime: { fontSize: 11.5, fontWeight: "600" },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowText: { lineHeight: 19, fontWeight: "600" },
+  rowTime: { fontWeight: "600" },
+  unreadDot: { flexShrink: 0 },
   separator: { backgroundColor: "transparent" },
   separatorLine: { height: 1 },
   skeletonCard: {
-    marginHorizontal: 18,
     marginTop: 20,
-    borderRadius: 22,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
@@ -571,16 +744,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
   },
-  emptyTitle: { fontSize: 20, fontWeight: "800", textAlign: "center" },
+  emptyTitle: { fontWeight: "800", textAlign: "center" },
   emptySubtitle: {
-    fontSize: 14,
     textAlign: "center",
     lineHeight: 20,
     maxWidth: 280,

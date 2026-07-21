@@ -3,6 +3,14 @@
 // 180°, including ListEmptyComponent. Message bubbles never visibly show
 // this rotation, but the empty-state icon/text did — "No messages yet"
 // was rendering upside-down. Fixed by counter-rotating just that component.
+// ✅ FIXED: date-header placement. The previous logic's own comment said
+// headers go "after the last message of that day," but it actually
+// triggered on the FIRST message of each new day (since messages are
+// sorted newest-first, that's the day's newest message) — so date labels
+// landed sandwiched between a day's own messages instead of sitting at
+// the boundary between two different days. Now checks the NEXT message's
+// date instead of the previous one, pushing the header only once a day's
+// messages are finished (or at the very end of the list).
 
 import type { ChatAttachment } from "@/components/chat/ChatInput";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -88,18 +96,31 @@ export default function ChatList({
 
     // Insert date headers between groups (after reversing so newest is first)
     const items: ListItem[] = [];
-    let lastDate = "";
-    for (const m of visible) {
+    for (let i = 0; i < visible.length; i++) {
+      const m = visible[i];
+      items.push({ type: "message", data: m });
+
       const d = new Date(m.createdAtIso);
       const dateKey = isNaN(d.getTime())
         ? "Unknown Date"
         : d.toLocaleDateString();
-      items.push({ type: "message", data: m });
-      // Date header goes AFTER the last message of that day
-      // (because list is inverted, "after" visually = above)
-      if (dateKey !== lastDate) {
+
+      const next = visible[i + 1];
+      const nextDateKey = next
+        ? isNaN(new Date(next.createdAtIso).getTime())
+          ? "Unknown Date"
+          : new Date(next.createdAtIso).toLocaleDateString()
+        : null;
+
+      // ✅ FIX: push the header once we've finished a day's messages (next
+      // message is a different day, or there is no next message) — not on
+      // the first message of a new day. The old check compared the
+      // CURRENT message's date to the PREVIOUS day seen, which fired at
+      // the newest message of each day (since the array is newest-first)
+      // and sandwiched the label between that day's own messages instead
+      // of placing it at the boundary with the day before it.
+      if (nextDateKey === null || nextDateKey !== dateKey) {
         items.push({ type: "date", label: dateKey });
-        lastDate = dateKey;
       }
     }
     return items;

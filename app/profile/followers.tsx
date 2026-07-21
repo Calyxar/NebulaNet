@@ -1,4 +1,14 @@
 // app/profile/followers.tsx — REACT NATIVE FIREBASE ✅
+// ✅ UI CONSISTENCY PASS: aligned this screen with the rest of the
+//    NebulaNet 2.0 redesign, which it had drifted from:
+//    - Gradient background now matches profile.tsx / [username]/index.tsx
+//      (blue tint) instead of its own purple variant — this is a sub-screen
+//      of Profile and should read as the same surface.
+//    - uiScale/fontScale now threaded through row/avatar/button sizing,
+//      same pattern as home.tsx, so it respects the user's system text-size
+//      setting like the rest of the app now does.
+//    - Card radius bumped from 16 to 18 to match the radius used elsewhere
+//      in the redesign (18–22).
 import AppHeader from "@/components/navigation/AppHeader";
 import UserActionsSheet, {
   type UserActionsSheetRef,
@@ -36,18 +46,32 @@ type FollowRow = {
   } | null;
 };
 
-function SkeletonRow({ colors }: { colors: any }) {
+function SkeletonRow({ colors, uiScale }: { colors: any; uiScale: number }) {
   return (
     <View
       style={[
         styles.skeletonRow,
-        { backgroundColor: colors.card, borderColor: colors.border },
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderRadius: 18 * uiScale,
+          padding: 12 * uiScale,
+          gap: 12 * uiScale,
+        },
       ]}
     >
       <View
-        style={[styles.skeletonAvatar, { backgroundColor: colors.surface }]}
+        style={[
+          styles.skeletonAvatar,
+          {
+            backgroundColor: colors.surface,
+            width: 44 * uiScale,
+            height: 44 * uiScale,
+            borderRadius: 22 * uiScale,
+          },
+        ]}
       />
-      <View style={{ flex: 1, gap: 8 }}>
+      <View style={{ flex: 1, gap: 8 * uiScale }}>
         <View
           style={[
             styles.skeletonLine,
@@ -71,12 +95,16 @@ function FollowerRowItem({
   onPress,
   onMenu,
   colors,
+  uiScale,
+  fontScale,
 }: {
   item: UserRowModel;
   isMutual: boolean;
   onPress: () => void;
   onMenu: () => void;
   colors: any;
+  uiScale: number;
+  fontScale: number;
 }) {
   const { follow, unfollow, isFollowingBusy } = useFollowActions(
     item.id,
@@ -109,6 +137,11 @@ function FollowerRowItem({
       activeOpacity={0.8}
       style={[
         styles.followBtn,
+        {
+          paddingHorizontal: 13 * uiScale,
+          paddingVertical: 8 * uiScale,
+          minWidth: 92 * uiScale,
+        },
         isFollowing || isPending
           ? {
               backgroundColor: colors.surface,
@@ -127,7 +160,10 @@ function FollowerRowItem({
         <Text
           style={[
             styles.followBtnText,
-            { color: isFollowing || isPending ? colors.text : "#fff" },
+            {
+              color: isFollowing || isPending ? colors.text : "#fff",
+              fontSize: 12 * fontScale,
+            },
           ]}
         >
           {followLabel}
@@ -148,7 +184,7 @@ function FollowerRowItem({
 
 export default function FollowersScreen() {
   const { user } = useAuth();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const qc = useQueryClient();
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
@@ -156,9 +192,12 @@ export default function FollowersScreen() {
 
   const myId = user?.uid;
 
+  // ✅ Aligned with profile.tsx / [username]/index.tsx's gradient — this
+  // screen is reached from Profile and should read as the same surface
+  // instead of its own purple-tinted variant.
   const gradientColors = isDark
-    ? [colors.background, colors.background]
-    : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const {
     data: rows,
@@ -295,7 +334,7 @@ export default function FollowersScreen() {
   return (
     <LinearGradient
       colors={gradientColors as any}
-      locations={[0, 0.3, 1]}
+      locations={[0, 0.42, 1]}
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -305,9 +344,15 @@ export default function FollowersScreen() {
         />
 
         {isLoading ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+          <View
+            style={{
+              paddingHorizontal: 16 * uiScale,
+              paddingTop: 12 * uiScale,
+              gap: 10 * uiScale,
+            }}
+          >
             {Array.from({ length: 8 }).map((_, i) => (
-              <SkeletonRow key={i} colors={colors} />
+              <SkeletonRow key={i} colors={colors} uiScale={uiScale} />
             ))}
           </View>
         ) : (
@@ -316,6 +361,7 @@ export default function FollowersScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
               styles.listContent,
+              { paddingHorizontal: 16 * uiScale, paddingTop: 12 * uiScale },
               list.length === 0 && styles.listEmpty,
             ]}
             refreshControl={
@@ -325,7 +371,9 @@ export default function FollowersScreen() {
                 tintColor={colors.primary}
               />
             }
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            ItemSeparatorComponent={() => (
+              <View style={{ height: 10 * uiScale }} />
+            )}
             renderItem={({ item }) => (
               <FollowerRowItem
                 item={item}
@@ -333,6 +381,8 @@ export default function FollowersScreen() {
                 onPress={() => router.push(`/user/${item.username}`)}
                 onMenu={() => openMenu(item)}
                 colors={colors}
+                uiScale={uiScale}
+                fontScale={fontScale}
               />
             )}
             ListEmptyComponent={
@@ -340,7 +390,12 @@ export default function FollowersScreen() {
                 <View
                   style={[
                     styles.emptyIconCircle,
-                    { backgroundColor: colors.surface },
+                    {
+                      backgroundColor: colors.surface,
+                      width: 72 * uiScale,
+                      height: 72 * uiScale,
+                      borderRadius: 36 * uiScale,
+                    },
                   ]}
                 >
                   <Ionicons
@@ -349,11 +404,19 @@ export default function FollowersScreen() {
                     color={colors.primary}
                   />
                 </View>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                <Text
+                  style={[
+                    styles.emptyTitle,
+                    { color: colors.text, fontSize: 18 * fontScale },
+                  ]}
+                >
                   No followers yet
                 </Text>
                 <Text
-                  style={[styles.emptyDesc, { color: colors.textTertiary }]}
+                  style={[
+                    styles.emptyDesc,
+                    { color: colors.textTertiary, fontSize: 13 * fontScale },
+                  ]}
                 >
                   When people follow you, they'll appear here.
                 </Text>
@@ -386,30 +449,24 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
 
-  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+  listContent: { paddingBottom: 24 },
   listEmpty: { flex: 1 },
 
   skeletonRow: {
-    borderRadius: 16,
-    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     borderWidth: 1,
   },
-  skeletonAvatar: { width: 44, height: 44, borderRadius: 22 },
+  skeletonAvatar: {},
   skeletonLine: { height: 12, borderRadius: 6 },
 
   followBtn: {
-    paddingHorizontal: 13,
-    paddingVertical: 8,
     borderRadius: 999,
-    minWidth: 92,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  followBtnText: { fontSize: 12, fontWeight: "800" },
+  followBtnText: { fontWeight: "800" },
 
   empty: {
     flex: 1,
@@ -420,16 +477,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
   },
-  emptyTitle: { fontSize: 18, fontWeight: "900", textAlign: "center" },
+  emptyTitle: { fontWeight: "900", textAlign: "center" },
   emptyDesc: {
-    fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 18,

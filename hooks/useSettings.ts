@@ -54,6 +54,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   auto_play_media: true,
   reduce_animations: false,
   font_size: "medium",
+  ui_scale: "normal",
   email_notifications: true,
   push_notifications: true,
   default_sort: "best",

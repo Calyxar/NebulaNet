@@ -1110,3 +1110,140 @@ export const syncNewsFromCurrents = onSchedule(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BIRTHDAYS: daily push notification + over18 claim sweep
+// Runs once a day. For every profile whose birthMMDD matches today:
+//   1. If showBirthday is true and they have an fcm_token, send a
+//      "Happy Birthday" push (same message shape as sendPushNotification).
+//   2. Recompute age from birthDate and flip the over18 custom claim if it's
+//      out of date — this is what gates NSFW content client-side via
+//      request.auth.token.over18 in firestore.rules.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function todayMMDD(): string {
+  const now = new Date();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  return month + "-" + day;
+}
+
+export const syncDailyBirthdays = onSchedule(
+  { schedule: "every day 14:00", timeoutSeconds: 300 },
+  async () => {
+    const mmdd = todayMMDD();
+    const snap = await db
+      .collection("profiles")
+      .where("birthMMDD", "==", mmdd)
+      .get();
+
+    if (snap.empty) {
+      console.log("[syncDailyBirthdays] no birthdays today (" + mmdd + ")");
+      return;
+    }
+
+    let pushed = 0;
+    let claimsUpdated = 0;
+
+    await Promise.all(
+      snap.docs.map(async (doc) => {
+        const userId = doc.id;
+        const profile = doc.data() as Record<string, unknown>;
+
+        // ── 1. Birthday push notification ──────────────────────────────────
+        if (profile.showBirthday === true) {
+          const fcmToken = (profile.fcm_token as string) ?? null;
+          if (fcmToken) {
+            try {
+              await getMessaging().send({
+                token: fcmToken,
+                notification: {
+                  title: "Happy Birthday! 🎂",
+                  body: "Everyone at NebulaNet is wishing you a great day.",
+                },
+                android: {
+                  notification: {
+                    channelId: "default_v2",
+                    sound: "default",
+                    priority: "high" as const,
+                  },
+                  priority: "high" as const,
+                },
+                apns: {
+                  payload: { aps: { sound: "default", badge: 1 } },
+                },
+                data: { type: "birthday", userId },
+              });
+              pushed++;
+            } catch (err: any) {
+              console.error(
+                "[syncDailyBirthdays] push failed for",
+                userId,
+                String(err),
+              );
+              if (
+                err?.code === "messaging/registration-token-not-registered" ||
+                err?.code === "messaging/invalid-registration-token"
+              ) {
+                await db
+                  .collection("profiles")
+                  .doc(userId)
+                  .update({ fcm_token: null });
+                console.log("[syncDailyBirthdays] cleared invalid FCM token for", userId);
+              }
+            }
+          }
+        }
+
+        // ── 2. over18 claim flip ────────────────────────────────────────────
+        const birthDate = profile.birthDate as
+          | FirebaseFirestore.Timestamp
+          | undefined;
+        if (!birthDate?.toDate) return;
+
+        const dob = birthDate.toDate();
+        const now = new Date();
+        // birthMMDD equality above already guarantees month/day match, so a
+        // plain year subtraction is exact here — no "hasn't happened yet
+        // this year" adjustment needed.
+        const age = now.getUTCFullYear() - dob.getUTCFullYear();
+        const isNowAdult = age >= 18;
+
+        try {
+          const userRecord = await auth.getUser(userId);
+          const currentClaims = userRecord.customClaims ?? {};
+          if (currentClaims.over18 !== isNowAdult) {
+            await auth.setCustomUserClaims(userId, {
+              ...currentClaims,
+              over18: isNowAdult,
+            });
+            claimsUpdated++;
+            console.log(
+              "[syncDailyBirthdays] over18 claim set to",
+              isNowAdult,
+              "for",
+              userId,
+            );
+          }
+        } catch (err) {
+          console.error(
+            "[syncDailyBirthdays] claim update failed for",
+            userId,
+            String(err),
+          );
+        }
+      }),
+    );
+
+    console.log(
+      "[syncDailyBirthdays]",
+      mmdd,
+      "— profiles matched:",
+      snap.size,
+      "pushes sent:",
+      pushed,
+      "claims updated:",
+      claimsUpdated,
+    );
+  },
+);

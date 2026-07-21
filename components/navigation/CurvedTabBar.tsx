@@ -28,10 +28,14 @@ function CreateTabButton({
   onPress,
   colors,
   isDark,
+  uiScale,
+  styles,
 }: {
   onPress: () => void;
   colors: any;
   isDark: boolean;
+  uiScale: number;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [pressed, setPressed] = useState(false);
@@ -86,7 +90,7 @@ function CreateTabButton({
             { opacity: pressed ? 0.08 : 0, backgroundColor: "#000" },
           ]}
         />
-        <Plus size={28} color="#FFFFFF" strokeWidth={3} />
+        <Plus size={28 * uiScale} color="#FFFFFF" strokeWidth={3} />
       </Animated.View>
     </Pressable>
   );
@@ -99,7 +103,9 @@ export default function CurvedTabBar({
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const height = getTabBarHeight(insets.bottom);
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale } = useTheme();
+
+  const styles = makeStyles(uiScale);
 
   const activeColor = colors.primary;
   const inactiveColor = colors.textTertiary;
@@ -146,7 +152,7 @@ export default function CurvedTabBar({
 
           // Icon-only nav (Twitter/Bluesky style) — slightly larger now that
           // there's no label competing for vertical space underneath.
-          const iconSize = isFocused ? 28 : 26;
+          const iconSize = (isFocused ? 28 : 26) * uiScale;
           const color = isFocused ? activeColor : inactiveColor;
           const strokeWidth = isFocused ? 2.5 : 2;
 
@@ -157,6 +163,8 @@ export default function CurvedTabBar({
                   onPress={onPress}
                   colors={colors}
                   isDark={isDark}
+                  uiScale={uiScale}
+                  styles={styles}
                 />
               </View>
             );
@@ -216,6 +224,9 @@ export default function CurvedTabBar({
               }}
               style={styles.tab}
               activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={route.name}
+              accessibilityState={{ selected: isFocused }}
             >
               <View style={styles.iconWrap}>
                 <Icon />
@@ -233,74 +244,75 @@ export default function CurvedTabBar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "transparent",
-  },
-  tabBar: {
-    flex: 1,
-    flexDirection: "row",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 14,
-    paddingHorizontal: 4,
-    borderTopWidth: Platform.OS === "android" ? 1 : 0,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowRadius: 12,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-  createTab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: -20,
-  },
-  createPressable: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  createButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "transparent",
-    shadowOpacity: 0,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 0,
-    elevation: 0,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  softPressOverlay: { ...StyleSheet.absoluteFillObject },
-  iconWrap: {
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badge: {
-    position: "absolute",
-    top: -6,
-    right: -12,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EF4444",
-    borderWidth: 2,
-  },
-  badgeText: { color: "#fff", fontSize: 11, fontWeight: "900" },
-});
+const makeStyles = (uiScale: number) =>
+  StyleSheet.create({
+    container: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: "transparent",
+    },
+    tabBar: {
+      flex: 1,
+      flexDirection: "row",
+      borderTopLeftRadius: 28 * uiScale,
+      borderTopRightRadius: 28 * uiScale,
+      paddingTop: 14 * uiScale,
+      paddingHorizontal: 4 * uiScale,
+      borderTopWidth: Platform.OS === "android" ? 1 : 0,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -4 },
+      shadowRadius: 12,
+    },
+    tab: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 8 * uiScale,
+    },
+    createTab: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: -20 * uiScale,
+    },
+    createPressable: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    createButton: {
+      width: 56 * uiScale,
+      height: 56 * uiScale,
+      borderRadius: 28 * uiScale,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "transparent",
+      shadowOpacity: 0,
+      shadowOffset: { width: 0, height: 0 },
+      shadowRadius: 0,
+      elevation: 0,
+      borderWidth: 1,
+      overflow: "hidden",
+    },
+    softPressOverlay: { ...StyleSheet.absoluteFillObject },
+    iconWrap: {
+      position: "relative",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    badge: {
+      position: "absolute",
+      top: -6 * uiScale,
+      right: -12 * uiScale,
+      minWidth: 18 * uiScale,
+      height: 18 * uiScale,
+      borderRadius: 9 * uiScale,
+      paddingHorizontal: 5 * uiScale,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#EF4444",
+      borderWidth: 2 * uiScale,
+    },
+    badgeText: { color: "#fff", fontSize: 11 * uiScale, fontWeight: "900" },
+  });

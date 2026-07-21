@@ -9,6 +9,16 @@
 //        Android locks channel sound settings permanently after first
 //        creation, the device could get stuck with a no-sound channel.
 // Fix 5: channel IDs updated to _v2 suffix to match lib/notifications.ts
+// Fix 6: the sound-preference useEffect's onAuthStateChanged callback was
+//        async and returned its onSnapshot unsubscribe function — Firebase
+//        discards return values from auth-state callbacks, so that
+//        Firestore listener was never torn down on unmount or on a
+//        subsequent auth-state change (sign-out/sign-in, account switch).
+//        Each re-fire left a new, permanently-open listener on
+//        user_settings behind. Now captures and unsubscribes the previous
+//        listener before creating a new one, and cleans up on unmount —
+//        the same pattern the notifications listener effect below this one
+//        already used correctly.
 
 import { getNotificationsMuted } from "@/lib/notifications";
 import auth from "@react-native-firebase/auth";
@@ -80,20 +90,30 @@ export function useNotifications() {
   const soundPrefRef = useRef<SoundPref>("default");
 
   useEffect(() => {
-    const unsub = auth().onAuthStateChanged(async (user) => {
-      if (!user) return;
-      try {
-        const snap = await firestore()
-          .collection("user_settings")
-          .doc(user.uid)
-          .get();
-        const pref: SoundPref =
-          (snap.data() as any)?.notification_sound ?? "default";
-        setSoundPref(pref);
-        soundPrefRef.current = pref;
-      } catch {}
+    // ✅ FIX 6: track the current user_settings snapshot listener so it can
+    // be torn down before attaching a new one (or on unmount) — mirrors the
+    // pattern the notifications listener effect below uses correctly.
+    let unsubSnapshot: (() => void) | null = null;
 
-      return firestore()
+    const unsubAuth = auth().onAuthStateChanged((user) => {
+      unsubSnapshot?.();
+      unsubSnapshot = null;
+
+      if (!user) return;
+
+      firestore()
+        .collection("user_settings")
+        .doc(user.uid)
+        .get()
+        .then((snap) => {
+          const pref: SoundPref =
+            (snap.data() as any)?.notification_sound ?? "default";
+          setSoundPref(pref);
+          soundPrefRef.current = pref;
+        })
+        .catch(() => {});
+
+      unsubSnapshot = firestore()
         .collection("user_settings")
         .doc(user.uid)
         .onSnapshot((snap) => {
@@ -103,7 +123,11 @@ export function useNotifications() {
           soundPrefRef.current = pref;
         });
     });
-    return () => unsub();
+
+    return () => {
+      unsubAuth();
+      unsubSnapshot?.();
+    };
   }, []);
 
   // ✅ FIX 4: NO LONGER creates channels here. lib/notifications.ts's

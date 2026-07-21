@@ -1,4 +1,23 @@
-// components/post/PostCard.tsx — ✅ FIXED: hashtags tappable in feed (Twitter-style)
+// components/post/PostCard.tsx — canonical PostCard for NebulaNet 2.0
+// ✅ Hashtags tappable in feed (Twitter-style)
+// ✅ "You reposted" label + quote-repost preview card
+// ✅ isReposted/repostCount seeded from feed-query props instead of a
+//    per-card Firestore read — avoids an N+1 read.
+// ✅ "Not interested" in the "..." menu — Phase B of the recommendation-
+//    engine work, backed by useMarkNotInterested.
+// ✅ NEW: "Boost this post" in the "..." menu (owner-only) — Phase 4
+//    monetization. Backed by purchasePostBoost from
+//    lib/monetization/boostPost.ts, which handles the real RevenueCat
+//    purchase + server-side verification via the applyPostBoost Cloud
+//    Function. This component never writes is_boosted/boosted_until
+//    itself — it only triggers the purchase flow and reflects whatever
+//    the props say once the parent's data refetches after purchase.
+// ✅ NEW: "🚀 Boosted" badge, shown whenever isBoosted is true AND
+//    boostedUntil hasn't passed — checked client-side against the actual
+//    timestamp (not just the flag) so an expired boost stops showing the
+//    badge immediately rather than waiting on a server-side cleanup job,
+//    same reasoning as hasActiveBoost() in lib/firestore/posts.ts.
+
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
@@ -6,16 +25,21 @@ import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
 import { useAuth } from "@/hooks/useAuth";
-import { useDeletePost, useToggleRepost } from "@/hooks/usePosts";
+import {
+  useDeletePost,
+  useMarkNotInterested,
+  useToggleRepost,
+} from "@/hooks/usePosts";
 import { useOptimisticSharePost } from "@/hooks/useShares";
 import { type PollData } from "@/lib/firestore/polls";
-import { getRepostStatus } from "@/lib/firestore/reposts";
+import { purchasePostBoost } from "@/lib/monetization/boostPost";
 import { generatePostLink } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -27,6 +51,13 @@ import {
 } from "react-native";
 
 const SCREEN_W = Dimensions.get("window").width;
+
+interface QuotedPostPreview {
+  id: string;
+  content?: string;
+  media_urls?: string[];
+  user?: { full_name?: string; username?: string; avatar_url?: string };
+}
 
 interface PostCardProps {
   id: string;
@@ -44,8 +75,14 @@ interface PostCardProps {
   saves: number;
   isLiked: boolean;
   isSaved: boolean;
+  isReposted?: boolean;
+  isRepostByMe?: boolean;
+  quotedPost?: QuotedPostPreview | null;
   media?: string[];
   viewCount?: number;
+  // ✅ NEW: monetization — paid post boosts
+  isBoosted?: boolean;
+  boostedUntil?: string | null;
   onLikePress?: () => void | Promise<void>;
   onCommentPress?: () => void;
   onSharePress?: () => void | Promise<void>;
@@ -61,6 +98,80 @@ const isVideoUrl = (url?: string | null) => {
     clean.endsWith(`.${e}`),
   );
 };
+
+function QuotedPostCard({
+  quotedPost,
+  colors,
+}: {
+  quotedPost: QuotedPostPreview;
+  colors: any;
+}) {
+  const author =
+    quotedPost.user?.full_name || quotedPost.user?.username || "User";
+  return (
+    <TouchableOpacity
+      style={[
+        quotedStyles.card,
+        { borderColor: colors.border, backgroundColor: colors.surface },
+      ]}
+      onPress={() => router.push(`/post/${quotedPost.id}` as any)}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={`Quoted post by ${author}`}
+    >
+      <View style={quotedStyles.header}>
+        {quotedPost.user?.avatar_url ? (
+          <Image
+            source={{ uri: quotedPost.user.avatar_url }}
+            style={quotedStyles.avatar}
+          />
+        ) : (
+          <View
+            style={[
+              quotedStyles.avatarFallback,
+              { backgroundColor: colors.primary + "30" },
+            ]}
+          >
+            <Text
+              style={[quotedStyles.avatarLetter, { color: colors.primary }]}
+            >
+              {(author[0] || "U").toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text
+          style={[quotedStyles.author, { color: colors.text }]}
+          numberOfLines={1}
+        >
+          {author}
+        </Text>
+        {!!quotedPost.user?.username && (
+          <Text
+            style={[quotedStyles.handle, { color: colors.textTertiary }]}
+            numberOfLines={1}
+          >
+            @{quotedPost.user.username}
+          </Text>
+        )}
+      </View>
+      {!!quotedPost.content && (
+        <Text
+          style={[quotedStyles.content, { color: colors.textSecondary }]}
+          numberOfLines={3}
+        >
+          {quotedPost.content}
+        </Text>
+      )}
+      {!!quotedPost.media_urls?.[0] && (
+        <Image
+          source={{ uri: quotedPost.media_urls[0] }}
+          style={quotedStyles.media}
+          resizeMode="cover"
+        />
+      )}
+    </TouchableOpacity>
+  );
+}
 
 export default function PostCard(props: PostCardProps) {
   const {
@@ -79,8 +190,13 @@ export default function PostCard(props: PostCardProps) {
     saves,
     isLiked,
     isSaved,
+    isReposted: isRepostedProp = false,
+    isRepostByMe = false,
+    quotedPost,
     media,
     viewCount,
+    isBoosted = false,
+    boostedUntil = null,
     onLikePress,
     onSavePress,
     getMoreActions,
@@ -92,18 +208,28 @@ export default function PostCard(props: PostCardProps) {
   const deletePostMutation = useDeletePost();
   const sharePostMutation = useOptimisticSharePost();
   const toggleRepostMutation = useToggleRepost();
+  const markNotInterestedMutation = useMarkNotInterested();
 
   const [expanded, setExpanded] = useState(false);
-  const [isReposted, setIsReposted] = useState(false);
+  const [isReposted, setIsReposted] = useState(isRepostedProp);
   const [repostCount, setRepostCount] = useState(reposts);
   const [isReposting, setIsReposting] = useState(false);
   const [shareCount, setShareCount] = useState(shares);
+  const [isBoostingPost, setIsBoostingPost] = useState(false);
   const hasTrackedView = useRef(false);
 
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
 
   const isOwned = !!user?.uid && user.uid === author.id;
+
+  // ✅ NEW: active only while boostedUntil hasn't passed — an expired
+  // boost stops showing the badge immediately rather than waiting on a
+  // server-side cleanup job to flip isBoosted back to false.
+  const hasActiveBoost =
+    isBoosted &&
+    !!boostedUntil &&
+    new Date(boostedUntil).getTime() > Date.now();
 
   useEffect(() => {
     if (!hasTrackedView.current && onVisible) {
@@ -113,14 +239,8 @@ export default function PostCard(props: PostCardProps) {
   }, [onVisible]);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setIsReposted(false);
-      return;
-    }
-    getRepostStatus(id)
-      .then(setIsReposted)
-      .catch(() => setIsReposted(false));
-  }, [id, user?.uid]);
+    setIsReposted(isRepostedProp);
+  }, [isRepostedProp]);
 
   useEffect(() => {
     setRepostCount(reposts);
@@ -175,9 +295,62 @@ export default function PostCard(props: PostCardProps) {
     ]);
   };
 
+  const handleNotInterested = () => {
+    markNotInterestedMutation.mutate({
+      postId: id,
+      authorId: author.id,
+      content,
+    });
+  };
+
+  // ✅ NEW: kicks off the real RevenueCat purchase flow. purchasePostBoost
+  // handles the store payment sheet + server-side verification; this
+  // component only shows the confirmation prompt and loading/error state
+  // around it. It never writes is_boosted/boosted_until itself — that
+  // only happens inside the applyPostBoost Cloud Function once a real
+  // purchase is verified.
+  const handleBoost = () => {
+    if (hasActiveBoost) {
+      Alert.alert(
+        "Already boosted",
+        "This post is currently boosted. Check back after it expires to boost it again.",
+      );
+      return;
+    }
+    Alert.alert(
+      "Boost this post?",
+      "Boosting increases how often this post is shown in For You feeds for 24 hours.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Boost",
+          onPress: async () => {
+            setIsBoostingPost(true);
+            try {
+              const result = await purchasePostBoost(id);
+              if (result.status === "success") {
+                Alert.alert(
+                  "Boosted!",
+                  "Your post is now boosted for the next 24 hours.",
+                );
+              } else if (result.status === "error") {
+                Alert.alert("Boost failed", result.message);
+              }
+              // "cancelled" (user backed out of the payment sheet) shows
+              // nothing — same as any other cancelled purchase flow.
+            } finally {
+              setIsBoostingPost(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleMoreOptions = () => {
     const buttons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
+      { text: "Not interested", onPress: handleNotInterested },
       {
         text: isReposted ? "Undo Repost" : "Repost",
         onPress: () => (repostSheetRef.current as any)?.present(),
@@ -189,6 +362,12 @@ export default function PostCard(props: PostCardProps) {
     ];
 
     if (isOwned) {
+      // ✅ NEW: owner-only, placed right after the always-present actions
+      // and before the destructive Delete option below.
+      buttons.push({
+        text: hasActiveBoost ? "Boosted" : "Boost this post",
+        onPress: handleBoost,
+      });
       buttons.push({
         text: "Delete Post",
         style: "destructive",
@@ -227,6 +406,8 @@ export default function PostCard(props: PostCardProps) {
           activeOpacity={0.9}
           onPress={openPost}
           style={styles.singleImageWrap}
+          accessibilityRole="imagebutton"
+          accessibilityLabel="Open post image"
         >
           <Image
             source={{ uri: imageUrls[0] }}
@@ -248,6 +429,8 @@ export default function PostCard(props: PostCardProps) {
               imageUrls.length === 2 && { width: "49%" },
               imageUrls.length >= 3 && { width: "32%" },
             ]}
+            accessibilityRole="imagebutton"
+            accessibilityLabel={`Open post image ${idx + 1}`}
           >
             <Image
               source={{ uri: url }}
@@ -269,7 +452,6 @@ export default function PostCard(props: PostCardProps) {
 
   return (
     <>
-      {/* ✅ No onPress on outer container — lets hashtag/mention taps fall through */}
       <View
         style={[
           styles.container,
@@ -278,12 +460,57 @@ export default function PostCard(props: PostCardProps) {
             borderColor: colors.border,
             shadowOpacity: isDark ? 0.22 : 0.04,
           },
+          // ✅ NEW: a subtle border tint on boosted posts, in addition to
+          // the badge — keeps them visually distinct even at a glance in
+          // a fast-scrolling feed.
+          hasActiveBoost && { borderColor: colors.primary, borderWidth: 1.5 },
         ]}
       >
-        {/* Header — tapping author goes to profile */}
+        {(isRepostByMe || hasActiveBoost) && (
+          <View style={styles.topLabelsRow}>
+            {isRepostByMe && (
+              <View style={styles.repostLabel}>
+                <Ionicons
+                  name="repeat-outline"
+                  size={13}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={[
+                    styles.repostLabelText,
+                    { color: colors.textTertiary },
+                  ]}
+                >
+                  You reposted
+                </Text>
+              </View>
+            )}
+            {hasActiveBoost && (
+              <View
+                style={[
+                  styles.boostBadge,
+                  { backgroundColor: colors.primary + "18" },
+                ]}
+              >
+                <Ionicons name="rocket" size={12} color={colors.primary} />
+                <Text
+                  style={[styles.boostBadgeText, { color: colors.primary }]}
+                >
+                  Boosted
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={styles.header}>
           <Link href={`/user/${author.id}`} asChild>
-            <TouchableOpacity style={styles.authorInfo} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.authorInfo}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${author.name}'s profile`}
+            >
               <Avatar size={40} name={author.name} image={author.avatar} />
               <View style={styles.authorDetails}>
                 <Text style={[styles.authorName, { color: colors.text }]}>
@@ -317,17 +544,23 @@ export default function PostCard(props: PostCardProps) {
               style={styles.moreButton}
               hitSlop={12}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="More options"
+              disabled={isBoostingPost}
             >
-              <Ionicons
-                name="ellipsis-horizontal"
-                size={20}
-                color={colors.textTertiary}
-              />
+              {isBoostingPost ? (
+                <ActivityIndicator size={16} color={colors.textTertiary} />
+              ) : (
+                <Ionicons
+                  name="ellipsis-horizontal"
+                  size={20}
+                  color={colors.textTertiary}
+                />
+              )}
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Content — pointerEvents="box-none" lets child hashtag taps through */}
         <View style={styles.content} pointerEvents="box-none">
           {isPoll ? (
             <>
@@ -358,9 +591,6 @@ export default function PostCard(props: PostCardProps) {
                   </Text>
                 </TouchableOpacity>
               )}
-              {/* ✅ HashtagText has no onPress — tapping plain text does nothing,
-                  tapping a hashtag/mention routes to that page.
-                  Users tap the action bar to open the post, like Twitter. */}
               <HashtagText
                 text={displayContent}
                 style={StyleSheet.flatten([
@@ -372,11 +602,13 @@ export default function PostCard(props: PostCardProps) {
                 <Text
                   style={[styles.readMore, { color: colors.primary }]}
                   onPress={() => setExpanded((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={expanded ? "Show less" : "Read more"}
                 >
                   {expanded ? " Show less" : " Read more"}
                 </Text>
               )}
-              {videoUrls.length > 0 && (
+              {!quotedPost && videoUrls.length > 0 && (
                 <View style={{ marginTop: 12, gap: 8 }}>
                   {videoUrls.map((url, idx) => (
                     <VideoPlayer
@@ -387,8 +619,13 @@ export default function PostCard(props: PostCardProps) {
                   ))}
                 </View>
               )}
-              {imageUrls.length > 0 && (
+              {!quotedPost && imageUrls.length > 0 && (
                 <View style={{ marginTop: 10 }}>{renderImageGrid()}</View>
+              )}
+              {!!quotedPost && (
+                <View style={{ marginTop: 10 }}>
+                  <QuotedPostCard quotedPost={quotedPost} colors={colors} />
+                </View>
               )}
             </>
           )}
@@ -400,11 +637,12 @@ export default function PostCard(props: PostCardProps) {
           </Text>
         )}
 
-        {/* Stats row — tapping opens post */}
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={openPost}
           style={[styles.stats, { borderColor: colors.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="View post stats"
         >
           <Stat icon="heart" value={likes} label="like" color="#FF375F" />
           <Stat
@@ -439,6 +677,7 @@ export default function PostCard(props: PostCardProps) {
             label="Like"
             color={isLiked ? "#FF375F" : colors.textSecondary}
             onPress={() => void onLikePress?.()}
+            accessibilityState={{ selected: isLiked }}
           />
           <Action
             icon="chatbubble-outline"
@@ -452,6 +691,7 @@ export default function PostCard(props: PostCardProps) {
             color={isReposted ? colors.primary : colors.textSecondary}
             disabled={isReposting}
             onPress={() => (repostSheetRef.current as any)?.present()}
+            accessibilityState={{ selected: isReposted }}
           />
           <Action
             icon="share-outline"
@@ -464,6 +704,7 @@ export default function PostCard(props: PostCardProps) {
             label="Save"
             color={isSaved ? colors.primary : colors.textSecondary}
             onPress={() => void onSavePress?.()}
+            accessibilityState={{ selected: isSaved }}
           />
         </View>
       </View>
@@ -514,12 +755,14 @@ function Action({
   color,
   disabled,
   onPress,
+  accessibilityState,
 }: {
   icon: any;
   label: string;
   color: string;
   disabled?: boolean;
   onPress?: (e?: any) => void;
+  accessibilityState?: { selected?: boolean };
 }) {
   return (
     <TouchableOpacity
@@ -527,6 +770,9 @@ function Action({
       onPress={onPress}
       disabled={disabled}
       activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={accessibilityState}
     >
       <Ionicons name={icon} size={22} color={color} />
       <Text style={[styles.actionText, { color }]}>{label}</Text>
@@ -545,6 +791,27 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  topLabelsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  repostLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  repostLabelText: { fontSize: 12, fontWeight: "600" },
+  boostBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  boostBadgeText: { fontSize: 11, fontWeight: "800" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -610,4 +877,27 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", justifyContent: "space-around" },
   actionButton: { alignItems: "center", padding: 4 },
   actionText: { fontSize: 11, marginTop: 4 },
+});
+
+const quotedStyles = StyleSheet.create({
+  card: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    gap: 6,
+  },
+  header: { flexDirection: "row", alignItems: "center", gap: 6 },
+  avatar: { width: 18, height: 18, borderRadius: 9 },
+  avatarFallback: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarLetter: { fontSize: 9, fontWeight: "900" },
+  author: { fontSize: 13, fontWeight: "700", flexShrink: 1 },
+  handle: { fontSize: 12, flexShrink: 1 },
+  content: { fontSize: 13, lineHeight: 18 },
+  media: { width: "100%", height: 120, borderRadius: 10, marginTop: 4 },
 });

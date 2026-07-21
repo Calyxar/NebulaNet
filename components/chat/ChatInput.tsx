@@ -4,6 +4,14 @@
 // ✅ Keeps the same "surface area": onSendMessage(message, attachments?)
 // ✅ Attachments now include: url (downloadURL) + storagePath (Firebase path)
 // ✅ Cancel/Close buttons wrapped in SafeAreaView so they don't sit under gesture bar
+// ✅ FIXED: the input container and placeholder text used colors.inputBackground
+//    and colors.tertiary — theme keys that don't match the naming convention
+//    used everywhere else in this project (colors.surface for input/card
+//    backgrounds, colors.textTertiary for muted text). Those two keys were
+//    almost certainly undefined, so the input's background silently fell
+//    through to transparent and the placeholder color fell back to a
+//    platform default instead of the theme. Now uses colors.surface and
+//    colors.textTertiary, matching every other screen in the app.
 
 import { useTyping } from "@/hooks/useTyping";
 import { uploadChatFile } from "@/lib/firestore/storage";
@@ -608,7 +616,12 @@ export default function ChatInput({
         <View
           style={[
             styles.inputContainer,
-            { backgroundColor: colors.inputBackground },
+            // ✅ FIX: colors.inputBackground did not match this project's
+            // theme key naming convention (colors.surface is used for
+            // input/card backgrounds everywhere else) — was almost
+            // certainly undefined, silently falling through to a
+            // transparent background.
+            { backgroundColor: colors.surface },
           ]}
         >
           <TouchableOpacity
@@ -637,7 +650,12 @@ export default function ChatInput({
               bumpTyping(t);
             }}
             placeholder={placeholder}
-            placeholderTextColor={colors.tertiary}
+            // ✅ FIX: colors.tertiary did not match this project's theme
+            // key naming convention (colors.textTertiary is used for muted
+            // text everywhere else) — was almost certainly undefined,
+            // falling back to a platform default placeholder color instead
+            // of the theme's muted gray.
+            placeholderTextColor={colors.textTertiary}
             multiline
             maxLength={1000}
             editable={!disabled && !isUploading}

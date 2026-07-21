@@ -1,3 +1,13 @@
+// app/(tabs)/explore.tsx — React Native Firebase ✅
+// ✅ FIXED: unguarded .toLocaleString() on like/comment/repost counts in
+// the Top Posts trending block — now guarded with ?? 0, matching the
+// Latest tab's already-guarded version.
+// ✅ Added uiScale/fontScale across header/search bar, tab bar, rows,
+// avatars, cards, post stats, news items, empty states.
+// ✅ NEW: FilterModal now also threaded with uiScale/fontScale — this was
+// deliberately deferred during the original pass (lower-traffic than the
+// main feed), closing that gap now.
+
 import { CommunityRow } from "@/components/CommunityRow";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
@@ -35,10 +45,6 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-// ✅ NEW: news links now open via the platform's native in-app browser
-// (Safari View Controller / Chrome Custom Tabs) — the same mechanism
-// Twitter uses for external links — instead of routing to a custom
-// /news/viewer screen that was never built.
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -76,8 +82,6 @@ const GRID_COLS = 3;
 const GRID_CELL =
   (SCREEN_W - GRID_H_PAD - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
-// "hashtag" is no longer a standalone tab — trending hashtags surface as
-// ranked cards inside the Top feed instead, Twitter-Explore style.
 type ExploreCategory =
   | "top"
   | "latest"
@@ -117,6 +121,8 @@ function FilterModal({
   onSafetyFilter,
   colors,
   isDark,
+  uiScale,
+  fontScale,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -126,6 +132,8 @@ function FilterModal({
   onSafetyFilter: (f: SafetyFilter) => void;
   colors: any;
   isDark: boolean;
+  uiScale: number;
+  fontScale: number;
 }) {
   const mediaOptions: { key: MediaFilter; label: string; icon: string }[] = [
     { key: "all", label: "All media", icon: "apps-outline" },
@@ -167,15 +175,47 @@ function FilterModal({
         activeOpacity={1}
         onPress={onClose}
       />
-      <View style={[fStyles.sheet, { backgroundColor: colors.card }]}>
-        <View style={[fStyles.handle, { backgroundColor: colors.border }]} />
-        <Text style={[fStyles.title, { color: colors.text }]}>
+      <View
+        style={[
+          fStyles.sheet,
+          {
+            backgroundColor: colors.card,
+            padding: 24 * uiScale,
+            paddingBottom: 40 * uiScale,
+          },
+        ]}
+      >
+        <View
+          style={[
+            fStyles.handle,
+            { backgroundColor: colors.border, marginBottom: 20 * uiScale },
+          ]}
+        />
+        <Text
+          style={[
+            fStyles.title,
+            {
+              color: colors.text,
+              fontSize: 18 * fontScale,
+              marginBottom: 20 * uiScale,
+            },
+          ]}
+        >
           Search Filters
         </Text>
-        <Text style={[fStyles.sectionLabel, { color: colors.textTertiary }]}>
+        <Text
+          style={[
+            fStyles.sectionLabel,
+            {
+              color: colors.textTertiary,
+              fontSize: 12 * fontScale,
+              marginBottom: 12 * uiScale,
+            },
+          ]}
+        >
           Media type
         </Text>
-        <View style={fStyles.optionGrid}>
+        <View style={[fStyles.optionGrid, { gap: 10 * uiScale }]}>
           {mediaOptions.map((o) => {
             const active = mediaFilter === o.key;
             return (
@@ -186,6 +226,9 @@ function FilterModal({
                   {
                     backgroundColor: active ? colors.primary : colors.surface,
                     borderColor: active ? colors.primary : colors.border,
+                    paddingHorizontal: 14 * uiScale,
+                    paddingVertical: 10 * uiScale,
+                    gap: 6 * uiScale,
                   },
                 ]}
                 onPress={() => onMediaFilter(o.key)}
@@ -199,7 +242,10 @@ function FilterModal({
                 <Text
                   style={[
                     fStyles.optionLabel,
-                    { color: active ? "#fff" : colors.text },
+                    {
+                      color: active ? "#fff" : colors.text,
+                      fontSize: 14 * fontScale,
+                    },
                   ]}
                 >
                   {o.label}
@@ -211,7 +257,11 @@ function FilterModal({
         <Text
           style={[
             fStyles.sectionLabel,
-            { color: colors.textTertiary, marginTop: 20 },
+            {
+              color: colors.textTertiary,
+              marginTop: 20 * uiScale,
+              fontSize: 12 * fontScale,
+            },
           ]}
         >
           Safety
@@ -224,6 +274,7 @@ function FilterModal({
                 key={o.key}
                 style={[
                   fStyles.safetyRow,
+                  { gap: 12 * uiScale, padding: 14 * uiScale },
                   i !== 0 && {
                     borderTopWidth: 1,
                     borderTopColor: colors.border,
@@ -239,6 +290,9 @@ function FilterModal({
                       backgroundColor: active
                         ? colors.primary + "18"
                         : colors.card,
+                      width: 36 * uiScale,
+                      height: 36 * uiScale,
+                      borderRadius: 18 * uiScale,
                     },
                   ]}
                 >
@@ -249,11 +303,23 @@ function FilterModal({
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[fStyles.safetyLabel, { color: colors.text }]}>
+                  <Text
+                    style={[
+                      fStyles.safetyLabel,
+                      { color: colors.text, fontSize: 14 * fontScale },
+                    ]}
+                  >
                     {o.label}
                   </Text>
                   <Text
-                    style={[fStyles.safetyDesc, { color: colors.textTertiary }]}
+                    style={[
+                      fStyles.safetyDesc,
+                      {
+                        color: colors.textTertiary,
+                        fontSize: 12 * fontScale,
+                        marginTop: 2 * uiScale,
+                      },
+                    ]}
                   >
                     {o.desc}
                   </Text>
@@ -270,11 +336,20 @@ function FilterModal({
           })}
         </View>
         <TouchableOpacity
-          style={[fStyles.doneBtn, { backgroundColor: colors.primary }]}
+          style={[
+            fStyles.doneBtn,
+            {
+              backgroundColor: colors.primary,
+              marginTop: 24 * uiScale,
+              paddingVertical: 16 * uiScale,
+            },
+          ]}
           onPress={onClose}
           activeOpacity={0.88}
         >
-          <Text style={fStyles.doneBtnText}>Done</Text>
+          <Text style={[fStyles.doneBtnText, { fontSize: 16 * fontScale }]}>
+            Done
+          </Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -286,58 +361,43 @@ const fStyles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
-    paddingBottom: 40,
   },
   handle: {
     width: 40,
     height: 4,
     borderRadius: 2,
     alignSelf: "center",
-    marginBottom: 20,
   },
-  title: { fontSize: 18, fontWeight: "900", marginBottom: 20 },
+  title: { fontWeight: "900" },
   sectionLabel: {
-    fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",
-    marginBottom: 12,
   },
-  optionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  optionGrid: { flexDirection: "row", flexWrap: "wrap" },
   optionPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
   },
-  optionLabel: { fontSize: 14, fontWeight: "700" },
+  optionLabel: { fontWeight: "700" },
   safetyCard: { borderRadius: 18, overflow: "hidden" },
   safetyRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
   },
   safetyIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
-  safetyLabel: { fontSize: 14, fontWeight: "800" },
-  safetyDesc: { fontSize: 12, marginTop: 2, lineHeight: 16 },
+  safetyLabel: { fontWeight: "800" },
+  safetyDesc: { lineHeight: 16 },
   doneBtn: {
-    marginTop: 24,
-    paddingVertical: 16,
     borderRadius: 999,
     alignItems: "center",
   },
-  doneBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  doneBtnText: { color: "#fff", fontWeight: "800" },
 });
 
 function ActiveFilterChips({
@@ -412,6 +472,8 @@ function SuggestedUserRow({
   user: u,
   idx,
   colors,
+  uiScale,
+  fontScale,
   showBorder = true,
   onOpenMenu,
   onDismiss,
@@ -419,6 +481,8 @@ function SuggestedUserRow({
   user: SuggestedUser;
   idx: number;
   colors: any;
+  uiScale: number;
+  fontScale: number;
   showBorder?: boolean;
   onOpenMenu?: () => void;
   onDismiss?: () => void;
@@ -436,13 +500,18 @@ function SuggestedUserRow({
     <View
       style={[
         styles.row,
+        {
+          paddingHorizontal: 14 * uiScale,
+          paddingVertical: 12 * uiScale,
+          gap: 12 * uiScale,
+        },
         showBorder &&
           idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
       ]}
     >
       <TouchableOpacity
         activeOpacity={0.85}
-        style={styles.rowLeft}
+        style={[styles.rowLeft, { gap: 12 * uiScale }]}
         onPress={() =>
           u.username ? router.push(`/user/${u.username}`) : undefined
         }
@@ -450,29 +519,53 @@ function SuggestedUserRow({
         {u.avatar_url ? (
           <Image
             source={{ uri: u.avatar_url }}
-            style={[styles.avatar, { backgroundColor: colors.surface }]}
+            style={[
+              styles.avatar,
+              {
+                backgroundColor: colors.surface,
+                width: 42 * uiScale,
+                height: 42 * uiScale,
+                borderRadius: 21 * uiScale,
+              },
+            ]}
           />
         ) : (
           <View
             style={[
               styles.avatarPlaceholder,
-              { backgroundColor: colors.surface },
+              {
+                backgroundColor: colors.surface,
+                width: 42 * uiScale,
+                height: 42 * uiScale,
+                borderRadius: 21 * uiScale,
+              },
             ]}
           >
-            <Text style={[styles.avatarText, { color: colors.primary }]}>
+            <Text
+              style={[
+                styles.avatarText,
+                { color: colors.primary, fontSize: 16 * fontScale },
+              ]}
+            >
               {(name[0] || "U").toUpperCase()}
             </Text>
           </View>
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text
-            style={[styles.rowTitle, { color: colors.text }]}
+            style={[
+              styles.rowTitle,
+              { color: colors.text, fontSize: 14.5 * fontScale },
+            ]}
             numberOfLines={1}
           >
             {name}
           </Text>
           <Text
-            style={[styles.rowSubtitle, { color: colors.textTertiary }]}
+            style={[
+              styles.rowSubtitle,
+              { color: colors.textTertiary, fontSize: 12.5 * fontScale },
+            ]}
             numberOfLines={1}
           >
             @{u.username || "user"}
@@ -482,7 +575,10 @@ function SuggestedUserRow({
           </Text>
           {!!bio && (
             <Text
-              style={[styles.rowBio, { color: colors.textTertiary }]}
+              style={[
+                styles.rowBio,
+                { color: colors.textTertiary, fontSize: 12 * fontScale },
+              ]}
               numberOfLines={1}
             >
               {bio}
@@ -491,14 +587,26 @@ function SuggestedUserRow({
         </View>
       </TouchableOpacity>
 
-      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 8 * uiScale,
+          alignItems: "center",
+        }}
+      >
         {onDismiss && (
           <TouchableOpacity
             onPress={onDismiss}
             activeOpacity={0.85}
             style={[
               styles.menuBtn,
-              { backgroundColor: colors.surface, borderColor: colors.border },
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                width: 32 * uiScale,
+                height: 32 * uiScale,
+                borderRadius: 16 * uiScale,
+              },
             ]}
           >
             <Ionicons name="close" size={16} color={colors.textTertiary} />
@@ -514,6 +622,9 @@ function SuggestedUserRow({
               backgroundColor: isFollowing ? colors.surface : colors.primary,
               borderColor: isFollowing ? colors.border : colors.primary,
               opacity: isFollowingBusy ? 0.6 : 1,
+              paddingHorizontal: 16 * uiScale,
+              paddingVertical: 8 * uiScale,
+              minWidth: 88 * uiScale,
             },
           ]}
         >
@@ -526,7 +637,10 @@ function SuggestedUserRow({
             <Text
               style={[
                 styles.followBtnText,
-                { color: isFollowing ? colors.text : "#fff" },
+                {
+                  color: isFollowing ? colors.text : "#fff",
+                  fontSize: 13 * fontScale,
+                },
               ]}
             >
               {status === "pending"
@@ -544,7 +658,13 @@ function SuggestedUserRow({
             activeOpacity={0.85}
             style={[
               styles.menuBtn,
-              { backgroundColor: colors.surface, borderColor: colors.border },
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                width: 32 * uiScale,
+                height: 32 * uiScale,
+                borderRadius: 16 * uiScale,
+              },
             ]}
           >
             <Ionicons
@@ -671,21 +791,56 @@ function EmptyState({
   title,
   subtitle,
   colors,
+  uiScale,
+  fontScale,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
   colors: any;
+  uiScale: number;
+  fontScale: number;
 }) {
   return (
-    <View style={[styles.emptyWrap, { backgroundColor: colors.card }]}>
+    <View
+      style={[
+        styles.emptyWrap,
+        {
+          backgroundColor: colors.card,
+          borderRadius: 22 * uiScale,
+          paddingVertical: 26 * uiScale,
+          paddingHorizontal: 18 * uiScale,
+        },
+      ]}
+    >
       <View
-        style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
+        style={[
+          styles.emptyIconCircle,
+          {
+            backgroundColor: colors.surface,
+            width: 56 * uiScale,
+            height: 56 * uiScale,
+            borderRadius: 28 * uiScale,
+            marginBottom: 10 * uiScale,
+          },
+        ]}
       >
         <Ionicons name={icon} size={26} color={colors.primary} />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
+      <Text
+        style={[
+          styles.emptyTitle,
+          { color: colors.text, fontSize: 16 * fontScale },
+        ]}
+      >
+        {title}
+      </Text>
+      <Text
+        style={[
+          styles.emptySubtitle,
+          { color: colors.textTertiary, fontSize: 13 * fontScale },
+        ]}
+      >
         {subtitle}
       </Text>
     </View>
@@ -699,6 +854,8 @@ function RecentSearchesPanel({
   onClearAll,
   colors,
   isDark,
+  uiScale,
+  fontScale,
 }: {
   recents: string[];
   onSelect: (term: string) => void;
@@ -706,19 +863,47 @@ function RecentSearchesPanel({
   onClearAll: () => void;
   colors: any;
   isDark: boolean;
+  uiScale: number;
+  fontScale: number;
 }) {
   if (!recents.length) return null;
   return (
     <View
       style={[
         styles.recentPanel,
-        { backgroundColor: colors.card, shadowOpacity: isDark ? 0.22 : 0.05 },
+        {
+          backgroundColor: colors.card,
+          shadowOpacity: isDark ? 0.22 : 0.05,
+          borderRadius: 22 * uiScale,
+          paddingVertical: 6 * uiScale,
+          marginTop: 10 * uiScale,
+        },
       ]}
     >
-      <View style={styles.recentHeader}>
-        <Text style={[styles.recentTitle, { color: colors.text }]}>Recent</Text>
+      <View
+        style={[
+          styles.recentHeader,
+          {
+            paddingHorizontal: 14 * uiScale,
+            paddingVertical: 10 * uiScale,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.recentTitle,
+            { color: colors.text, fontSize: 13 * fontScale },
+          ]}
+        >
+          Recent
+        </Text>
         <TouchableOpacity onPress={onClearAll} activeOpacity={0.8}>
-          <Text style={[styles.recentClear, { color: colors.primary }]}>
+          <Text
+            style={[
+              styles.recentClear,
+              { color: colors.primary, fontSize: 13 * fontScale },
+            ]}
+          >
             Clear all
           </Text>
         </TouchableOpacity>
@@ -729,6 +914,11 @@ function RecentSearchesPanel({
           activeOpacity={0.85}
           style={[
             styles.recentRow,
+            {
+              paddingHorizontal: 14 * uiScale,
+              paddingVertical: 11 * uiScale,
+              gap: 12 * uiScale,
+            },
             idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
           ]}
           onPress={() => onSelect(term)}
@@ -736,7 +926,12 @@ function RecentSearchesPanel({
           <View
             style={[
               styles.recentIconCircle,
-              { backgroundColor: colors.surface },
+              {
+                backgroundColor: colors.surface,
+                width: 32 * uiScale,
+                height: 32 * uiScale,
+                borderRadius: 16 * uiScale,
+              },
             ]}
           >
             <Ionicons
@@ -746,7 +941,10 @@ function RecentSearchesPanel({
             />
           </View>
           <Text
-            style={[styles.recentTerm, { color: colors.text }]}
+            style={[
+              styles.recentTerm,
+              { color: colors.text, fontSize: 14 * fontScale },
+            ]}
             numberOfLines={1}
           >
             {term}
@@ -757,7 +955,12 @@ function RecentSearchesPanel({
             activeOpacity={0.8}
             style={[
               styles.recentRemoveBtn,
-              { backgroundColor: colors.surface },
+              {
+                backgroundColor: colors.surface,
+                width: 28 * uiScale,
+                height: 28 * uiScale,
+                borderRadius: 14 * uiScale,
+              },
             ]}
           >
             <Ionicons name="close" size={14} color={colors.textTertiary} />
@@ -768,20 +971,28 @@ function RecentSearchesPanel({
   );
 }
 
-// Twitter-Explore-style ranked trend card: "1 · Trending", tag name, post count.
 function TrendingHashtagsCard({
   hashtags,
   colors,
+  uiScale,
+  fontScale,
 }: {
   hashtags: TrendingHashtag[];
   colors: any;
+  uiScale: number;
+  fontScale: number;
 }) {
   if (!hashtags.length) return null;
   return (
     <View
       style={[
         styles.card,
-        { backgroundColor: colors.card, shadowOpacity: 0.05 },
+        {
+          backgroundColor: colors.card,
+          shadowOpacity: 0.05,
+          borderRadius: 22 * uiScale,
+          paddingVertical: 6 * uiScale,
+        },
       ]}
     >
       {hashtags.slice(0, 5).map((h, idx) => (
@@ -790,24 +1001,47 @@ function TrendingHashtagsCard({
           activeOpacity={0.85}
           style={[
             styles.trendRow,
+            {
+              paddingHorizontal: 14 * uiScale,
+              paddingVertical: 12 * uiScale,
+              gap: 14 * uiScale,
+            },
             idx !== 0 && [styles.rowBorder, { borderTopColor: colors.border }],
           ]}
           onPress={() => router.push(`/hashtag/${h.tag}` as any)}
         >
-          <Text style={[styles.trendRank, { color: colors.textTertiary }]}>
+          <Text
+            style={[
+              styles.trendRank,
+              { color: colors.textTertiary, fontSize: 14 * fontScale },
+            ]}
+          >
             {idx + 1}
           </Text>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.trendLabel, { color: colors.textTertiary }]}>
+            <Text
+              style={[
+                styles.trendLabel,
+                { color: colors.textTertiary, fontSize: 11 * fontScale },
+              ]}
+            >
               Trending
             </Text>
             <Text
-              style={[styles.trendTag, { color: colors.text }]}
+              style={[
+                styles.trendTag,
+                { color: colors.text, fontSize: 15 * fontScale },
+              ]}
               numberOfLines={1}
             >
               #{h.tag}
             </Text>
-            <Text style={[styles.trendCount, { color: colors.textTertiary }]}>
+            <Text
+              style={[
+                styles.trendCount,
+                { color: colors.textTertiary, fontSize: 12 * fontScale },
+              ]}
+            >
               {h.post_count.toLocaleString()}{" "}
               {h.post_count === 1 ? "post" : "posts"}
             </Text>
@@ -820,7 +1054,7 @@ function TrendingHashtagsCard({
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const { user } = useAuth();
   const qc = useQueryClient();
 
@@ -885,8 +1119,6 @@ export default function ExploreScreen() {
     onError: (err) => Alert.alert("Error", String(err)),
   });
 
-  // Twitter-style fixed tab bar — five even-width tabs with a sliding
-  // underline under the active one, no pill backgrounds.
   const categories: { key: ExploreCategory; label: string }[] = [
     { key: "top", label: "Top" },
     { key: "latest", label: "Latest" },
@@ -969,7 +1201,6 @@ export default function ExploreScreen() {
       .finally(() => setSuggestedLoading(false));
   }, [user?.uid]);
 
-  // ✅ FIX: re-fetch when user changes so is_joined is accurate
   useEffect(() => {
     setSuggestedCommunitiesLoading(true);
     fetchSuggestedCommunities(5)
@@ -1093,13 +1324,16 @@ export default function ExploreScreen() {
             backgroundColor="transparent"
             title=""
             leftWide={
-              <View style={styles.headerLeftWide}>
+              <View style={[styles.headerLeftWide, { gap: 8 * uiScale }]}>
                 <TouchableOpacity
                   style={[
                     styles.backCircle,
                     {
                       backgroundColor: colors.card,
                       shadowOpacity: isDark ? 0.22 : 0.08,
+                      width: 38 * uiScale,
+                      height: 38 * uiScale,
+                      borderRadius: 19 * uiScale,
                     },
                   ]}
                   onPress={onBack}
@@ -1114,6 +1348,10 @@ export default function ExploreScreen() {
                     {
                       backgroundColor: colors.card,
                       shadowOpacity: isDark ? 0.18 : 0.06,
+                      height: 44 * uiScale,
+                      borderRadius: 22 * uiScale,
+                      paddingHorizontal: 14 * uiScale,
+                      gap: 10 * uiScale,
                     },
                   ]}
                 >
@@ -1133,7 +1371,10 @@ export default function ExploreScreen() {
                     onSubmitEditing={commitSearch}
                     placeholder="Search NebulaNet"
                     placeholderTextColor={colors.textTertiary}
-                    style={[styles.searchInput, { color: colors.text }]}
+                    style={[
+                      styles.searchInput,
+                      { color: colors.text, fontSize: 15 * fontScale },
+                    ]}
                     returnKeyType="search"
                     autoCorrect={false}
                     autoCapitalize="none"
@@ -1144,7 +1385,12 @@ export default function ExploreScreen() {
                       activeOpacity={0.85}
                       style={[
                         styles.clearBtn,
-                        { backgroundColor: colors.surface },
+                        {
+                          backgroundColor: colors.surface,
+                          width: 34 * uiScale,
+                          height: 34 * uiScale,
+                          borderRadius: 17 * uiScale,
+                        },
                       ]}
                     >
                       <Ionicons
@@ -1163,6 +1409,9 @@ export default function ExploreScreen() {
                       backgroundColor:
                         activeFilterCount > 0 ? colors.primary : colors.card,
                       shadowOpacity: isDark ? 0.22 : 0.08,
+                      width: 38 * uiScale,
+                      height: 38 * uiScale,
+                      borderRadius: 19 * uiScale,
                     },
                   ]}
                   onPress={() => setShowFilterModal(true)}
@@ -1174,8 +1423,24 @@ export default function ExploreScreen() {
                     color={activeFilterCount > 0 ? "#fff" : colors.text}
                   />
                   {activeFilterCount > 0 && (
-                    <View style={styles.filterBadge}>
-                      <Text style={styles.filterBadgeText}>
+                    <View
+                      style={[
+                        styles.filterBadge,
+                        {
+                          width: 16 * uiScale,
+                          height: 16 * uiScale,
+                          borderRadius: 8 * uiScale,
+                          top: 6 * uiScale,
+                          right: 6 * uiScale,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterBadgeText,
+                          { fontSize: 9 * fontScale },
+                        ]}
+                      >
                         {activeFilterCount}
                       </Text>
                     </View>
@@ -1185,8 +1450,15 @@ export default function ExploreScreen() {
             }
           />
 
-          {/* Twitter-style fixed underline tab bar */}
-          <View style={[styles.tabBar, { borderBottomColor: colors.border }]}>
+          <View
+            style={[
+              styles.tabBar,
+              {
+                borderBottomColor: colors.border,
+                marginHorizontal: 18 * uiScale,
+              },
+            ]}
+          >
             {categories.map((c) => {
               const isActive = activeCategory === c.key;
               return (
@@ -1194,12 +1466,15 @@ export default function ExploreScreen() {
                   key={c.key}
                   onPress={() => switchCategory(c.key)}
                   activeOpacity={0.7}
-                  style={styles.tabItem}
+                  style={[styles.tabItem, { paddingVertical: 13 * uiScale }]}
                 >
                   <Text
                     style={[
                       styles.tabText,
-                      { color: isActive ? colors.text : colors.textTertiary },
+                      {
+                        color: isActive ? colors.text : colors.textTertiary,
+                        fontSize: 13.5 * fontScale,
+                      },
                       isActive && styles.tabTextActive,
                     ]}
                     numberOfLines={1}
@@ -1230,7 +1505,12 @@ export default function ExploreScreen() {
           )}
 
           {showRecents && (
-            <View style={[styles.recentOverlay, { paddingHorizontal: 18 }]}>
+            <View
+              style={[
+                styles.recentOverlay,
+                { paddingHorizontal: 18 * uiScale },
+              ]}
+            >
               <RecentSearchesPanel
                 recents={recents}
                 onSelect={selectRecent}
@@ -1238,6 +1518,8 @@ export default function ExploreScreen() {
                 onClearAll={() => void clearRecents()}
                 colors={colors}
                 isDark={isDark}
+                uiScale={uiScale}
+                fontScale={fontScale}
               />
             </View>
           )}
@@ -1248,23 +1530,38 @@ export default function ExploreScreen() {
             onScrollBeginDrag={Keyboard.dismiss}
             contentContainerStyle={[
               styles.content,
-              { paddingBottom: bottomPad },
+              {
+                paddingBottom: bottomPad,
+                paddingHorizontal: 18 * uiScale,
+                paddingTop: 14 * uiScale,
+              },
             ]}
           >
             {activeCategory === "top" && (
               <>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.text, fontSize: 16 * fontScale },
+                  ]}
+                >
                   What's happening
                 </Text>
                 <TrendingHashtagsCard
                   hashtags={trendingHashtags}
                   colors={colors}
+                  uiScale={uiScale}
+                  fontScale={fontScale}
                 />
 
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
+                    {
+                      color: colors.text,
+                      marginTop: 20,
+                      fontSize: 16 * fontScale,
+                    },
                   ]}
                 >
                   Top Posts
@@ -1306,31 +1603,56 @@ export default function ExploreScreen() {
                             {
                               backgroundColor: colors.card,
                               shadowOpacity: isDark ? 0.22 : 0.05,
+                              borderRadius: 22 * uiScale,
+                              padding: 14 * uiScale,
                             },
                           ]}
                           onPress={() => router.push(`/post/${p.id}` as any)}
                         >
-                          <View style={styles.postTop}>
-                            <View style={styles.postAuthorRow}>
+                          <View
+                            style={[
+                              styles.postTop,
+                              { marginBottom: 8 * uiScale },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.postAuthorRow,
+                                { gap: 10 * uiScale },
+                              ]}
+                            >
                               {p.user?.avatar_url ? (
                                 <Image
                                   source={{ uri: p.user.avatar_url }}
                                   style={[
                                     styles.postAvatar,
-                                    { backgroundColor: colors.surface },
+                                    {
+                                      backgroundColor: colors.surface,
+                                      width: 34 * uiScale,
+                                      height: 34 * uiScale,
+                                      borderRadius: 17 * uiScale,
+                                    },
                                   ]}
                                 />
                               ) : (
                                 <View
                                   style={[
                                     styles.postAvatarPlaceholder,
-                                    { backgroundColor: colors.surface },
+                                    {
+                                      backgroundColor: colors.surface,
+                                      width: 34 * uiScale,
+                                      height: 34 * uiScale,
+                                      borderRadius: 17 * uiScale,
+                                    },
                                   ]}
                                 >
                                   <Text
                                     style={[
                                       styles.avatarText,
-                                      { color: colors.primary, fontSize: 13 },
+                                      {
+                                        color: colors.primary,
+                                        fontSize: 13 * fontScale,
+                                      },
                                     ]}
                                   >
                                     {(author[0] || "U").toUpperCase()}
@@ -1341,7 +1663,10 @@ export default function ExploreScreen() {
                                 <Text
                                   style={[
                                     styles.postAuthor,
-                                    { color: colors.text },
+                                    {
+                                      color: colors.text,
+                                      fontSize: 14 * fontScale,
+                                    },
                                   ]}
                                   numberOfLines={1}
                                 >
@@ -1351,7 +1676,10 @@ export default function ExploreScreen() {
                                   <Text
                                     style={[
                                       styles.postHandle,
-                                      { color: colors.textTertiary },
+                                      {
+                                        color: colors.textTertiary,
+                                        fontSize: 12 * fontScale,
+                                      },
                                     ]}
                                     numberOfLines={1}
                                   >
@@ -1371,7 +1699,10 @@ export default function ExploreScreen() {
                             <Text
                               style={[
                                 styles.postContent,
-                                { color: colors.text },
+                                {
+                                  color: colors.text,
+                                  fontSize: 13.5 * fontScale,
+                                },
                               ]}
                               numberOfLines={3}
                             >
@@ -1383,7 +1714,12 @@ export default function ExploreScreen() {
                             <View
                               style={[
                                 styles.thumbWrap,
-                                { backgroundColor: colors.surface },
+                                {
+                                  backgroundColor: colors.surface,
+                                  marginTop: 10 * uiScale,
+                                  height: 160 * uiScale,
+                                  borderRadius: 18 * uiScale,
+                                },
                               ]}
                             >
                               {isImage ? (
@@ -1399,7 +1735,14 @@ export default function ExploreScreen() {
                                     size={18}
                                     color="#fff"
                                   />
-                                  <Text style={styles.videoLabel}>Video</Text>
+                                  <Text
+                                    style={[
+                                      styles.videoLabel,
+                                      { fontSize: 12 * fontScale },
+                                    ]}
+                                  >
+                                    Video
+                                  </Text>
                                   <View style={styles.playCircle}>
                                     <Ionicons
                                       name="play"
@@ -1412,8 +1755,15 @@ export default function ExploreScreen() {
                             </View>
                           )}
 
-                          <View style={styles.postStats}>
-                            <View style={styles.postStat}>
+                          <View
+                            style={[
+                              styles.postStats,
+                              { gap: 14 * uiScale, marginTop: 10 * uiScale },
+                            ]}
+                          >
+                            <View
+                              style={[styles.postStat, { gap: 4 * uiScale }]}
+                            >
                               <Ionicons
                                 name="heart"
                                 size={13}
@@ -1422,13 +1772,18 @@ export default function ExploreScreen() {
                               <Text
                                 style={[
                                   styles.postStatText,
-                                  { color: colors.textTertiary },
+                                  {
+                                    color: colors.textTertiary,
+                                    fontSize: 12 * fontScale,
+                                  },
                                 ]}
                               >
-                                {p.like_count.toLocaleString()}
+                                {(p.like_count ?? 0).toLocaleString()}
                               </Text>
                             </View>
-                            <View style={styles.postStat}>
+                            <View
+                              style={[styles.postStat, { gap: 4 * uiScale }]}
+                            >
                               <Ionicons
                                 name="chatbubble-outline"
                                 size={13}
@@ -1437,13 +1792,18 @@ export default function ExploreScreen() {
                               <Text
                                 style={[
                                   styles.postStatText,
-                                  { color: colors.textTertiary },
+                                  {
+                                    color: colors.textTertiary,
+                                    fontSize: 12 * fontScale,
+                                  },
                                 ]}
                               >
-                                {p.comment_count.toLocaleString()}
+                                {(p.comment_count ?? 0).toLocaleString()}
                               </Text>
                             </View>
-                            <View style={styles.postStat}>
+                            <View
+                              style={[styles.postStat, { gap: 4 * uiScale }]}
+                            >
                               <Ionicons
                                 name="repeat-outline"
                                 size={13}
@@ -1452,10 +1812,13 @@ export default function ExploreScreen() {
                               <Text
                                 style={[
                                   styles.postStatText,
-                                  { color: colors.textTertiary },
+                                  {
+                                    color: colors.textTertiary,
+                                    fontSize: 12 * fontScale,
+                                  },
                                 ]}
                               >
-                                {p.repost_count.toLocaleString()}
+                                {(p.repost_count ?? 0).toLocaleString()}
                               </Text>
                             </View>
                           </View>
@@ -1466,6 +1829,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="trending-up-outline"
                     title="Nothing trending yet"
                     subtitle="Posts with the most likes, comments and reposts will appear here."
@@ -1475,7 +1840,11 @@ export default function ExploreScreen() {
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
+                    {
+                      color: colors.text,
+                      marginTop: 20,
+                      fontSize: 16 * fontScale,
+                    },
                   ]}
                 >
                   Who to follow
@@ -1488,6 +1857,8 @@ export default function ExploreScreen() {
                       {
                         backgroundColor: colors.card,
                         shadowOpacity: isDark ? 0.22 : 0.05,
+                        borderRadius: 22 * uiScale,
+                        paddingVertical: 6 * uiScale,
                       },
                     ]}
                   >
@@ -1516,6 +1887,8 @@ export default function ExploreScreen() {
                       {
                         backgroundColor: colors.card,
                         shadowOpacity: isDark ? 0.22 : 0.05,
+                        borderRadius: 22 * uiScale,
+                        paddingVertical: 6 * uiScale,
                       },
                     ]}
                   >
@@ -1525,6 +1898,8 @@ export default function ExploreScreen() {
                         user={u}
                         idx={idx}
                         colors={colors}
+                        uiScale={uiScale}
+                        fontScale={fontScale}
                         onDismiss={() => handleDismissSuggested(u.id)}
                         onOpenMenu={() => {
                           setSelectedUser(u);
@@ -1538,7 +1913,11 @@ export default function ExploreScreen() {
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
+                    {
+                      color: colors.text,
+                      marginTop: 20,
+                      fontSize: 16 * fontScale,
+                    },
                   ]}
                 >
                   Communities you might like
@@ -1551,6 +1930,8 @@ export default function ExploreScreen() {
                       {
                         backgroundColor: colors.card,
                         shadowOpacity: isDark ? 0.22 : 0.05,
+                        borderRadius: 22 * uiScale,
+                        paddingVertical: 6 * uiScale,
                       },
                     ]}
                   >
@@ -1579,6 +1960,8 @@ export default function ExploreScreen() {
                       {
                         backgroundColor: colors.card,
                         shadowOpacity: isDark ? 0.22 : 0.05,
+                        borderRadius: 22 * uiScale,
+                        paddingVertical: 6 * uiScale,
                       },
                     ]}
                   >
@@ -1596,7 +1979,11 @@ export default function ExploreScreen() {
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color: colors.text, marginTop: 20 },
+                    {
+                      color: colors.text,
+                      marginTop: 20,
+                      fontSize: 16 * fontScale,
+                    },
                   ]}
                 >
                   Discover
@@ -1612,6 +1999,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="images-outline"
                     title="No posts match your filters"
                     subtitle="Try changing or clearing your filters."
@@ -1679,6 +2068,8 @@ export default function ExploreScreen() {
                           user={u}
                           idx={idx}
                           colors={colors}
+                          uiScale={uiScale}
+                          fontScale={fontScale}
                           onDismiss={() => handleDismissSuggested(u.id)}
                           onOpenMenu={() => {
                             setSelectedUser(u);
@@ -1690,6 +2081,8 @@ export default function ExploreScreen() {
                   ) : (
                     <EmptyState
                       colors={colors}
+                      uiScale={uiScale}
+                      fontScale={fontScale}
                       icon="people-outline"
                       title="Find people to follow"
                       subtitle="Type at least 2 characters to search accounts."
@@ -1718,6 +2111,8 @@ export default function ExploreScreen() {
                         }}
                         idx={idx}
                         colors={colors}
+                        uiScale={uiScale}
+                        fontScale={fontScale}
                         onOpenMenu={() => {
                           setSelectedUser({
                             id: a.id,
@@ -1735,6 +2130,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="people-outline"
                     title="No matches"
                     subtitle="Try a different name or username."
@@ -1756,6 +2153,8 @@ export default function ExploreScreen() {
                 ) : isIdle ? (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="search-outline"
                     title="Start typing"
                     subtitle="Type at least 2 characters to search posts."
@@ -1941,6 +2340,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="document-text-outline"
                     title="No matches"
                     subtitle={
@@ -1960,6 +2361,8 @@ export default function ExploreScreen() {
                 ) : isIdle ? (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="search-outline"
                     title="Start typing"
                     subtitle="Search for posts with photos and videos."
@@ -1979,6 +2382,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="images-outline"
                     title="No media found"
                     subtitle="Try a different search term."
@@ -2052,6 +2457,8 @@ export default function ExploreScreen() {
                   ) : (
                     <EmptyState
                       colors={colors}
+                      uiScale={uiScale}
+                      fontScale={fontScale}
                       icon="people-circle-outline"
                       title="Discover communities"
                       subtitle="Type at least 2 characters to search communities."
@@ -2079,6 +2486,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="people-circle-outline"
                     title="No matches"
                     subtitle="Try a different keyword."
@@ -2111,13 +2520,18 @@ export default function ExploreScreen() {
                             borderColor: isActive
                               ? colors.primary
                               : colors.border,
+                            paddingHorizontal: 14 * uiScale,
+                            paddingVertical: 8 * uiScale,
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.newsCategoryPillText,
-                            { color: isActive ? "#fff" : colors.text },
+                            {
+                              color: isActive ? "#fff" : colors.text,
+                              fontSize: 13 * fontScale,
+                            },
                           ]}
                         >
                           {c.label}
@@ -2137,10 +2551,6 @@ export default function ExploreScreen() {
                   </View>
                 ) : newsArticles && newsArticles.length > 0 ? (
                   <View style={{ marginTop: 14 }}>
-                    {/* Hero card — lead story gets a big image + bold headline,
-                        same Twitter-News pattern of one hero followed by a
-                        compact list. Tapping opens the article via the
-                        platform's native in-app browser. */}
                     <TouchableOpacity
                       activeOpacity={0.9}
                       style={[
@@ -2148,6 +2558,7 @@ export default function ExploreScreen() {
                         {
                           backgroundColor: colors.card,
                           shadowOpacity: isDark ? 0.22 : 0.05,
+                          borderRadius: 22 * uiScale,
                         },
                       ]}
                       onPress={() =>
@@ -2157,13 +2568,21 @@ export default function ExploreScreen() {
                       {newsArticles[0].image && (
                         <Image
                           source={{ uri: newsArticles[0].image }}
-                          style={styles.newsHeroImage}
+                          style={[
+                            styles.newsHeroImage,
+                            { height: 180 * uiScale },
+                          ]}
                           resizeMode="cover"
                         />
                       )}
-                      <View style={styles.newsHeroBody}>
+                      <View
+                        style={[styles.newsHeroBody, { padding: 14 * uiScale }]}
+                      >
                         <Text
-                          style={[styles.newsHeroTitle, { color: colors.text }]}
+                          style={[
+                            styles.newsHeroTitle,
+                            { color: colors.text, fontSize: 17 * fontScale },
+                          ]}
                           numberOfLines={3}
                         >
                           {newsArticles[0].title}
@@ -2172,7 +2591,10 @@ export default function ExploreScreen() {
                           <Text
                             style={[
                               styles.newsSource,
-                              { color: colors.textTertiary },
+                              {
+                                color: colors.textTertiary,
+                                fontSize: 12 * fontScale,
+                              },
                             ]}
                             numberOfLines={1}
                           >
@@ -2182,7 +2604,6 @@ export default function ExploreScreen() {
                       </View>
                     </TouchableOpacity>
 
-                    {/* Compact rows for the rest — same native browser open */}
                     <View
                       style={[
                         styles.card,
@@ -2190,6 +2611,8 @@ export default function ExploreScreen() {
                           backgroundColor: colors.card,
                           shadowOpacity: isDark ? 0.22 : 0.05,
                           marginTop: 12,
+                          borderRadius: 22 * uiScale,
+                          paddingVertical: 6 * uiScale,
                         },
                       ]}
                     >
@@ -2201,6 +2624,11 @@ export default function ExploreScreen() {
                             activeOpacity={0.85}
                             style={[
                               styles.newsRow,
+                              {
+                                paddingHorizontal: 14 * uiScale,
+                                paddingVertical: 12 * uiScale,
+                                gap: 12 * uiScale,
+                              },
                               idx !== 0 && [
                                 styles.rowBorder,
                                 { borderTopColor: colors.border },
@@ -2212,7 +2640,10 @@ export default function ExploreScreen() {
                               <Text
                                 style={[
                                   styles.newsRowTitle,
-                                  { color: colors.text },
+                                  {
+                                    color: colors.text,
+                                    fontSize: 14 * fontScale,
+                                  },
                                 ]}
                                 numberOfLines={2}
                               >
@@ -2222,7 +2653,10 @@ export default function ExploreScreen() {
                                 <Text
                                   style={[
                                     styles.newsSource,
-                                    { color: colors.textTertiary },
+                                    {
+                                      color: colors.textTertiary,
+                                      fontSize: 12 * fontScale,
+                                    },
                                   ]}
                                   numberOfLines={1}
                                 >
@@ -2233,7 +2667,14 @@ export default function ExploreScreen() {
                             {a.image && (
                               <Image
                                 source={{ uri: a.image }}
-                                style={styles.newsRowImage}
+                                style={[
+                                  styles.newsRowImage,
+                                  {
+                                    width: 64 * uiScale,
+                                    height: 64 * uiScale,
+                                    borderRadius: 12 * uiScale,
+                                  },
+                                ]}
                                 resizeMode="cover"
                               />
                             )}
@@ -2244,6 +2685,8 @@ export default function ExploreScreen() {
                 ) : (
                   <EmptyState
                     colors={colors}
+                    uiScale={uiScale}
+                    fontScale={fontScale}
                     icon="newspaper-outline"
                     title="No news yet"
                     subtitle="Check back soon — this category will populate shortly."
@@ -2264,6 +2707,8 @@ export default function ExploreScreen() {
         onSafetyFilter={setSafetyFilter}
         colors={colors}
         isDark={isDark}
+        uiScale={uiScale}
+        fontScale={fontScale}
       />
 
       {selectedUser && (
@@ -2306,14 +2751,10 @@ const styles = StyleSheet.create({
   headerLeftWide: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
     flex: 1,
     minWidth: 0,
   },
   backCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -2326,27 +2767,17 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    height: 44,
-    borderRadius: 22,
-    paddingHorizontal: 14,
-    gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 12,
     elevation: 2,
   },
-  searchInput: { flex: 1, minWidth: 0, fontSize: 15, paddingVertical: 0 },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 0 },
   clearBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
   filterBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -2357,29 +2788,20 @@ const styles = StyleSheet.create({
   },
   filterBadge: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
     backgroundColor: "#EC4899",
     alignItems: "center",
     justifyContent: "center",
   },
-  filterBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
-  // Twitter-Explore-style fixed tab bar — even-width tabs, sliding underline
-  // under the active tab instead of a pill background.
+  filterBadgeText: { color: "#fff", fontWeight: "900" },
   tabBar: {
     flexDirection: "row",
-    marginHorizontal: 18,
     borderBottomWidth: 1,
   },
   tabItem: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 13,
   },
-  tabText: { fontSize: 13.5, fontWeight: "700" },
+  tabText: { fontWeight: "700" },
   tabTextActive: { fontWeight: "900" },
   tabUnderline: {
     position: "absolute",
@@ -2390,9 +2812,6 @@ const styles = StyleSheet.create({
   },
   recentOverlay: { zIndex: 100 },
   recentPanel: {
-    borderRadius: 22,
-    paddingVertical: 6,
-    marginTop: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
@@ -2402,43 +2821,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
   },
-  recentTitle: { fontSize: 13, fontWeight: "900" },
-  recentClear: { fontSize: 13, fontWeight: "700" },
+  recentTitle: { fontWeight: "900" },
+  recentClear: { fontWeight: "700" },
   recentRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 12,
   },
   recentIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  recentTerm: { flex: 1, fontSize: 14, fontWeight: "700" },
+  recentTerm: { flex: 1, fontWeight: "700" },
   recentRemoveBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   sectionTitle: {
-    fontSize: 16,
     fontWeight: "800",
     marginBottom: 10,
     paddingHorizontal: 4,
   },
-  content: { paddingHorizontal: 18, paddingTop: 14 },
+  content: {},
   card: {
-    borderRadius: 22,
-    paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
@@ -2447,97 +2852,65 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 12,
   },
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     flex: 1,
     minWidth: 0,
   },
   rowBorder: { borderTopWidth: 1 },
-  rowTitle: { fontSize: 14.5, fontWeight: "900" },
-  rowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "700" },
-  rowBio: { marginTop: 2, fontSize: 12, fontWeight: "500" },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
+  rowTitle: { fontWeight: "900" },
+  rowSubtitle: { marginTop: 2, fontWeight: "700" },
+  rowBio: { marginTop: 2, fontWeight: "500" },
+  avatar: {},
   avatarPlaceholder: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 16, fontWeight: "900" },
-  communityBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  communityAvatar: { width: 42, height: 42, borderRadius: 21 },
-  // Trend card row (replaces the old standalone hashtag-tab row)
+  avatarText: { fontWeight: "900" },
   trendRow: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
     flexDirection: "row",
-    gap: 14,
   },
-  trendRank: { fontSize: 14, fontWeight: "900", width: 18, marginTop: 2 },
+  trendRank: { fontWeight: "900", width: 18, marginTop: 2 },
   trendLabel: {
-    fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
-  trendTag: { fontSize: 15, fontWeight: "900", marginTop: 2 },
-  trendCount: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  trendTag: { fontWeight: "900", marginTop: 2 },
+  trendCount: { fontWeight: "600", marginTop: 2 },
   newsCategoryRow: { flexDirection: "row", gap: 8, paddingVertical: 2 },
   newsCategoryPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
   },
-  newsCategoryPillText: { fontSize: 13, fontWeight: "700" },
+  newsCategoryPillText: { fontWeight: "700" },
   newsHeroCard: {
-    borderRadius: 22,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,
     elevation: 2,
   },
-  newsHeroImage: { width: "100%", height: 180 },
-  newsHeroBody: { padding: 14 },
-  newsHeroTitle: { fontSize: 17, fontWeight: "900", lineHeight: 22 },
-  newsSource: { fontSize: 12, fontWeight: "700", marginTop: 6 },
+  newsHeroImage: { width: "100%" },
+  newsHeroBody: {},
+  newsHeroTitle: { fontWeight: "900", lineHeight: 22 },
+  newsSource: { fontWeight: "700", marginTop: 6 },
   newsRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 12,
   },
-  newsRowTitle: { fontSize: 14, fontWeight: "800", lineHeight: 19 },
-  newsRowImage: { width: 64, height: 64, borderRadius: 12 },
+  newsRowTitle: { fontWeight: "800", lineHeight: 19 },
+  newsRowImage: {},
   followBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    minWidth: 88,
     alignItems: "center",
     justifyContent: "center",
   },
-  followBtnText: { fontSize: 13, fontWeight: "900" },
+  followBtnText: { fontWeight: "900" },
   menuBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -2573,29 +2946,22 @@ const styles = StyleSheet.create({
   postAuthorRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
     flex: 1,
     minWidth: 0,
   },
-  postAvatar: { width: 34, height: 34, borderRadius: 17 },
+  postAvatar: {},
   postAvatarPlaceholder: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-  postAuthor: { fontSize: 14, fontWeight: "900" },
-  postHandle: { fontSize: 12, fontWeight: "700", marginTop: 1 },
-  postContent: { fontSize: 13.5, lineHeight: 19, marginBottom: 4 },
-  postStats: { flexDirection: "row", gap: 14, marginTop: 10 },
-  postStat: { flexDirection: "row", alignItems: "center", gap: 4 },
-  postStatText: { fontSize: 12, fontWeight: "700" },
+  postAuthor: { fontWeight: "900" },
+  postHandle: { fontWeight: "700", marginTop: 1 },
+  postContent: { lineHeight: 19, marginBottom: 4 },
+  postStats: { flexDirection: "row" },
+  postStat: { flexDirection: "row", alignItems: "center" },
+  postStatText: { fontWeight: "700" },
   thumbWrap: {
-    marginTop: 10,
     width: "100%",
-    height: 160,
-    borderRadius: 18,
     overflow: "hidden",
   },
   thumb: { width: "100%", height: "100%" },
@@ -2610,7 +2976,6 @@ const styles = StyleSheet.create({
   videoLabel: {
     color: "#fff",
     fontWeight: "900",
-    fontSize: 12,
     letterSpacing: 0.3,
   },
   playCircle: {
@@ -2646,9 +3011,6 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   emptyWrap: {
-    borderRadius: 22,
-    paddingVertical: 26,
-    paddingHorizontal: 18,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
@@ -2656,21 +3018,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   emptyIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
   },
   emptyTitle: {
-    fontSize: 16,
     fontWeight: "800",
     marginBottom: 6,
     textAlign: "center",
   },
   emptySubtitle: {
-    fontSize: 13,
     textAlign: "center",
     lineHeight: 18,
   },

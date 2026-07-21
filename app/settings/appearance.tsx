@@ -1,5 +1,6 @@
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/providers/ThemeProvider";
+import type { UIScale } from "@/types/settings";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -18,9 +19,29 @@ import { SafeAreaView } from "react-native-safe-area-context";
 type ThemeOption = "system" | "light" | "dark";
 type FontSize = "small" | "medium" | "large";
 
-function SectionTitle({ label, colors }: { label: string; colors: any }) {
+function SectionTitle({
+  label,
+  colors,
+  uiScale,
+}: {
+  label: string;
+  colors: any;
+  uiScale: number;
+}) {
   return (
-    <Text style={[styles.sectionTitle, { color: colors.textTertiary }]}>
+    <Text
+      style={[
+        styles.sectionTitle,
+        {
+          color: colors.textTertiary,
+          fontSize: 11 * uiScale,
+          marginTop: 8 * uiScale,
+          marginBottom: 6 * uiScale,
+          marginLeft: 4 * uiScale,
+          letterSpacing: 0.8 * uiScale,
+        },
+      ]}
+    >
       {label}
     </Text>
   );
@@ -32,12 +53,14 @@ function OptionRow({
   selected,
   onPress,
   colors,
+  uiScale,
 }: {
   title: string;
   subtitle?: string;
   selected: boolean;
   onPress: () => void;
   colors: any;
+  uiScale: number;
 }) {
   return (
     <TouchableOpacity
@@ -48,6 +71,9 @@ function OptionRow({
         {
           backgroundColor: colors.card,
           borderColor: selected ? colors.primary : colors.border,
+          borderRadius: 16 * uiScale,
+          paddingVertical: 14 * uiScale,
+          paddingHorizontal: 14 * uiScale,
         },
       ]}
     >
@@ -71,12 +97,15 @@ function OptionRow({
 }
 
 export default function AppearanceScreen() {
-  const { theme, setTheme, colors, isDark, fontScale } = useTheme();
+  const { theme, setTheme, colors, isDark, fontScale, uiScale, applyUIScale } =
+    useTheme();
   const { settings, updatePreferences } = useSettings();
   const params = useLocalSearchParams<{ returnTo?: string }>();
 
   const currentFontSize =
     (settings?.preferences?.font_size as FontSize) ?? "medium";
+  const currentUIScale =
+    (settings?.preferences?.ui_scale as UIScale) ?? "normal";
   const currentReduceAnimations =
     settings?.preferences?.reduce_animations ?? false;
   const hapticsEnabled = settings?.preferences?.haptics_enabled ?? true;
@@ -87,6 +116,13 @@ export default function AppearanceScreen() {
 
   const handleFontSize = (value: FontSize) => {
     updatePreferences.mutate({ font_size: value });
+  };
+
+  const handleUIScale = (value: UIScale) => {
+    applyUIScale(value);
+    updatePreferences.mutate({
+      ui_scale: value,
+    });
   };
 
   const handleReduceAnimations = (value: boolean) => {
@@ -108,13 +144,28 @@ export default function AppearanceScreen() {
         translucent
       />
 
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingHorizontal: 18 * uiScale,
+            paddingTop: 6 * uiScale,
+            paddingBottom: 10 * uiScale,
+          },
+        ]}
+      >
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => router.back()}
           style={[
             styles.headerBtn,
-            { backgroundColor: colors.card, borderColor: colors.border },
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              width: 44 * uiScale,
+              height: 44 * uiScale,
+              borderRadius: 22 * uiScale,
+            },
           ]}
         >
           <Ionicons name="arrow-back" size={18} color={colors.text} />
@@ -122,24 +173,40 @@ export default function AppearanceScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Appearance
         </Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: 44 * uiScale }} />
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            padding: 16 * uiScale,
+            paddingBottom: 32 * uiScale,
+            gap: 8 * uiScale,
+          },
+        ]}
       >
         {/* Preview card */}
         <View
           style={[
             styles.previewCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              padding: 16 * uiScale,
+              borderRadius: 18 * uiScale,
+            },
           ]}
         >
           <Text
             style={[
               styles.previewTitle,
-              { color: colors.text, fontSize: 16 * fontScale },
+              {
+                color: colors.text,
+                fontSize: 16 * fontScale,
+                marginBottom: 6 * uiScale,
+              },
             ]}
           >
             Preview
@@ -147,15 +214,32 @@ export default function AppearanceScreen() {
           <Text
             style={[
               styles.previewBody,
-              { color: colors.textSecondary, fontSize: 13 * fontScale },
+              {
+                color: colors.textSecondary,
+                fontSize: 13 * fontScale,
+                lineHeight: 20 * fontScale,
+                marginBottom: 4 * uiScale,
+              },
             ]}
           >
-            This text reflects your current font size setting.
+            Font Size: {currentFontSize}
+          </Text>
+
+          <Text
+            style={[
+              styles.previewBody,
+              {
+                color: colors.textSecondary,
+                fontSize: 13 * fontScale,
+              },
+            ]}
+          >
+            UI Scale: {currentUIScale}
           </Text>
         </View>
 
         {/* Theme */}
-        <SectionTitle label="THEME" colors={colors} />
+        <SectionTitle label="THEME" colors={colors} uiScale={uiScale} />
         <View style={styles.group}>
           <OptionRow
             title="System"
@@ -163,6 +247,7 @@ export default function AppearanceScreen() {
             selected={theme === "system"}
             onPress={() => handleTheme("system")}
             colors={colors}
+            uiScale={uiScale}
           />
           <OptionRow
             title="Light"
@@ -170,6 +255,7 @@ export default function AppearanceScreen() {
             selected={theme === "light"}
             onPress={() => handleTheme("light")}
             colors={colors}
+            uiScale={uiScale}
           />
           <OptionRow
             title="Dark"
@@ -177,18 +263,20 @@ export default function AppearanceScreen() {
             selected={theme === "dark"}
             onPress={() => handleTheme("dark")}
             colors={colors}
+            uiScale={uiScale}
           />
         </View>
 
         {/* Font size */}
-        <SectionTitle label="FONT SIZE" colors={colors} />
+        <SectionTitle label="FONT SIZE" colors={colors} uiScale={uiScale} />
         <View style={styles.group}>
           <OptionRow
             title="Small"
-            subtitle="Compact text, more content visible"
+            subtitle="Smaller text, more content visible"
             selected={currentFontSize === "small"}
             onPress={() => handleFontSize("small")}
             colors={colors}
+            uiScale={uiScale}
           />
           <OptionRow
             title="Medium"
@@ -196,6 +284,7 @@ export default function AppearanceScreen() {
             selected={currentFontSize === "medium"}
             onPress={() => handleFontSize("medium")}
             colors={colors}
+            uiScale={uiScale}
           />
           <OptionRow
             title="Large"
@@ -203,11 +292,44 @@ export default function AppearanceScreen() {
             selected={currentFontSize === "large"}
             onPress={() => handleFontSize("large")}
             colors={colors}
+            uiScale={uiScale}
+          />
+        </View>
+
+        {/* UI Scale */}
+        <SectionTitle label="UI SCALE" colors={colors} uiScale={uiScale} />
+
+        <View style={styles.group}>
+          <OptionRow
+            title="Compact"
+            subtitle="More content on screen"
+            selected={currentUIScale === "compact"}
+            onPress={() => handleUIScale("compact")}
+            colors={colors}
+            uiScale={uiScale}
+          />
+
+          <OptionRow
+            title="Normal"
+            subtitle="Recommended"
+            selected={currentUIScale === "normal"}
+            onPress={() => handleUIScale("normal")}
+            colors={colors}
+            uiScale={uiScale}
+          />
+
+          <OptionRow
+            title="Large"
+            subtitle="Bigger spacing and controls"
+            selected={currentUIScale === "large"}
+            onPress={() => handleUIScale("large")}
+            colors={colors}
+            uiScale={uiScale}
           />
         </View>
 
         {/* Accessibility */}
-        <SectionTitle label="ACCESSIBILITY" colors={colors} />
+        <SectionTitle label="ACCESSIBILITY" colors={colors} uiScale={uiScale} />
         <View style={styles.group}>
           <View
             style={[
@@ -291,22 +413,17 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   headerBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
   },
   headerTitle: { fontSize: 17, fontWeight: "800" },
-  scroll: { padding: 16, paddingBottom: 32, gap: 8 },
+  scroll: {},
   previewCard: {
-    borderRadius: 18,
-    padding: 16,
     borderWidth: 1,
     marginBottom: 8,
   },
-  previewTitle: { fontWeight: "800", marginBottom: 6 },
+  previewTitle: { fontWeight: "800" },
   previewBody: { lineHeight: 20 },
   sectionTitle: {
     fontSize: 11,

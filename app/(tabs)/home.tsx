@@ -1,21 +1,15 @@
 // app/(tabs)/home.tsx ✅
-// ✅ Twitter-style collapsible header: logo/bell scrolls away (pinned tab
-//    bar below it). Stories now live INSIDE the For You feed's list header
-//    instead of the sticky Tabs.Container header — they scroll away with
-//    the first post instead of permanently reserving space above the tabs.
-// ✅ Tabs are swipeable between feeds (react-native-collapsible-tab-view).
-// ✅ Each tab is its own lazily-mounted feed list — no more nested scroll
-//    conflicts from the old single-FlatList-with-giant-header approach.
-// ✅ ALL ads removed (banner ads in feed + interstitial on post open).
-// ✅ Quote repost cards, reposted-by-you label, polls, NSFW filter,
-//    feed density, announcement card (For You only) all preserved.
+// ✅ NEW: isBoosted/boostedUntil now passed through to PostCard from the
+// post data, same (item as any).<field> pattern already used for
+// repost_count/is_reposted/etc. Closes the last gap in the boost feature —
+// without this, PostCard's boost badge and "Boosted" menu state never
+// reflected real data even though is_boosted/boosted_until exist on the
+// post doc.
 
 import AnnouncementCard from "@/components/feed/AnnouncementCard";
-import VideoPlayer from "@/components/media/VideoPlayer";
-import MentionHashtagText from "@/components/MentionHashtagText";
 import AppHeader from "@/components/navigation/AppHeader";
 import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
-import PollCard from "@/components/post/PollCard";
+import PostCard from "@/components/post/PostCard";
 import StoryAvatar from "@/components/StoryAvatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useCommunities } from "@/hooks/useCommunities";
@@ -33,18 +27,10 @@ import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import {
-  Bell,
-  Bookmark,
-  Heart,
-  MessageCircle,
-  MoreVertical,
-  Repeat2,
-} from "lucide-react-native";
+import { Bell } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   RefreshControl,
@@ -54,7 +40,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { MaterialTabBar, Tabs } from "react-native-collapsible-tab-view";
 import Animated, {
@@ -79,20 +64,6 @@ const timeAgo = (iso: string) => {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-};
-
-const isVideoUrl = (url?: string | null) => {
-  if (!url) return false;
-  const clean = url.split("?")[0].toLowerCase();
-  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
-    clean.endsWith(`.${e}`),
-  );
-};
-
-const isVideoPost = (post: any) => {
-  if (post?.post_type === "video") return true;
-  if (post?.post_type === "mixed") return true;
-  return isVideoUrl(post?.media_urls?.[0]);
 };
 
 const hasNSFWContent = (post: Post): boolean => {
@@ -161,436 +132,6 @@ function SkeletonPost({ colors, isDark, feedDensity }: any) {
   );
 }
 
-function QuotedPostCard({
-  quotedPost,
-  colors,
-}: {
-  quotedPost: any;
-  colors: any;
-}) {
-  const author =
-    quotedPost?.user?.full_name || quotedPost?.user?.username || "User";
-  return (
-    <TouchableOpacity
-      style={[
-        styles.quotedCard,
-        { borderColor: colors.border, backgroundColor: colors.surface },
-      ]}
-      onPress={() =>
-        quotedPost?.id && router.push(`/post/${quotedPost.id}` as any)
-      }
-      activeOpacity={0.85}
-    >
-      <View style={styles.quotedHeader}>
-        {quotedPost?.user?.avatar_url ? (
-          <Image
-            source={{ uri: quotedPost.user.avatar_url }}
-            style={styles.quotedAvatar}
-          />
-        ) : (
-          <View
-            style={[
-              styles.quotedAvatarFallback,
-              { backgroundColor: colors.primary + "30" },
-            ]}
-          >
-            <Text
-              style={[styles.quotedAvatarLetter, { color: colors.primary }]}
-            >
-              {(author[0] || "U").toUpperCase()}
-            </Text>
-          </View>
-        )}
-        <Text
-          style={[styles.quotedAuthor, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {author}
-        </Text>
-        {quotedPost?.user?.username && (
-          <Text
-            style={[styles.quotedHandle, { color: colors.textTertiary }]}
-            numberOfLines={1}
-          >
-            @{quotedPost.user.username}
-          </Text>
-        )}
-      </View>
-      {!!quotedPost?.content && (
-        <Text
-          style={[styles.quotedContent, { color: colors.textSecondary }]}
-          numberOfLines={3}
-        >
-          {quotedPost.content}
-        </Text>
-      )}
-      {quotedPost?.media_urls?.[0] && (
-        <Image
-          source={{ uri: quotedPost.media_urls[0] }}
-          style={styles.quotedMedia}
-          resizeMode="cover"
-        />
-      )}
-    </TouchableOpacity>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Post card — extracted so all three tab feeds share one renderer.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PostCard({
-  post,
-  colors,
-  isDark,
-  feedDensity,
-  mediaHeight,
-  onLike,
-  onSave,
-  onRepost,
-}: {
-  post: Post;
-  colors: any;
-  isDark: boolean;
-  feedDensity: string;
-  mediaHeight: number;
-  onLike: (id: string) => void;
-  onSave: (id: string) => void;
-  onRepost: (id: string) => void;
-}) {
-  const isRepost = !!(post as any).is_repost;
-  const isQuote = !!(post as any).quote_post_id;
-  const quotedPost = (post as any).quote_post;
-  const author = post.user?.full_name || post.user?.username || "User";
-  const avatar = post.user?.avatar_url;
-  const media = post.media_urls?.[0];
-  const video = isVideoPost(post);
-  const isPoll = post.post_type === "poll" && !!(post as any).poll;
-  const liked = !!post.is_liked;
-  const saved = !!post.is_saved;
-  const likeColor = liked ? "#FF375F" : colors.text;
-  const saveColor = saved ? colors.primary : colors.text;
-  const repostCount = (post as any).repost_count ?? 0;
-  const reposted = !!(post as any).is_reposted;
-  const repostColor = reposted ? "#00BA7C" : colors.text;
-  const padding =
-    feedDensity === "compact" ? 10 : feedDensity === "relaxed" ? 20 : 14;
-  const mb =
-    feedDensity === "compact" ? 6 : feedDensity === "relaxed" ? 18 : 12;
-
-  // ✅ Ads removed: opening a post no longer triggers an interstitial.
-  const openPost = (postId: string) => router.push(`/post/${postId}` as any);
-
-  return (
-    <TouchableOpacity
-      activeOpacity={isPoll ? 1 : 0.92}
-      onPress={() => !isPoll && openPost(post.id)}
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          shadowOpacity: isDark ? 0.22 : 0.05,
-          padding,
-          marginBottom: mb,
-        },
-      ]}
-    >
-      {isRepost && (
-        <View style={styles.repostLabel}>
-          <Repeat2 size={13} color={colors.textTertiary} strokeWidth={2.5} />
-          <Text
-            style={[styles.repostLabelText, { color: colors.textTertiary }]}
-          >
-            You reposted
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.cardTop}>
-        <TouchableOpacity
-          style={styles.authorRow}
-          onPress={() =>
-            post.user_id && router.push(`/user/${post.user_id}` as any)
-          }
-          activeOpacity={0.85}
-        >
-          {avatar ? (
-            <Image source={{ uri: avatar }} style={styles.avatar} />
-          ) : (
-            <View
-              style={[
-                styles.avatar,
-                {
-                  backgroundColor: colors.surface,
-                  alignItems: "center",
-                  justifyContent: "center",
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: colors.primary,
-                  fontWeight: "700",
-                  fontSize: 16,
-                }}
-              >
-                {author[0]?.toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <View>
-            <Text style={[styles.author, { color: colors.text }]}>
-              {author}
-            </Text>
-            <Text style={[styles.time, { color: colors.textTertiary }]}>
-              {timeAgo(post.created_at)}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            Alert.alert("Post Options", undefined, [
-              { text: "View Post", onPress: () => openPost(post.id) },
-              { text: "Cancel", style: "cancel" },
-            ]);
-          }}
-        >
-          <MoreVertical size={20} color={colors.textTertiary} />
-        </TouchableOpacity>
-      </View>
-
-      {isPoll ? (
-        <>
-          {!!post.title && (
-            <Text
-              style={[styles.pollQuestion, { color: colors.text }]}
-              numberOfLines={3}
-            >
-              {post.title}
-            </Text>
-          )}
-          <PollCard
-            postId={post.id}
-            poll={(post as any).poll}
-            accentColor={colors.primary}
-            textColor={colors.text}
-            subColor={colors.textTertiary}
-            cardBg={colors.surface}
-            borderColor={colors.border}
-          />
-        </>
-      ) : (
-        <>
-          {!!post.content && (
-            <MentionHashtagText
-              content={post.content}
-              style={[styles.content, { color: colors.text }]}
-              numberOfLines={6}
-              hashtagColor={colors.primary}
-              onPress={() => openPost(post.id)}
-            />
-          )}
-
-          {isQuote && quotedPost && (
-            <QuotedPostCard quotedPost={quotedPost} colors={colors} />
-          )}
-
-          {!!media &&
-            !isQuote &&
-            (video ? (
-              <VideoPlayer
-                uri={media}
-                style={{
-                  height: mediaHeight,
-                  borderRadius: 18,
-                  marginBottom: 12,
-                }}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.mediaWrap,
-                  { height: mediaHeight, backgroundColor: colors.surface },
-                ]}
-              >
-                <Image
-                  source={{ uri: media }}
-                  style={styles.media}
-                  resizeMode="cover"
-                />
-              </View>
-            ))}
-        </>
-      )}
-
-      <View style={[styles.actions, { borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onLike(post.id);
-          }}
-          activeOpacity={0.7}
-        >
-          <Heart
-            size={20}
-            color={likeColor}
-            fill={liked ? "#FF375F" : "none"}
-            strokeWidth={2.5}
-          />
-          <Text style={[styles.actionText, { color: likeColor }]}>
-            {post.like_count ?? 0}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            openPost(post.id);
-          }}
-          activeOpacity={0.7}
-        >
-          <MessageCircle size={20} color={colors.text} strokeWidth={2.5} />
-          <Text style={[styles.actionText, { color: colors.text }]}>
-            {post.comment_count ?? 0}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            Alert.alert(reposted ? "Undo Repost?" : "Repost", undefined, [
-              {
-                text: reposted ? "Undo Repost" : "Repost",
-                style: reposted ? "destructive" : "default",
-                onPress: () => onRepost(post.id),
-              },
-              {
-                text: "Quote",
-                onPress: () =>
-                  router.push(`/create/quote?postId=${post.id}` as any),
-              },
-              { text: "Cancel", style: "cancel" },
-            ]);
-          }}
-          activeOpacity={0.7}
-        >
-          <Repeat2 size={20} color={repostColor} strokeWidth={2.5} />
-          <Text style={[styles.actionText, { color: repostColor }]}>
-            {repostCount}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            openPost(post.id);
-          }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="share-outline" size={20} color={colors.text} />
-          <Text style={[styles.actionText, { color: colors.text }]}>
-            {post.share_count ?? 0}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onSave(post.id);
-          }}
-          activeOpacity={0.7}
-        >
-          <Bookmark
-            size={20}
-            color={saveColor}
-            fill={saved ? colors.primary : "none"}
-            strokeWidth={2.5}
-          />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stories row — used to live in the sticky Tabs.Container header (renderHeader
-// below). Moved here so it can be rendered as the top of the For You tab's
-// ListHeaderComponent instead: it now scrolls away with the feed on the very
-// first swipe, rather than permanently reserving ~90px above the tab bar on
-// every tab. Only the For You tab passes this in (see storiesElement prop
-// on FeedList below) — matches Twitter/Bluesky, which don't repeat a stories
-// shelf across every tab.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function StoriesRow({ stories, colors }: { stories: any[]; colors: any }) {
-  return (
-    <View style={styles.storiesWrap}>
-      <FlatList
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        data={[{ id: "add" }, ...(stories ?? [])] as any[]}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingRight: 16 }}
-        renderItem={({ item }) => {
-          if (item.id === "add") {
-            return (
-              <TouchableOpacity
-                style={styles.storyItem}
-                onPress={() => router.push("/create/story")}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.addStoryCircle,
-                    {
-                      borderColor: colors.primary,
-                      backgroundColor: colors.card,
-                    },
-                  ]}
-                >
-                  <Ionicons name="add" size={24} color={colors.primary} />
-                </View>
-                <Text style={[styles.storyLabel, { color: colors.text }]}>
-                  Add Story
-                </Text>
-              </TouchableOpacity>
-            );
-          }
-          const p = item.profiles;
-          const label = p?.username || p?.full_name || "User";
-          return (
-            <View style={styles.storyItem}>
-              <StoryAvatar
-                userId={item.user_id}
-                avatarUrl={p?.avatar_url}
-                name={label}
-                size={52}
-                onPress={() => router.push(`/story/${item.id}` as any)}
-              />
-              <Text
-                style={[styles.storyLabel, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                {label}
-              </Text>
-            </View>
-          );
-        }}
-      />
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// One feed list per tab. Each mounts lazily and owns its own query,
-// pagination, refresh, and skeletons. Uses Tabs.FlatList so scrolling
-// drives the collapsible header.
-// ─────────────────────────────────────────────────────────────────────────────
-
 function FeedList({
   tab,
   communityIds,
@@ -599,6 +140,8 @@ function FeedList({
   storiesElement,
   emptyTitle,
   emptySubtitle,
+  uiScale,
+  fontScale,
 }: {
   tab: FeedTab;
   communityIds: string[];
@@ -607,16 +150,13 @@ function FeedList({
   storiesElement?: React.ReactElement | null;
   emptyTitle: string;
   emptySubtitle: string;
+  uiScale: number;
+  fontScale: number;
 }) {
   const { colors, isDark } = useTheme();
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const feedDensity = useFeedDensity();
 
-  const mediaHeight = useMemo(
-    () => Math.round(Math.min(420, Math.max(200, width * 0.62))),
-    [width],
-  );
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
@@ -641,28 +181,47 @@ function FeedList({
     [posts, showNSFW],
   );
 
-  const {
-    onLike,
-    onSave,
-    onRepost,
-    viewabilityConfig,
-    onViewableItemsChanged,
-  } = useFeedInteractions();
+  const { onLike, onSave, viewabilityConfig, onViewableItemsChanged } =
+    useFeedInteractions();
 
   const renderItem = useCallback(
-    ({ item }: { item: Post }) => (
-      <PostCard
-        post={item}
-        colors={colors}
-        isDark={isDark}
-        feedDensity={feedDensity}
-        mediaHeight={mediaHeight}
-        onLike={onLike}
-        onSave={onSave}
-        onRepost={onRepost}
-      />
-    ),
-    [colors, isDark, feedDensity, mediaHeight, onLike, onSave, onRepost],
+    ({ item }: { item: Post }) => {
+      const isQuote = !!(item as any).quote_post_id;
+      return (
+        <View style={{ marginHorizontal: 14 * uiScale }}>
+          <PostCard
+            id={item.id}
+            title={(item as any).title}
+            content={item.content}
+            post_type={item.post_type ?? undefined}
+            poll={(item as any).poll}
+            author={{
+              id: item.user_id,
+              name: item.user?.full_name || item.user?.username || "User",
+              username: item.user?.username || "",
+              avatar: item.user?.avatar_url ?? undefined,
+            }}
+            timestamp={timeAgo(item.created_at)}
+            likes={item.like_count ?? 0}
+            comments={item.comment_count ?? 0}
+            shares={item.share_count ?? 0}
+            reposts={(item as any).repost_count ?? 0}
+            saves={(item as any).save_count ?? 0}
+            isLiked={!!item.is_liked}
+            isSaved={!!item.is_saved}
+            isReposted={!!(item as any).is_reposted}
+            isRepostByMe={!!(item as any).is_repost}
+            quotedPost={isQuote ? (item as any).quote_post : undefined}
+            media={item.media_urls}
+            isBoosted={!!(item as any).is_boosted}
+            boostedUntil={(item as any).boosted_until ?? null}
+            onLikePress={() => onLike(item.id)}
+            onSavePress={() => onSave(item.id)}
+          />
+        </View>
+      );
+    },
+    [onLike, onSave, uiScale],
   );
 
   return (
@@ -671,10 +230,10 @@ function FeedList({
       keyExtractor={(item: Post) => item.id}
       renderItem={renderItem}
       ListHeaderComponent={
-        <>
+        <View>
           {storiesElement}
           {ListHeaderComponent}
-        </>
+        </View>
       }
       onEndReached={() => hasNextPage && fetchNextPage()}
       onEndReachedThreshold={0.45}
@@ -731,11 +290,89 @@ function FeedList({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Communities tab header: search box + horizontal community pills.
-// Lives INSIDE the Communities tab list (not the global header) so it
-// only appears on that tab, exactly like before.
-// ─────────────────────────────────────────────────────────────────────────────
+function StoriesRow({
+  stories,
+  colors,
+  uiScale,
+  fontScale,
+}: {
+  stories: any[];
+  colors: any;
+  uiScale: number;
+  fontScale: number;
+}) {
+  return (
+    <View style={styles.storiesWrap}>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={[{ id: "add" }, ...(stories ?? [])] as any[]}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingRight: 16 }}
+        renderItem={({ item }) => {
+          if (item.id === "add") {
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.storyItem,
+                  { marginRight: 14 * uiScale, width: 64 * uiScale },
+                ]}
+                onPress={() => router.push("/create/story")}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.addStoryCircle,
+                    {
+                      borderColor: colors.primary,
+                      backgroundColor: colors.card,
+                      width: 56 * uiScale,
+                      height: 56 * uiScale,
+                      borderRadius: 28 * uiScale,
+                    },
+                  ]}
+                >
+                  <Ionicons name="add" size={24} color={colors.primary} />
+                </View>
+                <Text
+                  style={[
+                    styles.storyLabel,
+                    {
+                      color: colors.text,
+                      fontSize: 11 * fontScale,
+                      marginTop: 2 * uiScale,
+                    },
+                  ]}
+                >
+                  Add Story
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+          const p = item.profiles;
+          const label = p?.username || p?.full_name || "User";
+          return (
+            <View style={styles.storyItem}>
+              <StoryAvatar
+                userId={item.user_id}
+                avatarUrl={p?.avatar_url}
+                name={label}
+                size={52}
+                onPress={() => router.push(`/story/${item.id}` as any)}
+              />
+              <Text
+                style={[styles.storyLabel, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {label}
+              </Text>
+            </View>
+          );
+        }}
+      />
+    </View>
+  );
+}
 
 function CommunityPanel({
   communitySearch,
@@ -743,6 +380,8 @@ function CommunityPanel({
   filteredCommunities,
   colors,
   isDark,
+  uiScale,
+  fontScale,
 }: any) {
   return (
     <View style={styles.myCommunityPanel}>
@@ -753,6 +392,12 @@ function CommunityPanel({
             backgroundColor: colors.card,
             borderColor: colors.border,
             shadowOpacity: isDark ? 0.22 : 0.06,
+            marginHorizontal: 14 * uiScale,
+            marginBottom: 10 * uiScale,
+            borderRadius: 22 * uiScale,
+            paddingHorizontal: 14 * uiScale,
+            height: 44 * uiScale,
+            gap: 10 * uiScale,
           },
         ]}
       >
@@ -762,7 +407,10 @@ function CommunityPanel({
           onChangeText={setCommunitySearch}
           placeholder="Search your communities..."
           placeholderTextColor={colors.textTertiary}
-          style={[styles.communitySearchInput, { color: colors.text }]}
+          style={[
+            styles.communitySearchInput,
+            { color: colors.text, fontSize: 14.5 * fontScale },
+          ]}
           autoCorrect={false}
           autoCapitalize="none"
           returnKeyType="search"
@@ -786,14 +434,25 @@ function CommunityPanel({
           contentContainerStyle={{ paddingRight: 16, paddingLeft: 16 }}
           renderItem={({ item }: any) => (
             <TouchableOpacity
-              style={styles.communityPill}
+              style={[
+                styles.communityPill,
+                { width: 86 * uiScale, marginRight: 12 * uiScale },
+              ]}
               onPress={() => router.push(`/community/${item.slug}` as any)}
               activeOpacity={0.85}
             >
               {item.image_url ? (
                 <Image
                   source={{ uri: item.image_url }}
-                  style={styles.communityAvatar}
+                  style={[
+                    styles.communityAvatar,
+                    {
+                      width: 46 * uiScale,
+                      height: 46 * uiScale,
+                      borderRadius: 23 * uiScale,
+                      marginBottom: 6 * uiScale,
+                    },
+                  ]}
                 />
               ) : (
                 <View
@@ -811,7 +470,14 @@ function CommunityPanel({
                 </View>
               )}
               <Text
-                style={[styles.communityName, { color: colors.text }]}
+                style={[
+                  styles.communityName,
+                  {
+                    color: colors.text,
+                    fontSize: 12 * fontScale,
+                    maxWidth: 86 * uiScale,
+                  },
+                ]}
                 numberOfLines={1}
               >
                 {item.name}
@@ -834,12 +500,8 @@ function CommunityPanel({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Screen
-// ─────────────────────────────────────────────────────────────────────────────
-
 export default function HomeScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const { user } = useAuth();
 
   useCurrentUserProfileSync();
@@ -891,9 +553,6 @@ export default function HomeScreen() {
     return named.filter((c) => (c.name ?? "").toLowerCase().includes(q));
   }, [communitySearch, myCommunities]);
 
-  // Collapsible header: logo row only now — stories moved into the For You
-  // tab's ListHeaderComponent (see StoriesRow above) so they scroll away
-  // with the feed instead of permanently sitting above the pinned tab bar.
   const renderHeader = useCallback(
     () => (
       <View
@@ -947,7 +606,6 @@ export default function HomeScreen() {
     [colors, unreadCount],
   );
 
-  // Pinned tab bar — Twitter-style even-width tabs with sliding underline.
   const renderTabBar = useCallback(
     (props: any) => (
       <MaterialTabBar
@@ -993,14 +651,22 @@ export default function HomeScreen() {
         }}
         containerStyle={{ backgroundColor: colors.background }}
         lazy
-        allowHeaderOverscroll
       >
         <Tabs.Tab name="For You">
           <FeedList
+            uiScale={uiScale}
+            fontScale={fontScale}
             tab="for-you"
             communityIds={myCommunityIds}
             showNSFW={showNSFW}
-            storiesElement={<StoriesRow stories={stories} colors={colors} />}
+            storiesElement={
+              <StoriesRow
+                stories={stories}
+                colors={colors}
+                uiScale={uiScale}
+                fontScale={fontScale}
+              />
+            }
             ListHeaderComponent={<AnnouncementCard />}
             emptyTitle="Nothing here yet"
             emptySubtitle="Posts from across NebulaNet will appear here."
@@ -1008,6 +674,8 @@ export default function HomeScreen() {
         </Tabs.Tab>
         <Tabs.Tab name="Following">
           <FeedList
+            uiScale={uiScale}
+            fontScale={fontScale}
             tab="following"
             communityIds={myCommunityIds}
             showNSFW={showNSFW}
@@ -1017,6 +685,8 @@ export default function HomeScreen() {
         </Tabs.Tab>
         <Tabs.Tab name="Communities">
           <FeedList
+            uiScale={uiScale}
+            fontScale={fontScale}
             tab="my-community"
             communityIds={myCommunityIds}
             showNSFW={showNSFW}
@@ -1027,6 +697,8 @@ export default function HomeScreen() {
                 filteredCommunities={filteredCommunities}
                 colors={colors}
                 isDark={isDark}
+                uiScale={uiScale}
+                fontScale={fontScale}
               />
             }
             emptyTitle="No community posts yet"
@@ -1046,11 +718,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   brandLogo: { width: 32, height: 32, borderRadius: 9 },
-  brandName: {
-    fontSize: 19,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
+  brandName: { fontSize: 19, fontWeight: "900", letterSpacing: -0.5 },
   bellWrap: {
     width: 38,
     height: 38,
@@ -1160,13 +828,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
-  repostLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginBottom: 6,
-  },
-  repostLabelText: { fontSize: 12, fontWeight: "600" },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -1174,53 +835,4 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   authorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
-  author: { fontSize: 14, fontWeight: "900" },
-  time: { fontSize: 12, fontWeight: "700", marginTop: 2 },
-  pollQuestion: {
-    fontSize: 16,
-    fontWeight: "800",
-    lineHeight: 22,
-    marginBottom: 4,
-  },
-  content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  quotedCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
-    marginTop: 8,
-    marginBottom: 10,
-    gap: 6,
-  },
-  quotedHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  quotedAvatar: { width: 18, height: 18, borderRadius: 9 },
-  quotedAvatarFallback: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quotedAvatarLetter: { fontSize: 9, fontWeight: "900" },
-  quotedAuthor: { fontSize: 13, fontWeight: "700", flexShrink: 1 },
-  quotedHandle: { fontSize: 12, flexShrink: 1 },
-  quotedContent: { fontSize: 13, lineHeight: 18 },
-  quotedMedia: { width: "100%", height: 120, borderRadius: 10, marginTop: 4 },
-  mediaWrap: {
-    width: "100%",
-    borderRadius: 18,
-    overflow: "hidden",
-    marginBottom: 12,
-    position: "relative",
-  },
-  media: { width: "100%", height: "100%" },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingTop: 10,
-    borderTopWidth: 1,
-  },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { fontSize: 12.5, fontWeight: "800" },
 });

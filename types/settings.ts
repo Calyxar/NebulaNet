@@ -1,3 +1,6 @@
+export type FontSize = "small" | "medium" | "large";
+export type UIScale = "compact" | "normal" | "large";
+
 export interface UserPreferences {
   theme: "light" | "dark" | "system";
   language: string;
@@ -7,6 +10,7 @@ export interface UserPreferences {
   auto_play_media: boolean;
   reduce_animations: boolean;
   font_size: "small" | "medium" | "large";
+  ui_scale: UIScale;
   email_notifications: boolean;
   push_notifications: boolean;
   default_sort: "best" | "hot" | "new" | "top";

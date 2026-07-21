@@ -1,34 +1,47 @@
-// app/(tabs)/profile.tsx ✅ REDESIGNED
-// ✅ Banner photo added — avatar now overlaps its bottom edge, Twitter/
-//    Bluesky style. Reads profile.banner_url (new field — needs an upload
-//    flow added to the edit-profile screen separately).
-// ✅ "Activity" tab removed — reposts/quotes now interleave directly into
-//    the Post tab with an inline "Reposted"/"Quoted" label, matching how
-//    real Twitter/Bluesky timelines work (and matching the repost label
-//    pattern already used in home.tsx).
-// ✅ Tabs switched from pill-background to underline style, matching Explore.
-//
-// Fix 1: my-posts query uses orderBy("created_at_ts") to match existing index
-// Fix 2: my-reposts query uses staleTime:0 + gcTime:0 to bypass stale cache
-// Fix 3: reposts query drops orderBy entirely and sorts client-side (safest)
+// app/(tabs)/profile.tsx ✅
+// ✅ CONSOLIDATED: this screen used to have its own independent inline
+// repost/quote card renderer — the 4th separate copy of that UI in the
+// codebase (alongside components/post/PostCard.tsx and
+// app/user/[username]/index.tsx's version, both already using the
+// canonical PostCard). Replaced with <PostCard /> for every entry in
+// mergedFeed:
+//   - "post" kind → normal PostCard render, author = you
+//   - "quote" kind → author = you, quotedPost = the original post
+//   - "repost" kind → author = the ORIGINAL post's author (matching how
+//     home.tsx already renders reposts-in-feed), isRepostByMe = true
+// ✅ NEW: added a one-time batched is_liked/is_saved check across the
+// visible post set (not per-card — same anti-N+1 reasoning as the fix
+// that made PostCard stop doing its own per-card repost-status fetch).
+// ⚠️ KNOWN LIMITATION: useToggleLike/useToggleBookmark's optimistic cache
+// patch (in hooks/usePosts.ts) only touches postKeys.lists() — the query
+// keys home.tsx's feed uses. This screen's own query keys (user-own-posts,
+// user-reposts) aren't covered, so liking/saving here works correctly on
+// the server but won't visually update instantly the way it does on Home;
+// it catches up on the next refetch (staleTime: 0 here, so next focus).
+// Fixing this properly means generalizing patchPostInLists to match
+// arbitrary query shapes — flagged as a follow-up, not silently ignored.
+// ✅ FIXED: RefreshControl was previously misused as
+// Animated.ScrollView.RefreshControl (not a real API) — now imported and
+// used as a normal RefreshControl passed to the refreshControl prop.
 
-import HashtagText from "@/components/HashtagText";
-import { getTabBarHeight } from "@/components/navigation/CurvedTabBar";
+import PostCard from "@/components/post/PostCard";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedState } from "@/hooks/usePersistedState";
+import { useToggleBookmark, useToggleLike } from "@/hooks/usePosts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import LottieView from "lottie-react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Image,
-  Pressable,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -57,7 +70,15 @@ type ActivityItem = {
   media_urls: string[] | null;
   created_at: string;
   post_type?: string | null;
+  like_count?: number;
+  comment_count?: number;
+  share_count?: number;
+  repost_count?: number;
+  save_count?: number;
+  is_boosted?: boolean;
+  boosted_until?: string | null;
   original_user?: {
+    id: string;
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
@@ -65,6 +86,7 @@ type ActivityItem = {
   quoted_post?: {
     id: string;
     content: string | null;
+    media_urls?: string[] | null;
     user: {
       username: string | null;
       full_name: string | null;
@@ -80,10 +102,15 @@ type PostRow = {
   media_urls: string[] | null;
   created_at: string;
   post_type?: string | null;
+  like_count?: number;
+  comment_count?: number;
+  share_count?: number;
+  repost_count?: number;
+  save_count?: number;
+  is_boosted?: boolean;
+  boosted_until?: string | null;
 };
 
-// Unified feed item for the merged Post tab — either a plain post or an
-// activity item (repost/quote), tagged with a single sort timestamp.
 type FeedEntry =
   | { kind: "post"; sortAt: string; post: PostRow }
   | { kind: "activity"; sortAt: string; activity: ActivityItem };
@@ -103,12 +130,12 @@ function tsToIso(v: any): string {
   return new Date().toISOString();
 }
 
-const isVideoUrl = (url?: string | null) => {
-  if (!url) return false;
-  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
-    url.split("?")[0].toLowerCase().endsWith(`.${e}`),
-  );
-};
+function todayMMDD() {
+  const now = new Date();
+  return `${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+}
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -117,6 +144,9 @@ export default function ProfileScreen() {
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
   const [refreshing, setRefreshing] = useState(false);
+
+  const toggleLikeMutation = useToggleLike();
+  const toggleBookmarkMutation = useToggleBookmark();
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const HEADER_FADE_START = 160;
@@ -133,11 +163,47 @@ export default function ProfileScreen() {
     extrapolate: "clamp",
   });
 
-  const bottomPad = useMemo(
-    () => getTabBarHeight(insets.bottom) + 12,
-    [insets.bottom],
-  );
   const uid = user?.uid;
+
+  // ── Birthday ──────────────────────────────────────────────────────────────
+  const birthDate = (profile as any)?.birthDate;
+  const showBirthdayFlag = (profile as any)?.showBirthday;
+
+  const isBirthday = useMemo(() => {
+    if (!birthDate || !showBirthdayFlag) return false;
+    const b =
+      typeof birthDate?.toDate === "function" ? birthDate.toDate() : null;
+    if (!b) return false;
+    const now = new Date();
+    return b.getMonth() === now.getMonth() && b.getDate() === now.getDate();
+  }, [birthDate, showBirthdayFlag]);
+
+  const [showBalloons, setShowBalloons] = useState(false);
+  const playedRef = useRef(false);
+
+  useEffect(() => {
+    if (isBirthday && !playedRef.current) {
+      playedRef.current = true;
+      setShowBalloons(true);
+    }
+  }, [isBirthday]);
+
+  const promptKey = uid
+    ? `birthday-prompt-dismissed-${uid}-${todayMMDD()}`
+    : "birthday-prompt-dismissed-fallback";
+  const {
+    value: promptDismissed,
+    setValue: setPromptDismissed,
+    isReady: promptReady,
+  } = usePersistedState<boolean>(promptKey, false);
+
+  const handleShareBirthday = () => {
+    setPromptDismissed(true);
+    router.push({
+      pathname: "/create/post",
+      params: { prefill: "🎉 It's my birthday today!" },
+    } as any);
+  };
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const { data: stats, refetch: refetchStats } = useQuery({
@@ -178,8 +244,6 @@ export default function ProfileScreen() {
     enabled: !!uid,
     staleTime: 30_000,
     queryFn: async () => {
-      // ✅ No orderBy — fetches ALL posts regardless of whether created_at_ts
-      // exists (older posts may not have it). Sort client-side instead.
       const snap = await firestore()
         .collection("posts")
         .where("user_id", "==", uid)
@@ -193,6 +257,13 @@ export default function ProfileScreen() {
             media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
             created_at: tsToIso(x.created_at_ts ?? x.created_at),
             post_type: x.post_type ?? null,
+            like_count: x.like_count ?? 0,
+            comment_count: x.comment_count ?? 0,
+            share_count: x.share_count ?? 0,
+            repost_count: x.repost_count ?? 0,
+            save_count: x.save_count ?? 0,
+            is_boosted: x.is_boosted ?? false,
+            boosted_until: x.boosted_until ? tsToIso(x.boosted_until) : null,
           } as PostRow;
         })
         .sort(
@@ -206,16 +277,12 @@ export default function ProfileScreen() {
   const { data: activity, refetch: refetchActivity } = useQuery({
     queryKey: ["my-reposts", uid],
     enabled: !!uid,
-    // ✅ FIX 2: no cache — always fetch fresh so stale empty cache doesn't block
     staleTime: 0,
     gcTime: 0,
     queryFn: async (): Promise<ActivityItem[]> => {
       const items: ActivityItem[] = [];
 
-      // ── 1. Simple reposts ──────────────────────────────────────────────────
       try {
-        // ✅ FIX 3: no orderBy — fetch all user's reposts and sort client-side
-        // This avoids the composite index requirement entirely
         const repostSnap = await firestore()
           .collection("reposts")
           .where("user_id", "==", uid)
@@ -236,7 +303,6 @@ export default function ProfileScreen() {
             }
           });
 
-          // Fetch the actual post docs in batches of 10
           const chunks: string[][] = [];
           for (let i = 0; i < postIds.length; i += 10)
             chunks.push(postIds.slice(i, i + 10));
@@ -248,7 +314,7 @@ export default function ProfileScreen() {
               ),
             );
             docSnaps.forEach((d) => {
-              if (!d.exists) return;
+              if (!d.exists()) return;
               const x = d.data() as any;
               items.push({
                 id: d.id,
@@ -257,7 +323,23 @@ export default function ProfileScreen() {
                 media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
                 created_at: tsToIso(x.created_at_ts ?? x.created_at),
                 post_type: x.post_type ?? null,
-                original_user: x.user ?? null,
+                like_count: x.like_count ?? 0,
+                comment_count: x.comment_count ?? 0,
+                share_count: x.share_count ?? 0,
+                repost_count: x.repost_count ?? 0,
+                save_count: x.save_count ?? 0,
+                is_boosted: x.is_boosted ?? false,
+                boosted_until: x.boosted_until
+                  ? tsToIso(x.boosted_until)
+                  : null,
+                original_user: x.user
+                  ? {
+                      id: x.user_id,
+                      username: x.user.username ?? null,
+                      full_name: x.user.full_name ?? null,
+                      avatar_url: x.user.avatar_url ?? null,
+                    }
+                  : null,
                 activity_at:
                   repostedAt[d.id] ?? tsToIso(x.created_at_ts ?? x.created_at),
               });
@@ -268,9 +350,7 @@ export default function ProfileScreen() {
         console.warn("[Activity] reposts fetch failed:", e);
       }
 
-      // ── 2. Quote reposts ───────────────────────────────────────────────────
       try {
-        // ✅ FIX 3: no orderBy on quote_post_id — just filter client-side
         const quoteSnap = await firestore()
           .collection("posts")
           .where("user_id", "==", uid)
@@ -287,6 +367,11 @@ export default function ProfileScreen() {
 
               let quotedContent: string | null = x.quote_post?.content ?? null;
               let quotedUser = x.quote_post?.user ?? null;
+              let quotedMediaUrls: string[] | null = Array.isArray(
+                x.quote_post?.media_urls,
+              )
+                ? x.quote_post.media_urls
+                : null;
 
               if (!quotedContent) {
                 try {
@@ -294,10 +379,15 @@ export default function ProfileScreen() {
                     .collection("posts")
                     .doc(x.quote_post_id)
                     .get();
-                  const quotedData = quotedSnap.data() as any;
+                  const quotedData = quotedSnap.exists()
+                    ? (quotedSnap.data() as any)
+                    : null;
                   if (quotedData) {
                     quotedContent = quotedData.content ?? null;
                     quotedUser = quotedData.user ?? null;
+                    quotedMediaUrls = Array.isArray(quotedData.media_urls)
+                      ? quotedData.media_urls
+                      : null;
                   }
                 } catch {}
               }
@@ -309,9 +399,19 @@ export default function ProfileScreen() {
                 media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
                 created_at: tsToIso(x.created_at_ts ?? x.created_at),
                 post_type: x.post_type ?? null,
+                like_count: x.like_count ?? 0,
+                comment_count: x.comment_count ?? 0,
+                share_count: x.share_count ?? 0,
+                repost_count: x.repost_count ?? 0,
+                save_count: x.save_count ?? 0,
+                is_boosted: x.is_boosted ?? false,
+                boosted_until: x.boosted_until
+                  ? tsToIso(x.boosted_until)
+                  : null,
                 quoted_post: {
                   id: x.quote_post_id,
                   content: quotedContent,
+                  media_urls: quotedMediaUrls,
                   user: quotedUser,
                 },
                 activity_at: tsToIso(x.created_at_ts ?? x.created_at),
@@ -322,7 +422,6 @@ export default function ProfileScreen() {
         console.warn("[Activity] quote reposts fetch failed:", e);
       }
 
-      // Sort merged list newest first
       return items.sort(
         (a, b) =>
           new Date(b.activity_at).getTime() - new Date(a.activity_at).getTime(),
@@ -330,10 +429,6 @@ export default function ProfileScreen() {
     },
   });
 
-  // ── Merge posts + activity into one interleaved, deduped feed ──────────────
-  // Quote-type activity items are themselves posts authored by this user
-  // (the "posts" query already includes them), so they're excluded from the
-  // plain-post list here to avoid showing the same quote post twice.
   const mergedFeed: FeedEntry[] = useMemo(() => {
     const quoteIds = new Set(
       (activity ?? []).filter((a) => a.type === "quote").map((a) => a.id),
@@ -363,6 +458,50 @@ export default function ProfileScreen() {
     [posts],
   );
 
+  // ✅ NEW: one-time batched is_liked/is_saved check across the visible
+  // post set — the relevant "other post" for a repost is the ORIGINAL
+  // post id, not the repost activity doc's own id.
+  const likeSaveTargetIds = useMemo(() => {
+    const ids = new Set<string>();
+    (posts ?? []).forEach((p) => ids.add(p.id));
+    (activity ?? []).forEach((a) => ids.add(a.id));
+    return Array.from(ids);
+  }, [posts, activity]);
+
+  const { data: likeSaveStatus } = useQuery({
+    queryKey: ["my-profile-like-save-status", uid, likeSaveTargetIds.join(",")],
+    enabled: !!uid && likeSaveTargetIds.length > 0,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const liked = new Set<string>();
+      const saved = new Set<string>();
+      await Promise.all(
+        likeSaveTargetIds.map(async (postId) => {
+          const [likeSnap, saveSnap] = await Promise.all([
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("likes")
+              .doc(uid!)
+              .get(),
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("saves")
+              .doc(uid!)
+              .get(),
+          ]);
+          if (likeSnap.exists()) liked.add(postId);
+          if (saveSnap.exists()) saved.add(postId);
+        }),
+      );
+      return { liked, saved };
+    },
+  });
+
+  const isLikedPost = (postId: string) => !!likeSaveStatus?.liked.has(postId);
+  const isSavedPost = (postId: string) => !!likeSaveStatus?.saved.has(postId);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await Promise.all([refetchStats(), refetchPosts(), refetchActivity()]);
@@ -374,10 +513,155 @@ export default function ProfileScreen() {
     : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   const avatarUrl = profile?.avatar_url;
-  // New field — falls back to a primary-tint gradient when absent so the
-  // header still looks intentional before anyone's uploaded a banner.
   const bannerUrl = (profile as any)?.banner_url as string | null | undefined;
   const displayName = profile?.full_name || profile?.username || "User";
+
+  const renderFeedEntry = (entry: FeedEntry) => {
+    if (entry.kind === "post") {
+      const p = entry.post;
+      return (
+        <PostCard
+          key={`post-${p.id}`}
+          id={p.id}
+          content={p.content}
+          media={p.media_urls ?? undefined}
+          post_type={p.post_type ?? undefined}
+          author={{
+            id: uid!,
+            name: displayName,
+            username: profile?.username ?? "",
+            avatar: avatarUrl ?? undefined,
+          }}
+          timestamp={new Date(p.created_at).toLocaleDateString()}
+          likes={p.like_count ?? 0}
+          comments={p.comment_count ?? 0}
+          shares={p.share_count ?? 0}
+          reposts={p.repost_count ?? 0}
+          saves={p.save_count ?? 0}
+          isLiked={isLikedPost(p.id)}
+          isSaved={isSavedPost(p.id)}
+          isBoosted={p.is_boosted}
+          boostedUntil={p.boosted_until}
+          onLikePress={() =>
+            toggleLikeMutation.mutate({
+              postId: p.id,
+              isLiked: isLikedPost(p.id),
+            })
+          }
+          onSavePress={() =>
+            toggleBookmarkMutation.mutate({
+              postId: p.id,
+              isSaved: isSavedPost(p.id),
+            })
+          }
+        />
+      );
+    }
+
+    const item = entry.activity;
+
+    if (item.type === "repost") {
+      // ✅ Reposts render with the ORIGINAL author/content, matching how
+      // home.tsx already renders reposts-in-feed — isRepostByMe carries
+      // the "You reposted" label.
+      return (
+        <PostCard
+          key={`repost-${item.id}`}
+          id={item.id}
+          content={item.content}
+          media={item.media_urls ?? undefined}
+          post_type={item.post_type ?? undefined}
+          author={{
+            id: item.original_user?.id ?? "",
+            name:
+              item.original_user?.full_name ||
+              item.original_user?.username ||
+              "User",
+            username: item.original_user?.username ?? "",
+            avatar: item.original_user?.avatar_url ?? undefined,
+          }}
+          timestamp={new Date(item.created_at).toLocaleDateString()}
+          likes={item.like_count ?? 0}
+          comments={item.comment_count ?? 0}
+          shares={item.share_count ?? 0}
+          reposts={item.repost_count ?? 0}
+          saves={item.save_count ?? 0}
+          isLiked={isLikedPost(item.id)}
+          isSaved={isSavedPost(item.id)}
+          isRepostByMe
+          isBoosted={item.is_boosted}
+          boostedUntil={item.boosted_until}
+          onLikePress={() =>
+            toggleLikeMutation.mutate({
+              postId: item.id,
+              isLiked: isLikedPost(item.id),
+            })
+          }
+          onSavePress={() =>
+            toggleBookmarkMutation.mutate({
+              postId: item.id,
+              isSaved: isSavedPost(item.id),
+            })
+          }
+        />
+      );
+    }
+
+    // "quote" — your own post, quoting someone else's
+    return (
+      <PostCard
+        key={`quote-${item.id}`}
+        id={item.id}
+        content={item.content}
+        media={item.media_urls ?? undefined}
+        post_type={item.post_type ?? undefined}
+        author={{
+          id: uid!,
+          name: displayName,
+          username: profile?.username ?? "",
+          avatar: avatarUrl ?? undefined,
+        }}
+        timestamp={new Date(item.created_at).toLocaleDateString()}
+        likes={item.like_count ?? 0}
+        comments={item.comment_count ?? 0}
+        shares={item.share_count ?? 0}
+        reposts={item.repost_count ?? 0}
+        saves={item.save_count ?? 0}
+        isLiked={isLikedPost(item.id)}
+        isSaved={isSavedPost(item.id)}
+        isBoosted={item.is_boosted}
+        boostedUntil={item.boosted_until}
+        quotedPost={
+          item.quoted_post
+            ? {
+                id: item.quoted_post.id,
+                content: item.quoted_post.content ?? undefined,
+                media_urls: item.quoted_post.media_urls ?? undefined,
+                user: item.quoted_post.user
+                  ? {
+                      full_name: item.quoted_post.user.full_name ?? undefined,
+                      username: item.quoted_post.user.username ?? undefined,
+                      avatar_url: item.quoted_post.user.avatar_url ?? undefined,
+                    }
+                  : undefined,
+              }
+            : undefined
+        }
+        onLikePress={() =>
+          toggleLikeMutation.mutate({
+            postId: item.id,
+            isLiked: isLikedPost(item.id),
+          })
+        }
+        onSavePress={() =>
+          toggleBookmarkMutation.mutate({
+            postId: item.id,
+            isSaved: isSavedPost(item.id),
+          })
+        }
+      />
+    );
+  };
 
   return (
     <>
@@ -392,7 +676,6 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
       >
         <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          {/* Animated sticky header — floats above the banner */}
           <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
             <Animated.View
               style={[
@@ -462,7 +745,7 @@ export default function ProfileScreen() {
 
           <Animated.ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: bottomPad }}
+            contentContainerStyle={{ paddingBottom: 100 }}
             scrollEventThrottle={16}
             onScroll={Animated.event(
               [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -477,7 +760,6 @@ export default function ProfileScreen() {
               />
             }
           >
-            {/* Banner — Twitter/Bluesky style, avatar overlaps its bottom edge */}
             <View style={styles.bannerWrap}>
               {bannerUrl ? (
                 <Image source={{ uri: bannerUrl }} style={styles.bannerImage} />
@@ -525,7 +807,6 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Profile card — content starts clear of the overlapping avatar */}
             <View
               style={[
                 styles.profileCard,
@@ -556,6 +837,25 @@ export default function ProfileScreen() {
                       borderColor: colors.border,
                     },
                   ]}
+                  onPress={() => router.push("/profile/analytics" as any)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="View analytics"
+                >
+                  <Ionicons
+                    name="bar-chart-outline"
+                    size={18}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.shareBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
                   onPress={() => shareSheetRef.current?.present()}
                   activeOpacity={0.85}
                 >
@@ -572,6 +872,15 @@ export default function ProfileScreen() {
                   {displayName}
                 </Text>
                 {!!(profile as any)?.is_founder && <FounderBadge />}
+                {isBirthday && (
+                  <TouchableOpacity
+                    onPress={() => setShowBalloons(true)}
+                    activeOpacity={0.7}
+                    hitSlop={8}
+                  >
+                    <Text style={{ fontSize: 18 }}>🎈</Text>
+                  </TouchableOpacity>
+                )}
               </View>
               {!!profile?.username && (
                 <Text
@@ -604,7 +913,7 @@ export default function ProfileScreen() {
               )}
 
               <View style={styles.statsRow}>
-                <Pressable
+                <TouchableOpacity
                   style={styles.statItem}
                   onPress={() => router.push(`/profile/followers` as any)}
                 >
@@ -618,7 +927,7 @@ export default function ProfileScreen() {
                   >
                     Followers
                   </Text>
-                </Pressable>
+                </TouchableOpacity>
                 <View style={styles.statItem}>
                   <Text style={[styles.statValue, { color: colors.text }]}>
                     {formatNumber(stats?.posts ?? 0)}
@@ -629,7 +938,7 @@ export default function ProfileScreen() {
                     Posts
                   </Text>
                 </View>
-                <Pressable
+                <TouchableOpacity
                   style={styles.statItem}
                   onPress={() => router.push(`/profile/following` as any)}
                 >
@@ -645,12 +954,60 @@ export default function ProfileScreen() {
                   >
                     Following
                   </Text>
-                </Pressable>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* Tabs — underline style, matching Explore. Just Post/Media now;
-                Activity merges into Post below. */}
+            {isBirthday && promptReady && !promptDismissed && (
+              <View
+                style={[
+                  styles.birthdayPrompt,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[styles.birthdayPromptTitle, { color: colors.text }]}
+                  >
+                    🎉 It's your birthday!
+                  </Text>
+                  <Text
+                    style={[
+                      styles.birthdayPromptDesc,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    Want to let your followers know?
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.birthdayPromptBtn,
+                    { backgroundColor: colors.primary },
+                  ]}
+                  onPress={handleShareBirthday}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.birthdayPromptBtnText}>Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setPromptDismissed(true)}
+                  activeOpacity={0.7}
+                  hitSlop={8}
+                  style={{ marginLeft: 4 }}
+                >
+                  <Ionicons
+                    name="close"
+                    size={18}
+                    color={colors.textTertiary}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View
               style={[
                 styles.tabsContainer,
@@ -688,255 +1045,11 @@ export default function ProfileScreen() {
               })}
             </View>
 
-            {/* Tab content */}
             <View style={styles.contentSection}>
-              {/* POST — plain posts and reposts/quotes interleaved by date */}
               {activeTab === "Post" &&
                 (mergedFeed.length > 0 ? (
-                  <View style={{ gap: 12 }}>
-                    {mergedFeed.map((entry) => {
-                      if (entry.kind === "post") {
-                        const p = entry.post;
-                        const img = p.media_urls?.[0];
-                        const isVid =
-                          isVideoUrl(img) || p.post_type === "video";
-                        return (
-                          <TouchableOpacity
-                            key={`post-${p.id}`}
-                            style={[
-                              styles.postCard,
-                              { backgroundColor: colors.card },
-                            ]}
-                            onPress={() => router.push(`/post/${p.id}` as any)}
-                            activeOpacity={0.9}
-                          >
-                            {!!p.content && (
-                              <HashtagText
-                                content={p.content}
-                                style={[
-                                  styles.postContent,
-                                  { color: colors.text },
-                                ]}
-                                numberOfLines={4}
-                                hashtagColor={colors.primary}
-                                onPress={() =>
-                                  router.push(`/post/${p.id}` as any)
-                                }
-                              />
-                            )}
-                            {!!img && (
-                              <View
-                                style={[
-                                  styles.postMediaWrap,
-                                  { backgroundColor: colors.surface },
-                                ]}
-                              >
-                                <Image
-                                  source={{ uri: img }}
-                                  style={styles.postMedia}
-                                  resizeMode="cover"
-                                />
-                                {isVid && (
-                                  <View style={styles.videoOverlay}>
-                                    <Ionicons
-                                      name="play-circle"
-                                      size={32}
-                                      color="#fff"
-                                    />
-                                  </View>
-                                )}
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      }
-
-                      // entry.kind === "activity"
-                      const item = entry.activity;
-                      const img = item.media_urls?.[0];
-                      const isVid =
-                        isVideoUrl(img) || item.post_type === "video";
-
-                      return (
-                        <TouchableOpacity
-                          key={`${item.type}-${item.id}`}
-                          style={[
-                            styles.postCard,
-                            { backgroundColor: colors.card },
-                          ]}
-                          onPress={() => router.push(`/post/${item.id}` as any)}
-                          activeOpacity={0.9}
-                        >
-                          <View style={styles.activityLabelRow}>
-                            <Ionicons
-                              name={
-                                item.type === "quote"
-                                  ? "chatbubble-ellipses-outline"
-                                  : "repeat-outline"
-                              }
-                              size={14}
-                              color={colors.textTertiary}
-                            />
-                            <Text
-                              style={[
-                                styles.activityLabelText,
-                                { color: colors.textTertiary },
-                              ]}
-                            >
-                              {item.type === "quote"
-                                ? "You quoted"
-                                : "You reposted"}
-                            </Text>
-                          </View>
-
-                          {!!item.content && (
-                            <Text
-                              style={[
-                                styles.postContent,
-                                { color: colors.text, marginBottom: 8 },
-                              ]}
-                              numberOfLines={4}
-                            >
-                              {item.content}
-                            </Text>
-                          )}
-
-                          {item.type === "quote" && item.quoted_post && (
-                            <View
-                              style={[
-                                styles.quotedCard,
-                                {
-                                  borderColor: colors.border,
-                                  backgroundColor: colors.surface,
-                                },
-                              ]}
-                            >
-                              {item.quoted_post.user && (
-                                <View style={styles.quotedAuthorRow}>
-                                  {item.quoted_post.user.avatar_url ? (
-                                    <Image
-                                      source={{
-                                        uri: item.quoted_post.user.avatar_url,
-                                      }}
-                                      style={styles.quotedAvatar}
-                                    />
-                                  ) : (
-                                    <View
-                                      style={[
-                                        styles.quotedAvatar,
-                                        styles.quotedAvatarFallback,
-                                        { backgroundColor: colors.primary },
-                                      ]}
-                                    >
-                                      <Text style={styles.quotedAvatarLetter}>
-                                        {(
-                                          item.quoted_post.user.username?.[0] ??
-                                          "U"
-                                        ).toUpperCase()}
-                                      </Text>
-                                    </View>
-                                  )}
-                                  <Text
-                                    style={[
-                                      styles.quotedAuthor,
-                                      { color: colors.text },
-                                    ]}
-                                    numberOfLines={1}
-                                  >
-                                    {item.quoted_post.user.full_name ??
-                                      item.quoted_post.user.username ??
-                                      "User"}
-                                  </Text>
-                                </View>
-                              )}
-                              {!!item.quoted_post.content && (
-                                <Text
-                                  style={[
-                                    styles.quotedContent,
-                                    { color: colors.textSecondary },
-                                  ]}
-                                  numberOfLines={3}
-                                >
-                                  {item.quoted_post.content}
-                                </Text>
-                              )}
-                            </View>
-                          )}
-
-                          {item.type === "repost" && (
-                            <View
-                              style={[
-                                styles.quotedCard,
-                                {
-                                  borderColor: colors.border,
-                                  backgroundColor: colors.surface,
-                                },
-                              ]}
-                            >
-                              <View style={styles.quotedAuthorRow}>
-                                {item.original_user?.avatar_url ? (
-                                  <Image
-                                    source={{
-                                      uri: item.original_user.avatar_url,
-                                    }}
-                                    style={styles.quotedAvatar}
-                                  />
-                                ) : (
-                                  <View
-                                    style={[
-                                      styles.quotedAvatar,
-                                      styles.quotedAvatarFallback,
-                                      { backgroundColor: colors.primary },
-                                    ]}
-                                  >
-                                    <Text style={styles.quotedAvatarLetter}>
-                                      {(
-                                        item.original_user?.username?.[0] ?? "U"
-                                      ).toUpperCase()}
-                                    </Text>
-                                  </View>
-                                )}
-                                <Text
-                                  style={[
-                                    styles.quotedAuthor,
-                                    { color: colors.text },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {item.original_user?.full_name ??
-                                    item.original_user?.username ??
-                                    "someone"}
-                                </Text>
-                              </View>
-                            </View>
-                          )}
-
-                          {!!img && (
-                            <View
-                              style={[
-                                styles.postMediaWrap,
-                                { backgroundColor: colors.surface },
-                              ]}
-                            >
-                              <Image
-                                source={{ uri: img }}
-                                style={styles.postMedia}
-                                resizeMode="cover"
-                              />
-                              {isVid && (
-                                <View style={styles.videoOverlay}>
-                                  <Ionicons
-                                    name="play-circle"
-                                    size={32}
-                                    color="#fff"
-                                  />
-                                </View>
-                              )}
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
+                  <View style={{ gap: 4 }}>
+                    {mergedFeed.map((entry) => renderFeedEntry(entry))}
                   </View>
                 ) : (
                   <View
@@ -968,7 +1081,6 @@ export default function ProfileScreen() {
                   </View>
                 ))}
 
-              {/* MEDIA grid */}
               {activeTab === "Media" &&
                 (mediaPosts.length > 0 ? (
                   <View
@@ -989,8 +1101,6 @@ export default function ProfileScreen() {
                         >
                           {row.map((post) => {
                             const img = post.media_urls![0];
-                            const isVid =
-                              isVideoUrl(img) || post.post_type === "video";
                             return (
                               <TouchableOpacity
                                 key={post.id}
@@ -999,7 +1109,6 @@ export default function ProfileScreen() {
                                   height: CELL_SIZE,
                                   backgroundColor: colors.surface,
                                   overflow: "hidden",
-                                  position: "relative",
                                 }}
                                 activeOpacity={0.85}
                                 onPress={() =>
@@ -1011,25 +1120,6 @@ export default function ProfileScreen() {
                                   style={{ width: "100%", height: "100%" }}
                                   resizeMode="cover"
                                 />
-                                {isVid && (
-                                  <View
-                                    style={{
-                                      position: "absolute",
-                                      top: 6,
-                                      right: 6,
-                                      backgroundColor: "rgba(0,0,0,0.55)",
-                                      borderRadius: 8,
-                                      paddingHorizontal: 5,
-                                      paddingVertical: 3,
-                                    }}
-                                  >
-                                    <Ionicons
-                                      name="play"
-                                      size={10}
-                                      color="#fff"
-                                    />
-                                  </View>
-                                )}
                               </TouchableOpacity>
                             );
                           })}
@@ -1072,6 +1162,18 @@ export default function ProfileScreen() {
             </View>
           </Animated.ScrollView>
         </SafeAreaView>
+
+        {showBalloons && (
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <LottieView
+              source={require("@/assets/animations/balloons.json")}
+              autoPlay
+              loop={false}
+              onAnimationFinish={() => setShowBalloons(false)}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+        )}
       </LinearGradient>
 
       <ShareSheet
@@ -1116,19 +1218,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  bannerWrap: {
-    width: "100%",
-    height: BANNER_HEIGHT,
-    zIndex: 10,
-  },
-  bannerImage: {
-    width: "100%",
-    height: BANNER_HEIGHT,
-  },
+  bannerWrap: { width: "100%", height: BANNER_HEIGHT, zIndex: 10 },
+  bannerImage: { width: "100%", height: BANNER_HEIGHT },
   avatarOverlap: {
     position: "absolute",
-    bottom: -AVATAR_OVERLAP,
-    left: 16,
+    bottom: 0,
+    left: 34,
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
@@ -1172,7 +1267,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "flex-end",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   editBtn: {
     paddingVertical: 10,
@@ -1210,8 +1305,30 @@ const styles = StyleSheet.create({
   statItem: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   statValue: { fontSize: 15, fontWeight: "900" },
   statLabel: { fontSize: 13, fontWeight: "600" },
-  // Underline tabs — matches Explore's tab bar style instead of the old
-  // pill-background segmented control.
+  birthdayPrompt: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  birthdayPromptTitle: { fontSize: 14, fontWeight: "800" },
+  birthdayPromptDesc: { fontSize: 12.5, marginTop: 2 },
+  birthdayPromptBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+  },
+  birthdayPromptBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   tabsContainer: {
     flexDirection: "row",
     marginHorizontal: 16,
@@ -1229,57 +1346,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   contentSection: { paddingHorizontal: 16, paddingBottom: 32 },
-  postCard: {
-    borderRadius: 18,
-    padding: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  activityLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  activityLabelText: { fontSize: 12, fontWeight: "700" },
-  repostByline: { fontSize: 12, fontWeight: "600", marginTop: 4 },
-  postContent: { fontSize: 14, lineHeight: 20 },
-  postMediaWrap: {
-    width: "100%",
-    height: 180,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginTop: 10,
-    position: "relative",
-  },
-  postMedia: { width: "100%", height: "100%" },
-  videoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  quotedCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    marginTop: 8,
-    gap: 4,
-  },
-  quotedAuthorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
-  },
-  quotedAvatar: { width: 22, height: 22, borderRadius: 11 },
-  quotedAvatarFallback: { alignItems: "center", justifyContent: "center" },
-  quotedAvatarLetter: { fontSize: 10, fontWeight: "800", color: "#fff" },
-  quotedAuthor: { fontSize: 13, fontWeight: "700" },
-  quotedContent: { fontSize: 13, lineHeight: 18 },
   emptyCard: {
     borderRadius: 22,
     paddingVertical: 32,

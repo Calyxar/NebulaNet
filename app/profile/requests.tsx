@@ -1,11 +1,24 @@
 // app/profile/requests.tsx — UPDATED ✅
+// ✅ FIXED: this file was still using the legacy Web SDK (`db` from
+//    @/lib/firebase) for every Firestore call, while the rest of the app
+//    migrated to @react-native-firebase's native `firestore()` — this
+//    screen was apparently missed in that migration. Now uses `firestore()`
+//    throughout, matching followers.tsx / following.tsx / profile.tsx.
+// ✅ FIXED: `myId` was reading `user?.id`, which doesn't exist on a Firebase
+//    Auth user object (the field is `uid`). This meant `myId` was always
+//    undefined, so every query's `enabled: !!myId` guard never fired —
+//    the screen would always show "No requests" regardless of actual
+//    pending follow requests. Now reads `user?.uid`, matching every other
+//    screen in this group.
+// ✅ UI CONSISTENCY PASS: same treatment as followers.tsx / following.tsx —
+//    gradient aligned to blue (was purple), uiScale/fontScale threaded
+//    through, card radius bumped 16→18.
 import AppHeader from "@/components/navigation/AppHeader";
 import UserActionsSheet, {
   type UserActionsSheetRef,
 } from "@/components/UserActionsSheet";
 import UserRow, { type UserRowModel } from "@/components/UserRow";
 import { useAuth } from "@/hooks/useAuth";
-import { db } from "@/lib/firebase";
 import {
   invalidateAfterApproveDeny,
   invalidateAfterBlock,
@@ -49,19 +62,32 @@ type RequestRow = {
    SKELETON ROW
 ========================= */
 
-function SkeletonRow({ colors }: { colors: any }) {
+function SkeletonRow({ colors, uiScale }: { colors: any; uiScale: number }) {
   return (
     <View
       style={[
         styles.card,
-        { backgroundColor: colors.card, borderColor: colors.border },
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderRadius: 18 * uiScale,
+          padding: 12 * uiScale,
+        },
       ]}
     >
-      <View style={[styles.skelRow]}>
+      <View style={styles.skelRow}>
         <View
-          style={[styles.skelAvatar, { backgroundColor: colors.surface }]}
+          style={[
+            styles.skelAvatar,
+            {
+              backgroundColor: colors.surface,
+              width: 44 * uiScale,
+              height: 44 * uiScale,
+              borderRadius: 22 * uiScale,
+            },
+          ]}
         />
-        <View style={{ flex: 1, gap: 8 }}>
+        <View style={{ flex: 1, gap: 8 * uiScale }}>
           <View
             style={[
               styles.skel,
@@ -75,14 +101,14 @@ function SkeletonRow({ colors }: { colors: any }) {
             ]}
           />
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8 * uiScale }}>
           <View
             style={[
               styles.skel,
               {
-                width: 76,
-                height: 34,
-                borderRadius: 14,
+                width: 76 * uiScale,
+                height: 34 * uiScale,
+                borderRadius: 14 * uiScale,
                 backgroundColor: colors.surface,
               },
             ]}
@@ -91,9 +117,9 @@ function SkeletonRow({ colors }: { colors: any }) {
             style={[
               styles.skel,
               {
-                width: 86,
-                height: 34,
-                borderRadius: 14,
+                width: 86 * uiScale,
+                height: 34 * uiScale,
+                borderRadius: 14 * uiScale,
                 backgroundColor: colors.surface,
               },
             ]}
@@ -110,17 +136,21 @@ function SkeletonRow({ colors }: { colors: any }) {
 
 export default function RequestedFollowersScreen() {
   const { user } = useAuth();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, uiScale, fontScale } = useTheme();
   const qc = useQueryClient();
 
   const sheetRef = useRef<UserActionsSheetRef>(null);
   const [selected, setSelected] = useState<UserRowModel | null>(null);
 
-  const myId = user?.id;
+  // ✅ FIX: was `user?.id` (doesn't exist on a Firebase Auth user) — the
+  // field is `uid`. This previously left myId always undefined.
+  const myId = user?.uid;
 
+  // ✅ Aligned with profile.tsx / [username]/index.tsx's gradient — this
+  // screen is reached from Profile and should read as the same surface.
   const gradientColors = isDark
-    ? [colors.background, colors.background]
-    : ["#EEF0FF", "#F5F3FF", "#FFFFFF"];
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   // ── Pending requests ──
   const {
@@ -132,7 +162,9 @@ export default function RequestedFollowersScreen() {
     queryKey: ["requested-followers", myId],
     enabled: !!myId,
     queryFn: async () => {
-      const snap = await db
+      // ✅ FIX: was db.collection(...) (legacy Web SDK) — now firestore()
+      // (native SDK), matching the rest of the app.
+      const snap = await firestore()
         .collection("follows")
         .where("following_id", "==", myId!)
         .where("status", "==", "pending")
@@ -140,7 +172,7 @@ export default function RequestedFollowersScreen() {
       const rows = await Promise.all(
         snap.docs.map(async (d) => {
           const data = d.data() as any;
-          const pSnap = await db
+          const pSnap = await firestore()
             .collection("profiles")
             .doc(data.follower_id)
             .get();
@@ -175,7 +207,7 @@ export default function RequestedFollowersScreen() {
     queryKey: ["mutual-following-set", myId, requesterIds.join(",")],
     enabled: !!myId && requesterIds.length > 0,
     queryFn: async () => {
-      const snap = await db
+      const snap = await firestore()
         .collection("follows")
         .where("follower_id", "==", myId!)
         .where("status", "==", "accepted")
@@ -204,7 +236,10 @@ export default function RequestedFollowersScreen() {
   // ── Approve ──
   const approveMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
-      await db.collection("follows").doc(row.id).update({ status: "accepted" });
+      await firestore()
+        .collection("follows")
+        .doc(row.id)
+        .update({ status: "accepted" });
       return row;
     },
     onMutate: async (row) => {
@@ -229,7 +264,7 @@ export default function RequestedFollowersScreen() {
   // ── Deny ──
   const denyMutation = useMutation({
     mutationFn: async (row: RequestRow) => {
-      await db.collection("follows").doc(row.id).delete();
+      await firestore().collection("follows").doc(row.id).delete();
       return row;
     },
     onMutate: async (row) => {
@@ -255,7 +290,7 @@ export default function RequestedFollowersScreen() {
   const blockMutation = useMutation({
     mutationFn: async (target: { id: string; username?: string }) => {
       if (!myId) throw new Error("Not signed in");
-      await db.collection("user_blocks").add({
+      await firestore().collection("user_blocks").add({
         blocker_id: myId,
         blocked_id: target.id,
         created_at: firestore.FieldValue.serverTimestamp(),
@@ -289,7 +324,7 @@ export default function RequestedFollowersScreen() {
   return (
     <LinearGradient
       colors={gradientColors as any}
-      locations={[0, 0.3, 1]}
+      locations={[0, 0.42, 1]}
       style={styles.gradient}
     >
       <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -299,9 +334,15 @@ export default function RequestedFollowersScreen() {
         />
 
         {isLoading ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+          <View
+            style={{
+              paddingHorizontal: 16 * uiScale,
+              paddingTop: 12 * uiScale,
+              gap: 10 * uiScale,
+            }}
+          >
             {Array.from({ length: 8 }).map((_, i) => (
-              <SkeletonRow key={i} colors={colors} />
+              <SkeletonRow key={i} colors={colors} uiScale={uiScale} />
             ))}
           </View>
         ) : (
@@ -310,6 +351,7 @@ export default function RequestedFollowersScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
               styles.listContent,
+              { paddingHorizontal: 16 * uiScale, paddingTop: 12 * uiScale },
               list.length === 0 && styles.listEmpty,
             ]}
             refreshControl={
@@ -319,7 +361,9 @@ export default function RequestedFollowersScreen() {
                 tintColor={colors.primary}
               />
             }
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            ItemSeparatorComponent={() => (
+              <View style={{ height: 10 * uiScale }} />
+            )}
             renderItem={({ item }) => {
               const row = (requests ?? []).find(
                 (r) => r.follower_id === item.id,
@@ -338,6 +382,8 @@ export default function RequestedFollowersScreen() {
                     {
                       backgroundColor: colors.card,
                       borderColor: colors.border,
+                      borderRadius: 18 * uiScale,
+                      padding: 12 * uiScale,
                     },
                   ]}
                 >
@@ -347,7 +393,7 @@ export default function RequestedFollowersScreen() {
                     onMenu={() => openMenu(item)}
                     hideMenu={false}
                   />
-                  <View style={styles.actionsRow}>
+                  <View style={[styles.actionsRow, { gap: 8 * uiScale }]}>
                     <Pressable
                       style={[
                         styles.actionBtn,
@@ -356,26 +402,45 @@ export default function RequestedFollowersScreen() {
                           borderWidth: 1,
                           borderColor: colors.border,
                           flex: 1,
+                          borderRadius: 14 * uiScale,
+                          paddingVertical: 10 * uiScale,
                         },
                       ]}
                       onPress={() => denyMutation.mutate(row)}
                       disabled={isBusy}
                     >
                       <Ionicons name="close" size={16} color={colors.text} />
-                      <Text style={[styles.denyText, { color: colors.text }]}>
+                      <Text
+                        style={[
+                          styles.denyText,
+                          { color: colors.text, fontSize: 13 * fontScale },
+                        ]}
+                      >
                         Deny
                       </Text>
                     </Pressable>
                     <Pressable
                       style={[
                         styles.actionBtn,
-                        { backgroundColor: colors.primary, flex: 1 },
+                        {
+                          backgroundColor: colors.primary,
+                          flex: 1,
+                          borderRadius: 14 * uiScale,
+                          paddingVertical: 10 * uiScale,
+                        },
                       ]}
                       onPress={() => approveMutation.mutate(row)}
                       disabled={isBusy}
                     >
                       <Ionicons name="checkmark" size={16} color="#fff" />
-                      <Text style={styles.approveText}>Approve</Text>
+                      <Text
+                        style={[
+                          styles.approveText,
+                          { fontSize: 13 * fontScale },
+                        ]}
+                      >
+                        Approve
+                      </Text>
                     </Pressable>
                   </View>
                 </View>
@@ -386,7 +451,12 @@ export default function RequestedFollowersScreen() {
                 <View
                   style={[
                     styles.emptyIconCircle,
-                    { backgroundColor: colors.surface },
+                    {
+                      backgroundColor: colors.surface,
+                      width: 72 * uiScale,
+                      height: 72 * uiScale,
+                      borderRadius: 36 * uiScale,
+                    },
                   ]}
                 >
                   <Ionicons
@@ -395,11 +465,19 @@ export default function RequestedFollowersScreen() {
                     color={colors.primary}
                   />
                 </View>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                <Text
+                  style={[
+                    styles.emptyTitle,
+                    { color: colors.text, fontSize: 18 * fontScale },
+                  ]}
+                >
                   No requests
                 </Text>
                 <Text
-                  style={[styles.emptyDesc, { color: colors.textTertiary }]}
+                  style={[
+                    styles.emptyDesc,
+                    { color: colors.textTertiary, fontSize: 13 * fontScale },
+                  ]}
                 >
                   Follow requests will appear here.
                 </Text>
@@ -441,20 +519,18 @@ export default function RequestedFollowersScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { flex: 1, backgroundColor: "transparent" },
-  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+  listContent: { paddingBottom: 24 },
   listEmpty: { flex: 1 },
-  card: { borderRadius: 16, padding: 12, borderWidth: 1, gap: 0 },
-  actionsRow: { marginTop: 10, flexDirection: "row", gap: 8 },
+  card: { borderWidth: 1, gap: 0 },
+  actionsRow: { marginTop: 10, flexDirection: "row" },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 10,
-    borderRadius: 14,
   },
-  approveText: { color: "#fff", fontWeight: "900", fontSize: 13 },
-  denyText: { fontWeight: "900", fontSize: 13 },
+  approveText: { color: "#fff", fontWeight: "900" },
+  denyText: { fontWeight: "900" },
   empty: {
     flex: 1,
     alignItems: "center",
@@ -464,16 +540,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
   },
-  emptyTitle: { fontSize: 18, fontWeight: "900", textAlign: "center" },
+  emptyTitle: { fontWeight: "900", textAlign: "center" },
   emptyDesc: {
-    fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 18,
@@ -481,5 +553,5 @@ const styles = StyleSheet.create({
   },
   skel: { borderRadius: 6 },
   skelRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  skelAvatar: { width: 44, height: 44, borderRadius: 22 },
+  skelAvatar: {},
 });

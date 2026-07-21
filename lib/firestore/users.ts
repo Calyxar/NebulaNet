@@ -1,27 +1,9 @@
 // lib/firestore/users.ts — ✅ FIXED: updateUserProfile fans out to posts
 import { auth } from "@/lib/firebase";
+import { UserProfile } from "@/types/user";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
-
-export interface UserProfile {
-  id: string;
-  username: string;
-  full_name?: string;
-  avatar_url?: string;
-  bio?: string;
-  website?: string;
-  location?: string;
-  follower_count: number;
-  following_count: number;
-  post_count: number;
-  created_at: any;
-  updated_at: any;
-  is_private?: boolean;
-  is_following?: boolean;
-  is_followed_by?: boolean;
-  is_self?: boolean;
-}
 
 export async function getUserProfile(
   identifier: string,

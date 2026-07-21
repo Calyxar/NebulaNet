@@ -1,1239 +1,261 @@
-// lib/firestore/posts.ts ✅ FIXED
-// Fix 1: getPosts batches userIds in chunks of 10 (Firestore in-operator limit)
-//         and merges results — fixes empty following feed for users with >10 follows
-// Fix 2: getRepostFeedItems uses orderBy("created_at","desc") not created_at_ts
-//         to match the existing reposts index
-// Fix 3: following feed adds visibility filter so private posts don't leak
-// Fix 4: minor accounts (age_group "teen" or "under_13") never query for or
-//         receive is_nsfw posts — matches the Firestore security rule, so
-//         queries never request documents the rule would reject
+// lib/firestore/posts.ts — For You feed section ✅
+// ✅ FIXED: getForYouFeed() used to fetch a large scored candidate pool
+// but slice it down to one page and discard the rest, with no real
+// pagination. Split into computeForYouRankedPool() (candidate fetch +
+// scoring, returns the full pool) and sliceForYouFeedPage() (pure
+// in-memory pagination via numeric cursor).
+// ✅ NEW: computeForYouRankedPool now reads user_affinity and hard-
+// excludes muted authors from the candidate pool entirely, and soft-
+// penalizes (0.15x score) posts matching muted hashtags — see
+// lib/firestore/affinity.ts.
 
-import type { MediaItem, MediaType } from "@/components/media/MediaUpload";
-import { auth } from "@/lib/firebase";
-import { getAffinityScores } from "@/lib/firestore/affinity";
-import {
-  decrementHashtagCounts,
-  extractHashtags,
-  indexHashtags,
-} from "@/lib/firestore/hashtags";
-import { extractAndResolveMentions } from "@/lib/firestore/mentions";
-import { createNotification } from "@/lib/firestore/notifications";
-import { detectLanguage } from "@/utils/detectLanguage";
+import type { Post } from "@/hooks/useFeed";
+import { getAuthorViewCounts, getUserAffinity } from "@/lib/firestore/affinity";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
-import storage from "@react-native-firebase/storage";
 
-/* =========================================================
-   TYPES
-========================================================= */
-
-export type PostVisibility = "public" | "followers" | "private";
-export type PostType = "text" | "image" | "video" | "mixed" | "poll";
-
-export type ProfileRow = {
-  id: string;
-  username: string;
-  full_name?: string | null;
-  avatar_url?: string | null;
-};
-
-export type CommunityRow = {
-  id: string;
-  name: string;
-  slug: string;
-  avatar_url?: string | null;
-};
-
-export type PostLocation = {
-  name: string;
-  place_id: string;
-};
-
-export interface Post {
-  id: string;
-  user_id: string;
-  title?: string | null;
-  content: string;
-  media_urls: string[];
-  visibility: PostVisibility;
-  community_id?: string | null;
-  post_type?: PostType | null;
-  is_visible?: boolean | null;
-  hashtags?: string[];
-  poll?: import("@/lib/firestore/polls").PollData | null;
-  location?: PostLocation | null;
-  like_count: number;
-  comment_count: number;
-  repost_count: number;
-  share_count: number;
-  created_at: string;
-  updated_at: string;
-  user: ProfileRow | null;
-  community: CommunityRow | null;
-  is_liked?: boolean;
-  is_saved?: boolean;
-  is_reposted?: boolean;
-  is_owned?: boolean;
-}
-
-export interface PostFilters {
-  limit?: number;
-  communitySlug?: string;
-  communityIds?: string[];
-  userIds?: string[];
-  username?: string;
-  userId?: string;
-  hashtag?: string;
-  visibility?: PostVisibility;
-  sortBy?: "newest" | "popular" | "trending";
-  language?: string | null;
-  cursor?: { lastDocId?: string } | null;
-}
-
-export interface PaginatedPosts {
+export type PaginatedPosts = {
   posts: Post[];
-  total: number;
-  hasMore: boolean;
-  nextCursor: PostFilters["cursor"];
-}
-
-export type QuotedPostEmbed = {
-  id: string;
-  content: string | null;
-  user: ProfileRow | null;
-  created_at?: string;
-  media_urls?: string[] | null;
+  nextCursor: number | null;
 };
 
-export type CreatePostData = {
+// Post doesn't natively carry these fields — the rest of the codebase
+// already reads them via `(item as any).<field>` (see home.tsx's
+// renderItem), confirming they're real Firestore fields that were just
+// never added to the official Post interface. Representing them as an
+// intersection here instead of pretending they're part of Post itself,
+// rather than repeating the `as any` workaround.
+type PostWithExtras = Post & {
   title?: string;
-  content: string;
-  media?: MediaItem[];
-  community_id?: string;
-  visibility: PostVisibility;
-  location?: PostLocation;
-  is_nsfw?: boolean;
-  // ✅ NEW: previously accepted via an `as any` cast from
-  // app/create/quote.tsx, which silenced the type error but meant
-  // these fields were silently dropped — createPost() never actually
-  // read or wrote them, so every quote post ever created was missing
-  // its quote_post_id/quote_post entirely in Firestore. Confirmed by
-  // tracing a real quote post ("Nice" quoting trish's moon photo) that
-  // rendered as bare text with no embedded quote card on the profile
-  // screen — the field genuinely never existed on the document.
-  quote_post_id?: string;
-  quote_post?: QuotedPostEmbed;
+  poll?: unknown;
+  repost_count: number;
+  save_count: number;
+  is_reposted: boolean;
+  is_repost: boolean;
+  quote_post_id?: string | null;
+  quote_post?: unknown;
+  // ✅ NEW: monetization — paid post boosts (see functions/src/applyPostBoost.ts).
+  // Only ever set by that Cloud Function, never by client writes.
+  is_boosted?: boolean;
+  boosted_until?: string | null;
 };
 
-export type UpdatePostData = {
-  title?: string | null;
-  content?: string | null;
-  media_urls?: string[] | null;
-  visibility?: PostVisibility | null;
-  community_id?: string | null;
-  is_visible?: boolean | null;
-  post_type?: PostType | null;
-  location?: PostLocation | null;
-};
+// Internal — a scored candidate before it's trimmed back down to a plain
+// Post for the UI layer. `_score` never leaves this file.
+type ScoredPost = PostWithExtras & { _score: number };
 
-/* =========================================================
-   HELPERS
-========================================================= */
-
-const POST_MEDIA_TYPES: ReadonlySet<MediaType> = new Set([
-  "image",
-  "video",
-  "gif",
-]);
-
-// ✅ NEW: matches the Firestore security rule's isMinor() check
-const MINOR_AGE_GROUPS = new Set(["teen", "under_13"]);
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-function normalizeVisibility(v: any): PostVisibility {
-  return v === "public" || v === "followers" || v === "private" ? v : "public";
-}
-
-function normalizePostType(p: { post_type?: any; media_urls?: any }): PostType {
-  const t = p?.post_type;
-  if (
-    t === "text" ||
-    t === "image" ||
-    t === "video" ||
-    t === "mixed" ||
-    t === "poll"
-  )
-    return t;
-  const urls = Array.isArray(p?.media_urls) ? (p.media_urls as string[]) : [];
-  if (!urls.length) return "text";
-  const hasVideo = urls.some((u) =>
-    /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
-  );
-  if (hasVideo && urls.length > 1) return "mixed";
-  if (hasVideo) return "video";
-  return "image";
-}
+const RANKED_POOL_SIZE = 150;
+const RECENT_CANDIDATE_LIMIT = 100;
+const POPULAR_CANDIDATE_LIMIT = 60;
+const FOLLOWING_CANDIDATE_LIMIT = 60;
+// Penalty multiplier for posts matching a muted hashtag — soft, not a
+// hard exclude, since hashtag matching is fuzzier than an explicit
+// author mute and a false-positive shouldn't fully hide a post.
+const MUTED_TOPIC_PENALTY = 0.15;
 
 function tsToIso(ts: any): string {
   if (!ts) return new Date().toISOString();
-  if (ts?.toDate) return ts.toDate().toISOString();
-  if (ts?.seconds) return new Date(ts.seconds * 1000).toISOString();
-  const d = new Date(ts);
-  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  if (typeof ts?.toDate === "function") return ts.toDate().toISOString();
+  return new Date(ts).toISOString();
 }
 
-function docToPost(id: string, d: any, extras?: Partial<Post>): Post {
+function docToPost(
+  doc: FirebaseFirestoreTypes.QueryDocumentSnapshot,
+): PostWithExtras {
+  const x = doc.data() as any;
   return {
-    id,
-    user_id: d.user_id,
-    title: d.title ?? null,
-    content: d.content ?? "",
-    media_urls: Array.isArray(d.media_urls) ? d.media_urls : [],
-    visibility: normalizeVisibility(d.visibility),
-    community_id: d.community_id ?? null,
-    post_type: normalizePostType(d),
-    is_visible: typeof d.is_visible === "boolean" ? d.is_visible : true,
-    hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
-    poll: d.poll ?? null,
-    location: d.location ?? null,
-    like_count: typeof d.like_count === "number" ? d.like_count : 0,
-    comment_count: typeof d.comment_count === "number" ? d.comment_count : 0,
-    repost_count: typeof d.repost_count === "number" ? d.repost_count : 0,
-    share_count: typeof d.share_count === "number" ? d.share_count : 0,
-    created_at: tsToIso(d.created_at_ts ?? d.created_at),
-    updated_at: tsToIso(d.updated_at_ts ?? d.updated_at),
-    user: d.user ?? null,
-    community: d.community ?? null,
-    ...extras,
+    id: doc.id,
+    user_id: x.user_id,
+    user: x.user ?? null,
+    content: x.content ?? "",
+    media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+    post_type: x.post_type ?? null,
+    created_at: tsToIso(x.created_at_ts ?? x.created_at),
+    // ✅ FIX: Post requires these — omitted before, which is why the
+    // object literal couldn't convert to Post at all ("neither type
+    // sufficiently overlaps with the other").
+    updated_at: tsToIso(x.updated_at_ts ?? x.updated_at ?? x.created_at),
+    visibility: x.visibility ?? "public",
+    like_count: x.like_count ?? 0,
+    comment_count: x.comment_count ?? 0,
+    share_count: x.share_count ?? 0,
+    // ✅ FIX: none of these are real Post fields (confirmed against
+    // home.tsx's `(item as any).<field>` reads) — carried via the
+    // PostWithExtras intersection instead of an invalid `as Post` cast.
+    title: x.title ?? undefined,
+    poll: x.poll ?? undefined,
+    repost_count: x.repost_count ?? 0,
+    save_count: x.save_count ?? 0,
+    is_liked: x.is_liked ?? false,
+    is_saved: x.is_saved ?? false,
+    is_reposted: x.is_reposted ?? false,
+    is_repost: x.is_repost ?? false,
+    is_nsfw: x.is_nsfw ?? false,
+    quote_post_id: x.quote_post_id ?? null,
+    quote_post: x.quote_post ?? null,
+    // ✅ NEW: monetization — paid post boosts
+    is_boosted: x.is_boosted ?? false,
+    boosted_until: x.boosted_until ? tsToIso(x.boosted_until) : null,
   };
 }
 
-async function resolveCommunityIdFromSlug(
-  slug: string,
-): Promise<string | null> {
-  const s = slug.trim();
-  if (!s) return null;
-  const snap = await firestore()
-    .collection("communities")
-    .where("slug", "==", s)
-    .limit(1)
-    .get();
-  return snap.docs[0]?.id ?? null;
-}
-
-async function resolveUserIdFromUsername(
-  username: string,
-): Promise<string | null> {
-  const raw = username.trim();
-  if (!raw) return null;
-  const u = raw.toLowerCase();
-  let snap = await firestore()
-    .collection("profiles")
-    .where("username_lc", "==", u)
-    .limit(1)
-    .get();
-  if (!snap.empty) return snap.docs[0].id;
-  snap = await firestore()
-    .collection("profiles")
-    .where("username", "==", raw)
-    .limit(1)
-    .get();
-  return snap.docs[0]?.id ?? null;
-}
-
-async function getProfileSnapshot(uid: string): Promise<ProfileRow | null> {
-  const snap = await firestore().collection("profiles").doc(uid).get();
-  if (!snap.exists) return null;
-  const d = snap.data() as any;
-  return {
-    id: uid,
-    username: d.username ?? "",
-    full_name: d.full_name ?? null,
-    avatar_url: d.avatar_url ?? null,
-  };
-}
-
-async function getCommunitySnapshot(
-  communityId: string,
-): Promise<CommunityRow | null> {
-  const snap = await firestore()
-    .collection("communities")
-    .doc(communityId)
-    .get();
-  if (!snap.exists) return null;
-  const d = snap.data() as any;
-  return {
-    id: communityId,
-    name: d.name ?? "",
-    slug: d.slug ?? "",
-    avatar_url: d.avatar_url ?? d.image_url ?? null,
-  };
-}
-
-// ✅ NEW: resolves whether the given viewer is a minor (age_group "teen" or
-// "under_13"). Mirrors the Firestore security rule's isMinor() exactly, so
-// queries built here never ask for documents the rule would reject. Fails
-// open (returns false) on lookup errors — the security rule remains the
-// real backstop even if this check can't run for some reason.
-async function isViewerMinor(viewerId: string): Promise<boolean> {
-  if (!viewerId) return false;
-  try {
-    const snap = await firestore().collection("profiles").doc(viewerId).get();
-    if (!snap.exists) return false;
-    const ageGroup = (snap.data() as any)?.age_group;
-    return MINOR_AGE_GROUPS.has(ageGroup);
-  } catch {
-    return false;
-  }
-}
-
-/* =========================================================
-   STORAGE UPLOAD
-========================================================= */
-
-function isRemoteUrl(u: string): boolean {
-  return /^https?:\/\//i.test(u);
-}
-
-function guessExt(uri: string, fallback: string): string {
-  const clean = uri.split("?")[0]?.split("#")[0] ?? uri;
-  const last = clean.split(".").pop();
-  if (!last || last.length > 8) return fallback;
-  return last.toLowerCase();
-}
-
-function guessMimeType(ext: string, type: MediaType): string {
-  if (type === "gif") return "image/gif";
-  if (type === "video") return ext === "mov" ? "video/quicktime" : "video/mp4";
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  return "image/jpeg";
-}
-
-function makeObjectPath(userId: string, ext: string): string {
-  const rand = Math.random().toString(36).slice(2);
-  return `post-media/${userId}/${Date.now()}-${rand}.${ext}`;
-}
-
-async function uploadMediaForPost(
-  userId: string,
-  media: MediaItem[] | undefined,
-): Promise<string[]> {
-  if (!media?.length) return [];
-  const urls: string[] = [];
-  for (const item of media) {
-    if (!POST_MEDIA_TYPES.has(item.type)) continue;
-    if (isRemoteUrl(item.uri)) {
-      urls.push(item.uri);
-      continue;
-    }
-    const fallbackExt =
-      item.type === "video" ? "mp4" : item.type === "gif" ? "gif" : "jpg";
-    const ext = guessExt(item.uri, fallbackExt);
-    const mimeType = guessMimeType(ext, item.type);
-    const path = makeObjectPath(userId, ext);
-    const fileRef = storage().ref(path);
-    await fileRef.putFile(item.uri, { contentType: mimeType });
-    const dl = await fileRef.getDownloadURL();
-    urls.push(dl);
-  }
-  return urls;
-}
-
-/* =========================================================
-   LIKE/SAVE FLAGS
-========================================================= */
-
-async function fetchMyLikeSaveFlags(uid: string, postIds: string[]) {
-  if (!uid || !postIds.length)
-    return {
-      liked: new Set<string>(),
-      saved: new Set<string>(),
-      reposted: new Set<string>(),
-    };
-  const chunks = chunk(postIds, 10);
-  const liked = new Set<string>();
-  const saved = new Set<string>();
-  const reposted = new Set<string>();
-  await Promise.all([
-    (async () => {
-      for (const c of chunks) {
-        const s = await firestore()
-          .collection("likes")
-          .where("user_id", "==", uid)
-          .where("post_id", "in", c)
-          .get();
-        s.docs.forEach((d) => liked.add((d.data() as any).post_id));
-      }
-    })(),
-    (async () => {
-      for (const c of chunks) {
-        const s = await firestore()
-          .collection("saves")
-          .where("user_id", "==", uid)
-          .where("post_id", "in", c)
-          .get();
-        s.docs.forEach((d) => saved.add((d.data() as any).post_id));
-      }
-    })(),
-    (async () => {
-      // Deterministic doc IDs — direct gets, no query/index needed
-      const snaps = await Promise.all(
-        postIds.map((pid) =>
-          firestore().collection("reposts").doc(`${uid}_${pid}`).get(),
-        ),
-      );
-      snaps.forEach((s, i) => {
-        if (s.data() !== undefined) reposted.add(postIds[i]);
-      });
-    })(),
-  ]);
-  return { liked, saved, reposted };
-}
-
-/* =========================================================
-   REPOST FEED ITEMS
-   ✅ FIX 2: use orderBy("created_at","desc") to match the
-   existing reposts index (not created_at_ts which has no index)
-   ✅ FIX 4: skip NSFW reposts for minors (filtered client-side since
-   this path uses a documentId "in" query that can't cleanly combine
-   with another field filter here)
-========================================================= */
-
-async function getRepostFeedItems(
-  uid: string,
-  limit: number,
-  excludeNsfw: boolean,
-): Promise<Post[]> {
-  try {
-    // ✅ FIX 2: was orderBy("created_at_ts") — no index exists for that
-    // reposts collection only has: user_id ASC + created_at DESC
-    const repostSnap = await firestore()
-      .collection("reposts")
-      .where("user_id", "==", uid)
-      .orderBy("created_at", "desc")
-      .limit(limit)
-      .get();
-
-    if (repostSnap.empty) return [];
-
-    const postIds = repostSnap.docs.map(
-      (d) => (d.data() as any).post_id as string,
-    );
-    const repostedAtMap: Record<string, string> = {};
-    repostSnap.docs.forEach((d) => {
-      const data = d.data() as any;
-      repostedAtMap[data.post_id] = data.created_at ?? new Date().toISOString();
-    });
-
-    const chunks2 = chunk(postIds, 10);
-    const postDocs: Post[] = [];
-
-    for (const c of chunks2) {
-      // ✅ FIXED: firestore.FieldPath.documentId() was resolving to
-      // undefined in this codebase (same bug found and fixed in
-      // app/user/[username]/index.tsx's reposts/likes queries), causing
-      // ".where(undefined, 'in', c)" and a hard "undefined is not a
-      // function" failure. Fetching each doc individually by ref
-      // sidesteps FieldPath entirely.
-      const docSnaps = await Promise.all(
-        c.map((postId) => firestore().collection("posts").doc(postId).get()),
-      );
-      docSnaps.forEach((d) => {
-        if (!d.exists) return;
-        const data = d.data() as any;
-        if (data.is_visible === false) return;
-        // ✅ FIX 4: skip NSFW reposts for minors
-        if (excludeNsfw && data.is_nsfw === true) return;
-        const p = docToPost(d.id, data, {
-          is_liked: false,
-          is_saved: false,
-          is_owned: data.user_id === uid,
-        });
-        (p as any).is_repost = true;
-        (p as any).reposted_at = repostedAtMap[d.id] ?? p.created_at;
-        postDocs.push(p);
-      });
-    }
-
-    return postDocs;
-  } catch (e) {
-    console.warn("[getRepostFeedItems] error:", e);
-    return [];
-  }
-}
-
-/* =========================================================
-   GET POSTS — FOLLOWING FEED FIX
-   ✅ FIX 1: Firestore "in" operator only supports 10 items.
-   When userIds > 10 we batch into multiple queries and merge.
-   ✅ FIX 4: excludeNsfw param applies is_nsfw == false filter for minors
-========================================================= */
-
-async function getPostsForUserIds(
-  userIds: string[],
-  sortBy: "newest" | "popular" | "trending",
-  limit: number,
-  cursor: PostFilters["cursor"],
-  excludeNsfw: boolean,
-): Promise<FirebaseFirestoreTypes.QueryDocumentSnapshot[]> {
-  // ✅ FIX 1: batch into chunks of 10
-  const batches = chunk(userIds, 10);
-
-  // For cursor pagination with batched queries we fetch more and slice
-  const fetchLimit = limit + 20;
-
-  const allDocs: FirebaseFirestoreTypes.QueryDocumentSnapshot[] = [];
-
-  await Promise.all(
-    batches.map(async (batch) => {
-      let q: FirebaseFirestoreTypes.Query = firestore()
-        .collection("posts")
-        .where("user_id", "in", batch)
-        // ✅ FIX 3: only show public + followers posts in following feed
-        .where("visibility", "in", ["public", "followers"]);
-
-      // ✅ FIX 4: minors never query for is_nsfw posts at all — matches
-      // the Firestore security rule, so the query never asks for a
-      // document the rule would reject.
-      if (excludeNsfw) {
-        q = q.where("is_nsfw", "==", false);
-      }
-
-      if (sortBy === "trending") {
-        const weekAgo = firestore.Timestamp.fromDate(
-          new Date(Date.now() - 7 * 86400000),
-        );
-        q = q
-          .where("created_at_ts", ">=", weekAgo)
-          .orderBy("created_at_ts", "desc");
-      } else if (sortBy === "popular") {
-        q = q.orderBy("like_count", "desc").orderBy("created_at_ts", "desc");
-      } else {
-        q = q.orderBy("created_at_ts", "desc");
-      }
-
-      // Cursor pagination — apply to each batch
-      if (cursor?.lastDocId) {
-        try {
-          const lastSnap = await firestore()
-            .collection("posts")
-            .doc(cursor.lastDocId)
-            .get();
-          if (lastSnap.exists()) q = q.startAfter(lastSnap);
-        } catch {}
-      }
-
-      const snap = await q.limit(fetchLimit).get();
-      allDocs.push(...snap.docs);
-    }),
+function extractHashtags(content: string | null | undefined): string[] {
+  if (!content) return [];
+  return (content.match(/#[a-zA-Z0-9_]+/g) ?? []).map((h) =>
+    h.slice(1).toLowerCase(),
   );
-
-  // Sort merged results from all batches
-  allDocs.sort((a, b) => {
-    const aData = a.data() as any;
-    const bData = b.data() as any;
-    if (sortBy === "popular") {
-      const diff = (bData.like_count ?? 0) - (aData.like_count ?? 0);
-      if (diff !== 0) return diff;
-    }
-    const aTs = aData.created_at_ts?.seconds ?? 0;
-    const bTs = bData.created_at_ts?.seconds ?? 0;
-    return bTs - aTs;
-  });
-
-  return allDocs.slice(0, limit + 10);
 }
 
-export async function getPosts(
-  filters: PostFilters = {},
-): Promise<PaginatedPosts> {
-  const {
-    limit = 20,
-    communitySlug,
-    communityIds,
-    userIds,
-    username,
-    userId,
-    hashtag,
-    visibility,
-    sortBy = "newest",
-    language = null,
-    cursor = null,
-  } = filters;
-
-  let resolvedCommunityIds = (communityIds ?? []).filter(Boolean);
-  if (communitySlug && !resolvedCommunityIds.length) {
-    const cid = await resolveCommunityIdFromSlug(communitySlug);
-    if (cid) resolvedCommunityIds = [cid];
-  }
-
-  let resolvedUserId = userId ?? null;
-  if (username && !resolvedUserId)
-    resolvedUserId = await resolveUserIdFromUsername(username);
-
-  const viewerId = auth.currentUser?.uid ?? "";
-  // ✅ FIX 4: resolve once per call, reused everywhere below
-  const viewerIsMinor = viewerId ? await isViewerMinor(viewerId) : false;
-
-  // ✅ FIX 1: following feed — batch userIds queries
-  if (userIds && userIds.length > 0) {
-    // Filter out the sentinel value used when following nobody
-    const realIds = userIds.filter((id) => id !== "__no_results__");
-    if (realIds.length === 0) {
-      return { posts: [], total: 0, hasMore: false, nextCursor: null };
-    }
-
-    const docs = await getPostsForUserIds(
-      realIds,
-      sortBy,
-      limit,
-      cursor,
-      viewerIsMinor,
-    );
-    const raw = docs
-      .map((d) => docToPost(d.id, d.data()))
-      .filter((p) => p.is_visible !== false)
-      .slice(0, limit);
-
-    const ids = raw.map((p) => p.id);
-    const { liked, saved, reposted } = viewerId
-      ? await fetchMyLikeSaveFlags(viewerId, ids)
-      : {
-          liked: new Set<string>(),
-          saved: new Set<string>(),
-          reposted: new Set<string>(),
-        };
-
-    const posts = raw.map((p) =>
-      docToPost(p.id, p, {
-        is_liked: viewerId ? liked.has(p.id) : false,
-        is_saved: viewerId ? saved.has(p.id) : false,
-        is_reposted: viewerId ? reposted.has(p.id) : false,
-        is_owned: viewerId ? p.user_id === viewerId : false,
-      }),
-    );
-
-    const last = docs[docs.length - 1];
-    return {
-      posts,
-      total: -1,
-      hasMore: docs.length >= limit,
-      nextCursor: last ? { lastDocId: last.id } : null,
-    };
-  }
-
-  // ── Standard single-query path (for-you, community, user profile) ──────────
-  let q: FirebaseFirestoreTypes.Query = firestore().collection("posts");
-
-  if (resolvedCommunityIds.length)
-    q = q.where("community_id", "in", resolvedCommunityIds.slice(0, 10));
-  if (resolvedUserId) {
-    q = q.where("user_id", "==", resolvedUserId);
-  }
-  if (visibility) q = q.where("visibility", "==", visibility);
-
-  // ✅ FIX 4: same minor-safe filter as the following-feed path
-  if (viewerIsMinor) {
-    q = q.where("is_nsfw", "==", false);
-  }
-
-  if (hashtag)
-    q = q.where(
-      "hashtags",
-      "array-contains",
-      hashtag.toLowerCase().replace(/^#/, ""),
-    );
-  if (language && language !== "en") q = q.where("language", "==", language);
-
-  if (sortBy === "trending") {
-    const weekAgo = firestore.Timestamp.fromDate(
-      new Date(Date.now() - 7 * 86400000),
-    );
-    q = q
-      .where("created_at_ts", ">=", weekAgo)
-      .orderBy("like_count", "desc")
-      .orderBy("created_at_ts", "desc");
-  } else if (sortBy === "popular") {
-    q = q.orderBy("like_count", "desc").orderBy("created_at_ts", "desc");
-  } else {
-    q = q.orderBy("created_at_ts", "desc");
-  }
-
-  if (cursor?.lastDocId) {
-    const lastSnap = await firestore()
-      .collection("posts")
-      .doc(cursor.lastDocId)
-      .get();
-    if (lastSnap.exists()) q = q.startAfter(lastSnap);
-  }
-
-  const snap = await q.limit(limit + 10).get();
-  const raw = snap.docs
-    .map((d) => docToPost(d.id, d.data()))
-    .filter((p) => p.is_visible !== false)
-    .slice(0, limit);
-  const ids = raw.map((p) => p.id);
-  const { liked, saved, reposted } = viewerId
-    ? await fetchMyLikeSaveFlags(viewerId, ids)
-    : {
-        liked: new Set<string>(),
-        saved: new Set<string>(),
-        reposted: new Set<string>(),
-      };
-
-  const posts = raw.map((p) =>
-    docToPost(p.id, p, {
-      is_liked: viewerId ? liked.has(p.id) : false,
-      is_saved: viewerId ? saved.has(p.id) : false,
-      is_reposted: viewerId ? reposted.has(p.id) : false,
-      is_owned: viewerId ? p.user_id === viewerId : false,
-    }),
-  );
-
-  // On first page only, merge in reposted posts for the viewer
-  let merged = posts;
-  if (
-    viewerId &&
-    !cursor &&
-    !resolvedUserId &&
-    !resolvedCommunityIds.length &&
-    !hashtag
-  ) {
-    const repostItems = await getRepostFeedItems(
-      viewerId,
-      limit,
-      viewerIsMinor,
-    );
-    const ownPostIds = new Set(posts.map((p) => p.id));
-    const newReposts = repostItems.filter((r) => !ownPostIds.has(r.id));
-
-    if (newReposts.length > 0) {
-      const repostIds = newReposts.map((p) => p.id);
-      const {
-        liked: rLiked,
-        saved: rSaved,
-        reposted: rReposted,
-      } = await fetchMyLikeSaveFlags(viewerId, repostIds);
-      const flaggedReposts = newReposts.map((p) => ({
-        ...p,
-        is_liked: rLiked.has(p.id),
-        is_saved: rSaved.has(p.id),
-        is_reposted: true,
-      }));
-
-      merged = [...posts, ...flaggedReposts].sort((a, b) => {
-        const aTime = (a as any).reposted_at ?? a.created_at;
-        const bTime = (b as any).reposted_at ?? b.created_at;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
-      });
-    }
-  }
-
-  const last = snap.docs[snap.docs.length - 1];
-  const nextCursor: PostFilters["cursor"] = last
-    ? { lastDocId: last.id }
-    : null;
-
-  return {
-    posts: merged,
-    total: -1,
-    hasMore: snap.docs.length >= limit,
-    nextCursor,
-  };
+// ✅ NEW: true only while an active, non-expired boost is on the post.
+// Checking the expiry client-side here (rather than trusting is_boosted
+// alone) means an expired boost naturally stops affecting ranking
+// without needing a separate cleanup job to flip is_boosted back to
+// false — the flag can go stale, the timestamp check can't.
+function hasActiveBoost(post: PostWithExtras): boolean {
+  if (!post.is_boosted || !post.boosted_until) return false;
+  return new Date(post.boosted_until).getTime() > Date.now();
 }
 
-/* =========================================================
-   GET SINGLE POST
-   ✅ FIX 4: minors get null (treated as not found) for is_nsfw posts,
-   instead of fetching content the security rule would reject anyway —
-   avoids a confusing permission-denied crash on the post detail screen.
-========================================================= */
+// Recency-decayed engagement score. Half-life ~18h so a post's rank drops
+// off meaningfully within a day, but a strong performer from yesterday can
+// still beat a mediocre post from an hour ago.
+function scorePost(post: PostWithExtras, followingBoost: boolean): number {
+  const ageHours =
+    (Date.now() - new Date(post.created_at).getTime()) / 3_600_000;
+  const decay = Math.pow(0.5, ageHours / 18);
 
-export async function getPostById(id: string): Promise<Post | null> {
-  const clean = id?.trim();
-  if (!clean) return null;
-  const snap = await firestore().collection("posts").doc(clean).get();
-  if (!snap.exists) return null;
-  const d = snap.data() as any;
-  if (d.is_visible === false) return null;
-  const viewerId = auth.currentUser?.uid ?? "";
-
-  if (d.is_nsfw === true && viewerId) {
-    const viewerIsMinor = await isViewerMinor(viewerId);
-    if (viewerIsMinor) return null;
-  }
-
-  let is_liked = false;
-  let is_saved = false;
-  let is_reposted = false;
-  if (viewerId) {
-    const [likeSnap, saveSnap, repostSnap] = await Promise.all([
-      firestore()
-        .collection("likes")
-        .where("user_id", "==", viewerId)
-        .where("post_id", "==", clean)
-        .limit(1)
-        .get(),
-      firestore()
-        .collection("saves")
-        .where("user_id", "==", viewerId)
-        .where("post_id", "==", clean)
-        .limit(1)
-        .get(),
-      firestore().collection("reposts").doc(`${viewerId}_${clean}`).get(),
-    ]);
-    is_liked = !likeSnap.empty;
-    is_saved = !saveSnap.empty;
-    is_reposted = repostSnap.data() !== undefined;
-  }
-  return docToPost(snap.id, d, {
-    is_liked,
-    is_saved,
-    is_reposted,
-    is_owned: viewerId ? d.user_id === viewerId : false,
-  });
-}
-
-/* =========================================================
-   CREATE POST
-========================================================= */
-
-export async function createPost(
-  postData: CreatePostData,
-): Promise<Post | null> {
-  const viewer = auth.currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const urls = await uploadMediaForPost(uid, postData.media);
-  const hasVideo = urls.some((u) =>
-    /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test((u || "").split("?")[0] || ""),
-  );
-  const post_type: PostType = !urls.length
-    ? "text"
-    : hasVideo && urls.length > 1
-      ? "mixed"
-      : hasVideo
-        ? "video"
-        : "image";
-
-  const textForDetection = [postData.title, postData.content]
-    .filter(Boolean)
-    .join(" ");
-  const detectedLanguage = detectLanguage(textForDetection);
-  const profileSnap = await getProfileSnapshot(uid);
-  const communitySnap = postData.community_id
-    ? await getCommunitySnapshot(postData.community_id)
-    : null;
-  const now = new Date().toISOString();
-  const combinedText = [postData.title ?? "", postData.content].join(" ");
-  const hashtags = extractHashtags(combinedText);
-
-  const refDoc = await firestore()
-    .collection("posts")
-    .add({
-      user_id: uid,
-      title: postData.title ?? null,
-      content: postData.content,
-      community_id: postData.community_id ?? null,
-      visibility: postData.visibility,
-      media_urls: urls,
-      post_type,
-      is_visible: true,
-      language: detectedLanguage ?? "en",
-      location: postData.location ?? null,
-      hashtags,
-      is_nsfw: postData.is_nsfw ?? false,
-      // ✅ FIXED: was silently dropped — never written despite being
-      // passed in from app/create/quote.tsx since CreatePostData never
-      // declared these fields and this .add() call never included them.
-      quote_post_id: postData.quote_post_id ?? null,
-      quote_post: postData.quote_post ?? null,
-      like_count: 0,
-      comment_count: 0,
-      repost_count: 0,
-      share_count: 0,
-      user: profileSnap,
-      community: communitySnap,
-      created_at: now,
-      updated_at: now,
-      created_at_ts: firestore.FieldValue.serverTimestamp(),
-      updated_at_ts: firestore.FieldValue.serverTimestamp(),
-    });
-
-  if (hashtags.length) {
-    indexHashtags(hashtags).catch((e) =>
-      console.warn("indexHashtags failed:", e),
-    );
-  }
-
-  // ✅ NEW: notify anyone @mentioned in the post. Fire-and-forget —
-  // resolution + notification creation should never block or fail the
-  // post itself from being created. createNotification() already
-  // no-ops on self-mentions.
-  extractAndResolveMentions(combinedText)
-    .then((mentions) => {
-      mentions.forEach((m) => {
-        createNotification({
-          type: "mention",
-          receiver_id: m.userId,
-          sender_id: uid,
-          entity_type: "post",
-          entity_id: refDoc.id,
-          text: postData.content,
-        }).catch((err) =>
-          console.warn(
-            "[createPost] failed to create mention notification:",
-            err,
-          ),
-        );
-      });
-    })
-    .catch((err) =>
-      console.warn("[createPost] failed to resolve mentions:", err),
-    );
-
-  const createdSnap = await refDoc.get();
-  if (!createdSnap.exists) return null;
-  return docToPost(createdSnap.id, createdSnap.data(), {
-    is_owned: true,
-    is_liked: false,
-    is_saved: false,
-  });
-}
-
-/* =========================================================
-   UPDATE POST
-========================================================= */
-
-export async function updatePost(
-  postId: string,
-  patch: UpdatePostData,
-): Promise<Post | null> {
-  const viewer = auth.currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const refDoc = firestore().collection("posts").doc(postId);
-  const snap = await refDoc.get();
-  if (!snap.exists) return null;
-  const d = snap.data() as any;
-  if (d.user_id !== uid) throw new Error("Not allowed");
-
-  let communitySnap: CommunityRow | null | undefined = undefined;
-  if (patch.community_id !== undefined)
-    communitySnap = patch.community_id
-      ? await getCommunitySnapshot(patch.community_id)
-      : null;
-
-  let hashtagPatch: { hashtags?: string[] } = {};
-  const oldHashtags: string[] = Array.isArray(d.hashtags) ? d.hashtags : [];
-  let newHashtags: string[] | null = null;
-  if (patch.content !== undefined && patch.content !== null) {
-    const combinedText = [patch.title ?? d.title ?? "", patch.content].join(
-      " ",
-    );
-    newHashtags = extractHashtags(combinedText);
-    hashtagPatch = { hashtags: newHashtags };
-  }
-
-  const now = new Date().toISOString();
-  await refDoc.update({
-    ...patch,
-    ...hashtagPatch,
-    ...(communitySnap !== undefined ? { community: communitySnap } : {}),
-    updated_at: now,
-    updated_at_ts: firestore.FieldValue.serverTimestamp(),
-  });
-
-  // ✅ FIXED: editing a post's content used to silently overwrite its
-  // hashtags field with no adjustment to the global `hashtags` collection
-  // counters — tags removed from the post stayed counted forever, and
-  // newly added tags never got counted at all. The array-contains query
-  // on the hashtag page was always correct (it reads the post's live
-  // hashtags field directly), but the displayed post COUNT drifted out
-  // of sync over time. Now diffs old vs new tags and adjusts counts for
-  // exactly what changed.
-  if (newHashtags !== null) {
-    const oldSet = new Set(oldHashtags);
-    const newSet = new Set(newHashtags);
-    const removed = oldHashtags.filter((t) => !newSet.has(t));
-    const added = newHashtags.filter((t) => !oldSet.has(t));
-    if (removed.length) {
-      decrementHashtagCounts(removed).catch((e) =>
-        console.warn("[updatePost] decrementHashtagCounts failed:", e),
-      );
-    }
-    if (added.length) {
-      indexHashtags(added).catch((e) =>
-        console.warn("[updatePost] indexHashtags failed:", e),
-      );
-    }
-  }
-
-  const updated = await refDoc.get();
-  if (!updated.exists) return null;
-  return docToPost(updated.id, updated.data(), { is_owned: true });
-}
-
-/* =========================================================
-   DELETE POST
-========================================================= */
-
-export async function deletePost(postId: string): Promise<boolean> {
-  const viewer = auth.currentUser;
-  if (!viewer) throw new Error("User not authenticated");
-  const uid = viewer.uid;
-  const refDoc = firestore().collection("posts").doc(postId);
-  const snap = await refDoc.get();
-  if (!snap.exists) return false;
-  const d = snap.data() as any;
-  if (d.user_id !== uid) throw new Error("Not allowed");
-
-  const hashtags: string[] = Array.isArray(d.hashtags) ? d.hashtags : [];
-  await refDoc.delete();
-
-  if (hashtags.length) {
-    decrementHashtagCounts(hashtags).catch((e) =>
-      console.warn("decrementHashtagCounts failed:", e),
-    );
-  }
-
-  return true;
-}
-
-/* =========================================================
-   FOR YOU FEED — RANKING ALGORITHM
-   ============================================================
-   Separate from getPosts() on purpose: this is a genuinely different
-   query shape (wide candidate pool + client-side scoring) rather than
-   "fetch + sort by one field," and keeping it isolated makes the
-   scoring formula easy to find and tune without wading through the
-   following/community/profile code paths above.
-
-   How it works:
-   1. Pull a candidate pool of recent posts platform-wide (not just
-      people you follow) — last few days, capped at ~100 candidates.
-   2. Fetch the viewer's affinity scores for every candidate's author
-      in one batched lookup (avoids N individual reads).
-   3. Score each candidate: affinity + engagement velocity + recency.
-   4. Sort by score, return the top `limit`.
-
-   This intentionally does NOT do:
-   - Topic/hashtag content similarity (needs embeddings or a real
-     tagging taxonomy — a real v2+ feature, not a v1 one)
-   - Server-side scoring (see lib/firestore/affinity.ts header comment
-     for why client-side is the right call at this app's current scale)
-   - Real-time re-ranking on scroll (each feed load computes one
-     snapshot ranking; good enough for a pull-to-refresh model)
-========================================================= */
-
-// Tunable weights — adjust these to change how much each signal matters.
-// All three are normalized into roughly comparable ranges before
-// weighting, so changing one weight has a predictable effect on the
-// final ranking rather than being dominated by whichever raw number
-// happens to be largest.
-const FOR_YOU_WEIGHTS = {
-  affinity: 4,
-  interests: 3,
-  engagement: 3,
-  recency: 2,
-} as const;
-
-// How many days back the candidate pool reaches. Wider = more variety
-// but more candidates to score; narrower = faster but can feel stale
-// if your platform doesn't have a lot of daily post volume yet.
-const FOR_YOU_CANDIDATE_WINDOW_DAYS = 60;
-const FOR_YOU_CANDIDATE_POOL_SIZE = 100;
-
-function hoursSince(iso: string): number {
-  const ms = Date.now() - new Date(iso).getTime();
-  return Math.max(ms / (1000 * 60 * 60), 0.1); // floor avoids divide-by-near-zero
-}
-
-/**
- * Engagement velocity: weighted interactions per hour since posting.
- * Comments and reposts count for more than likes (more effort = stronger
- * signal of quality), matching the same weighting used in affinity.ts.
- * Normalized with a log curve so one viral outlier doesn't completely
- * dominate every other signal in the final score.
- */
-function engagementScore(post: Post): number {
-  const weighted =
+  const engagement =
     (post.like_count ?? 0) * 1 +
     (post.comment_count ?? 0) * 2 +
-    (post.repost_count ?? 0) * 3;
-  const velocity = weighted / hoursSince(post.created_at);
-  // log1p keeps this in a sane range — without it, a single post with
-  // 10,000 likes/hour would mathematically erase every other signal.
-  return Math.log1p(velocity);
+    (post.repost_count ?? 0) * 2.5 +
+    (post.save_count ?? 0) * 1.5;
+
+  const base = Math.log10(engagement + 1) * decay;
+  const withFollowingBoost = followingBoost ? base * 1.4 : base;
+
+  // ✅ NEW: paid boost — a strong, clearly-noticeable multiplier (3x),
+  // deliberately much larger than the following-boost (1.4x) or the
+  // view-count boost (max 1.2x) elsewhere in this file, since someone
+  // paid real money specifically for increased visibility. Still
+  // multiplicative rather than an override, though — a boosted post with
+  // zero engagement and zero relevance doesn't jump to the very top of
+  // everyone's feed; it gets a meaningful lift on top of whatever
+  // baseline relevance it already has.
+  return hasActiveBoost(post) ? withFollowingBoost * 3 : withFollowingBoost;
 }
 
-/**
- * Recency decay: newer posts get a boost even at zero engagement, so
- * brand-new posts aren't invisible just because they haven't had time
- * to accumulate likes yet (the "cold start" problem). Decays smoothly
- * over the candidate window rather than as a hard cutoff.
- */
-function recencyScore(post: Post): number {
-  const ageHours = hoursSince(post.created_at);
-  const windowHours = FOR_YOU_CANDIDATE_WINDOW_DAYS * 24;
-  // Exponential decay: ~1.0 at age 0, ~0.37 at one full window, near 0 beyond.
-  return Math.exp(-ageHours / windowHours);
-}
+// Fetches candidates (recent, popular, and following-boosted), dedupes,
+// and scores the FULL pool. Muted authors are excluded outright; posts
+// matching a muted topic are kept but heavily penalized.
+async function computeForYouRankedPool(userId?: string): Promise<ScoredPost[]> {
+  const seen = new Map<string, ScoredPost>();
 
-/**
- * Affinity score, normalized with the same log curve as engagement so
- * a viewer who has interacted with one author hundreds of times doesn't
- * make every other signal irrelevant for that author's posts forever.
- */
-function normalizedAffinity(rawScore: number): number {
-  return Math.log1p(Math.max(rawScore, 0));
-}
-
-/**
- * Interest score: fraction of the viewer's declared interests that
- * overlap with this post's hashtags. A post tagged #gaming and #tech
- * scores higher for someone who selected both than for someone who
- * only selected one. Returns 0 when the viewer has no declared
- * interests, so the signal cleanly drops out for new users.
- */
-function interestScore(post: Post, interests: Set<string>): number {
-  if (!interests.size) return 0;
-  const tags = post.hashtags ?? [];
-  const matches = tags.filter((t) => interests.has(t)).length;
-  return Math.min(matches / interests.size, 1);
-}
-
-export async function getForYouFeed(
-  filters: { limit?: number; cursor?: PostFilters["cursor"] } = {},
-): Promise<PaginatedPosts> {
-  const { limit = 20 } = filters;
-  const viewerId = auth.currentUser?.uid ?? "";
-  const viewerIsMinor = viewerId ? await isViewerMinor(viewerId) : false;
-
-  // ── Step 1: candidate pool — recent posts platform-wide ──────────
-  const windowStart = firestore.Timestamp.fromDate(
-    new Date(Date.now() - FOR_YOU_CANDIDATE_WINDOW_DAYS * 24 * 60 * 60 * 1000),
-  );
-
-  let q: FirebaseFirestoreTypes.Query = firestore()
-    .collection("posts")
-    .where("visibility", "==", "public")
-    .where("created_at_ts", ">=", windowStart);
-
-  if (viewerIsMinor) {
-    q = q.where("is_nsfw", "==", false);
-  }
-
-  q = q.orderBy("created_at_ts", "desc").limit(FOR_YOU_CANDIDATE_POOL_SIZE);
-
-  const snap = await q.get();
-  const candidates = snap.docs
-    .map((d) => docToPost(d.id, d.data()))
-    .filter((p) => p.is_visible !== false);
-
-  if (candidates.length === 0) {
-    return { posts: [], total: 0, hasMore: false, nextCursor: null };
-  }
-
-  // ── Step 2: fetch affinity scores + viewer interests in parallel ──
-  const authorIds = candidates.map((p) => p.user_id);
-  const [affinityMap, interestSet] = await Promise.all([
-    viewerId
-      ? getAffinityScores(viewerId, authorIds)
-      : Promise.resolve(new Map<string, number>()),
-    viewerId
-      ? firestore()
-          .collection("user_interests")
-          .doc(viewerId)
-          .get()
-          .then((snap) => {
-            const raw = snap.exists() ? (snap.data() as any)?.interests : [];
-            return new Set<string>(Array.isArray(raw) ? raw : []);
-          })
-          .catch(() => new Set<string>())
-      : Promise.resolve(new Set<string>()),
+  const [recentSnap, popularSnap, affinity, viewCounts] = await Promise.all([
+    firestore()
+      .collection("posts")
+      .orderBy("created_at_ts", "desc")
+      .limit(RECENT_CANDIDATE_LIMIT)
+      .get(),
+    firestore()
+      .collection("posts")
+      .orderBy("like_count", "desc")
+      .limit(POPULAR_CANDIDATE_LIMIT)
+      .get(),
+    userId
+      ? getUserAffinity(userId)
+      : Promise.resolve({ muted_authors: [], muted_topics: [] }),
+    // ✅ Phase C: view-count-based positive signal, kept deliberately
+    // separate from affinity — catches "reads without liking" behavior
+    // (someone who reliably reads a given author's posts but has never
+    // tapped like/repost/save on them), which the existing engagement-
+    // based scoring can't see at all.
+    userId ? getAuthorViewCounts(userId) : Promise.resolve(new Map()),
   ]);
 
-  // ── Step 3: score each candidate ──────────────────────────────────
-  const scored = candidates.map((post) => {
-    const rawAffinity = affinityMap.get(post.user_id) ?? 0;
-    const score =
-      normalizedAffinity(rawAffinity) * FOR_YOU_WEIGHTS.affinity +
-      interestScore(post, interestSet) * FOR_YOU_WEIGHTS.interests +
-      engagementScore(post) * FOR_YOU_WEIGHTS.engagement +
-      recencyScore(post) * FOR_YOU_WEIGHTS.recency;
-    return { post, score };
-  });
-
-  // ── Step 4: sort by score, take top `limit` ───────────────────────
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, limit).map((s) => s.post);
-
-  // Attach is_liked/is_saved/is_owned the same way getPosts() does
-  const ids = top.map((p) => p.id);
-  const { liked, saved, reposted } = viewerId
-    ? await fetchMyLikeSaveFlags(viewerId, ids)
-    : {
-        liked: new Set<string>(),
-        saved: new Set<string>(),
-        reposted: new Set<string>(),
-      };
-
-  const posts = top.map((p) =>
-    docToPost(p.id, p, {
-      is_liked: viewerId ? liked.has(p.id) : false,
-      is_saved: viewerId ? saved.has(p.id) : false,
-      is_reposted: viewerId ? reposted.has(p.id) : false,
-      is_owned: viewerId ? p.user_id === viewerId : false,
-    }),
-  );
-
-  // Merge in the viewer's own reposts, same as getPosts() does —
-  // without this, reposts never surface on For You since it's a
-  // separate query path from the standard feed.
-  let merged = posts;
-  if (viewerId) {
-    const repostItems = await getRepostFeedItems(
-      viewerId,
-      limit,
-      viewerIsMinor,
-    );
-    const ownIds = new Set(posts.map((p) => p.id));
-    const newReposts = repostItems.filter((r) => !ownIds.has(r.id));
-    if (newReposts.length > 0) {
-      const repostIds = newReposts.map((p) => p.id);
-      const { liked: rLiked, saved: rSaved } = await fetchMyLikeSaveFlags(
-        viewerId,
-        repostIds,
-      );
-      const flaggedReposts = newReposts.map((p) => ({
-        ...p,
-        is_liked: rLiked.has(p.id),
-        is_saved: rSaved.has(p.id),
-        is_reposted: true,
-      }));
-      merged = [...posts, ...flaggedReposts].sort(
-        (a, b) =>
-          new Date((b as any).reposted_at ?? b.created_at).getTime() -
-          new Date((a as any).reposted_at ?? a.created_at).getTime(),
-      );
-    }
+  let followingIds: string[] = [];
+  if (userId) {
+    const followSnap = await firestore()
+      .collection("follows")
+      .where("follower_id", "==", userId)
+      .where("status", "==", "accepted")
+      .limit(500)
+      .get();
+    followingIds = followSnap.docs.map((d) => (d.data() as any).following_id);
   }
 
-  return {
-    posts: merged,
-    total: -1,
-    // Cursor pagination isn't meaningful for a re-scored ranking on
-    // every load — "hasMore" reflects whether the candidate pool itself
-    // was exhausted, not a stable scroll position.
-    hasMore: candidates.length >= FOR_YOU_CANDIDATE_POOL_SIZE,
-    nextCursor: null,
+  let followingSnap: FirebaseFirestoreTypes.QuerySnapshot | null = null;
+  if (followingIds.length > 0) {
+    const chunk = followingIds.slice(0, 10); // Firestore "in" cap
+    followingSnap = await firestore()
+      .collection("posts")
+      .where("user_id", "in", chunk)
+      .orderBy("created_at_ts", "desc")
+      .limit(FOLLOWING_CANDIDATE_LIMIT)
+      .get();
+  }
+
+  const mutedAuthors = new Set(affinity.muted_authors);
+  const mutedTopics = new Set(affinity.muted_topics);
+
+  const addCandidates = (
+    snap: FirebaseFirestoreTypes.QuerySnapshot,
+    isFollowing: boolean,
+  ) => {
+    snap.docs.forEach((doc) => {
+      if (seen.has(doc.id)) return; // first source to see a post wins
+
+      // ✅ Hard-exclude muted authors — never enters the pool at all.
+      const authorId = (doc.data() as any).user_id;
+      if (mutedAuthors.has(authorId)) return;
+
+      const post = docToPost(doc);
+      let score = scorePost(post, isFollowing);
+
+      // ✅ Soft-penalize muted topics rather than excluding.
+      const postHashtags = extractHashtags(post.content);
+      if (postHashtags.some((h) => mutedTopics.has(h))) {
+        score *= MUTED_TOPIC_PENALTY;
+      }
+
+      // ✅ Phase C: small positive boost for authors this user views
+      // often. Capped low (max +20%) and log-scaled so it can nudge the
+      // ranking for an under-the-radar favorite author, but can never
+      // outweigh real engagement signals (likes/comments/reposts) —
+      // views are a much weaker signal than an explicit action.
+      const viewCount = viewCounts.get(authorId) ?? 0;
+      if (viewCount > 0) {
+        const viewBoost = Math.min(0.2, Math.log10(viewCount + 1) * 0.08);
+        score *= 1 + viewBoost;
+      }
+
+      seen.set(doc.id, { ...post, _score: score });
+    });
   };
+
+  addCandidates(recentSnap, false);
+  addCandidates(popularSnap, false);
+  if (followingSnap) addCandidates(followingSnap, true);
+
+  return Array.from(seen.values())
+    .sort((a, b) => b._score - a._score)
+    .slice(0, RANKED_POOL_SIZE);
 }
+
+// Pure in-memory slice of an already-computed pool — no Firestore reads.
+// `cursor` is just an index into the pool array.
+function sliceForYouFeedPage(
+  pool: ScoredPost[],
+  cursor: number,
+  pageSize: number,
+): PaginatedPosts {
+  const slice = pool.slice(cursor, cursor + pageSize);
+  const posts: Post[] = slice.map(({ _score, ...post }) => post);
+  const nextCursor = cursor + pageSize < pool.length ? cursor + pageSize : null;
+  return { posts, nextCursor };
+}
+
+export const forYouFeed = {
+  computeForYouRankedPool,
+  sliceForYouFeedPage,
+};

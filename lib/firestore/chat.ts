@@ -1,4 +1,12 @@
 // lib/firestore/chat.ts — React Native Firebase ✅
+// ✅ FIXED: profileCache was a module-level Map with no invalidation path —
+//    once a user's profile was fetched here, it stayed cached for the
+//    entire app session. If someone changed their avatar or name mid-
+//    session, chat conversations/messages referencing them kept showing
+//    the stale version until the app was force-closed and reopened.
+//    Added invalidateProfileCache(userId) so callers (e.g. profile/edit.tsx
+//    after a successful save) can bust the cache for a single user
+//    immediately, without needing to clear the whole cache or restart.
 import { ChatAttachment } from "@/components/chat/ChatInput";
 import { auth } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
@@ -63,6 +71,14 @@ function tsToIso(ts: any): string {
 }
 
 const profileCache = new Map<string, ProfileRow | undefined>();
+
+// ✅ NEW: call this after a profile is edited so the chat layer's cached
+// copy (avatar, username, full_name, bio) doesn't keep showing stale data
+// for the rest of the session. Safe to call even if the user was never
+// cached — it's a no-op in that case.
+export function invalidateProfileCache(userId: string): void {
+  profileCache.delete(userId);
+}
 
 async function getProfile(userId: string): Promise<ProfileRow | undefined> {
   if (profileCache.has(userId)) return profileCache.get(userId);
@@ -557,17 +573,14 @@ export const chatQueries = {
         .collection("conversations")
         .doc(conversationId);
 
-      await convRef
-        .collection("participants")
-        .doc(userId)
-        .set(
-          {
-            user_id: userId,
-            unread_count: 0,
-            last_read_at: firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
+      await convRef.collection("participants").doc(userId).set(
+        {
+          user_id: userId,
+          unread_count: 0,
+          last_read_at: firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
 
       const msgSnap = await convRef
         .collection("messages")

@@ -75,15 +75,27 @@ service cloud.firestore {
           .hasAny(['is_official', 'role']);
     }
 
-    match /profiles/{userId} {
-      allow read, get, list: if signedIn();
-      allow create: if isSelf(userId);
-      // ✅ admin can update any profile (e.g. unsuspend, grant official
-      // status); self can update any field except is_official/role
-      allow update: if isSelfProfileUpdate(userId) || isAdmin();
-      allow delete: if isSelf(userId) || isAdmin();
-    }
+    function isValidBirthdayFields(data) {
+  return (!('age_group' in data) || data.age_group in ['under_13', 'teen', 'adult']) &&
+    (!('birthMMDD' in data) || data.birthMMDD.matches('^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')) &&
+    (!('showBirthday' in data) || data.showBirthday is bool) &&
+    (!('birthDate' in data) || data.birthDate is timestamp);
+}
 
+  function isNotAgeDowngrade() {
+  return !(resource.data.age_group == 'adult' &&
+    request.resource.data.age_group in ['teen', 'under_13']);
+}
+
+   match /profiles/{userId} {
+  allow read, get, list: if signedIn();
+  allow create: if isSelf(userId) && isValidBirthdayFields(request.resource.data);
+  allow update: if isAdmin() ||
+    (isSelfProfileUpdate(userId) &&
+     isValidBirthdayFields(request.resource.data) &&
+     isNotAgeDowngrade());
+  allow delete: if isSelf(userId) || isAdmin();
+}
     match /follows/{followId} {
       allow read, get, list: if signedIn();
       allow create: if signedIn() && request.resource.data.follower_id == uid();
@@ -109,11 +121,19 @@ service cloud.firestore {
         (resource.data.is_nsfw != true || !isMinor());
       allow create: if signedIn();
       allow update: if signedIn() && (
-        resource.data.user_id == uid() ||
-        isAdmin() ||
-        isCounterUpdate() ||
-        isPollVoteUpdate()
-      );
+  (
+    resource.data.user_id == uid() &&
+    !request.resource.data.diff(resource.data).affectedKeys()
+      .hasAny([
+        "is_boosted",
+        "boosted_until",
+        "boosted_at"
+      ])
+  ) ||
+  isAdmin() ||
+  isCounterUpdate() ||
+  isPollVoteUpdate()
+);
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
 
       match /poll_votes/{voteId} {
@@ -287,6 +307,10 @@ service cloud.firestore {
         && request.resource.data.status == "active";
       allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
       allow update, delete: if false;
+    }
+
+    match /used_boost_transactions/{transactionId} {
+      allow read, write: if false;
     }
 
     match /account_deletion_requests/{userId} {

@@ -9,6 +9,19 @@
 // ✅ Posts tab: reposts and quote-posts mixed into main timeline with
 //    "Reposted" label and embedded quoted-post card.
 // ✅ MentionHashtagText used throughout for #hashtags and @mentions.
+// ✅ Birthday: badge next to display name + one-time balloon overlay,
+//    driven by target.birthDate / target.birthMMDD / target.showBirthday.
+// ✅ FIXED: the isUid branch of the `target` query was returning the
+//    privacy-flags shape ({ hide_followers, hide_following,
+//    show_activity_publicly }) on a not-found doc instead of `null` —
+//    a copy-paste from the profile-privacy-flags query below. That gave
+//    `target` a union type it was never meant to have, which is why
+//    every target.id / target.username / etc. access in this file was
+//    failing to typecheck. Now returns null, matching the username-query
+//    branch right below it.
+// ✅ All Firestore doc-existence checks in this file use `.exists()`
+//    (called as a function) — confirmed correct for this project's
+//    @react-native-firebase typings.
 
 import MentionHashtagText from "@/components/MentionHashtagText";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -23,11 +36,14 @@ import { createNotification } from "@/lib/firestore/notifications";
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import firestore from "@react-native-firebase/firestore";
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import LottieView from "lottie-react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -58,6 +74,9 @@ type UserProfile = {
   location?: string | null;
   is_private?: boolean | null;
   is_founder?: boolean | null;
+  birthDate?: FirebaseFirestoreTypes.Timestamp | null;
+  birthMMDD?: string | null;
+  showBirthday?: boolean;
 };
 
 type PrivacyFlags = {
@@ -155,18 +174,22 @@ export default function UserProfileScreen() {
   const [activeTab, setActiveTab] =
     useState<(typeof profileTabs)[number]>("Post");
 
+  // ── Birthday state ──────────────────────────────────────────────────────
+  const [showBalloons, setShowBalloons] = useState(false);
+  const playedRef = useRef(false);
+
   const { data: target, isLoading: loadingProfile } = useQuery({
     queryKey: ["user-profile", raw],
     enabled: !!raw,
     staleTime: 30_000,
     gcTime: 60_000,
-    queryFn: async () => {
+    queryFn: async (): Promise<UserProfile | null> => {
       if (isUid) {
         const snap = await firestore()
           .collection("profiles")
           .doc(username)
           .get();
-        if (!snap.exists) return null;
+        if (!snap.exists()) return null;
         const d = snap.data() as any;
         return {
           id: snap.id,
@@ -178,6 +201,9 @@ export default function UserProfileScreen() {
           location: d.location ?? null,
           is_private: d.is_private ?? false,
           is_founder: d.is_founder ?? false,
+          birthDate: d.birthDate ?? null,
+          birthMMDD: d.birthMMDD ?? null,
+          showBirthday: d.showBirthday ?? false,
         } as UserProfile;
       }
       const snap = await firestore()
@@ -197,6 +223,9 @@ export default function UserProfileScreen() {
         location: d.location ?? null,
         is_private: d.is_private ?? false,
         is_founder: d.is_founder ?? false,
+        birthDate: d.birthDate ?? null,
+        birthMMDD: d.birthMMDD ?? null,
+        showBirthday: d.showBirthday ?? false,
       } as UserProfile;
     },
   });
@@ -205,6 +234,20 @@ export default function UserProfileScreen() {
     () => !!target?.id && target.id === user?.uid,
     [target?.id, user?.uid],
   );
+
+  const isBirthday = useMemo(() => {
+    if (!target?.birthDate || !target?.showBirthday) return false;
+    const b = target.birthDate.toDate();
+    const now = new Date();
+    return b.getMonth() === now.getMonth() && b.getDate() === now.getDate();
+  }, [target?.birthDate, target?.showBirthday]);
+
+  useEffect(() => {
+    if (isBirthday && !playedRef.current) {
+      playedRef.current = true;
+      setShowBalloons(true);
+    }
+  }, [isBirthday]);
 
   const { data: isMuted } = useMuteStatus(target?.id ?? "");
   const muteMutation = useToggleMute(target?.id ?? "");
@@ -278,12 +321,12 @@ export default function UserProfileScreen() {
   const { data: privacyFlags } = useQuery({
     queryKey: ["profile-privacy-flags", target?.id, user?.uid],
     enabled: !!target?.id && !isMe,
-    queryFn: async () => {
+    queryFn: async (): Promise<PrivacyFlags> => {
       const snap = await firestore()
         .collection("profiles")
         .doc(target!.id)
         .get();
-      if (!snap.exists)
+      if (!snap.exists())
         return {
           hide_followers: false,
           hide_following: false,
@@ -416,7 +459,7 @@ export default function UserProfileScreen() {
         postIds.map((id) => firestore().collection("posts").doc(id).get()),
       );
       const postMap = new Map(
-        postDocs.filter((d) => d.exists).map((d) => [d.id, d.data() as any]),
+        postDocs.filter((d) => d.exists()).map((d) => [d.id, d.data() as any]),
       );
       return comments
         .map((c) => {
@@ -474,7 +517,7 @@ export default function UserProfileScreen() {
           chunk.map((id) => firestore().collection("posts").doc(id).get()),
         );
         docSnaps.forEach((d) => {
-          if (!d.exists) return;
+          if (!d.exists()) return;
           const x = d.data() as any;
           if (x.is_visible === false) return;
           if (x.user_id === target!.id) return;
@@ -971,6 +1014,15 @@ export default function UserProfileScreen() {
                 {target.full_name || target.username}
               </Text>
               {!!target.is_founder && <FounderBadge />}
+              {isBirthday && (
+                <TouchableOpacity
+                  onPress={() => setShowBalloons(true)}
+                  activeOpacity={0.7}
+                  hitSlop={8}
+                >
+                  <Text style={{ fontSize: 18 }}>🎈</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <Text
               style={[styles.usernameText, { color: colors.textSecondary }]}
@@ -1756,6 +1808,18 @@ export default function UserProfileScreen() {
           />
         )}
       </SafeAreaView>
+
+      {showBalloons && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LottieView
+            source={require("@/assets/animations/balloons.json")}
+            autoPlay
+            loop={false}
+            onAnimationFinish={() => setShowBalloons(false)}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+      )}
 
       <ShareSheet
         ref={shareSheetRef}

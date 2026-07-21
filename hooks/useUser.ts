@@ -1,32 +1,16 @@
 // hooks/useUser.ts — React Native Firebase ✅
 
+import { UserProfile } from "@/types/user";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-interface UserProfile {
-  id: string;
-  username: string;
-  full_name?: string;
-  avatar_url?: string;
-  bio?: string;
-  website?: string;
-  location?: string;
-  follower_count: number;
-  following_count: number;
-  post_count: number;
-  created_at: string;
-  is_private?: boolean;
-  is_following?: boolean;
-}
-
-interface UpdateProfileData {
-  full_name?: string;
-  bio?: string;
-  website?: string;
-  location?: string;
-  avatar_url?: string;
-}
+type UpdateProfileData = Partial<
+  Pick<
+    UserProfile,
+    "full_name" | "bio" | "website" | "location" | "avatar_url" | "showBirthday"
+  >
+>;
 
 export function useUser(username?: string) {
   const queryClient = useQueryClient();
@@ -157,7 +141,10 @@ export function useUser(username?: string) {
         .collection("profiles")
         .doc(user.uid)
         .set(
-          { ...updates, updated_at: new Date().toISOString() },
+          {
+            ...updates,
+            updated_at: firestore.FieldValue.serverTimestamp(),
+          },
           { merge: true },
         );
       const snap = await firestore().collection("profiles").doc(user.uid).get();

@@ -1,167 +1,73 @@
-// hooks/useFeedInteractions.ts — UPDATED ✅
-// ✅ FIXED: onLike now uses useToggleLike (checks is_liked state before toggling)
-// ✅ FIXED: onSave now uses useToggleBookmark (checks is_saved state before toggling)
-// ✅ Previously used useLikePost/useSavePost which blindly added likes without checking
-
-import { useCallback, useRef } from "react";
-import type { ViewToken } from "react-native";
+// hooks/useFeedInteractions.ts ✅
+// ✅ FIXED: imported `Post` from "@/lib/firestore/posts" — that module
+// only imports Post from hooks/useFeed for its own internal use, it
+// never re-exports it. Fixed to import from the real source.
+// ✅ NEW (Phase C): viewabilityConfig now requires a post to stay ≥50%
+// visible for at least 1s (minimumViewTime — a built-in FlatList
+// viewability option) before it counts as "viewed." onViewableItemsChanged
+// fires trackPostView for each item that clears that threshold, feeding
+// the dwell-time signal computeForYouRankedPool reads in posts.ts.
+// Fire-and-forget — a dropped write here is one missed data point, not a
+// broken feature, so it's never awaited or shown as loading state.
+// Note: onRepost below is dead code — PostCard.tsx handles repost
+// entirely internally via its own useToggleRepost mutation rather than
+// taking a repost callback prop (confirmed earlier; both paths share the
+// same underlying mutation, so nothing is out of sync, this just isn't
+// called from anywhere).
 
 import { useAuth } from "@/hooks/useAuth";
+import type { Post } from "@/hooks/useFeed";
 import {
-  postKeys,
   useToggleBookmark,
   useToggleLike,
   useToggleRepost,
 } from "@/hooks/usePosts";
-import { db } from "@/lib/firebase";
-import type { Post } from "@/lib/firestore/posts";
-import firestore from "@react-native-firebase/firestore";
-import { useQueryClient } from "@tanstack/react-query";
-
-async function toggleRepostInFirestore(
-  post: Post,
-  userId: string,
-  wasReposted: boolean,
-) {
-  const batch = db.batch();
-  const originalRef = db.collection("posts").doc(post.id);
-
-  if (wasReposted) {
-    // Find and delete my repost doc
-    const snap = await db
-      .collection("posts")
-      .where("user_id", "==", userId)
-      .where("original_post_id", "==", post.id)
-      .where("is_repost", "==", true)
-      .limit(1)
-      .get();
-    snap.docs.forEach((d) => batch.delete(d.ref));
-    batch.update(originalRef, {
-      repost_count: firestore.FieldValue.increment(-1),
-    });
-  } else {
-    const repostRef = db.collection("posts").doc();
-    batch.set(repostRef, {
-      user_id: userId,
-      is_repost: true,
-      original_post_id: post.id,
-      post_type: (post as any).post_type ?? "text",
-      created_at: new Date().toISOString(),
-      created_at_ts: firestore.FieldValue.serverTimestamp(),
-    });
-    batch.update(originalRef, {
-      repost_count: firestore.FieldValue.increment(1),
-    });
-  }
-  await batch.commit();
-}
-
-async function trackPostView(postId: string, viewerId: string) {
-  if (!postId || !viewerId) return;
-  const id = `${viewerId}_${postId}`;
-  await db.collection("post_views").doc(id).set(
-    {
-      post_id: postId,
-      viewer_id: viewerId,
-      created_at_ts: firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
-}
+import { trackPostView } from "@/lib/firestore/affinity";
+import { useRef } from "react";
 
 export function useFeedInteractions() {
   const { user } = useAuth();
-  const viewerId = user?.uid ?? "";
-  const qc = useQueryClient();
-
-  // ✅ FIXED: use proper toggle mutations from usePosts
   const toggleLikeMutation = useToggleLike();
-  const toggleBookmarkMutation = useToggleBookmark();
-  const toggleRepostMutation = useToggleRepost();
-  const viewedRef = useRef<Set<string>>(new Set());
+  const toggleSaveMutation = useToggleBookmark();
+  const toggleRepostMutation = useToggleRepost(); // kept for onRepost below
 
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 60,
-    minimumViewTime: 350,
-  }).current;
+  const onLike = (postId: string, isLiked: boolean = false) => {
+    toggleLikeMutation.mutate({ postId, isLiked });
+  };
 
-  const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      if (!viewerId) return;
-      for (const v of viewableItems) {
-        if (!v.isViewable) continue;
-        const post = v.item as Post | undefined;
-        if (!post?.id) continue;
-        if (viewedRef.current.has(post.id)) continue;
-        viewedRef.current.add(post.id);
-        trackPostView(post.id, viewerId).catch(() => {});
-      }
-    },
-    [viewerId],
-  );
+  const onSave = (postId: string, isSaved: boolean = false) => {
+    toggleSaveMutation.mutate({ postId, isSaved });
+  };
 
-  // ✅ FIXED: look up current is_liked state from cache before toggling
-  const onLike = useCallback(
-    (postId: string) => {
-      // Find the post in the infinite feed cache to get current is_liked state
-      const allListData = qc.getQueriesData({ queryKey: postKeys.lists() });
-      let isLiked = false;
-      for (const [, data] of allListData) {
-        if (!data) continue;
-        const pages = (data as any)?.pages ?? [];
-        for (const page of pages) {
-          const post = (page?.posts ?? []).find((p: Post) => p.id === postId);
-          if (post) {
-            isLiked = !!post.is_liked;
-            break;
-          }
+  // Dead code — PostCard.tsx no longer takes a repost callback prop, it
+  // manages repost internally. Left in place rather than removed since
+  // it's harmless and some future caller might still want a plain
+  // repost-by-id function without mounting a full PostCard.
+  const onRepost = (postId: string, isReposted: boolean = false) => {
+    toggleRepostMutation.mutate({ postId, isReposted });
+  };
+
+  const viewabilityConfig = {
+    itemVisiblePercentThreshold: 50,
+    // ✅ NEW (Phase C): without this, a fast scroll-past counts as a
+    // "view" the same as someone actually reading the post — the whole
+    // point of a dwell-time signal is distinguishing those two cases.
+    minimumViewTime: 1000,
+  };
+
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: { item: Post }[] }) => {
+      if (!user?.uid) return;
+      viewableItems.forEach((viewable) => {
+        const authorId = (viewable.item as any)?.user_id;
+        // Don't track views of your own posts as a signal — that's not
+        // a useful "does this person like reading X" data point.
+        if (authorId && authorId !== user.uid) {
+          trackPostView(user.uid, authorId).catch(() => {});
         }
-      }
-      toggleLikeMutation.mutate({ postId, isLiked });
+      });
     },
-    [toggleLikeMutation, qc],
-  );
-
-  // ✅ FIXED: look up current is_saved state from cache before toggling
-  const onSave = useCallback(
-    (postId: string) => {
-      const allListData = qc.getQueriesData({ queryKey: postKeys.lists() });
-      let isSaved = false;
-      for (const [, data] of allListData) {
-        if (!data) continue;
-        const pages = (data as any)?.pages ?? [];
-        for (const page of pages) {
-          const post = (page?.posts ?? []).find((p: Post) => p.id === postId);
-          if (post) {
-            isSaved = !!post.is_saved;
-            break;
-          }
-        }
-      }
-      toggleBookmarkMutation.mutate({ postId, isSaved });
-    },
-    [toggleBookmarkMutation, qc],
-  );
-
-  const onRepost = useCallback(
-    (postId: string) => {
-      const allListData = qc.getQueriesData({ queryKey: postKeys.lists() });
-      let isReposted = false;
-      for (const [, data] of allListData) {
-        if (!data) continue;
-        const pages = (data as any)?.pages ?? [];
-        for (const page of pages) {
-          const post = (page?.posts ?? []).find((p: Post) => p.id === postId);
-          if (post) {
-            isReposted = !!(post as any).is_reposted;
-            break;
-          }
-        }
-      }
-      toggleRepostMutation.mutate({ postId, isReposted });
-    },
-    [toggleRepostMutation, qc],
-  );
+  ).current;
 
   return {
     onLike,
@@ -169,8 +75,5 @@ export function useFeedInteractions() {
     onRepost,
     viewabilityConfig,
     onViewableItemsChanged,
-    likeMutation: toggleLikeMutation,
-    saveMutation: toggleBookmarkMutation,
-    repostMutation: toggleRepostMutation,
   };
 }
