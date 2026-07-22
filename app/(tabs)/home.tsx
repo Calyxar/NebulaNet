@@ -650,6 +650,16 @@ export default function HomeScreen() {
       <Tabs.Container
         renderHeader={renderHeader}
         renderTabBar={renderTabBar}
+        // ✅ FIX: without this, the library estimates the tab bar's
+        // height before measuring the real one via onLayout on first
+        // render. Since MaterialTabBar here has custom labelStyle/
+        // indicatorStyle overrides (different real height than the
+        // library's default assumption), that estimate was wrong,
+        // causing content to render partially under the header on every
+        // load. 48*uiScale wasn't quite enough in testing — bumped up.
+        // If it's still slightly off, this is the one number to nudge,
+        // not a structural problem anymore.
+        tabBarHeight={58 * uiScale}
         headerContainerStyle={{
           backgroundColor: colors.background,
           shadowOpacity: 0,

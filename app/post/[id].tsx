@@ -186,7 +186,7 @@ export default function PostDetailScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
 
-  const { data: post, isLoading, isError } = usePost(id!);
+  const { data: post, isLoading, isError, error } = usePost(id!);
   const { data: comments, isLoading: commentsLoading } = useComments(id!);
 
   const toggleLikeMutation = useToggleLike();
@@ -238,7 +238,65 @@ export default function PostDetailScreen() {
     );
   }
 
-  if (isError || !post) {
+  if (isError) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <AppHeader
+            title="Post"
+            backgroundColor="transparent"
+            onBack={() => router.back()}
+          />
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingHorizontal: 32,
+            }}
+          >
+            <Ionicons
+              name="alert-circle-outline"
+              size={44}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={{ color: colors.text, fontWeight: "800", fontSize: 16 }}
+            >
+              Couldn't load this post
+            </Text>
+            {/* ✅ NEW: raw error text shown directly on screen — this is
+                deliberately not pretty. The point is that a screenshot of
+                THIS screen now contains the actual diagnostic text
+                (e.g. "permission-denied", "not-found", a JS error
+                message), instead of needing console/logcat access that
+                wasn't working. */}
+            <Text
+              selectable
+              style={{
+                color: colors.textTertiary,
+                textAlign: "center",
+                fontSize: 12,
+                fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+                marginTop: 4,
+              }}
+            >
+              {String((error as any)?.code ?? "")}
+              {(error as any)?.code ? "\n" : ""}
+              {String((error as any)?.message ?? error ?? "Unknown error")}
+            </Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  if (!post) {
     return (
       <LinearGradient
         colors={gradientColors as any}

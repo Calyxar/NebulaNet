@@ -430,7 +430,20 @@ export function usePost(postId: string) {
     queryKey: postKeys.detail(postId),
     enabled: !!postId,
     queryFn: async () => {
-      const snap = await firestore().collection("posts").doc(postId).get();
+      let snap;
+      try {
+        snap = await firestore().collection("posts").doc(postId).get();
+      } catch (e) {
+        // ✅ FIX: surface the real error instead of letting it collapse
+        // into the same "Post not found" UI as a genuine missing doc.
+        // Most likely culprit for "not found even for my own posts":
+        // a Firestore rules evaluation failure (e.g. a get() inside a
+        // rule helper like isMinor() throwing on a missing/incomplete
+        // profile doc), which denies the read outright rather than
+        // gracefully evaluating false.
+        console.error("usePost: Firestore read failed for", postId, e);
+        throw e;
+      }
       if (!snap.exists()) return null;
       const x = snap.data() as any;
 
