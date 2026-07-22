@@ -2,6 +2,16 @@
 // ✅ Twitter-style: tappable #hashtags and @mentions
 // #hashtags → /hashtag/[tag]
 // @mentions → /user/[username]
+// ✅ FIXED: was navigating with the raw, un-lowercased tag text exactly as
+// typed in the post (e.g. "#GhostOfYotei" → /hashtag/GhostOfYotei). Every
+// other place in this project that handles hashtags (extractHashtags in
+// lib/firestore/posts.ts, scripts/algolia-sync-synonyms.ts) lowercases
+// first before storing/matching, and Firestore's array-contains is
+// case-sensitive — so a hashtag typed with any capital letters would
+// navigate to a route that could never find a match, even though posts
+// with that hashtag clearly exist. Now lowercases before navigating.
+// Display text (what's shown on screen) stays exactly as typed — only the
+// navigation target is normalized.
 
 import { router } from "expo-router";
 import React from "react";
@@ -47,7 +57,11 @@ export default function HashtagText({
               style={[{ color: "#1D9BF0", fontWeight: "400" }, hashtagStyle]}
               onPress={(e) => {
                 e.stopPropagation?.();
-                router.push(`/hashtag/${seg.value.slice(1)}` as any);
+                // ✅ FIX: .toLowerCase() — matches the storage/matching
+                // convention used everywhere else hashtags are handled.
+                router.push(
+                  `/hashtag/${seg.value.slice(1).toLowerCase()}` as any,
+                );
               }}
             >
               {seg.value}

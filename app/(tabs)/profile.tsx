@@ -771,13 +771,17 @@ export default function ProfileScreen() {
                   style={styles.bannerImage}
                 />
               )}
+            </View>
+
+            {/* ✅ CHANGED: avatar now sits fully below the banner in normal
+                flow, not absolutely positioned overlapping it — per
+                explicit preference over the previous X/Twitter-style
+                bottom-left overlap. */}
+            <View style={styles.avatarRow}>
               <TouchableOpacity
                 onPress={() => router.push("/profile/edit")}
                 activeOpacity={0.9}
-                style={[
-                  styles.avatarOverlap,
-                  { borderColor: colors.background },
-                ]}
+                style={[styles.avatarWrap, { borderColor: colors.background }]}
               >
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -912,6 +916,34 @@ export default function ProfileScreen() {
                 </View>
               )}
 
+              {/* ✅ NEW: "Joined <Month Year>" row, matching X's
+                  location+joined pattern below the bio. */}
+              {!!(profile as any)?.created_at && (
+                <View style={styles.locationRow}>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={colors.textTertiary}
+                  />
+                  <Text
+                    style={[
+                      styles.locationText,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    Joined{" "}
+                    {new Date(
+                      typeof (profile as any).created_at?.toDate === "function"
+                        ? (profile as any).created_at.toDate()
+                        : (profile as any).created_at,
+                    ).toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </Text>
+                </View>
+              )}
+
               <View style={styles.statsRow}>
                 <TouchableOpacity
                   style={styles.statItem}
@@ -1014,7 +1046,12 @@ export default function ProfileScreen() {
                 { borderBottomColor: colors.border },
               ]}
             >
-              {(["Post", "Media"] as ProfileTab[]).map((tab) => {
+              {(
+                [
+                  { key: "Post", icon: "reader-outline" },
+                  { key: "Media", icon: "images-outline" },
+                ] as { key: ProfileTab; icon: string }[]
+              ).map(({ key: tab, icon }) => {
                 const active = activeTab === tab;
                 return (
                   <TouchableOpacity
@@ -1023,15 +1060,22 @@ export default function ProfileScreen() {
                     activeOpacity={0.7}
                     style={styles.tab}
                   >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        { color: active ? colors.text : colors.textTertiary },
-                        active && styles.tabTextActive,
-                      ]}
-                    >
-                      {tab}
-                    </Text>
+                    <View style={styles.tabIconLabel}>
+                      <Ionicons
+                        name={icon as any}
+                        size={16}
+                        color={active ? colors.text : colors.textTertiary}
+                      />
+                      <Text
+                        style={[
+                          styles.tabText,
+                          { color: active ? colors.text : colors.textTertiary },
+                          active && styles.tabTextActive,
+                        ]}
+                      >
+                        {tab}
+                      </Text>
+                    </View>
                     {active && (
                       <View
                         style={[
@@ -1218,12 +1262,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
   },
-  bannerWrap: { width: "100%", height: BANNER_HEIGHT, zIndex: 10 },
+  bannerWrap: { width: "100%", height: BANNER_HEIGHT },
   bannerImage: { width: "100%", height: BANNER_HEIGHT },
-  avatarOverlap: {
-    position: "absolute",
-    bottom: 0,
-    left: 34,
+  avatarRow: {
+    paddingHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  avatarWrap: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
@@ -1252,7 +1298,6 @@ const styles = StyleSheet.create({
   profileCard: {
     borderRadius: 22,
     padding: 18,
-    paddingTop: AVATAR_OVERLAP + 10,
     marginHorizontal: 16,
     marginTop: 0,
     marginBottom: 12,
@@ -1336,6 +1381,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   tab: { flex: 1, alignItems: "center", paddingVertical: 13 },
+  tabIconLabel: { flexDirection: "row", alignItems: "center", gap: 6 },
   tabText: { fontSize: 13.5, fontWeight: "700" },
   tabTextActive: { fontWeight: "900" },
   tabUnderline: {

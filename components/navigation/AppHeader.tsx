@@ -1,196 +1,180 @@
-// components/navigation/AppHeader.tsx ✅
-// ✅ FIX: RightNode no longer reserves a 44px ghost spacer when leftWide
-//    is the only content provided (no title, no right/rightWide) — that
-//    ghost spacer exists to balance a centered title against a back
-//    button, which doesn't apply when a screen (like Explore) packs
-//    everything into leftWide. Recovers real width for that content.
+// components/navigation/AppHeader.tsx ✅ FIXED
+// ✅ FIXED: title was flex-centered between whatever's in left/leftWide
+// and right/rightWide. When those two sides have unequal width (e.g.
+// Analytics: a back button on the left, nothing on the right at all),
+// the title visibly drifted toward the emptier side instead of staying
+// centered on screen — confirmed via the Analytics screen's "Analytics"
+// title sitting off to one side.
+// Fix: the title now renders as its own absolutely-positioned layer
+// (left: 0, right: 0, textAlign: 'center'), stacked UNDER the row of
+// interactive left/right buttons via pointerEvents="none" — so it's
+// centered against the full header width regardless of what's on either
+// side, and taps still pass through to the real buttons on top of it.
+
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
-  ViewStyle,
+  type ViewStyle,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type Props = {
+interface AppHeaderProps {
   title?: string;
-  onBack?: () => void;
-  // ✅ Added leftIcon + onLeftPress so notifications screen back button works
-  leftIcon?: keyof typeof Ionicons.glyphMap;
-  onLeftPress?: () => void;
-  left?: React.ReactNode;
-  right?: React.ReactNode;
-  leftWide?: React.ReactNode;
-  rightWide?: React.ReactNode;
   backgroundColor?: string;
+  compact?: boolean;
+  left?: React.ReactNode;
+  leftWide?: React.ReactNode;
+  right?: React.ReactNode;
+  rightWide?: React.ReactNode;
+  onBack?: () => void;
+  onLeftPress?: () => void;
+  leftIcon?: keyof typeof Ionicons.glyphMap;
+  backIcon?: keyof typeof Ionicons.glyphMap;
   containerStyle?: ViewStyle;
-  titleAlign?: "center" | "left";
-  compact?: boolean; // ✅ Added compact prop to reduce header height for certain screens
-};
-
-const HEADER_ROW_HEIGHT = 56;
-const SIDE = 44;
+}
 
 export default function AppHeader({
   title,
-  onBack,
-  leftIcon,
-  onLeftPress,
+  backgroundColor = "transparent",
+  compact = false,
   left,
   leftWide,
   right,
   rightWide,
-  backgroundColor,
+  onBack,
+  onLeftPress,
+  leftIcon,
+  backIcon = "arrow-back",
   containerStyle,
-  titleAlign = "center",
-  compact,
-}: Props) {
-  const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
-  const hasTitle = !!title && title.trim().length > 0;
+}: AppHeaderProps) {
+  const { colors } = useTheme();
 
-  const bgColor = backgroundColor ?? colors.background;
-
-  // ✅ onLeftPress + leftIcon takes priority over onBack
   const backHandler = onLeftPress ?? onBack;
-  const backIcon: keyof typeof Ionicons.glyphMap = leftIcon ?? "arrow-back";
+  const hasTitle = !!title && title.length > 0;
 
-  const LeftNode = leftWide ? (
-    <View style={styles.leftWide}>{leftWide}</View>
+  // leftWide takes over the whole left side (e.g. a search bar, or a
+  // brand row) and always wins over a plain back button — a screen
+  // passing leftWide has already decided what goes there.
+  const leftNode = leftWide ? (
+    leftWide
   ) : left ? (
-    <View style={styles.side}>{left}</View>
+    left
   ) : backHandler ? (
-    <View style={styles.side}>
-      <Pressable
-        onPress={backHandler}
-        style={[
-          styles.circleBtn,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.border,
-            shadowOpacity: isDark ? 0.22 : 0.08,
-          },
-        ]}
-        android_ripple={{ borderless: true }}
-      >
-        <Ionicons name={backIcon} size={22} color={colors.text} />
-      </Pressable>
-    </View>
+    <Pressable
+      onPress={backHandler}
+      hitSlop={10}
+      style={[
+        styles.iconBtn,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
+      <Ionicons name={leftIcon ?? backIcon} size={20} color={colors.text} />
+    </Pressable>
   ) : (
-    <View style={styles.sideGhost} />
+    <View style={styles.side} />
   );
 
-  // ✅ Skip the ghost spacer entirely when leftWide is supplying all the
-  // content and there's no title to keep visually balanced — that ghost
-  // only earns its keep when centering a title against a back button.
-  const skipRightGhost = !!leftWide && !hasTitle && !right && !rightWide;
-
-  const RightNode = rightWide ? (
-    <View style={styles.rightWide}>{rightWide}</View>
+  const rightNode = rightWide ? (
+    rightWide
   ) : right ? (
-    <View style={styles.side}>{right}</View>
-  ) : skipRightGhost ? null : (
-    <View style={styles.side}>
-      <View style={styles.sideGhost} />
-    </View>
+    right
+  ) : (
+    <View style={styles.side} />
   );
+
+  // When leftWide is the only real content and there's no right content
+  // at all, skip rendering a matching-width ghost spacer on the right —
+  // leftWide is meant to flexibly claim space (e.g. a search bar filling
+  // most of the row), not be mirrored.
+  const skipRightGhost = !!leftWide && !right && !rightWide;
 
   return (
     <View
       style={[
-        styles.shell,
-        { paddingTop: insets.top, backgroundColor: bgColor },
+        styles.container,
+        { backgroundColor, height: compact ? 48 : 56 },
         containerStyle,
       ]}
     >
-      <View style={[styles.row, compact && { height: 46 }]}>
-        {hasTitle ? (
-          LeftNode
-        ) : (
-          <View style={styles.leftNoTitleWrap}>{LeftNode}</View>
-        )}
-
-        {hasTitle ? (
-          <View
-            style={[
-              styles.titleWrap,
-              titleAlign === "left" ? styles.titleWrapLeft : undefined,
-            ]}
+      {/* ✅ FIX: absolutely-positioned centered title layer, stacked
+          beneath the row below. pointerEvents="none" lets taps pass
+          through to the real left/right buttons on top of it. */}
+      {hasTitle && (
+        <View style={styles.titleLayer} pointerEvents="none">
+          <Text
+            style={[styles.title, { color: colors.text }]}
+            numberOfLines={1}
           >
-            <Text
-              numberOfLines={1}
-              style={[styles.title, { color: colors.text }]}
-            >
-              {title}
-            </Text>
-          </View>
-        ) : null}
+            {title}
+          </Text>
+        </View>
+      )}
 
-        {RightNode}
+      <View style={styles.row}>
+        {leftWide ? (
+          <View style={styles.wideSlot}>{leftWide}</View>
+        ) : (
+          <View style={styles.side}>{leftNode}</View>
+        )}
+        {/* Spacer — no title rendered here anymore; the title is the
+            absolutely-positioned layer above, not part of this row's
+            flex layout, so it can't be pushed off-center by unequal
+            left/right widths. Collapses to zero width when leftWide is
+            already flex:1 and filling the row itself. */}
+        {!leftWide && <View style={{ flex: 1 }} />}
+        {rightWide ? (
+          <View style={styles.wideSlot}>{rightWide}</View>
+        ) : !skipRightGhost ? (
+          <View style={styles.side}>{rightNode}</View>
+        ) : null}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  shell: {},
-  row: {
-    height: HEADER_ROW_HEIGHT,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 18,
+  container: {
+    justifyContent: "center",
+    paddingHorizontal: 12,
   },
-  side: {
-    width: SIDE,
-    height: SIDE,
+  titleLayer: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
   },
-  sideGhost: { width: SIDE, height: SIDE },
-  leftNoTitleWrap: { flex: 1, minWidth: 0, marginRight: 10 },
-  leftWide: {
-    minHeight: SIDE,
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  row: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+  },
+  side: {
+    minWidth: 40,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  wideSlot: {
     flex: 1,
     minWidth: 0,
   },
-  rightWide: {
-    minHeight: SIDE,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    flexShrink: 0,
-    marginLeft: 10,
-  },
-  circleBtn: {
-    width: SIDE,
-    height: SIDE,
-    borderRadius: SIDE / 2,
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  titleWrap: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  titleWrapLeft: { alignItems: "flex-start" },
-  title: {
-    fontSize: 16,
-    fontWeight: Platform.select({ ios: "900", android: "800" }) as any,
   },
 });

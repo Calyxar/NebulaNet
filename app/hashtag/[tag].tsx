@@ -1,482 +1,319 @@
-// app/hashtag/[tag].tsx ✅
-// ✅ Uses getPosts with hashtag filter — works with array-contains index
-import MentionHashtagText from "@/components/MentionHashtagText";
-import { PostCardSkeleton } from "@/components/Skeleton";
-import { getTrendingHashtags } from "@/lib/firestore/hashtags";
-import { getPosts, type Post } from "@/lib/firestore/posts";
+// app/hashtag/[tag].tsx ✅ FIXED
+// ✅ FIXED: this file imported `getPosts` from "@/lib/firestore/posts" —
+// that function doesn't exist anywhere in this project. It also imported
+// `Post` from the same module, which only imports Post from hooks/useFeed
+// for its own internal use and never re-exports it (same wrong-import-
+// source mistake found and fixed earlier in hooks/useFeedInteractions.ts).
+// Combined, this meant the file likely didn't even compile — which fully
+// explains "nothing found" on every hashtag tap, independent of the
+// separate case-sensitivity fix already made in HashtagText.tsx.
+// ✅ Now does a real Firestore query (`hashtags` array-contains the
+// lowercased tag — matches how hashtags are stored/matched everywhere
+// else in this project) and renders results with the canonical PostCard,
+// consistent with the rest of the app after the profile.tsx consolidation.
+
+import AppHeader from "@/components/navigation/AppHeader";
+import PostCard from "@/components/post/PostCard";
+import { useAuth } from "@/hooks/useAuth";
+import type { Post } from "@/hooks/useFeed";
+import { useToggleBookmark, useToggleLike } from "@/hooks/usePosts";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
+import { useQuery } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
-  StatusBar,
-  StyleSheet,
+  RefreshControl,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const PAGE_SIZE = 15;
-
-const isVideoUrl = (url?: string | null) => {
-  if (!url) return false;
-  const clean = url.split("?")[0].toLowerCase();
-  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
-    clean.endsWith(`.${e}`),
-  );
+type HashtagPost = Post & {
+  title?: string;
+  repost_count?: number;
+  save_count?: number;
+  is_reposted?: boolean;
+  is_repost?: boolean;
+  quote_post_id?: string | null;
+  quote_post?: any;
 };
 
-const timeAgo = (iso: string) => {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-};
+function tsToIso(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  return new Date().toISOString();
+}
+
+function docToHashtagPost(
+  doc: FirebaseFirestoreTypes.QueryDocumentSnapshot,
+): HashtagPost {
+  const x = doc.data() as any;
+  return {
+    id: doc.id,
+    user_id: x.user_id,
+    user: x.user ?? null,
+    content: x.content ?? "",
+    media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+    post_type: x.post_type ?? null,
+    created_at: tsToIso(x.created_at_ts ?? x.created_at),
+    like_count: x.like_count ?? 0,
+    comment_count: x.comment_count ?? 0,
+    share_count: x.share_count ?? 0,
+    repost_count: x.repost_count ?? 0,
+    save_count: x.save_count ?? 0,
+    is_reposted: x.is_reposted ?? false,
+    is_repost: x.is_repost ?? false,
+    is_nsfw: x.is_nsfw ?? false,
+    title: x.title ?? undefined,
+    quote_post_id: x.quote_post_id ?? null,
+    quote_post: x.quote_post ?? null,
+  } as HashtagPost;
+}
+
+function useHashtagPosts(tag: string) {
+  return useQuery({
+    queryKey: ["hashtag-posts", tag],
+    enabled: !!tag,
+    staleTime: 30_000,
+    queryFn: async (): Promise<HashtagPost[]> => {
+      const snap = await firestore()
+        .collection("posts")
+        .where("hashtags", "array-contains", tag)
+        .orderBy("created_at_ts", "desc")
+        .limit(50)
+        .get();
+      return snap.docs.map(docToHashtagPost);
+    },
+  });
+}
 
 export default function HashtagScreen() {
-  const { tag } = useLocalSearchParams<{ tag: string }>();
+  const { tag: rawTag } = useLocalSearchParams<{ tag: string }>();
+  // ✅ Defensive lowercase here too — the tag arrives already lowercased
+  // from HashtagText.tsx's fix, but this guards against any other
+  // caller (deep links, share URLs) that might not lowercase first.
+  const tag = (rawTag ?? "").toLowerCase();
+
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const toggleLikeMutation = useToggleLike();
+  const toggleBookmarkMutation = useToggleBookmark();
 
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [cursor, setCursor] = useState<{ lastDocId?: string } | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [postCount, setPostCount] = useState<number | null>(null);
+  const {
+    data: posts,
+    isLoading,
+    isError,
+    isRefetching,
+    refetch,
+  } = useHashtagPosts(tag);
 
-  const cleanTag = tag?.trim().toLowerCase().replace(/^#/, "") ?? "";
+  const postIds = useMemo(() => (posts ?? []).map((p) => p.id), [posts]);
 
-  const fetchPage = useCallback(
-    async (existingCursor: typeof cursor, append: boolean) => {
-      if (!cleanTag) return;
-      if (append) setLoadingMore(true);
-      else setLoading(true);
-      try {
-        const result = await getPosts({
-          limit: PAGE_SIZE,
-          hashtag: cleanTag,
-          sortBy: "newest",
-          cursor: existingCursor,
-        });
-        setPosts((prev) =>
-          append ? [...prev, ...result.posts] : result.posts,
-        );
-        setHasMore(result.hasMore);
-        setCursor(result.nextCursor ?? null);
-        // Set post count from first page
-        if (!append && !existingCursor) {
-          setPostCount(result.posts.length);
-        }
-      } catch (e) {
-        console.warn("HashtagScreen fetch error:", e);
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-      }
+  const { data: likeSaveStatus } = useQuery({
+    queryKey: ["hashtag-like-save-status", user?.uid, postIds.join(",")],
+    enabled: !!user?.uid && postIds.length > 0,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const liked = new Set<string>();
+      const saved = new Set<string>();
+      await Promise.all(
+        postIds.map(async (postId) => {
+          const [likeSnap, saveSnap] = await Promise.all([
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("likes")
+              .doc(user!.uid)
+              .get(),
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("saves")
+              .doc(user!.uid)
+              .get(),
+          ]);
+          if (likeSnap.exists()) liked.add(postId);
+          if (saveSnap.exists()) saved.add(postId);
+        }),
+      );
+      return { liked, saved };
     },
-    [cleanTag],
-  );
+  });
 
-  // Also fetch actual count from hashtags collection
-  useEffect(() => {
-    if (!cleanTag) return;
-    getTrendingHashtags(100)
-      .then((tags) => {
-        const found = tags.find((t) => t.tag === cleanTag);
-        if (found) setPostCount(found.post_count);
-      })
-      .catch(() => {});
-  }, [cleanTag]);
+  const isLikedPost = (id: string) => !!likeSaveStatus?.liked.has(id);
+  const isSavedPost = (id: string) => !!likeSaveStatus?.saved.has(id);
 
-  useEffect(() => {
-    setPosts([]);
-    setCursor(null);
-    setHasMore(true);
-    fetchPage(null, false);
-  }, [fetchPage]);
-
-  const loadMore = () => {
-    if (!loadingMore && hasMore && cursor) fetchPage(cursor, true);
-  };
-
-  const onBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(tabs)/explore" as any);
-  };
-
-  const renderPost = ({ item }: { item: Post }) => {
-    const avatar = item.user?.avatar_url;
-    const name = item.user?.full_name || item.user?.username || "User";
-    const username = item.user?.username || "";
-    const media = item.media_urls?.[0];
-    const isVideo = isVideoUrl(media);
-
-    return (
-      <TouchableOpacity
-        style={[styles.postCard, { backgroundColor: colors.card }]}
-        onPress={() => router.push(`/post/${item.id}` as any)}
-        activeOpacity={0.88}
-      >
-        <View style={styles.authorRow}>
-          <TouchableOpacity
-            onPress={() => username && router.push(`/user/${username}` as any)}
-            activeOpacity={0.85}
-            style={styles.authorInner}
-          >
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            ) : (
-              <View
-                style={[
-                  styles.avatarFallback,
-                  { backgroundColor: colors.surface },
-                ]}
-              >
-                <Text style={[styles.avatarLetter, { color: colors.primary }]}>
-                  {name[0]?.toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <View>
-              <Text style={[styles.authorName, { color: colors.text }]}>
-                {name}
-              </Text>
-              <Text style={[styles.authorTime, { color: colors.textTertiary }]}>
-                {timeAgo(item.created_at)}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          <Ionicons
-            name="chevron-forward"
-            size={18}
-            color={colors.textTertiary}
-          />
-        </View>
-
-        {!!item.content && (
-          <MentionHashtagText
-            content={item.content}
-            style={[styles.content, { color: colors.text }]}
-            numberOfLines={4}
-            hashtagColor={colors.primary}
-            onPress={() => router.push(`/post/${item.id}` as any)}
-          />
-        )}
-
-        {!!media && (
-          <View style={[styles.mediaWrap, { backgroundColor: colors.surface }]}>
-            <Image
-              source={{ uri: media }}
-              style={styles.media}
-              resizeMode="cover"
-            />
-            {isVideo && (
-              <View style={styles.videoOverlay}>
-                <Ionicons name="play-circle" size={36} color="#fff" />
-              </View>
-            )}
-          </View>
-        )}
-
-        <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
-          <View style={styles.stat}>
-            <Ionicons
-              name={item.is_liked ? "heart" : "heart-outline"}
-              size={16}
-              color={item.is_liked ? "#FF375F" : colors.textTertiary}
-            />
-            <Text
-              style={[
-                styles.statText,
-                { color: item.is_liked ? "#FF375F" : colors.textTertiary },
-              ]}
-            >
-              {item.like_count ?? 0}
-            </Text>
-          </View>
-          <View style={styles.stat}>
-            <Ionicons
-              name="chatbubble-outline"
-              size={16}
-              color={colors.textTertiary}
-            />
-            <Text style={[styles.statText, { color: colors.textTertiary }]}>
-              {item.comment_count ?? 0}
-            </Text>
-          </View>
-          <View style={styles.stat}>
-            <Ionicons
-              name="repeat-outline"
-              size={16}
-              color={colors.textTertiary}
-            />
-            <Text style={[styles.statText, { color: colors.textTertiary }]}>
-              {(item as any).repost_count ?? 0}
-            </Text>
-          </View>
-          <Text style={[styles.tapHint, { color: colors.textTertiary }]}>
-            Tap to interact →
-          </Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const ListHeader = () => (
-    <View style={[styles.hashtagHeader, { backgroundColor: colors.card }]}>
-      <View
-        style={[
-          styles.hashtagIconCircle,
-          { backgroundColor: colors.primary + "22" },
-        ]}
-      >
-        <Text style={[styles.hashtagSymbol, { color: colors.primary }]}>#</Text>
-      </View>
-      <Text style={[styles.hashtagTitle, { color: colors.text }]}>
-        {cleanTag}
-      </Text>
-      {postCount !== null && !loading && (
-        <Text style={[styles.hashtagCount, { color: colors.textTertiary }]}>
-          {postCount.toLocaleString()}
-          {hasMore ? "+" : ""} posts
-        </Text>
-      )}
-      {/* ✅ Search this hashtag button */}
-      <TouchableOpacity
-        style={[
-          styles.searchHashtagBtn,
-          {
-            backgroundColor: colors.primary + "18",
-            borderColor: colors.primary + "40",
-          },
-        ]}
-        onPress={() =>
-          router.push({
-            pathname: "/(tabs)/explore",
-            params: { q: `#${cleanTag}` },
-          } as any)
-        }
-        activeOpacity={0.85}
-      >
-        <Ionicons name="search-outline" size={14} color={colors.primary} />
-        <Text style={[styles.searchHashtagText, { color: colors.primary }]}>
-          Search #{cleanTag}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const ListEmpty = () => {
-    if (loading) return null;
-    return (
-      <View style={[styles.emptyWrap, { backgroundColor: colors.card }]}>
-        <View
-          style={[styles.emptyIconCircle, { backgroundColor: colors.surface }]}
-        >
-          <Ionicons name="pricetag-outline" size={26} color={colors.primary} />
-        </View>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>
-          No posts yet
-        </Text>
-        <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
-          Be the first to post with #{cleanTag}
-        </Text>
-      </View>
-    );
-  };
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   return (
-    <>
-      <StatusBar
-        barStyle={isDark ? "light-content" : "dark-content"}
-        translucent
-        backgroundColor="transparent"
-      />
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.background }]}
-        edges={["top", "left", "right"]}
-      >
-        <View style={[styles.topBar, { backgroundColor: colors.background }]}>
-          <TouchableOpacity
-            onPress={onBack}
-            style={[styles.backCircle, { backgroundColor: colors.card }]}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.topBarTitle, { color: colors.text }]}>
-            #{cleanTag}
-          </Text>
-          <View style={styles.topBarRight} />
-        </View>
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.42, 1]}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        <AppHeader
+          title={`#${tag}`}
+          backgroundColor="transparent"
+          leftWide={
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Ionicons name="arrow-back" size={20} color={colors.text} />
+            </TouchableOpacity>
+          }
+        />
 
-        {loading ? (
-          <FlatList
-            data={Array(5).fill(null)}
-            keyExtractor={(_, i) => `skel-${i}`}
-            renderItem={() => <PostCardSkeleton />}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={<ListHeader />}
-          />
+        {isLoading ? (
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          >
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : isError ? (
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingHorizontal: 32,
+            }}
+          >
+            <Ionicons
+              name="alert-circle-outline"
+              size={44}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={{ color: colors.text, fontWeight: "800", fontSize: 16 }}
+            >
+              Couldn't load posts
+            </Text>
+            <TouchableOpacity
+              onPress={() => refetch()}
+              style={{
+                marginTop: 8,
+                backgroundColor: colors.primary,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderRadius: 14,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "800" }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
-            data={posts}
+            data={posts ?? []}
             keyExtractor={(p) => p.id}
-            renderItem={renderPost}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            onEndReached={loadMore}
-            onEndReachedThreshold={0.5}
-            ListHeaderComponent={<ListHeader />}
-            ListEmptyComponent={<ListEmpty />}
-            ListFooterComponent={
-              loadingMore ? (
-                <View style={styles.footerLoader}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                </View>
-              ) : null
+            contentContainerStyle={{ padding: 14, paddingBottom: 32 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={refetch}
+                tintColor={colors.primary}
+              />
             }
+            ListEmptyComponent={
+              <View
+                style={{
+                  alignItems: "center",
+                  paddingTop: 60,
+                  paddingHorizontal: 32,
+                  gap: 8,
+                }}
+              >
+                <Ionicons
+                  name="pricetag-outline"
+                  size={44}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "800",
+                    fontSize: 16,
+                  }}
+                >
+                  No posts found
+                </Text>
+                <Text
+                  style={{
+                    color: colors.textTertiary,
+                    textAlign: "center",
+                    fontSize: 13,
+                  }}
+                >
+                  Nobody's posted with #{tag} yet.
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const isQuote = !!item.quote_post_id;
+              return (
+                <PostCard
+                  id={item.id}
+                  title={item.title}
+                  content={item.content}
+                  post_type={item.post_type ?? undefined}
+                  author={{
+                    id: item.user_id,
+                    name: item.user?.full_name || item.user?.username || "User",
+                    username: item.user?.username || "",
+                    avatar: item.user?.avatar_url ?? undefined,
+                  }}
+                  timestamp={new Date(item.created_at).toLocaleDateString()}
+                  likes={item.like_count ?? 0}
+                  comments={item.comment_count ?? 0}
+                  shares={item.share_count ?? 0}
+                  reposts={item.repost_count ?? 0}
+                  saves={item.save_count ?? 0}
+                  isLiked={isLikedPost(item.id)}
+                  isSaved={isSavedPost(item.id)}
+                  isReposted={!!item.is_reposted}
+                  isRepostByMe={!!item.is_repost}
+                  quotedPost={isQuote ? item.quote_post : undefined}
+                  media={item.media_urls ?? undefined}
+                  onLikePress={() =>
+                    toggleLikeMutation.mutate({
+                      postId: item.id,
+                      isLiked: isLikedPost(item.id),
+                    })
+                  }
+                  onSavePress={() =>
+                    toggleBookmarkMutation.mutate({
+                      postId: item.id,
+                      isSaved: isSavedPost(item.id),
+                    })
+                  }
+                />
+              );
+            }}
           />
         )}
       </SafeAreaView>
-    </>
+    </LinearGradient>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 12,
-  },
-  backCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  topBarTitle: { fontSize: 18, fontWeight: "800", flex: 1 },
-  topBarRight: { width: 42 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
-  hashtagHeader: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  hashtagIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  hashtagSymbol: { fontSize: 28, fontWeight: "900" },
-  hashtagTitle: { fontSize: 22, fontWeight: "900", marginBottom: 4 },
-  hashtagCount: { fontSize: 13, fontWeight: "600", marginBottom: 10 },
-  searchHashtagBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    marginTop: 4,
-  },
-  searchHashtagText: { fontSize: 13, fontWeight: "700" },
-  postCard: {
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  authorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  authorInner: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  avatar: { width: 38, height: 38, borderRadius: 19 },
-  avatarFallback: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarLetter: { fontSize: 15, fontWeight: "900" },
-  authorName: { fontSize: 14, fontWeight: "800" },
-  authorTime: { fontSize: 12, marginTop: 1 },
-  content: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  mediaWrap: {
-    width: "100%",
-    height: 200,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginBottom: 10,
-    position: "relative",
-  },
-  media: { width: "100%", height: "100%" },
-  videoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.25)",
-  },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 10,
-    borderTopWidth: 1,
-    gap: 14,
-  },
-  stat: { flexDirection: "row", alignItems: "center", gap: 5 },
-  statText: { fontSize: 13, fontWeight: "700" },
-  tapHint: { marginLeft: "auto", fontSize: 11, fontWeight: "600" },
-  emptyWrap: {
-    borderRadius: 22,
-    paddingVertical: 32,
-    paddingHorizontal: 18,
-    alignItems: "center",
-  },
-  emptyIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: "800", marginBottom: 6 },
-  emptySubtitle: { fontSize: 13, lineHeight: 18, textAlign: "center" },
-  footerLoader: { paddingVertical: 20, alignItems: "center" },
-});
