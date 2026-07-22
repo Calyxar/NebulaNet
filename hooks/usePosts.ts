@@ -407,6 +407,7 @@ export type CommentWithAuthor = {
   created_at: string;
   like_count: number;
   user_has_liked: boolean;
+  parent_id: string | null;
   author: {
     id: string;
     username: string | null;
@@ -477,10 +478,16 @@ export function usePost(postId: string) {
         boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
         quote_post_id: x.quote_post_id ?? null,
         quote_post: x.quote_post ?? null,
-        // ✅ NEW: the screen expects this — pass through whatever's on
-        // the post doc. Let me know if it needs a more specific shape
-        // than "whatever's stored" (e.g. must include slug specifically).
-        community: x.community ?? null,
+        // ✅ FIX: this was the actual crash. The screen renders this
+        // directly inline as text (`in {post.community}`) — returning
+        // the raw community object here (whatever shape is on the post
+        // doc, likely {id, name, slug}) made React Native hard-crash
+        // trying to render an object as a JSX child. Returning just the
+        // name as a plain string instead. If the screen ALSO needs
+        // community.slug elsewhere (e.g. a tappable link to the
+        // community), tell me and I'll restructure this properly rather
+        // than flattening it away.
+        community: x.community?.name ?? null,
       };
     },
   });
@@ -520,6 +527,7 @@ export function useComments(postId: string) {
             created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
             like_count: x.like_count ?? 0,
             user_has_liked: isLiked,
+            parent_id: x.parent_id ?? null,
             author: x.user
               ? {
                   id: x.user_id,
@@ -545,9 +553,11 @@ export function useAddComment() {
     mutationFn: async ({
       post_id,
       content,
+      parent_id,
     }: {
       post_id: string;
       content: string;
+      parent_id?: string | null;
     }) => {
       if (!user?.uid) throw new Error("Not signed in");
       const trimmed = content.trim();
@@ -560,6 +570,7 @@ export function useAddComment() {
         .add({
           user_id: user.uid,
           content: trimmed,
+          parent_id: parent_id ?? null,
           user: {
             username: profile?.username ?? null,
             full_name: profile?.full_name ?? null,

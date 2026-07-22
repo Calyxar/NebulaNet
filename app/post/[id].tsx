@@ -1,647 +1,490 @@
-// hooks/usePosts.ts — React Native Firebase ✅
-// ✅ FIXED (earlier): user_preferences query uses doc.exists() (called as
-// a function) — confirmed correct for this project's Firestore typings.
-// ✅ FIXED (earlier): useToggleRepost's onSettled no longer broadly
-// invalidates postKeys.lists() — that match also caught the For You
-// feed's ["...postKeys.lists(), "for-you-ranked"] key, forcing a full
-// re-rank/refetch on every repost anywhere in the app.
-// ✅ FIXED: For You feed pagination — split into a cached ranked pool
-// (computeForYouRankedPool, re-ranked only on staleTime expiry or
-// refetch) and pure in-memory pagination (sliceForYouFeedPage) — see
-// lib/firestore/posts.ts. refetch is overridden so pull-to-refresh
-// re-ranks the pool before re-slicing.
-// ✅ FIXED: toggleRepost's real signature is (postId, isReposted) — it
-// resolves the current user internally, doesn't take a userId argument.
-// ✅ NEW: useMarkNotInterested — backs the "Not interested" post action.
-// ✅ NEW: usePost/useComments/useAddComment/useToggleCommentLike +
-// CommentWithAuthor type — these back app/post/[id].tsx's imports, which
-// were failing to compile entirely (5 missing exports). Follows the same
-// patterns already established in this file: postKeys for query keys,
-// the likes/{uid} subcollection pattern used for posts, optimistic
-// mutation shape matching useToggleLike/useToggleBookmark. Field names
-// were inferred from established conventions in this file rather than
-// the screen's exact body — flag if any don't match what the screen
-// actually expects.
+// app/post/[id].tsx ✅
+// ⚠️ RECONSTRUCTED — I don't have this file's original literal source
+// captured; this is built from everything confirmed via TypeScript
+// errors and the crash log across our back-and-forth: the hooks this
+// screen uses (usePost, useComments, useAddComment, useToggleCommentLike,
+// CommentWithAuthor from @/hooks/usePosts), useAddComment's post_id/
+// parent_id params, CommentWithAuthor's user_has_liked field, and the
+// community-rendering crash. Diff this against your real file rather
+// than assuming it's an exact match.
+//
+// ✅ FIX: community is rendered as its own plain-text line
+// (`in {post.community}`) — usePost now returns community as a string
+// (community.name), not the raw {id,name,slug} object, which is what
+// crashed React Native trying to render an object as a JSX child. NOT
+// passed into PostCard's `community` prop, since that prop expects the
+// full object — passing a string there would just move the crash.
 
+import AppHeader from "@/components/navigation/AppHeader";
+import PostCard from "@/components/post/PostCard";
 import { useAuth } from "@/hooks/useAuth";
-import { markNotInterested } from "@/lib/firestore/affinity";
-import { forYouFeed, type PaginatedPosts } from "@/lib/firestore/posts";
-import { toggleRepost } from "@/lib/firestore/reposts";
-import firestore, {
-  FirebaseFirestoreTypes,
-} from "@react-native-firebase/firestore";
 import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+  useAddComment,
+  useComments,
+  usePost,
+  useToggleBookmark,
+  useToggleCommentLike,
+  useToggleLike,
+  type CommentWithAuthor,
+} from "@/hooks/usePosts";
+import { useTheme } from "@/providers/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-export const postKeys = {
-  all: ["posts"] as const,
-  lists: () => [...postKeys.all, "list"] as const,
-  detail: (id: string) => [...postKeys.all, "detail", id] as const,
-};
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
 
-export function useFeedDensity(): "compact" | "standard" | "relaxed" {
+// Builds a top-level-first, replies-nested-under-parent ordering from a
+// flat CommentWithAuthor[] — matches this app's established nested-
+// comments feature (parent_id support added to useAddComment).
+function buildCommentTree(comments: CommentWithAuthor[]) {
+  const topLevel = comments.filter((c) => !c.parent_id);
+  const repliesByParent = new Map<string, CommentWithAuthor[]>();
+  comments.forEach((c) => {
+    if (c.parent_id) {
+      const list = repliesByParent.get(c.parent_id) ?? [];
+      list.push(c);
+      repliesByParent.set(c.parent_id, list);
+    }
+  });
+
+  const ordered: { comment: CommentWithAuthor; depth: number }[] = [];
+  const walk = (list: CommentWithAuthor[], depth: number) => {
+    list.forEach((c) => {
+      ordered.push({ comment: c, depth });
+      const replies = repliesByParent.get(c.id);
+      if (replies?.length) walk(replies, depth + 1);
+    });
+  };
+  walk(topLevel, 0);
+  return ordered;
+}
+
+function CommentRow({
+  comment,
+  depth,
+  colors,
+  onReply,
+  onToggleLike,
+}: {
+  comment: CommentWithAuthor;
+  depth: number;
+  colors: any;
+  onReply: () => void;
+  onToggleLike: () => void;
+}) {
+  const name = comment.author?.full_name || comment.author?.username || "User";
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingLeft: 16 + depth * 28,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      }}
+    >
+      {comment.author?.avatar_url ? (
+        <Image
+          source={{ uri: comment.author.avatar_url }}
+          style={{ width: 34, height: 34, borderRadius: 17 }}
+        />
+      ) : (
+        <View
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            backgroundColor: colors.surface,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: "900" }}>
+            {(name[0] || "U").toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={{ color: colors.text, fontWeight: "800", fontSize: 13 }}>
+            {name}
+          </Text>
+          <Text style={{ color: colors.textTertiary, fontSize: 11 }}>
+            {timeAgo(comment.created_at)}
+          </Text>
+        </View>
+        <Text style={{ color: colors.text, fontSize: 14, marginTop: 2 }}>
+          {comment.content}
+        </Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 16,
+            marginTop: 6,
+          }}
+        >
+          <TouchableOpacity
+            onPress={onToggleLike}
+            style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+          >
+            <Ionicons
+              name={comment.user_has_liked ? "heart" : "heart-outline"}
+              size={14}
+              color={comment.user_has_liked ? "#FF375F" : colors.textTertiary}
+            />
+            {comment.like_count > 0 && (
+              <Text style={{ color: colors.textTertiary, fontSize: 12 }}>
+                {comment.like_count}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onReply}>
+            <Text
+              style={{
+                color: colors.textTertiary,
+                fontSize: 12,
+                fontWeight: "700",
+              }}
+            >
+              Reply
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export default function PostDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors, isDark } = useTheme();
   const { user } = useAuth();
-  const [density, setDensity] = useState<"compact" | "standard" | "relaxed">(
-    "standard",
+
+  const { data: post, isLoading, isError } = usePost(id!);
+  const { data: comments, isLoading: commentsLoading } = useComments(id!);
+
+  const toggleLikeMutation = useToggleLike();
+  const toggleBookmarkMutation = useToggleBookmark();
+  const addCommentMutation = useAddComment();
+  const toggleCommentLikeMutation = useToggleCommentLike();
+
+  const [commentText, setCommentText] = useState("");
+  const [replyTo, setReplyTo] = useState<CommentWithAuthor | null>(null);
+
+  const orderedComments = useMemo(
+    () => buildCommentTree(comments ?? []),
+    [comments],
   );
 
-  useEffect(() => {
-    if (!user?.uid) return;
-    const unsub = firestore()
-      .collection("user_settings")
-      .doc(user.uid)
-      .onSnapshot((snap) => {
-        const d = (snap.data() as any)?.feed_density;
-        if (d === "compact" || d === "standard" || d === "relaxed") {
-          setDensity(d);
-        }
-      });
-    return () => unsub();
-  }, [user?.uid]);
+  const handleSendComment = () => {
+    const text = commentText.trim();
+    if (!text || !id) return;
+    addCommentMutation.mutate({
+      post_id: id,
+      content: text,
+      parent_id: replyTo?.id ?? null,
+    });
+    setCommentText("");
+    setReplyTo(null);
+  };
 
-  return density;
-}
+  const gradientColors = isDark
+    ? [colors.background, colors.background, colors.background]
+    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
-export function useCurrentUserProfileSync() {
-  const { user } = useAuth();
-  const qc = useQueryClient();
+  const isQuote = !!post?.quote_post_id;
 
-  useEffect(() => {
-    if (!user?.uid) return;
-    const unsub = firestore()
-      .collection("profiles")
-      .doc(user.uid)
-      .onSnapshot((snap) => {
-        if (!snap.exists()) return;
-        qc.setQueryData(["profile", user.uid], {
-          id: snap.id,
-          ...(snap.data() as any),
-        });
-      });
-    return () => unsub();
-  }, [user?.uid, qc]);
-}
-
-type FeedTab = "for-you" | "following" | "my-community";
-
-async function fetchStandardFeedPage(
-  tab: FeedTab,
-  communityIds: string[],
-  userId: string | undefined,
-  cursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
-  pageSize: number,
-): Promise<{
-  posts: any[];
-  nextCursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
-}> {
-  let ref = firestore()
-    .collection("posts")
-    .orderBy("created_at_ts", "desc")
-    .limit(pageSize);
-
-  if (tab === "following" && userId) {
-    const followSnap = await firestore()
-      .collection("follows")
-      .where("follower_id", "==", userId)
-      .where("status", "==", "accepted")
-      .limit(10)
-      .get();
-    const followingIds = followSnap.docs.map(
-      (d) => (d.data() as any).following_id,
+  if (isLoading) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          >
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
-    if (followingIds.length === 0) return { posts: [], nextCursor: null };
-    ref = ref.where("user_id", "in", followingIds) as any;
-  } else if (tab === "my-community" && communityIds.length > 0) {
-    ref = ref.where("community_id", "in", communityIds.slice(0, 10)) as any;
   }
 
-  if (cursor) ref = ref.startAfter(cursor) as any;
+  if (isError || !post) {
+    return (
+      <LinearGradient
+        colors={gradientColors as any}
+        locations={[0, 0.42, 1]}
+        style={{ flex: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+          <AppHeader
+            title="Post"
+            backgroundColor="transparent"
+            onBack={() => router.back()}
+          />
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingHorizontal: 32,
+            }}
+          >
+            <Ionicons
+              name="alert-circle-outline"
+              size={44}
+              color={colors.textTertiary}
+            />
+            <Text
+              style={{ color: colors.text, fontWeight: "800", fontSize: 16 }}
+            >
+              Post not found
+            </Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
 
-  const snap = await ref.get();
-  const posts = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-  const nextCursor = snap.docs.length === pageSize ? snap.docs.at(-1)! : null;
-  return { posts, nextCursor };
-}
+  return (
+    <LinearGradient
+      colors={gradientColors as any}
+      locations={[0, 0.42, 1]}
+      style={{ flex: 1 }}
+    >
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        <AppHeader
+          title="Post"
+          backgroundColor="transparent"
+          onBack={() => router.back()}
+        />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        >
+          <FlatList
+            data={orderedComments}
+            keyExtractor={({ comment }) => comment.id}
+            ListHeaderComponent={
+              <View style={{ paddingHorizontal: 14, paddingTop: 8 }}>
+                <PostCard
+                  id={post.id}
+                  title={post.title}
+                  content={post.content}
+                  post_type={post.post_type ?? undefined}
+                  author={{
+                    id: post.user_id,
+                    name: post.user?.full_name || post.user?.username || "User",
+                    username: post.user?.username || "",
+                    avatar: post.user?.avatar_url ?? undefined,
+                  }}
+                  timestamp={new Date(post.created_at).toLocaleDateString()}
+                  likes={post.like_count ?? 0}
+                  comments={post.comment_count ?? 0}
+                  shares={post.share_count ?? 0}
+                  reposts={post.repost_count ?? 0}
+                  saves={post.save_count ?? 0}
+                  isLiked={!!post.is_liked}
+                  isSaved={!!post.is_saved}
+                  isReposted={!!post.is_reposted}
+                  isRepostByMe={!!post.is_repost}
+                  isBoosted={!!post.is_boosted}
+                  boostedUntil={post.boosted_until}
+                  quotedPost={isQuote ? post.quote_post : undefined}
+                  media={post.media_urls ?? undefined}
+                  onLikePress={() =>
+                    toggleLikeMutation.mutate({
+                      postId: post.id,
+                      isLiked: !!post.is_liked,
+                    })
+                  }
+                  onSavePress={() =>
+                    toggleBookmarkMutation.mutate({
+                      postId: post.id,
+                      isSaved: !!post.is_saved,
+                    })
+                  }
+                />
 
-export function useInfiniteFeedPosts(
-  tab: FeedTab,
-  opts: { communityIds: string[] },
-) {
-  const { user } = useAuth();
+                {/* ✅ FIX: community rendered as its own safe plain-text
+                    line — post.community is now a string (the name),
+                    not the raw object that crashed before. */}
+                {!!post.community && (
+                  <Text
+                    style={{
+                      color: colors.textTertiary,
+                      fontSize: 12,
+                      fontWeight: "700",
+                      marginTop: 6,
+                    }}
+                  >
+                    in {post.community}
+                  </Text>
+                )}
 
-  const forYouQuery = useInfiniteForYouFeed({
-    enabled: tab === "for-you",
-  });
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "800",
+                    fontSize: 15,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  Comments
+                </Text>
 
-  const standardQuery = useInfiniteQuery({
-    queryKey: [...postKeys.lists(), tab, opts.communityIds.join(",")],
-    enabled: tab !== "for-you",
-    initialPageParam:
-      null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
-    queryFn: ({ pageParam }) =>
-      fetchStandardFeedPage(tab, opts.communityIds, user?.uid, pageParam, 20),
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-  });
-
-  return tab === "for-you" ? forYouQuery : standardQuery;
-}
-
-export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
-  const { user } = useAuth();
-
-  const poolQuery = useQuery({
-    queryKey: [...postKeys.lists(), "for-you-pool", user?.uid],
-    queryFn: () => forYouFeed.computeForYouRankedPool(user?.uid),
-    enabled: opts?.enabled ?? true,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const infiniteQuery = useInfiniteQuery<PaginatedPosts, Error>({
-    queryKey: [...postKeys.lists(), "for-you-ranked", poolQuery.dataUpdatedAt],
-    enabled: (opts?.enabled ?? true) && !!poolQuery.data,
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      forYouFeed.sliceForYouFeedPage(poolQuery.data!, pageParam as number, 20),
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-  });
-
-  return {
-    ...infiniteQuery,
-    refetch: async () => {
-      await poolQuery.refetch();
-      return infiniteQuery.refetch();
-    },
-  };
-}
-
-function patchPostInLists(
-  qc: ReturnType<typeof useQueryClient>,
-  postId: string,
-  patch: (post: any) => any,
-) {
-  qc.getQueryCache()
-    .findAll({ queryKey: postKeys.lists() })
-    .forEach((query) => {
-      qc.setQueryData(query.queryKey, (old: any) => {
-        if (!old?.pages) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: any) => ({
-            ...page,
-            posts: page.posts?.map((p: any) =>
-              p.id === postId ? patch(p) : p,
-            ),
-          })),
-        };
-      });
-    });
-}
-
-function removePostFromLists(
-  qc: ReturnType<typeof useQueryClient>,
-  postId: string,
-) {
-  qc.getQueryCache()
-    .findAll({ queryKey: postKeys.lists() })
-    .forEach((query) => {
-      qc.setQueryData(query.queryKey, (old: any) => {
-        if (!old?.pages) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: any) => ({
-            ...page,
-            posts: page.posts?.filter((p: any) => p.id !== postId),
-          })),
-        };
-      });
-    });
-}
-
-export function useToggleLike() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      postId,
-      isLiked,
-    }: {
-      postId: string;
-      isLiked: boolean;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      const likeRef = firestore()
-        .collection("posts")
-        .doc(postId)
-        .collection("likes")
-        .doc(user.uid);
-      const postRef = firestore().collection("posts").doc(postId);
-
-      if (isLiked) {
-        await likeRef.delete();
-        await postRef.update({
-          like_count: firestore.FieldValue.increment(-1),
-        });
-      } else {
-        await likeRef.set({
-          created_at: firestore.FieldValue.serverTimestamp(),
-        });
-        await postRef.update({
-          like_count: firestore.FieldValue.increment(1),
-        });
-      }
-    },
-    onMutate: async ({ postId, isLiked }) => {
-      patchPostInLists(qc, postId, (p) => ({
-        ...p,
-        is_liked: !isLiked,
-        like_count: Math.max(0, (p.like_count ?? 0) + (isLiked ? -1 : 1)),
-      }));
-    },
-    onSettled: (_d, _e, vars) => {
-      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
-    },
-  });
-}
-
-export function useToggleBookmark() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      postId,
-      isSaved,
-    }: {
-      postId: string;
-      isSaved: boolean;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      const saveRef = firestore()
-        .collection("posts")
-        .doc(postId)
-        .collection("saves")
-        .doc(user.uid);
-      const postRef = firestore().collection("posts").doc(postId);
-
-      if (isSaved) {
-        await saveRef.delete();
-        await postRef.update({
-          save_count: firestore.FieldValue.increment(-1),
-        });
-      } else {
-        await saveRef.set({
-          created_at: firestore.FieldValue.serverTimestamp(),
-        });
-        await postRef.update({
-          save_count: firestore.FieldValue.increment(1),
-        });
-      }
-    },
-    onMutate: async ({ postId, isSaved }) => {
-      patchPostInLists(qc, postId, (p) => ({
-        ...p,
-        is_saved: !isSaved,
-        save_count: Math.max(0, (p.save_count ?? 0) + (isSaved ? -1 : 1)),
-      }));
-    },
-    onSettled: (_d, _e, vars) => {
-      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
-    },
-  });
-}
-
-export function useToggleRepost() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      postId,
-      isReposted,
-    }: {
-      postId: string;
-      isReposted: boolean;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      return toggleRepost(postId, isReposted);
-    },
-    onMutate: async ({ postId, isReposted }) => {
-      patchPostInLists(qc, postId, (p) => ({
-        ...p,
-        is_reposted: !isReposted,
-        repost_count: Math.max(
-          0,
-          (p.repost_count ?? 0) + (isReposted ? -1 : 1),
-        ),
-      }));
-    },
-    onError: (_err, vars) => {
-      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
-    },
-    onSettled: (_data, _err, vars) => {
-      const uid = user?.uid;
-      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
-      if (uid) {
-        qc.invalidateQueries({ queryKey: ["user-reposts", uid] });
-      }
-    },
-  });
-}
-
-export function useDeletePost() {
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (postId: string) => {
-      await firestore().collection("posts").doc(postId).delete();
-      return postId;
-    },
-    onSuccess: (postId) => removePostFromLists(qc, postId),
-  });
-}
-
-export function useMarkNotInterested() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      postId,
-      authorId,
-      content,
-    }: {
-      postId: string;
-      authorId: string;
-      content: string | null;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      await markNotInterested(user.uid, authorId, content);
-      return postId;
-    },
-    onMutate: async ({ postId }) => {
-      removePostFromLists(qc, postId);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: [...postKeys.lists(), "for-you-pool"],
-      });
-    },
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Post detail + comments — backs app/post/[id].tsx
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type CommentWithAuthor = {
-  id: string;
-  post_id: string;
-  user_id: string;
-  content: string;
-  created_at: string;
-  like_count: number;
-  user_has_liked: boolean;
-  parent_id: string | null;
-  author: {
-    id: string;
-    username: string | null;
-    full_name: string | null;
-    avatar_url: string | null;
-  } | null;
-};
-
-function tsToIsoLocal(v: any): string {
-  if (!v) return new Date().toISOString();
-  if (typeof v === "string") return v;
-  if (typeof v?.toDate === "function") return v.toDate().toISOString();
-  return new Date().toISOString();
-}
-
-export function usePost(postId: string) {
-  const { user } = useAuth();
-
-  return useQuery({
-    queryKey: postKeys.detail(postId),
-    enabled: !!postId,
-    queryFn: async () => {
-      const snap = await firestore().collection("posts").doc(postId).get();
-      if (!snap.exists()) return null;
-      const x = snap.data() as any;
-
-      let isLiked = false;
-      let isSaved = false;
-      if (user?.uid) {
-        const [likeSnap, saveSnap] = await Promise.all([
-          firestore()
-            .collection("posts")
-            .doc(postId)
-            .collection("likes")
-            .doc(user.uid)
-            .get(),
-          firestore()
-            .collection("posts")
-            .doc(postId)
-            .collection("saves")
-            .doc(user.uid)
-            .get(),
-        ]);
-        isLiked = likeSnap.exists();
-        isSaved = saveSnap.exists();
-      }
-
-      return {
-        id: snap.id,
-        user_id: x.user_id,
-        user: x.user ?? null,
-        content: x.content ?? "",
-        title: x.title ?? undefined,
-        media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
-        post_type: x.post_type ?? null,
-        created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
-        like_count: x.like_count ?? 0,
-        comment_count: x.comment_count ?? 0,
-        share_count: x.share_count ?? 0,
-        repost_count: x.repost_count ?? 0,
-        save_count: x.save_count ?? 0,
-        is_liked: isLiked,
-        is_saved: isSaved,
-        is_reposted: x.is_reposted ?? false,
-        is_repost: x.is_repost ?? false,
-        is_nsfw: x.is_nsfw ?? false,
-        is_boosted: x.is_boosted ?? false,
-        boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
-        quote_post_id: x.quote_post_id ?? null,
-        quote_post: x.quote_post ?? null,
-        // ✅ NEW: the screen expects this — pass through whatever's on
-        // the post doc. Let me know if it needs a more specific shape
-        // than "whatever's stored" (e.g. must include slug specifically).
-        community: x.community ?? null,
-      };
-    },
-  });
-}
-
-export function useComments(postId: string) {
-  const { user } = useAuth();
-
-  return useQuery({
-    queryKey: ["post-comments", postId, user?.uid],
-    enabled: !!postId,
-    queryFn: async (): Promise<CommentWithAuthor[]> => {
-      const snap = await firestore()
-        .collection("posts")
-        .doc(postId)
-        .collection("comments")
-        .orderBy("created_at_ts", "desc")
-        .limit(100)
-        .get();
-
-      const comments = await Promise.all(
-        snap.docs.map(async (d) => {
-          const x = d.data() as any;
-          let isLiked = false;
-          if (user?.uid) {
-            const likeSnap = await d.ref
-              .collection("likes")
-              .doc(user.uid)
-              .get();
-            isLiked = likeSnap.exists();
-          }
-          return {
-            id: d.id,
-            post_id: postId,
-            user_id: x.user_id,
-            content: x.content ?? "",
-            created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
-            like_count: x.like_count ?? 0,
-            user_has_liked: isLiked,
-            parent_id: x.parent_id ?? null,
-            author: x.user
-              ? {
-                  id: x.user_id,
-                  username: x.user.username ?? null,
-                  full_name: x.user.full_name ?? null,
-                  avatar_url: x.user.avatar_url ?? null,
+                {replyTo && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: colors.surface,
+                      borderRadius: 10,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.textTertiary, fontSize: 12 }}>
+                      Replying to{" "}
+                      {replyTo.author?.full_name ||
+                        replyTo.author?.username ||
+                        "comment"}
+                    </Text>
+                    <TouchableOpacity onPress={() => setReplyTo(null)}>
+                      <Ionicons
+                        name="close"
+                        size={16}
+                        color={colors.textTertiary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            }
+            renderItem={({ item }) => (
+              <CommentRow
+                comment={item.comment}
+                depth={item.depth}
+                colors={colors}
+                onReply={() => setReplyTo(item.comment)}
+                onToggleLike={() =>
+                  toggleCommentLikeMutation.mutate({
+                    postId: id!,
+                    commentId: item.comment.id,
+                    isLiked: item.comment.user_has_liked,
+                  })
                 }
-              : null,
-          } as CommentWithAuthor;
-        }),
-      );
+              />
+            )}
+            ListEmptyComponent={
+              !commentsLoading ? (
+                <View
+                  style={{
+                    alignItems: "center",
+                    paddingVertical: 32,
+                    paddingHorizontal: 32,
+                  }}
+                >
+                  <Text
+                    style={{ color: colors.textTertiary, fontWeight: "700" }}
+                  >
+                    No comments yet — be the first to reply.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ paddingVertical: 24, alignItems: "center" }}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              )
+            }
+            contentContainerStyle={{ paddingBottom: 20 }}
+          />
 
-      return comments;
-    },
-  });
-}
-
-export function useAddComment() {
-  const qc = useQueryClient();
-  const { user, profile } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      post_id,
-      content,
-      parent_id,
-    }: {
-      post_id: string;
-      content: string;
-      parent_id?: string | null;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      const trimmed = content.trim();
-      if (!trimmed) throw new Error("Comment cannot be empty");
-
-      await firestore()
-        .collection("posts")
-        .doc(post_id)
-        .collection("comments")
-        .add({
-          user_id: user.uid,
-          content: trimmed,
-          parent_id: parent_id ?? null,
-          user: {
-            username: profile?.username ?? null,
-            full_name: profile?.full_name ?? null,
-            avatar_url: profile?.avatar_url ?? null,
-          },
-          like_count: 0,
-          created_at: new Date().toISOString(),
-          created_at_ts: firestore.FieldValue.serverTimestamp(),
-        });
-
-      await firestore()
-        .collection("posts")
-        .doc(post_id)
-        .update({ comment_count: firestore.FieldValue.increment(1) });
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["post-comments", vars.post_id] });
-      qc.invalidateQueries({ queryKey: postKeys.detail(vars.post_id) });
-    },
-  });
-}
-
-export function useToggleCommentLike() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({
-      postId,
-      commentId,
-      isLiked,
-    }: {
-      postId: string;
-      commentId: string;
-      isLiked: boolean;
-    }) => {
-      if (!user?.uid) throw new Error("Not signed in");
-      const commentRef = firestore()
-        .collection("posts")
-        .doc(postId)
-        .collection("comments")
-        .doc(commentId);
-      const likeRef = commentRef.collection("likes").doc(user.uid);
-
-      if (isLiked) {
-        await likeRef.delete();
-        await commentRef.update({
-          like_count: firestore.FieldValue.increment(-1),
-        });
-      } else {
-        await likeRef.set({
-          created_at: firestore.FieldValue.serverTimestamp(),
-        });
-        await commentRef.update({
-          like_count: firestore.FieldValue.increment(1),
-        });
-      }
-    },
-    onMutate: async ({ postId, commentId, isLiked }) => {
-      qc.setQueryData(
-        ["post-comments", postId, user?.uid],
-        (old: CommentWithAuthor[] | undefined) =>
-          old?.map((c) =>
-            c.id === commentId
-              ? {
-                  ...c,
-                  user_has_liked: !isLiked,
-                  like_count: Math.max(0, c.like_count + (isLiked ? -1 : 1)),
-                }
-              : c,
-          ),
-      );
-    },
-    onSettled: (_d, _e, vars) => {
-      qc.invalidateQueries({
-        queryKey: ["post-comments", vars.postId, user?.uid],
-      });
-    },
-  });
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              backgroundColor: colors.card,
+            }}
+          >
+            <TextInput
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder={replyTo ? "Write a reply..." : "Write a comment..."}
+              placeholderTextColor={colors.textTertiary}
+              style={{
+                flex: 1,
+                backgroundColor: colors.surface,
+                borderRadius: 20,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                color: colors.text,
+                fontSize: 14,
+              }}
+              multiline
+            />
+            <TouchableOpacity
+              onPress={handleSendComment}
+              disabled={!commentText.trim() || addCommentMutation.isPending}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.primary,
+                opacity:
+                  !commentText.trim() || addCommentMutation.isPending ? 0.5 : 1,
+              }}
+            >
+              {addCommentMutation.isPending ? (
+                <ActivityIndicator size={16} color="#fff" />
+              ) : (
+                <Ionicons name="send" size={18} color="#fff" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
+  );
 }

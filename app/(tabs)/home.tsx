@@ -364,7 +364,10 @@ function StoriesRow({
                 onPress={() => router.push(`/story/${item.id}` as any)}
               />
               <Text
-                style={[styles.storyLabel, { color: colors.text }]}
+                style={[
+                  styles.storyLabel,
+                  { color: colors.text, fontSize: 11 * fontScale },
+                ]}
                 numberOfLines={1}
               >
                 {label}
@@ -744,7 +747,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
-  storiesWrap: { paddingLeft: 16, paddingTop: 6, paddingBottom: 8 },
+  storiesWrap: { paddingLeft: 16, paddingTop: 20, paddingBottom: 8 },
   storyItem: { alignItems: "center", marginRight: 14, width: 64 },
   addStoryCircle: {
     width: 56,
