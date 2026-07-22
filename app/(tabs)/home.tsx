@@ -284,7 +284,10 @@ function FeedList({
       }
       viewabilityConfig={viewabilityConfig}
       onViewableItemsChanged={onViewableItemsChanged}
-      contentContainerStyle={{ paddingTop: 12, paddingBottom: bottomPad }}
+      contentContainerStyle={{
+        paddingTop: 24 * uiScale,
+        paddingBottom: bottomPad,
+      }}
       showsVerticalScrollIndicator={false}
     />
   );

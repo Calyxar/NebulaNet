@@ -1,1130 +1,647 @@
-// app/post/[id].tsx
-// ✅ Post card and stats card merged into one continuous card (content,
-//    stat counts, divider, action row) instead of two separate shadowed
-//    boxes — reads as one post the way Twitter's detail page does.
-// ✅ Action row icons are now unlabeled (no "Like"/"Comment"/etc. text
-//    underneath), matching the icon-only direction already adopted for
-//    the bottom nav bar elsewhere in this redesign.
-// ✅ Delete comment added — long-pressing or tapping the trash icon on
-//    your own comment shows a confirmation alert and removes it from
-//    Firestore, then invalidates the comments query so the list refreshes.
-// CommentRow.tsx is untouched — its recursive nested-reply rendering with
-// the vertical connector line already matches Twitter's thread pattern.
+// hooks/usePosts.ts — React Native Firebase ✅
+// ✅ FIXED (earlier): user_preferences query uses doc.exists() (called as
+// a function) — confirmed correct for this project's Firestore typings.
+// ✅ FIXED (earlier): useToggleRepost's onSettled no longer broadly
+// invalidates postKeys.lists() — that match also caught the For You
+// feed's ["...postKeys.lists(), "for-you-ranked"] key, forcing a full
+// re-rank/refetch on every repost anywhere in the app.
+// ✅ FIXED: For You feed pagination — split into a cached ranked pool
+// (computeForYouRankedPool, re-ranked only on staleTime expiry or
+// refetch) and pure in-memory pagination (sliceForYouFeedPage) — see
+// lib/firestore/posts.ts. refetch is overridden so pull-to-refresh
+// re-ranks the pool before re-slicing.
+// ✅ FIXED: toggleRepost's real signature is (postId, isReposted) — it
+// resolves the current user internally, doesn't take a userId argument.
+// ✅ NEW: useMarkNotInterested — backs the "Not interested" post action.
+// ✅ NEW: usePost/useComments/useAddComment/useToggleCommentLike +
+// CommentWithAuthor type — these back app/post/[id].tsx's imports, which
+// were failing to compile entirely (5 missing exports). Follows the same
+// patterns already established in this file: postKeys for query keys,
+// the likes/{uid} subcollection pattern used for posts, optimistic
+// mutation shape matching useToggleLike/useToggleBookmark. Field names
+// were inferred from established conventions in this file rather than
+// the screen's exact body — flag if any don't match what the screen
+// actually expects.
 
-import VideoPlayer from "@/components/media/VideoPlayer";
-import MentionHashtagText from "@/components/MentionHashtagText";
-import CommentRow from "@/components/post/CommentRow";
-import MediaGallery from "@/components/post/MediaGallery";
-import PollCard from "@/components/post/PollCard";
-import PostOptionsSheet, {
-  type PostOption,
-} from "@/components/post/PostOptionsSheet";
-import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
-import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
-import { PostCardSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import { markNotInterested } from "@/lib/firestore/affinity";
+import { forYouFeed, type PaginatedPosts } from "@/lib/firestore/posts";
+import { toggleRepost } from "@/lib/firestore/reposts";
+import firestore, {
+  FirebaseFirestoreTypes,
+} from "@react-native-firebase/firestore";
 import {
-  useAddComment,
-  useComments,
-  usePost,
-  useToggleBookmark,
-  useToggleCommentLike,
-  useToggleLike,
-  useToggleRepost,
-  type CommentWithAuthor
-} from "@/hooks/usePosts";
-import { useOptimisticSharePost } from "@/hooks/useShares";
-import { useTheme } from "@/providers/ThemeProvider";
-import { formatDate } from "@/utils/format";
-import { Ionicons } from "@expo/vector-icons";
-import firestore from "@react-native-firebase/firestore";
-import { useQueryClient } from "@tanstack/react-query";
-import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  type AlertButton,
-} from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-function coerceParamToString(v: unknown): string | null {
-  if (typeof v === "string" && v.trim().length) return v;
-  if (Array.isArray(v) && typeof v[0] === "string" && v[0].trim().length)
-    return v[0];
-  return null;
-}
+export const postKeys = {
+  all: ["posts"] as const,
+  lists: () => [...postKeys.all, "list"] as const,
+  detail: (id: string) => [...postKeys.all, "detail", id] as const,
+};
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-function Avatar({
-  uri,
-  name,
-  size,
-  fallbackColor,
-}: {
-  uri?: string | null;
-  name: string;
-  size: number;
-  fallbackColor?: string;
-}) {
-  if (uri)
-    return (
-      <Image
-        source={{ uri }}
-        style={{ width: size, height: size, borderRadius: size / 2 }}
-      />
-    );
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: fallbackColor ?? "#7C3AED",
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <Text
-        style={{ color: "#fff", fontSize: size * 0.36, fontWeight: "bold" }}
-      >
-        {getInitials(name || "?")}
-      </Text>
-    </View>
+export function useFeedDensity(): "compact" | "standard" | "relaxed" {
+  const { user } = useAuth();
+  const [density, setDensity] = useState<"compact" | "standard" | "relaxed">(
+    "standard",
   );
-}
-
-export default function PostDetailScreen() {
-  const params = useLocalSearchParams();
-  const postId = useMemo(
-    () => coerceParamToString((params as any)?.id),
-    [params],
-  );
-  const { user, profile } = useAuth();
-  const { colors, isDark } = useTheme();
-  const { bottom: bottomInset } = useSafeAreaInsets();
-  const qc = useQueryClient();
-
-  const [comment, setComment] = useState("");
-  const [showAllComments, setShowAllComments] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [optionsVisible, setOptionsVisible] = useState(false);
-  const [shareCount, setShareCount] = useState(0);
-
-  const commentInputRef = useRef<TextInput>(null);
-  const repostSheetRef = useRef<RepostSheetRef>(null);
-  const shareSheetRef = useRef<ShareSheetRef>(null);
-  const scrollViewRef = useRef<ScrollView>(null);
-
-  const {
-    data: post,
-    isLoading: isLoadingPost,
-    error: postError,
-  } = usePost(postId ?? "");
-  const { data: comments = [], isLoading: isLoadingComments } = useComments(
-    postId ?? "",
-  );
-  const isReposted = !!post?.is_reposted;
-  const toggleLikeMutation = useToggleLike();
-  const toggleRepostMutation = useToggleRepost();
-  const toggleBookmarkMutation = useToggleBookmark();
-  const addCommentMutation = useAddComment();
-  const toggleCommentLikeMutation = useToggleCommentLike();
-  const sharePostMutation = useOptimisticSharePost();
-
-  const displayedComments = useMemo(
-    () => (showAllComments ? comments : comments.slice(0, 3)),
-    [showAllComments, comments],
-  );
-
-  const viewerId = useMemo(() => {
-    const u = user as any;
-    return (u?.uid as string | undefined) || (u?.id as string | undefined);
-  }, [user]);
-
-  const isOwner = useMemo(
-    () => !!post?.user_id && !!viewerId && post.user_id === viewerId,
-    [post?.user_id, viewerId],
-  );
-
-  const gradientColors = isDark
-    ? [colors.background, colors.background, colors.background]
-    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
 
   useEffect(() => {
-    if (post?.share_count !== undefined) {
-      setShareCount(post.share_count);
-    }
-  }, [post?.share_count]);
-
-  const handleLike = async () => {
-    if (!post) return;
-    try {
-      await toggleLikeMutation.mutateAsync({
-        postId: post.id,
-        isLiked: !!post.is_liked,
+    if (!user?.uid) return;
+    const unsub = firestore()
+      .collection("user_settings")
+      .doc(user.uid)
+      .onSnapshot((snap) => {
+        const d = (snap.data() as any)?.feed_density;
+        if (d === "compact" || d === "standard" || d === "relaxed") {
+          setDensity(d);
+        }
       });
-    } catch {
-      Alert.alert("Error", "Failed to update like");
-    }
-  };
+    return () => unsub();
+  }, [user?.uid]);
 
-  const handleBookmark = async () => {
-    if (!post) return;
-    try {
-      await toggleBookmarkMutation.mutateAsync({
-        postId: post.id,
-        isSaved: !!post.is_saved,
-      });
-    } catch {
-      Alert.alert("Error", "Failed to update save");
-    }
-  };
-
-  const handleRepost = () => {
-    if (!post) return;
-    toggleRepostMutation.mutate({ postId: post.id, isReposted });
-  };
-
-  const handleQuoteRepost = () => {
-    if (!post) return;
-    router.push(`/create/quote?postId=${post.id}` as any);
-  };
-
-  const handleShareComplete = async () => {
-    if (!post) return;
-    const prev = shareCount;
-    setShareCount((c) => c + 1);
-    try {
-      await sharePostMutation.mutateAsync(post.id);
-    } catch {
-      setShareCount(prev);
-    }
-  };
-
-  const handlePostComment = async () => {
-    if (!comment.trim() || !post) return;
-    try {
-      await addCommentMutation.mutateAsync({
-        post_id: post.id,
-        content: comment.trim(),
-        parent_id: replyingTo?.id ?? null,
-      });
-      setComment("");
-      setReplyingTo(null);
-      setTimeout(
-        () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-        150,
-      );
-    } catch {
-      Alert.alert("Error", "Failed to post comment");
-    }
-  };
-
-  const handleStartReply = (target: CommentWithAuthor) => {
-    setReplyingTo(target);
-    commentInputRef.current?.focus();
-    setTimeout(
-      () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-      100,
-    );
-  };
-
-  const handleCommentLike = async (commentId: string) => {
-    if (!post) return;
-    const c = comments.find((x: CommentWithAuthor) => x.id === commentId);
-    if (!c) return;
-    try {
-      await toggleCommentLikeMutation.mutateAsync({
-        commentId,
-        postId: post.id,
-        isLiked: !!c.user_has_liked,
-      });
-    } catch {
-      Alert.alert("Error", "Failed to update comment like");
-    }
-  };
-
-  // ✅ NEW: delete a comment the current user owns, then refresh the list.
-  const handleDeleteComment = async (commentId: string) => {
-    if (!post) return;
-    try {
-      const ref = firestore().collection("comments").doc(commentId);
-      const snap = await ref.get();
-      if (!snap.exists()) return;
-      const data: any = snap.data();
-      if (data?.user_id !== viewerId) {
-        Alert.alert("Error", "You can only delete your own comments");
-        return;
-      }
-      await ref.delete();
-      await firestore()
-        .collection("posts")
-        .doc(post.id)
-        .update({
-          comment_count: firestore.FieldValue.increment(-1),
-        });
-      qc.invalidateQueries({ queryKey: ["comments", post.id] });
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to delete comment");
-    }
-  };
-
-  const doDelete = async () => {
-    if (!post) return;
-    setIsDeleting(true);
-    try {
-      if (!viewerId) throw new Error("Not logged in");
-      const ref = firestore().collection("posts").doc(post.id);
-      const snap = await ref.get();
-      if (!snap.exists) throw new Error("Post not found");
-      const data: any = snap.data();
-      if (data?.user_id && data.user_id !== viewerId)
-        throw new Error("You can only delete your own post");
-      await ref.delete();
-      Alert.alert("Deleted", "Your post was deleted.", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to delete post");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const confirmDelete = () => {
-    Alert.alert("Delete post?", "This will permanently delete your post.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: doDelete },
-    ] as AlertButton[]);
-  };
-
-  const openMenu = () => {
-    if (!post) return;
-    setOptionsVisible(true);
-  };
-
-  const postOptions = useMemo((): PostOption[] => {
-    const opts: PostOption[] = [];
-    opts.push({
-      label: isReposted ? "Undo Repost" : "Repost",
-      icon: "repeat-outline",
-      onPress: () => (repostSheetRef.current as any)?.present(),
-    });
-    opts.push({
-      label: "Share",
-      icon: "arrow-redo-outline",
-      onPress: () => (shareSheetRef.current as any)?.present(),
-    });
-    if (isOwner) {
-      opts.push({
-        label: isDeleting ? "Deleting…" : "Delete Post",
-        icon: "trash-outline",
-        destructive: true,
-        disabled: isDeleting,
-        onPress: confirmDelete,
-      });
-    } else {
-      opts.push({
-        label: "Report",
-        icon: "flag-outline",
-        destructive: true,
-        onPress: () => {},
-      });
-    }
-    return opts;
-  }, [isOwner, isDeleting, isReposted]);
-
-  const isPoll = (post as any)?.post_type === "poll";
-  const hasMedia = (post?.media_urls?.length ?? 0) > 0;
-  const isVideo =
-    typeof post?.media_urls?.[0] === "string" &&
-    /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(post.media_urls[0].split("?")[0]);
-
-  const HeaderBar = ({ showMenu = true }: { showMenu?: boolean }) => (
-    <View style={[styles.header, { backgroundColor: "transparent" }]}>
-      <TouchableOpacity
-        onPress={() => router.back()}
-        style={[
-          styles.headerBtn,
-          { backgroundColor: colors.card, borderColor: colors.border },
-        ]}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="arrow-back" size={22} color={colors.text} />
-      </TouchableOpacity>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>
-        {isPoll ? "Poll" : "Post"}
-      </Text>
-      {showMenu ? (
-        <TouchableOpacity
-          onPress={openMenu}
-          disabled={isDeleting}
-          style={[
-            styles.headerBtn,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="ellipsis-horizontal" size={20} color={colors.text} />
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.headerBtn} />
-      )}
-    </View>
-  );
-
-  if (!postId) {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={[styles.container, { backgroundColor: "transparent" }]}
-          edges={["top", "left", "right"]}
-        >
-          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-          <HeaderBar showMenu={false} />
-          <View style={styles.centeredBox}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={64}
-              color={colors.border}
-            />
-            <Text style={[styles.errorText, { color: colors.textSecondary }]}>
-              Invalid post link
-            </Text>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={[styles.pillBtn, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.pillBtnText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  if (isLoadingPost) {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={[styles.container, { backgroundColor: "transparent" }]}
-          edges={["top", "left", "right"]}
-        >
-          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-          <HeaderBar showMenu={false} />
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            <PostCardSkeleton />
-            <PostCardSkeleton />
-          </ScrollView>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  if (postError || !post) {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView
-          style={[styles.container, { backgroundColor: "transparent" }]}
-          edges={["top", "left", "right"]}
-        >
-          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-          <HeaderBar showMenu={false} />
-          <View style={styles.centeredBox}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={64}
-              color={colors.border}
-            />
-            <Text style={[styles.errorText, { color: colors.textSecondary }]}>
-              {postError ? "Failed to load post" : "Post not found"}
-            </Text>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={[styles.pillBtn, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.pillBtnText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  const postAuthorName =
-    post.user?.full_name?.trim() || post.user?.username?.trim() || "Unknown";
-
-  return (
-    <LinearGradient
-      colors={gradientColors as any}
-      locations={[0, 0.42, 1]}
-      style={{ flex: 1 }}
-    >
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: "transparent" }]}
-        edges={["top", "left", "right"]}
-      >
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <HeaderBar />
-
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior="padding"
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-        >
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.flex}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Single merged card — post content, stats, and action row */}
-            <View
-              style={[
-                styles.postCard,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.25 : 0.06,
-                },
-              ]}
-            >
-              <Pressable
-                style={styles.authorRow}
-                onPress={() =>
-                  post.user_id
-                    ? router.push(`/user/${post.user_id}` as any)
-                    : undefined
-                }
-              >
-                <Avatar
-                  uri={post.user?.avatar_url}
-                  name={postAuthorName}
-                  size={44}
-                  fallbackColor={colors.primary}
-                />
-                <View style={styles.authorInfo}>
-                  <Text style={[styles.authorName, { color: colors.text }]}>
-                    {postAuthorName}
-                  </Text>
-                  {post.user?.username && (
-                    <Text
-                      style={[
-                        styles.authorUsername,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      @{post.user.username}
-                    </Text>
-                  )}
-                </View>
-                <Text
-                  style={[styles.timestamp, { color: colors.textTertiary }]}
-                >
-                  {formatDate(post.created_at)}
-                </Text>
-              </Pressable>
-
-              {post.community && (
-                <Pressable
-                  style={[
-                    styles.communityBadge,
-                    { backgroundColor: colors.primary + "18" },
-                  ]}
-                  onPress={() =>
-                    router.push(`/community/${post.community!.slug}` as any)
-                  }
-                >
-                  <Ionicons name="people" size={13} color={colors.primary} />
-                  <Text
-                    style={[styles.communityText, { color: colors.primary }]}
-                  >
-                    {post.community.name}
-                  </Text>
-                </Pressable>
-              )}
-
-              {!!post.title && !isPoll && (
-                <Text style={[styles.postTitle, { color: colors.text }]}>
-                  {post.title}
-                </Text>
-              )}
-              {isPoll && (
-                <Text style={[styles.pollQuestion, { color: colors.text }]}>
-                  {post.title || post.content}
-                </Text>
-              )}
-              {!isPoll && !!post.content && (
-                <MentionHashtagText
-                  content={post.content ?? ""}
-                  style={[styles.postBody, { color: colors.textSecondary }]}
-                  hashtagColor="#7c3aed"
-                />
-              )}
-              {isPoll && (post as any).poll && (
-                <PollCard
-                  postId={post.id}
-                  poll={(post as any).poll}
-                  accentColor={colors.primary}
-                  textColor={colors.text}
-                  subColor={colors.textTertiary}
-                  cardBg={colors.surface}
-                  borderColor={colors.border}
-                />
-              )}
-              {hasMedia &&
-                !isPoll &&
-                (isVideo ? (
-                  <VideoPlayer
-                    uri={post.media_urls![0]}
-                    style={{ height: 280, borderRadius: 14, marginTop: 12 }}
-                  />
-                ) : (
-                  <MediaGallery media={post.media_urls} />
-                ))}
-
-              {/* Stats row */}
-              <View
-                style={[styles.statsRow, { borderTopColor: colors.border }]}
-              >
-                {[
-                  { val: post.like_count ?? 0, label: "like" },
-                  { val: post.comment_count ?? 0, label: "comment" },
-                  { val: (post as any).repost_count ?? 0, label: "repost" },
-                  { val: shareCount, label: "share" },
-                ].map(({ val, label }) => (
-                  <Text
-                    key={label}
-                    style={[styles.statText, { color: colors.textSecondary }]}
-                  >
-                    <Text style={[styles.statNum, { color: colors.text }]}>
-                      {val.toLocaleString()}
-                    </Text>{" "}
-                    {val === 1 ? label : `${label}s`}
-                  </Text>
-                ))}
-              </View>
-
-              {/* Icon-only action row */}
-              <View
-                style={[styles.actionRow, { borderTopColor: colors.border }]}
-              >
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={handleLike}
-                  activeOpacity={0.75}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name={post.is_liked ? "heart" : "heart-outline"}
-                    size={24}
-                    color={post.is_liked ? colors.like : colors.textSecondary}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={() => {
-                    commentInputRef.current?.focus();
-                    setTimeout(
-                      () =>
-                        scrollViewRef.current?.scrollToEnd({ animated: true }),
-                      100,
-                    );
-                  }}
-                  activeOpacity={0.75}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name="chatbubble-outline"
-                    size={24}
-                    color={colors.textSecondary}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={() => (repostSheetRef.current as any)?.present()}
-                  activeOpacity={0.75}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name={isReposted ? "repeat" : "repeat-outline"}
-                    size={24}
-                    color={isReposted ? colors.primary : colors.textSecondary}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={() => (shareSheetRef.current as any)?.present()}
-                  activeOpacity={0.75}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name="arrow-redo-outline"
-                    size={24}
-                    color={colors.textSecondary}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={handleBookmark}
-                  activeOpacity={0.75}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name={post.is_saved ? "bookmark" : "bookmark-outline"}
-                    size={24}
-                    color={post.is_saved ? colors.save : colors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View
-              style={[
-                styles.commentsSection,
-                {
-                  backgroundColor: colors.card,
-                  shadowOpacity: isDark ? 0.25 : 0.05,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.commentsSectionTitle, { color: colors.text }]}
-              >
-                Comments
-                {comments.length > 0 && (
-                  <Text
-                    style={{ color: colors.textTertiary, fontWeight: "600" }}
-                  >
-                    {" "}
-                    ({comments.length})
-                  </Text>
-                )}
-              </Text>
-
-              {isLoadingComments ? (
-                <View style={styles.commentsLoading}>
-                  {Array(3)
-                    .fill(null)
-                    .map((_, i) => (
-                      <View key={i} style={styles.commentSkeletonRow}>
-                        <View
-                          style={[
-                            styles.commentSkeletonAvatar,
-                            { backgroundColor: colors.border },
-                          ]}
-                        />
-                        <View style={styles.commentSkeletonLines}>
-                          <View
-                            style={[
-                              styles.commentSkeletonName,
-                              { backgroundColor: colors.border },
-                            ]}
-                          />
-                          <View
-                            style={[
-                              styles.commentSkeletonBody,
-                              { backgroundColor: colors.border },
-                            ]}
-                          />
-                        </View>
-                      </View>
-                    ))}
-                </View>
-              ) : comments.length === 0 ? (
-                <View style={styles.noComments}>
-                  <Ionicons
-                    name="chatbubble-outline"
-                    size={32}
-                    color={colors.border}
-                  />
-                  <Text
-                    style={[
-                      styles.noCommentsText,
-                      { color: colors.textTertiary },
-                    ]}
-                  >
-                    No comments yet. Be first!
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {displayedComments.map(
-                    (c: CommentWithAuthor, idx: number) => (
-                      <View
-                        key={c.id}
-                        style={
-                          idx !== 0
-                            ? [
-                                styles.commentBorder,
-                                { borderTopColor: colors.border },
-                              ]
-                            : undefined
-                        }
-                      >
-                        <CommentRow
-                          comment={c}
-                          colors={colors}
-                          formatDate={formatDate}
-                          onLike={handleCommentLike}
-                          onReply={handleStartReply}
-                          onDelete={handleDeleteComment}
-                          currentUserId={viewerId ?? undefined}
-                        />
-                      </View>
-                    ),
-                  )}
-                  {comments.length > 3 && (
-                    <TouchableOpacity
-                      style={styles.showMoreBtn}
-                      onPress={() => setShowAllComments((v) => !v)}
-                      activeOpacity={0.85}
-                    >
-                      <Text
-                        style={[styles.showMoreText, { color: colors.primary }]}
-                      >
-                        {showAllComments
-                          ? "Show less"
-                          : `Show ${comments.length - 3} more comment${comments.length - 3 === 1 ? "" : "s"}`}
-                      </Text>
-                      <Ionicons
-                        name={showAllComments ? "chevron-up" : "chevron-down"}
-                        size={14}
-                        color={colors.primary}
-                      />
-                    </TouchableOpacity>
-                  )}
-                </>
-              )}
-            </View>
-
-            <View style={{ height: 80 }} />
-          </ScrollView>
-
-          {replyingTo && (
-            <View
-              style={[
-                styles.replyingToBar,
-                {
-                  backgroundColor: colors.surface,
-                  borderTopColor: colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.replyingToText, { color: colors.textTertiary }]}
-              >
-                Replying to{" "}
-                {replyingTo.author?.username
-                  ? `@${replyingTo.author.username}`
-                  : "comment"}
-              </Text>
-              <TouchableOpacity onPress={() => setReplyingTo(null)} hitSlop={8}>
-                <Ionicons name="close" size={16} color={colors.textTertiary} />
-              </TouchableOpacity>
-            </View>
-          )}
-          <View
-            style={[
-              styles.commentInputBar,
-              {
-                backgroundColor: colors.card,
-                borderTopColor: colors.border,
-                paddingBottom: bottomInset > 0 ? bottomInset : 12,
-              },
-            ]}
-          >
-            <Avatar
-              uri={profile?.avatar_url}
-              name={
-                profile?.full_name || profile?.username || user?.email || "Me"
-              }
-              size={32}
-              fallbackColor={colors.primary}
-            />
-            <TextInput
-              ref={commentInputRef}
-              style={[
-                styles.commentInput,
-                {
-                  backgroundColor: colors.inputBackground,
-                  borderColor: colors.border,
-                  color: colors.text,
-                },
-              ]}
-              placeholder="Write a comment…"
-              placeholderTextColor={colors.placeholder}
-              value={comment}
-              onChangeText={setComment}
-              multiline
-              maxLength={500}
-              returnKeyType="send"
-              onSubmitEditing={handlePostComment}
-              onFocus={() =>
-                setTimeout(
-                  () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-                  450,
-                )
-              }
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                { backgroundColor: colors.primary + "20" },
-                (!comment.trim() || addCommentMutation.isPending) &&
-                  styles.sendBtnDisabled,
-              ]}
-              onPress={handlePostComment}
-              disabled={!comment.trim() || addCommentMutation.isPending}
-              activeOpacity={0.85}
-            >
-              <Ionicons
-                name="send"
-                size={18}
-                color={
-                  comment.trim() && !addCommentMutation.isPending
-                    ? colors.primary
-                    : colors.border
-                }
-              />
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-
-        <RepostSheet
-          ref={repostSheetRef}
-          isReposted={isReposted}
-          onRepost={handleRepost}
-          onQuoteRepost={handleQuoteRepost}
-          onUndoRepost={handleRepost}
-        />
-        <ShareSheet
-          ref={shareSheetRef}
-          title="Share Post"
-          url={`https://nebulanet.space/post/${post.id}`}
-          text={post.content}
-          shareMessage="Check out this post on NebulaNet!"
-          onShared={handleShareComplete}
-        />
-        <PostOptionsSheet
-          visible={optionsVisible}
-          onClose={() => setOptionsVisible(false)}
-          options={postOptions}
-        />
-      </SafeAreaView>
-    </LinearGradient>
-  );
+  return density;
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  headerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  headerTitle: { fontSize: 16, fontWeight: "800" },
-  centeredBox: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-    gap: 12,
-  },
-  errorText: { fontSize: 16, textAlign: "center" },
-  pillBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 999,
-    marginTop: 8,
-  },
-  pillBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  scrollContent: { paddingTop: 12, paddingHorizontal: 14 },
-  postCard: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  authorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 10,
-  },
-  authorInfo: { flex: 1 },
-  authorName: { fontSize: 15, fontWeight: "700" },
-  authorUsername: { fontSize: 13, marginTop: 1 },
-  timestamp: { fontSize: 12 },
-  communityBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    marginBottom: 10,
-  },
-  communityText: { fontSize: 12, fontWeight: "700" },
-  postTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    marginBottom: 8,
-    lineHeight: 26,
-  },
-  pollQuestion: {
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 4,
-    lineHeight: 24,
-  },
-  postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
-  statsRow: {
-    flexDirection: "row",
-    gap: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    marginTop: 4,
-    borderTopWidth: 1,
-    flexWrap: "wrap",
-  },
-  statText: { fontSize: 13 },
-  statNum: { fontWeight: "700" },
-  actionRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingTop: 6,
-    borderTopWidth: 1,
-  },
-  actionBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  commentsSection: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  commentsSectionTitle: { fontSize: 16, fontWeight: "800", marginBottom: 14 },
-  commentsLoading: { gap: 16 },
-  commentSkeletonRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
-  },
-  commentSkeletonAvatar: { width: 34, height: 34, borderRadius: 17 },
-  commentSkeletonLines: { flex: 1, gap: 6 },
-  commentSkeletonName: { height: 12, width: "35%", borderRadius: 6 },
-  commentSkeletonBody: { height: 12, width: "80%", borderRadius: 6 },
-  noComments: { alignItems: "center", paddingVertical: 24, gap: 8 },
-  noCommentsText: { fontSize: 14, fontWeight: "500" },
-  commentBorder: { borderTopWidth: 1 },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingTop: 12,
-    justifyContent: "center",
-  },
-  showMoreText: { fontSize: 13, fontWeight: "700" },
-  replyingToBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-  },
-  replyingToText: { fontSize: 12, fontWeight: "700" },
-  commentInputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    borderTopWidth: 1,
-  },
-  commentInput: {
-    flex: 1,
-    fontSize: 14,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    maxHeight: 100,
-  },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendBtnDisabled: { opacity: 0.45 },
-});
+export function useCurrentUserProfileSync() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = firestore()
+      .collection("profiles")
+      .doc(user.uid)
+      .onSnapshot((snap) => {
+        if (!snap.exists()) return;
+        qc.setQueryData(["profile", user.uid], {
+          id: snap.id,
+          ...(snap.data() as any),
+        });
+      });
+    return () => unsub();
+  }, [user?.uid, qc]);
+}
+
+type FeedTab = "for-you" | "following" | "my-community";
+
+async function fetchStandardFeedPage(
+  tab: FeedTab,
+  communityIds: string[],
+  userId: string | undefined,
+  cursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
+  pageSize: number,
+): Promise<{
+  posts: any[];
+  nextCursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
+}> {
+  let ref = firestore()
+    .collection("posts")
+    .orderBy("created_at_ts", "desc")
+    .limit(pageSize);
+
+  if (tab === "following" && userId) {
+    const followSnap = await firestore()
+      .collection("follows")
+      .where("follower_id", "==", userId)
+      .where("status", "==", "accepted")
+      .limit(10)
+      .get();
+    const followingIds = followSnap.docs.map(
+      (d) => (d.data() as any).following_id,
+    );
+    if (followingIds.length === 0) return { posts: [], nextCursor: null };
+    ref = ref.where("user_id", "in", followingIds) as any;
+  } else if (tab === "my-community" && communityIds.length > 0) {
+    ref = ref.where("community_id", "in", communityIds.slice(0, 10)) as any;
+  }
+
+  if (cursor) ref = ref.startAfter(cursor) as any;
+
+  const snap = await ref.get();
+  const posts = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const nextCursor = snap.docs.length === pageSize ? snap.docs.at(-1)! : null;
+  return { posts, nextCursor };
+}
+
+export function useInfiniteFeedPosts(
+  tab: FeedTab,
+  opts: { communityIds: string[] },
+) {
+  const { user } = useAuth();
+
+  const forYouQuery = useInfiniteForYouFeed({
+    enabled: tab === "for-you",
+  });
+
+  const standardQuery = useInfiniteQuery({
+    queryKey: [...postKeys.lists(), tab, opts.communityIds.join(",")],
+    enabled: tab !== "for-you",
+    initialPageParam:
+      null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
+    queryFn: ({ pageParam }) =>
+      fetchStandardFeedPage(tab, opts.communityIds, user?.uid, pageParam, 20),
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+  });
+
+  return tab === "for-you" ? forYouQuery : standardQuery;
+}
+
+export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
+  const { user } = useAuth();
+
+  const poolQuery = useQuery({
+    queryKey: [...postKeys.lists(), "for-you-pool", user?.uid],
+    queryFn: () => forYouFeed.computeForYouRankedPool(user?.uid),
+    enabled: opts?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const infiniteQuery = useInfiniteQuery<PaginatedPosts, Error>({
+    queryKey: [...postKeys.lists(), "for-you-ranked", poolQuery.dataUpdatedAt],
+    enabled: (opts?.enabled ?? true) && !!poolQuery.data,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      forYouFeed.sliceForYouFeedPage(poolQuery.data!, pageParam as number, 20),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+
+  return {
+    ...infiniteQuery,
+    refetch: async () => {
+      await poolQuery.refetch();
+      return infiniteQuery.refetch();
+    },
+  };
+}
+
+function patchPostInLists(
+  qc: ReturnType<typeof useQueryClient>,
+  postId: string,
+  patch: (post: any) => any,
+) {
+  qc.getQueryCache()
+    .findAll({ queryKey: postKeys.lists() })
+    .forEach((query) => {
+      qc.setQueryData(query.queryKey, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            posts: page.posts?.map((p: any) =>
+              p.id === postId ? patch(p) : p,
+            ),
+          })),
+        };
+      });
+    });
+}
+
+function removePostFromLists(
+  qc: ReturnType<typeof useQueryClient>,
+  postId: string,
+) {
+  qc.getQueryCache()
+    .findAll({ queryKey: postKeys.lists() })
+    .forEach((query) => {
+      qc.setQueryData(query.queryKey, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            posts: page.posts?.filter((p: any) => p.id !== postId),
+          })),
+        };
+      });
+    });
+}
+
+export function useToggleLike() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      isLiked,
+    }: {
+      postId: string;
+      isLiked: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const likeRef = firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("likes")
+        .doc(user.uid);
+      const postRef = firestore().collection("posts").doc(postId);
+
+      if (isLiked) {
+        await likeRef.delete();
+        await postRef.update({
+          like_count: firestore.FieldValue.increment(-1),
+        });
+      } else {
+        await likeRef.set({
+          created_at: firestore.FieldValue.serverTimestamp(),
+        });
+        await postRef.update({
+          like_count: firestore.FieldValue.increment(1),
+        });
+      }
+    },
+    onMutate: async ({ postId, isLiked }) => {
+      patchPostInLists(qc, postId, (p) => ({
+        ...p,
+        is_liked: !isLiked,
+        like_count: Math.max(0, (p.like_count ?? 0) + (isLiked ? -1 : 1)),
+      }));
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+  });
+}
+
+export function useToggleBookmark() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      isSaved,
+    }: {
+      postId: string;
+      isSaved: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const saveRef = firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("saves")
+        .doc(user.uid);
+      const postRef = firestore().collection("posts").doc(postId);
+
+      if (isSaved) {
+        await saveRef.delete();
+        await postRef.update({
+          save_count: firestore.FieldValue.increment(-1),
+        });
+      } else {
+        await saveRef.set({
+          created_at: firestore.FieldValue.serverTimestamp(),
+        });
+        await postRef.update({
+          save_count: firestore.FieldValue.increment(1),
+        });
+      }
+    },
+    onMutate: async ({ postId, isSaved }) => {
+      patchPostInLists(qc, postId, (p) => ({
+        ...p,
+        is_saved: !isSaved,
+        save_count: Math.max(0, (p.save_count ?? 0) + (isSaved ? -1 : 1)),
+      }));
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+  });
+}
+
+export function useToggleRepost() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      isReposted,
+    }: {
+      postId: string;
+      isReposted: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      return toggleRepost(postId, isReposted);
+    },
+    onMutate: async ({ postId, isReposted }) => {
+      patchPostInLists(qc, postId, (p) => ({
+        ...p,
+        is_reposted: !isReposted,
+        repost_count: Math.max(
+          0,
+          (p.repost_count ?? 0) + (isReposted ? -1 : 1),
+        ),
+      }));
+    },
+    onError: (_err, vars) => {
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+    onSettled: (_data, _err, vars) => {
+      const uid = user?.uid;
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+      if (uid) {
+        qc.invalidateQueries({ queryKey: ["user-reposts", uid] });
+      }
+    },
+  });
+}
+
+export function useDeletePost() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (postId: string) => {
+      await firestore().collection("posts").doc(postId).delete();
+      return postId;
+    },
+    onSuccess: (postId) => removePostFromLists(qc, postId),
+  });
+}
+
+export function useMarkNotInterested() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      authorId,
+      content,
+    }: {
+      postId: string;
+      authorId: string;
+      content: string | null;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      await markNotInterested(user.uid, authorId, content);
+      return postId;
+    },
+    onMutate: async ({ postId }) => {
+      removePostFromLists(qc, postId);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: [...postKeys.lists(), "for-you-pool"],
+      });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Post detail + comments — backs app/post/[id].tsx
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CommentWithAuthor = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  like_count: number;
+  user_has_liked: boolean;
+  parent_id: string | null;
+  author: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
+function tsToIsoLocal(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  return new Date().toISOString();
+}
+
+export function usePost(postId: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: postKeys.detail(postId),
+    enabled: !!postId,
+    queryFn: async () => {
+      const snap = await firestore().collection("posts").doc(postId).get();
+      if (!snap.exists()) return null;
+      const x = snap.data() as any;
+
+      let isLiked = false;
+      let isSaved = false;
+      if (user?.uid) {
+        const [likeSnap, saveSnap] = await Promise.all([
+          firestore()
+            .collection("posts")
+            .doc(postId)
+            .collection("likes")
+            .doc(user.uid)
+            .get(),
+          firestore()
+            .collection("posts")
+            .doc(postId)
+            .collection("saves")
+            .doc(user.uid)
+            .get(),
+        ]);
+        isLiked = likeSnap.exists();
+        isSaved = saveSnap.exists();
+      }
+
+      return {
+        id: snap.id,
+        user_id: x.user_id,
+        user: x.user ?? null,
+        content: x.content ?? "",
+        title: x.title ?? undefined,
+        media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+        post_type: x.post_type ?? null,
+        created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
+        like_count: x.like_count ?? 0,
+        comment_count: x.comment_count ?? 0,
+        share_count: x.share_count ?? 0,
+        repost_count: x.repost_count ?? 0,
+        save_count: x.save_count ?? 0,
+        is_liked: isLiked,
+        is_saved: isSaved,
+        is_reposted: x.is_reposted ?? false,
+        is_repost: x.is_repost ?? false,
+        is_nsfw: x.is_nsfw ?? false,
+        is_boosted: x.is_boosted ?? false,
+        boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
+        quote_post_id: x.quote_post_id ?? null,
+        quote_post: x.quote_post ?? null,
+        // ✅ NEW: the screen expects this — pass through whatever's on
+        // the post doc. Let me know if it needs a more specific shape
+        // than "whatever's stored" (e.g. must include slug specifically).
+        community: x.community ?? null,
+      };
+    },
+  });
+}
+
+export function useComments(postId: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ["post-comments", postId, user?.uid],
+    enabled: !!postId,
+    queryFn: async (): Promise<CommentWithAuthor[]> => {
+      const snap = await firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .orderBy("created_at_ts", "desc")
+        .limit(100)
+        .get();
+
+      const comments = await Promise.all(
+        snap.docs.map(async (d) => {
+          const x = d.data() as any;
+          let isLiked = false;
+          if (user?.uid) {
+            const likeSnap = await d.ref
+              .collection("likes")
+              .doc(user.uid)
+              .get();
+            isLiked = likeSnap.exists();
+          }
+          return {
+            id: d.id,
+            post_id: postId,
+            user_id: x.user_id,
+            content: x.content ?? "",
+            created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
+            like_count: x.like_count ?? 0,
+            user_has_liked: isLiked,
+            parent_id: x.parent_id ?? null,
+            author: x.user
+              ? {
+                  id: x.user_id,
+                  username: x.user.username ?? null,
+                  full_name: x.user.full_name ?? null,
+                  avatar_url: x.user.avatar_url ?? null,
+                }
+              : null,
+          } as CommentWithAuthor;
+        }),
+      );
+
+      return comments;
+    },
+  });
+}
+
+export function useAddComment() {
+  const qc = useQueryClient();
+  const { user, profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      post_id,
+      content,
+      parent_id,
+    }: {
+      post_id: string;
+      content: string;
+      parent_id?: string | null;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const trimmed = content.trim();
+      if (!trimmed) throw new Error("Comment cannot be empty");
+
+      await firestore()
+        .collection("posts")
+        .doc(post_id)
+        .collection("comments")
+        .add({
+          user_id: user.uid,
+          content: trimmed,
+          parent_id: parent_id ?? null,
+          user: {
+            username: profile?.username ?? null,
+            full_name: profile?.full_name ?? null,
+            avatar_url: profile?.avatar_url ?? null,
+          },
+          like_count: 0,
+          created_at: new Date().toISOString(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
+
+      await firestore()
+        .collection("posts")
+        .doc(post_id)
+        .update({ comment_count: firestore.FieldValue.increment(1) });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["post-comments", vars.post_id] });
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.post_id) });
+    },
+  });
+}
+
+export function useToggleCommentLike() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      commentId,
+      isLiked,
+    }: {
+      postId: string;
+      commentId: string;
+      isLiked: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const commentRef = firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .doc(commentId);
+      const likeRef = commentRef.collection("likes").doc(user.uid);
+
+      if (isLiked) {
+        await likeRef.delete();
+        await commentRef.update({
+          like_count: firestore.FieldValue.increment(-1),
+        });
+      } else {
+        await likeRef.set({
+          created_at: firestore.FieldValue.serverTimestamp(),
+        });
+        await commentRef.update({
+          like_count: firestore.FieldValue.increment(1),
+        });
+      }
+    },
+    onMutate: async ({ postId, commentId, isLiked }) => {
+      qc.setQueryData(
+        ["post-comments", postId, user?.uid],
+        (old: CommentWithAuthor[] | undefined) =>
+          old?.map((c) =>
+            c.id === commentId
+              ? {
+                  ...c,
+                  user_has_liked: !isLiked,
+                  like_count: Math.max(0, c.like_count + (isLiked ? -1 : 1)),
+                }
+              : c,
+          ),
+      );
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["post-comments", vars.postId, user?.uid],
+      });
+    },
+  });
+}

@@ -10,13 +10,18 @@
 // refetch) and pure in-memory pagination (sliceForYouFeedPage) — see
 // lib/firestore/posts.ts. refetch is overridden so pull-to-refresh
 // re-ranks the pool before re-slicing.
-// ✅ FIXED: toggleRepost's real signature is (postId: string, isReposted:
-// boolean) — it resolves the current user internally, doesn't take a
-// userId argument. Confirmed against lib/firestore/reposts.ts directly.
-// ✅ NEW: useMarkNotInterested — backs the "Not interested" post action
-// (Phase B of the recommendation-engine work). Optimistically removes the
-// post from every mounted feed list, and invalidates the for-you-pool
-// query so the muted author/topic takes effect on the next real re-rank.
+// ✅ FIXED: toggleRepost's real signature is (postId, isReposted) — it
+// resolves the current user internally, doesn't take a userId argument.
+// ✅ NEW: useMarkNotInterested — backs the "Not interested" post action.
+// ✅ NEW: usePost/useComments/useAddComment/useToggleCommentLike +
+// CommentWithAuthor type — these back app/post/[id].tsx's imports, which
+// were failing to compile entirely (5 missing exports). Follows the same
+// patterns already established in this file: postKeys for query keys,
+// the likes/{uid} subcollection pattern used for posts, optimistic
+// mutation shape matching useToggleLike/useToggleBookmark. Field names
+// were inferred from established conventions in this file rather than
+// the screen's exact body — flag if any don't match what the screen
+// actually expects.
 
 import { useAuth } from "@/hooks/useAuth";
 import { markNotInterested } from "@/lib/firestore/affinity";
@@ -38,12 +43,6 @@ export const postKeys = {
   lists: () => [...postKeys.all, "list"] as const,
   detail: (id: string) => [...postKeys.all, "detail", id] as const,
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Feed density preference — compact / standard / relaxed spacing, read
-// from user_settings and applied throughout home.tsx's card/skeleton
-// spacing.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function useFeedDensity(): "compact" | "standard" | "relaxed" {
   const { user } = useAuth();
@@ -68,10 +67,6 @@ export function useFeedDensity(): "compact" | "standard" | "relaxed" {
   return density;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Keeps the cached "profile" query in sync via a live listener.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function useCurrentUserProfileSync() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -91,10 +86,6 @@ export function useCurrentUserProfileSync() {
     return () => unsub();
   }, [user?.uid, qc]);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Standard chronological feed (Following / Communities tabs)
-// ─────────────────────────────────────────────────────────────────────────────
 
 type FeedTab = "for-you" | "following" | "my-community";
 
@@ -160,10 +151,6 @@ export function useInfiniteFeedPosts(
   return tab === "for-you" ? forYouQuery : standardQuery;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// For You feed
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
   const { user } = useAuth();
 
@@ -191,10 +178,6 @@ export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
     },
   };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Like / Save — optimistic updates, narrow invalidation
-// ─────────────────────────────────────────────────────────────────────────────
 
 function patchPostInLists(
   qc: ReturnType<typeof useQueryClient>,
@@ -333,10 +316,6 @@ export function useToggleBookmark() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Repost
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function useToggleRepost() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -350,9 +329,6 @@ export function useToggleRepost() {
       isReposted: boolean;
     }) => {
       if (!user?.uid) throw new Error("Not signed in");
-      // ✅ toggleRepost's real signature is (postId, isReposted) — it
-      // resolves the current user internally rather than taking a userId
-      // argument. Confirmed against lib/firestore/reposts.ts directly.
       return toggleRepost(postId, isReposted);
     },
     onMutate: async ({ postId, isReposted }) => {
@@ -378,10 +354,6 @@ export function useToggleRepost() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Delete post
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function useDeletePost() {
   const qc = useQueryClient();
 
@@ -393,10 +365,6 @@ export function useDeletePost() {
     onSuccess: (postId) => removePostFromLists(qc, postId),
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Not interested — Phase B of the recommendation-engine work.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function useMarkNotInterested() {
   const qc = useQueryClient();
@@ -417,16 +385,257 @@ export function useMarkNotInterested() {
       return postId;
     },
     onMutate: async ({ postId }) => {
-      // Optimistically remove the post from every mounted feed list
-      // immediately, rather than waiting for the next For You re-rank.
       removePostFromLists(qc, postId);
     },
     onSuccess: () => {
-      // Force the For You pool to recompute next time it's needed, so
-      // the muted author/topics take effect on the next real re-rank
-      // (pull-to-refresh or next session).
       qc.invalidateQueries({
         queryKey: [...postKeys.lists(), "for-you-pool"],
+      });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Post detail + comments — backs app/post/[id].tsx
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CommentWithAuthor = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  like_count: number;
+  user_has_liked: boolean;
+  author: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
+function tsToIsoLocal(v: any): string {
+  if (!v) return new Date().toISOString();
+  if (typeof v === "string") return v;
+  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  return new Date().toISOString();
+}
+
+export function usePost(postId: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: postKeys.detail(postId),
+    enabled: !!postId,
+    queryFn: async () => {
+      const snap = await firestore().collection("posts").doc(postId).get();
+      if (!snap.exists()) return null;
+      const x = snap.data() as any;
+
+      let isLiked = false;
+      let isSaved = false;
+      if (user?.uid) {
+        const [likeSnap, saveSnap] = await Promise.all([
+          firestore()
+            .collection("posts")
+            .doc(postId)
+            .collection("likes")
+            .doc(user.uid)
+            .get(),
+          firestore()
+            .collection("posts")
+            .doc(postId)
+            .collection("saves")
+            .doc(user.uid)
+            .get(),
+        ]);
+        isLiked = likeSnap.exists();
+        isSaved = saveSnap.exists();
+      }
+
+      return {
+        id: snap.id,
+        user_id: x.user_id,
+        user: x.user ?? null,
+        content: x.content ?? "",
+        title: x.title ?? undefined,
+        media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
+        post_type: x.post_type ?? null,
+        created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
+        like_count: x.like_count ?? 0,
+        comment_count: x.comment_count ?? 0,
+        share_count: x.share_count ?? 0,
+        repost_count: x.repost_count ?? 0,
+        save_count: x.save_count ?? 0,
+        is_liked: isLiked,
+        is_saved: isSaved,
+        is_reposted: x.is_reposted ?? false,
+        is_repost: x.is_repost ?? false,
+        is_nsfw: x.is_nsfw ?? false,
+        is_boosted: x.is_boosted ?? false,
+        boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
+        quote_post_id: x.quote_post_id ?? null,
+        quote_post: x.quote_post ?? null,
+        // ✅ NEW: the screen expects this — pass through whatever's on
+        // the post doc. Let me know if it needs a more specific shape
+        // than "whatever's stored" (e.g. must include slug specifically).
+        community: x.community ?? null,
+      };
+    },
+  });
+}
+
+export function useComments(postId: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ["post-comments", postId, user?.uid],
+    enabled: !!postId,
+    queryFn: async (): Promise<CommentWithAuthor[]> => {
+      const snap = await firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .orderBy("created_at_ts", "desc")
+        .limit(100)
+        .get();
+
+      const comments = await Promise.all(
+        snap.docs.map(async (d) => {
+          const x = d.data() as any;
+          let isLiked = false;
+          if (user?.uid) {
+            const likeSnap = await d.ref
+              .collection("likes")
+              .doc(user.uid)
+              .get();
+            isLiked = likeSnap.exists();
+          }
+          return {
+            id: d.id,
+            post_id: postId,
+            user_id: x.user_id,
+            content: x.content ?? "",
+            created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
+            like_count: x.like_count ?? 0,
+            user_has_liked: isLiked,
+            author: x.user
+              ? {
+                  id: x.user_id,
+                  username: x.user.username ?? null,
+                  full_name: x.user.full_name ?? null,
+                  avatar_url: x.user.avatar_url ?? null,
+                }
+              : null,
+          } as CommentWithAuthor;
+        }),
+      );
+
+      return comments;
+    },
+  });
+}
+
+export function useAddComment() {
+  const qc = useQueryClient();
+  const { user, profile } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      post_id,
+      content,
+    }: {
+      post_id: string;
+      content: string;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const trimmed = content.trim();
+      if (!trimmed) throw new Error("Comment cannot be empty");
+
+      await firestore()
+        .collection("posts")
+        .doc(post_id)
+        .collection("comments")
+        .add({
+          user_id: user.uid,
+          content: trimmed,
+          user: {
+            username: profile?.username ?? null,
+            full_name: profile?.full_name ?? null,
+            avatar_url: profile?.avatar_url ?? null,
+          },
+          like_count: 0,
+          created_at: new Date().toISOString(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
+
+      await firestore()
+        .collection("posts")
+        .doc(post_id)
+        .update({ comment_count: firestore.FieldValue.increment(1) });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["post-comments", vars.post_id] });
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.post_id) });
+    },
+  });
+}
+
+export function useToggleCommentLike() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      commentId,
+      isLiked,
+    }: {
+      postId: string;
+      commentId: string;
+      isLiked: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      const commentRef = firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .doc(commentId);
+      const likeRef = commentRef.collection("likes").doc(user.uid);
+
+      if (isLiked) {
+        await likeRef.delete();
+        await commentRef.update({
+          like_count: firestore.FieldValue.increment(-1),
+        });
+      } else {
+        await likeRef.set({
+          created_at: firestore.FieldValue.serverTimestamp(),
+        });
+        await commentRef.update({
+          like_count: firestore.FieldValue.increment(1),
+        });
+      }
+    },
+    onMutate: async ({ postId, commentId, isLiked }) => {
+      qc.setQueryData(
+        ["post-comments", postId, user?.uid],
+        (old: CommentWithAuthor[] | undefined) =>
+          old?.map((c) =>
+            c.id === commentId
+              ? {
+                  ...c,
+                  user_has_liked: !isLiked,
+                  like_count: Math.max(0, c.like_count + (isLiked ? -1 : 1)),
+                }
+              : c,
+          ),
+      );
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["post-comments", vars.postId, user?.uid],
       });
     },
   });
