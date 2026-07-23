@@ -161,9 +161,9 @@ function CommentRow({
               size={14}
               color={comment.user_has_liked ? "#FF375F" : colors.textTertiary}
             />
-            {comment.like_count > 0 && (
+            {comment.likes_count > 0 && (
               <Text style={{ color: colors.textTertiary, fontSize: 12 }}>
-                {comment.like_count}
+                {comment.likes_count}
               </Text>
             )}
           </TouchableOpacity>
@@ -365,7 +365,7 @@ export default function PostDetailScreen() {
             data={orderedComments}
             keyExtractor={({ comment }) => comment.id}
             ListHeaderComponent={
-              <View style={{ paddingHorizontal: 14, paddingTop: 8 }}>
+              <View style={{ paddingHorizontal: 14, paddingTop: 20 }}>
                 <PostCard
                   id={post.id}
                   title={post.title}

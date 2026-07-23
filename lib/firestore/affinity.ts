@@ -107,3 +107,33 @@ export async function getAuthorViewCounts(
   });
   return counts;
 }
+
+// ✅ NEW: generalized positive-signal recorder, called from
+// hooks/useLikes.ts (on like) and lib/firestore/comments.ts (on
+// comment) — same underlying idea as trackPostView's author_views
+// counter above, just triggered by explicit actions (which are stronger
+// signals than a passive view) rather than dwell time. Kept in the same
+// author_views subcollection rather than a separate one, since both are
+// ultimately "how much does this user engage with this author" signals
+// feeding the same For You ranking boost — no need to duplicate the
+// storage/read path for a difference that's really just "how it was
+// triggered," not a different kind of data.
+export async function recordAffinity(
+  userId: string,
+  authorId: string,
+  _interactionType?: "like" | "comment" | "repost" | "save",
+): Promise<void> {
+  if (userId === authorId) return; // don't build affinity toward yourself
+  await firestore()
+    .collection("user_affinity")
+    .doc(userId)
+    .collection("author_views")
+    .doc(authorId)
+    .set(
+      {
+        view_count: firestore.FieldValue.increment(1),
+        last_viewed_at: firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}

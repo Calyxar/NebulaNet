@@ -175,7 +175,7 @@ function PostViewerPage({
   // never fires for pages the user hasn't actually opened comments on,
   // even if FlatList has this page mounted in its render window.
   const { data: comments = [], isLoading: isLoadingComments } = useComments(
-    commentsExpanded ? postId : undefined,
+    commentsExpanded ? postId! : undefined,
   );
   const toggleLikeMutation = useToggleLike();
   const toggleBookmarkMutation = useToggleBookmark();

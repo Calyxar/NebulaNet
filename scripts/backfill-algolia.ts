@@ -1,15 +1,21 @@
-// scripts/backfill-algolia.ts
+// scripts/backfill-algolia.ts ✅ FIXED for algoliasearch v5
 // Run once from your project root:
 //   npx ts-node scripts/backfill-algolia.ts
 //
 // Reads all existing posts, profiles, and communities from Firestore
 // and pushes them into the corresponding Algolia indices.
-// Safe to re-run — Algolia's saveObjects() is idempotent (upsert).
+// Safe to re-run — saveObjects() is idempotent (upsert).
+//
+// ✅ FIXED: this project has algoliasearch v5 installed (same issue
+// already fixed once in scripts/algolia-sync-synonyms.ts) — v5 removed
+// the default export (named export instead) and removed
+// client.initIndex(name).saveObjects(objects) entirely in favor of
+// client.saveObjects({ indexName, objects }) directly on the client.
 
-import { initializeApp, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import algoliasearch from "algoliasearch";
+import { algoliasearch } from "algoliasearch";
 import * as dotenv from "dotenv";
+import { cert, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
 dotenv.config({ path: ".env.local" });
 
@@ -51,8 +57,9 @@ async function backfillPosts() {
         created_at_ts: data.created_at_ts?.toMillis?.() ?? Date.now(),
       };
     });
-  const index = client.initIndex("posts");
-  await index.saveObjects(objects);
+  // ✅ FIX: v5 — client.saveObjects({ indexName, objects }), not
+  // client.initIndex(name).saveObjects(objects).
+  await client.saveObjects({ indexName: "posts", objects });
   console.log(`Posts: ${objects.length} records indexed.`);
 }
 
@@ -72,8 +79,7 @@ async function backfillProfiles() {
       is_suspended: data.is_suspended === true,
     };
   });
-  const index = client.initIndex("profiles");
-  await index.saveObjects(objects);
+  await client.saveObjects({ indexName: "profiles", objects });
   console.log(`Profiles: ${objects.length} records indexed.`);
 }
 
@@ -91,8 +97,7 @@ async function backfillCommunities() {
       is_private: data.is_private === true,
     };
   });
-  const index = client.initIndex("communities");
-  await index.saveObjects(objects);
+  await client.saveObjects({ indexName: "communities", objects });
   console.log(`Communities: ${objects.length} records indexed.`);
 }
 

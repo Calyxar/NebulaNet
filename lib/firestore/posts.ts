@@ -14,10 +14,21 @@ import { getAuthorViewCounts, getUserAffinity } from "@/lib/firestore/affinity";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
+export type { Post };
 
 export type PaginatedPosts = {
   posts: Post[];
-  nextCursor: number | null;
+  // ✅ Two different pagination strategies share this type: the For You
+  // pool's sliceForYouFeedPage uses a numeric index; getPosts() below
+  // uses Firestore's own document-cursor pagination. Broadened to accept
+  // both rather than forcing one shape onto the other.
+  nextCursor: number | FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
+  // ✅ NEW: lib/queries/posts.ts's adapter layer expects this — a plain
+  // boolean equivalent of `nextCursor !== null`, convenient for callers
+  // that just want a simple "is there more" check without inspecting
+  // the cursor's shape.
+  hasMore?: boolean;
+  total?: number;
 };
 
 // Post doesn't natively carry these fields — the rest of the codebase
@@ -61,7 +72,7 @@ function tsToIso(ts: any): string {
 }
 
 function docToPost(
-  doc: FirebaseFirestoreTypes.QueryDocumentSnapshot,
+  doc: FirebaseFirestoreTypes.DocumentSnapshot,
 ): PostWithExtras {
   const x = doc.data() as any;
   return {
@@ -253,6 +264,138 @@ function sliceForYouFeedPage(
   const posts: Post[] = slice.map(({ _score, ...post }) => post);
   const nextCursor = cursor + pageSize < pool.length ? cursor + pageSize : null;
   return { posts, nextCursor };
+}
+
+// ✅ NEW: CRUD functions + types — lib/queries/posts.ts (a react-query
+// wrapper layer around this file), app/create/media.tsx, and
+// app/create/quote.tsx all expect these to exist here.
+
+export type CreatePostData = {
+  user_id: string;
+  content: string;
+  title?: string;
+  media_urls?: string[];
+  post_type?: string;
+  community_id?: string;
+  quote_post_id?: string | null;
+  // ✅ NEW: app/create/quote.tsx sends the full quoted-post object
+  // alongside quote_post_id, matching Post's own quote_post field
+  // elsewhere (PostWithExtras in this file) — likely a denormalized
+  // snapshot so the quote card can render without a second fetch.
+  quote_post?: unknown;
+  hashtags?: string[];
+  // ✅ NEW: app/create/quote.tsx sends this — matches Post's own
+  // visibility field (see docToPost's `visibility: x.visibility ??
+  // "public"`), which this type had never included before.
+  visibility?: string;
+};
+
+export type UpdatePostData = Partial<
+  Pick<
+    CreatePostData,
+    "content" | "title" | "media_urls" | "hashtags" | "visibility"
+  >
+>;
+
+export type PostFilters = {
+  userId?: string;
+  communityId?: string;
+  limit?: number;
+  cursor?: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
+};
+
+export async function createPost(data: CreatePostData): Promise<string> {
+  const ref = await firestore()
+    .collection("posts")
+    .add({
+      user_id: data.user_id,
+      content: data.content,
+      title: data.title ?? null,
+      media_urls: data.media_urls ?? null,
+      post_type: data.post_type ?? "text",
+      community_id: data.community_id ?? null,
+      quote_post_id: data.quote_post_id ?? null,
+      quote_post: data.quote_post ?? null,
+      hashtags: data.hashtags ?? extractHashtags(data.content),
+      // ✅ NEW
+      visibility: data.visibility ?? "public",
+      like_count: 0,
+      comment_count: 0,
+      share_count: 0,
+      repost_count: 0,
+      save_count: 0,
+      is_nsfw: false,
+      is_boosted: false,
+      created_at: new Date().toISOString(),
+      created_at_ts: firestore.FieldValue.serverTimestamp(),
+      updated_at: new Date().toISOString(),
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
+    });
+  return ref.id;
+}
+
+export async function updatePost(
+  postId: string,
+  data: UpdatePostData,
+): Promise<void> {
+  const updates: Record<string, unknown> = {
+    ...data,
+    updated_at: new Date().toISOString(),
+    updated_at_ts: firestore.FieldValue.serverTimestamp(),
+  };
+  // Recompute hashtags if content changed and none were explicitly given.
+  if (data.content && !data.hashtags) {
+    updates.hashtags = extractHashtags(data.content);
+  }
+  await firestore().collection("posts").doc(postId).update(updates);
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  await firestore().collection("posts").doc(postId).delete();
+}
+
+export async function getPosts(
+  filters: PostFilters = {},
+): Promise<PaginatedPosts> {
+  const pageSize = filters.limit ?? 20;
+  let ref = firestore()
+    .collection("posts")
+    .orderBy("created_at_ts", "desc")
+    .limit(pageSize);
+
+  if (filters.userId) {
+    ref = ref.where("user_id", "==", filters.userId) as any;
+  }
+  if (filters.communityId) {
+    ref = ref.where("community_id", "==", filters.communityId) as any;
+  }
+  if (filters.cursor) {
+    ref = ref.startAfter(filters.cursor) as any;
+  }
+
+  const snap = await ref.get();
+  const posts = snap.docs.map((d) => docToPost(d));
+  const lastDoc =
+    snap.docs.length === pageSize ? snap.docs[snap.docs.length - 1] : null;
+
+  return {
+    posts,
+    nextCursor: lastDoc,
+    hasMore: lastDoc !== null,
+  };
+}
+
+// ✅ NEW: fetches a single post by ID — backs app/create/boost.tsx, which
+// needs to load/preview the post being boosted. Reuses docToPost so the
+// returned shape is identical to every other post-reading path in this
+// file (including the boost fields it presumably needs to check/display:
+// is_boosted, boosted_until).
+export async function getPostById(
+  postId: string,
+): Promise<PostWithExtras | null> {
+  const snap = await firestore().collection("posts").doc(postId).get();
+  if (!snap.exists()) return null;
+  return docToPost(snap);
 }
 
 export const forYouFeed = {

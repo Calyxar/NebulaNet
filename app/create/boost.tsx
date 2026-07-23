@@ -1,7 +1,8 @@
 // app/create/boost.tsx — REDESIGNED ✅ Twitter-style composer
 import { useAuth } from "@/hooks/useAuth";
+import type { Post } from "@/hooks/useFeed";
 import { createBoost, type BoostObjective } from "@/lib/firestore/boosts";
-import { getPostById, type Post } from "@/lib/firestore/posts";
+import { getPostById } from "@/lib/firestore/posts";
 import { getBoostOffering, purchaseBoostPackage } from "@/lib/revenuecat";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -158,8 +159,7 @@ export default function CreateBoostScreen() {
     try {
       const customerInfo = await purchaseBoostPackage(selectedPackage);
 
-      const latestTx =
-        customerInfo?.latestExpirationDate ?? customerInfo?.originalAppUserId;
+      const latestTx = (customerInfo as any).originalAppUserId;
 
       await createBoost({
         post_id: postId,

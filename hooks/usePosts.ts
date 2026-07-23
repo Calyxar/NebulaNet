@@ -25,7 +25,12 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { markNotInterested } from "@/lib/firestore/affinity";
-import { forYouFeed, type PaginatedPosts } from "@/lib/firestore/posts";
+import {
+  createPost,
+  forYouFeed,
+  type CreatePostData,
+  type PaginatedPosts,
+} from "@/lib/firestore/posts";
 import { toggleRepost } from "@/lib/firestore/reposts";
 import firestore, {
   FirebaseFirestoreTypes,
@@ -141,7 +146,8 @@ export function useInfiniteFeedPosts(
   const standardQuery = useInfiniteQuery({
     queryKey: [...postKeys.lists(), tab, opts.communityIds.join(",")],
     enabled: tab !== "for-you",
-    initialPageParam: null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
+    initialPageParam:
+      null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
     queryFn: ({ pageParam }) =>
       fetchStandardFeedPage(tab, opts.communityIds, user?.uid, pageParam, 20),
     getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -404,9 +410,16 @@ export type CommentWithAuthor = {
   user_id: string;
   content: string;
   created_at: string;
-  like_count: number;
+  // ✅ FIX: renamed from like_count — CommentRow.tsx and app/post/
+  // viewer.tsx both independently expect likes_count, outweighing an
+  // earlier unconfirmed guess of like_count for comments specifically
+  // (posts still use like_count — that's a separate, correct field).
+  likes_count: number;
   user_has_liked: boolean;
   parent_id: string | null;
+  // ✅ NEW: CommentRow.tsx expects a nested replies array, not just a
+  // flat parent_id to build the tree from client-side.
+  replies: CommentWithAuthor[];
   author: {
     id: string;
     username: string | null;
@@ -524,13 +537,25 @@ export function usePost(postId: string) {
   });
 }
 
-export function useComments(postId: string) {
+// ✅ FIX: widened to accept undefined — app/post/viewer.tsx deliberately
+// passes undefined when comments aren't expanded yet (lazy-loading, only
+// fetch once the user actually opens the comment section). enabled:
+// !!postId below already handled this correctly at runtime; only the
+// type signature was too strict for that legitimate call pattern.
+export function useComments(postId: string | undefined) {
   const { user } = useAuth();
 
   return useQuery({
     queryKey: ["post-comments", postId, user?.uid],
     enabled: !!postId,
     queryFn: async (): Promise<CommentWithAuthor[]> => {
+      // ✅ Narrows postId to `string` for the rest of this function —
+      // this should never actually throw at runtime since `enabled:
+      // !!postId` above already prevents queryFn from running when
+      // postId is undefined; this is purely to satisfy TypeScript
+      // without needing `postId!` scattered through the function below.
+      if (!postId) throw new Error("useComments: postId is required");
+
       let snap;
       try {
         snap = await firestore()
@@ -545,7 +570,7 @@ export function useComments(postId: string) {
         throw e;
       }
 
-      const comments = await Promise.all(
+      const flatComments = await Promise.all(
         snap.docs.map(async (d) => {
           const x = d.data() as any;
           let isLiked = false;
@@ -573,9 +598,10 @@ export function useComments(postId: string) {
             user_id: x.user_id,
             content: x.content ?? "",
             created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
-            like_count: x.like_count ?? 0,
+            likes_count: x.likes_count ?? x.like_count ?? 0,
             user_has_liked: isLiked,
             parent_id: x.parent_id ?? null,
+            replies: [],
             author: x.user
               ? {
                   id: x.user_id,
@@ -588,7 +614,20 @@ export function useComments(postId: string) {
         }),
       );
 
-      return comments;
+      // ✅ NEW: nest replies under their parent instead of leaving a flat
+      // list — CommentRow.tsx expects a real `replies` array on each
+      // comment, not a flat parent_id it has to group client-side.
+      const byId = new Map(flatComments.map((c) => [c.id, c]));
+      const topLevel: CommentWithAuthor[] = [];
+      flatComments.forEach((c) => {
+        if (c.parent_id && byId.has(c.parent_id)) {
+          byId.get(c.parent_id)!.replies.push(c);
+        } else {
+          topLevel.push(c);
+        }
+      });
+
+      return topLevel;
     },
   });
 }
@@ -611,19 +650,23 @@ export function useAddComment() {
       const trimmed = content.trim();
       if (!trimmed) throw new Error("Comment cannot be empty");
 
-      await firestore().collection("posts").doc(post_id).collection("comments").add({
-        user_id: user.uid,
-        content: trimmed,
-        parent_id: parent_id ?? null,
-        user: {
-          username: profile?.username ?? null,
-          full_name: profile?.full_name ?? null,
-          avatar_url: profile?.avatar_url ?? null,
-        },
-        like_count: 0,
-        created_at: new Date().toISOString(),
-        created_at_ts: firestore.FieldValue.serverTimestamp(),
-      });
+      await firestore()
+        .collection("posts")
+        .doc(post_id)
+        .collection("comments")
+        .add({
+          user_id: user.uid,
+          content: trimmed,
+          parent_id: parent_id ?? null,
+          user: {
+            username: profile?.username ?? null,
+            full_name: profile?.full_name ?? null,
+            avatar_url: profile?.avatar_url ?? null,
+          },
+          likes_count: 0,
+          created_at: new Date().toISOString(),
+          created_at_ts: firestore.FieldValue.serverTimestamp(),
+        });
 
       await firestore()
         .collection("posts")
@@ -633,6 +676,21 @@ export function useAddComment() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["post-comments", vars.post_id] });
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.post_id) });
+    },
+  });
+}
+
+export function useCreatePost() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (data: Omit<CreatePostData, "user_id">) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      return createPost({ ...data, user_id: user.uid });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: postKeys.lists() });
     },
   });
 }
@@ -662,30 +720,41 @@ export function useToggleCommentLike() {
       if (isLiked) {
         await likeRef.delete();
         await commentRef.update({
-          like_count: firestore.FieldValue.increment(-1),
+          likes_count: firestore.FieldValue.increment(-1),
         });
       } else {
         await likeRef.set({
           created_at: firestore.FieldValue.serverTimestamp(),
         });
         await commentRef.update({
-          like_count: firestore.FieldValue.increment(1),
+          likes_count: firestore.FieldValue.increment(1),
         });
       }
     },
     onMutate: async ({ postId, commentId, isLiked }) => {
+      // ✅ FIX: useComments now returns a NESTED tree (replies live
+      // inside their parent's `replies` array, not flattened at the top
+      // level), so a flat top-level .map() would silently miss any
+      // comment that's actually a reply. Recurse through the tree
+      // instead.
+      const patchTree = (comments: CommentWithAuthor[]): CommentWithAuthor[] =>
+        comments.map((c) => {
+          if (c.id === commentId) {
+            return {
+              ...c,
+              user_has_liked: !isLiked,
+              likes_count: Math.max(0, c.likes_count + (isLiked ? -1 : 1)),
+            };
+          }
+          if (c.replies.length > 0) {
+            return { ...c, replies: patchTree(c.replies) };
+          }
+          return c;
+        });
+
       qc.setQueryData(
         ["post-comments", postId, user?.uid],
-        (old: CommentWithAuthor[] | undefined) =>
-          old?.map((c) =>
-            c.id === commentId
-              ? {
-                  ...c,
-                  user_has_liked: !isLiked,
-                  like_count: Math.max(0, c.like_count + (isLiked ? -1 : 1)),
-                }
-              : c,
-          ),
+        (old: CommentWithAuthor[] | undefined) => (old ? patchTree(old) : old),
       );
     },
     onSettled: (_d, _e, vars) => {
