@@ -141,8 +141,7 @@ export function useInfiniteFeedPosts(
   const standardQuery = useInfiniteQuery({
     queryKey: [...postKeys.lists(), tab, opts.communityIds.join(",")],
     enabled: tab !== "for-you",
-    initialPageParam:
-      null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
+    initialPageParam: null as FirebaseFirestoreTypes.QueryDocumentSnapshot | null,
     queryFn: ({ pageParam }) =>
       fetchStandardFeedPage(tab, opts.communityIds, user?.uid, pageParam, 20),
     getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -450,22 +449,41 @@ export function usePost(postId: string) {
       let isLiked = false;
       let isSaved = false;
       if (user?.uid) {
-        const [likeSnap, saveSnap] = await Promise.all([
-          firestore()
-            .collection("posts")
-            .doc(postId)
-            .collection("likes")
-            .doc(user.uid)
-            .get(),
-          firestore()
-            .collection("posts")
-            .doc(postId)
-            .collection("saves")
-            .doc(user.uid)
-            .get(),
-        ]);
-        isLiked = likeSnap.exists();
-        isSaved = saveSnap.exists();
+        // ✅ FIX: this was NOT wrapped in error handling before — only
+        // the main post read above was. If these specific subcollection
+        // reads are the ones actually getting denied (a very real
+        // possibility if the deployed rules/path structure for likes/
+        // saves doesn't quite match what's queried here), the error
+        // propagated up uncaught and looked identical to the whole post
+        // failing to load — including "even on my own posts," since
+        // this has nothing to do with post ownership. Not knowing your
+        // own like/save status shouldn't be able to crash the post view
+        // — degrade gracefully to false/false instead.
+        try {
+          const [likeSnap, saveSnap] = await Promise.all([
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("likes")
+              .doc(user.uid)
+              .get(),
+            firestore()
+              .collection("posts")
+              .doc(postId)
+              .collection("saves")
+              .doc(user.uid)
+              .get(),
+          ]);
+          isLiked = likeSnap.exists();
+          isSaved = saveSnap.exists();
+        } catch (e) {
+          console.error(
+            "usePost: like/save status check failed for",
+            postId,
+            "— degrading gracefully to not-liked/not-saved.",
+            e,
+          );
+        }
       }
 
       return {
@@ -513,24 +531,41 @@ export function useComments(postId: string) {
     queryKey: ["post-comments", postId, user?.uid],
     enabled: !!postId,
     queryFn: async (): Promise<CommentWithAuthor[]> => {
-      const snap = await firestore()
-        .collection("posts")
-        .doc(postId)
-        .collection("comments")
-        .orderBy("created_at_ts", "desc")
-        .limit(100)
-        .get();
+      let snap;
+      try {
+        snap = await firestore()
+          .collection("posts")
+          .doc(postId)
+          .collection("comments")
+          .orderBy("created_at_ts", "desc")
+          .limit(100)
+          .get();
+      } catch (e) {
+        console.error("useComments: failed to load comments for", postId, e);
+        throw e;
+      }
 
       const comments = await Promise.all(
         snap.docs.map(async (d) => {
           const x = d.data() as any;
           let isLiked = false;
           if (user?.uid) {
-            const likeSnap = await d.ref
-              .collection("likes")
-              .doc(user.uid)
-              .get();
-            isLiked = likeSnap.exists();
+            // ✅ FIX: same gap as usePost's like/save check — this
+            // wasn't wrapped, so one denied comment-like read could fail
+            // the entire comment list. Degrade gracefully instead.
+            try {
+              const likeSnap = await d.ref
+                .collection("likes")
+                .doc(user.uid)
+                .get();
+              isLiked = likeSnap.exists();
+            } catch (e) {
+              console.error(
+                "useComments: like status check failed for comment",
+                d.id,
+                e,
+              );
+            }
           }
           return {
             id: d.id,
@@ -576,23 +611,19 @@ export function useAddComment() {
       const trimmed = content.trim();
       if (!trimmed) throw new Error("Comment cannot be empty");
 
-      await firestore()
-        .collection("posts")
-        .doc(post_id)
-        .collection("comments")
-        .add({
-          user_id: user.uid,
-          content: trimmed,
-          parent_id: parent_id ?? null,
-          user: {
-            username: profile?.username ?? null,
-            full_name: profile?.full_name ?? null,
-            avatar_url: profile?.avatar_url ?? null,
-          },
-          like_count: 0,
-          created_at: new Date().toISOString(),
-          created_at_ts: firestore.FieldValue.serverTimestamp(),
-        });
+      await firestore().collection("posts").doc(post_id).collection("comments").add({
+        user_id: user.uid,
+        content: trimmed,
+        parent_id: parent_id ?? null,
+        user: {
+          username: profile?.username ?? null,
+          full_name: profile?.full_name ?? null,
+          avatar_url: profile?.avatar_url ?? null,
+        },
+        like_count: 0,
+        created_at: new Date().toISOString(),
+        created_at_ts: firestore.FieldValue.serverTimestamp(),
+      });
 
       await firestore()
         .collection("posts")
