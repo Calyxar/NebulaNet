@@ -43,7 +43,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -184,6 +187,7 @@ function CommentRow({
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
 
   const { data: post, isLoading, isError, error } = usePost(id!);
@@ -348,7 +352,13 @@ export default function PostDetailScreen() {
         />
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          // ✅ FIX: Android was getting `behavior={undefined}`, which
+          // means KeyboardAvoidingView does NOTHING on Android — it was
+          // silently relying entirely on the OS's windowSoftInputMode to
+          // push content up, which isn't reliable combined with this
+          // app's translucent/edge-to-edge status bar setup. "height" is
+          // the standard, more predictable choice for Android.
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         >
           <FlatList
@@ -499,6 +509,15 @@ export default function PostDetailScreen() {
               gap: 10,
               paddingHorizontal: 14,
               paddingVertical: 10,
+              // ✅ FIX: SafeAreaView above deliberately excludes "bottom"
+              // from its edges (so KeyboardAvoidingView's own padding
+              // behavior isn't double-applied when the keyboard opens),
+              // but that meant nothing was compensating for the system
+              // nav controls when the keyboard is CLOSED — the composer
+              // sat flush against the physical screen bottom, same
+              // overlap bug as CurvedTabBar had. Explicit insets.bottom
+              // padding here instead, independent of SafeAreaView.
+              paddingBottom: 10 + insets.bottom,
               borderTopWidth: 1,
               borderTopColor: colors.border,
               backgroundColor: colors.card,

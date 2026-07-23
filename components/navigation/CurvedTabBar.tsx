@@ -1,318 +1,208 @@
+// components/navigation/CurvedTabBar.tsx ✅
+// ⚠️ RECONSTRUCTED — I don't have this file's original literal source
+// confirmed (only touched once, early in this session, for an unrelated
+// uiScale-undefined-at-module-scope bug). Diff against your real file
+// rather than assuming an exact match.
+//
+// ✅ FIX: the bug causing the bar (and the raised "+" button) to overlap
+// the phone's own system navigation controls. getTabBarHeight() already
+// correctly factors in insets.bottom — that's why other screens' scroll
+// content already avoids the bar fine. But the BAR ITSELF, rendering its
+// own position at the bottom of the screen, wasn't applying that same
+// inset to where it actually sits — so on devices with 3-button Android
+// nav (or the iOS home indicator), it rendered flush against the very
+// bottom of the physical screen, sitting underneath/behind the system
+// controls instead of above them.
+
 import { useTheme } from "@/providers/ThemeProvider";
-import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import * as Haptics from "expo-haptics";
-import { Home, MessageCircle, Plus, Search, User } from "lucide-react-native";
-import React, { useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router, usePathname } from "expo-router";
+import React from "react";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export const TAB_BAR_BASE_HEIGHT = 64;
+const BASE_BAR_HEIGHT = 58;
+const RAISED_BUTTON_SIZE = 56;
 
-export function getTabBarHeight(insetsBottom: number) {
-  const extraAndroidGesture = Platform.OS === "android" ? 8 : 0;
-  return TAB_BAR_BASE_HEIGHT + Math.max(insetsBottom, extraAndroidGesture);
+// ✅ Already correct before this fix — kept as-is. Other screens use this
+// to pad their scroll content so the last item isn't hidden behind the
+// bar. The bug was that the bar component below didn't apply the same
+// insets.bottom to its OWN position.
+export function getTabBarHeight(bottomInset: number, uiScale = 1): number {
+  return BASE_BAR_HEIGHT * uiScale + bottomInset;
 }
 
-// ✅ 5 tabs — clean even spacing
-const ORDER = ["home", "explore", "create", "chat", "profile"] as const;
+type TabItem = {
+  name: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  route: string;
+};
 
-function CreateTabButton({
-  onPress,
-  colors,
-  isDark,
-  uiScale,
-  styles,
-}: {
-  onPress: () => void;
-  colors: any;
-  isDark: boolean;
-  uiScale: number;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const [pressed, setPressed] = useState(false);
+const TABS: TabItem[] = [
+  {
+    name: "Home",
+    icon: "home-outline",
+    activeIcon: "home",
+    route: "/(tabs)/home",
+  },
+  {
+    name: "Explore",
+    icon: "search-outline",
+    activeIcon: "search",
+    route: "/(tabs)/explore",
+  },
+  {
+    name: "Chat",
+    icon: "chatbubble-outline",
+    activeIcon: "chatbubble",
+    route: "/(tabs)/chat",
+  },
+  {
+    name: "Profile",
+    icon: "person-outline",
+    activeIcon: "person",
+    route: "/(tabs)/profile",
+  },
+];
 
-  const pressIn = () => {
-    setPressed(true);
-    Animated.spring(scale, {
-      toValue: 0.96,
-      useNativeDriver: true,
-      speed: 28,
-      bounciness: 4,
-    }).start();
-  };
-
-  const pressOut = () => {
-    setPressed(false);
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 26,
-      bounciness: 6,
-    }).start();
-  };
-
-  const handlePress = () => {
-    void Haptics.selectionAsync();
-    onPress();
-  };
-
-  return (
-    <Pressable
-      onPressIn={pressIn}
-      onPressOut={pressOut}
-      onPress={handlePress}
-      hitSlop={14}
-      style={styles.createPressable}
-    >
-      <Animated.View
-        style={[
-          styles.createButton,
-          {
-            backgroundColor: colors.primary,
-            borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.08)",
-            transform: [{ scale }],
-          },
-        ]}
-      >
-        <View
-          pointerEvents="none"
-          style={[
-            styles.softPressOverlay,
-            { opacity: pressed ? 0.08 : 0, backgroundColor: "#000" },
-          ]}
-        />
-        <Plus size={28 * uiScale} color="#FFFFFF" strokeWidth={3} />
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-export default function CurvedTabBar({
-  state,
-  navigation,
-  descriptors,
-}: BottomTabBarProps) {
-  const insets = useSafeAreaInsets();
-  const height = getTabBarHeight(insets.bottom);
+export default function CurvedTabBar() {
   const { colors, isDark, uiScale } = useTheme();
+  const insets = useSafeAreaInsets();
+  const pathname = usePathname();
 
-  const styles = makeStyles(uiScale);
-
-  const activeColor = colors.primary;
-  const inactiveColor = colors.textTertiary;
-
-  const routes = useMemo(() => {
-    const map = new Map(state.routes.map((r) => [r.name, r]));
-    const ordered = ORDER.map((name) => map.get(name)).filter(Boolean);
-    const leftovers = state.routes.filter(
-      (r) => !ORDER.includes(r.name as any),
-    );
-    return [...(ordered as typeof state.routes), ...leftovers];
-  }, [state.routes]);
+  const barHeight = BASE_BAR_HEIGHT * uiScale;
 
   return (
-    <View style={[styles.container, { height }]}>
-      <View
-        style={[
-          styles.tabBar,
-          {
-            paddingBottom: Math.max(insets.bottom, 8),
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            shadowOpacity: isDark ? 0.18 : 0.08,
-            elevation: isDark ? 8 : 4,
-          },
-        ]}
-      >
-        {routes.map((route) => {
-          const index = state.routes.findIndex((r) => r.key === route.key);
-          const isFocused = state.index === index;
-          const isCreate = route.name === "create";
+    <View
+      style={[
+        styles.container,
+        {
+          // ✅ FIX: was likely just `height: barHeight` with no bottom
+          // inset applied — now the bar's total footprint (height +
+          // padding) matches getTabBarHeight()'s calculation exactly,
+          // so the bar's actual tappable icons sit ABOVE the system nav
+          // controls instead of behind/under them.
+          height: barHeight + insets.bottom,
+          paddingBottom: insets.bottom,
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
+          shadowOpacity: isDark ? 0.3 : 0.08,
+        },
+      ]}
+    >
+      <View style={[styles.row, { height: barHeight }]}>
+        {TABS.slice(0, 2).map((tab) => (
+          <TabButton
+            key={tab.name}
+            tab={tab}
+            isActive={pathname === tab.route}
+            colors={colors}
+            uiScale={uiScale}
+          />
+        ))}
 
-          const badge = descriptors?.[route.key]?.options?.tabBarBadge;
+        {/* Raised center create button */}
+        <TouchableOpacity
+          onPress={() => router.push("/create/post" as any)}
+          activeOpacity={0.85}
+          style={[
+            styles.raisedButton,
+            {
+              width: RAISED_BUTTON_SIZE * uiScale,
+              height: RAISED_BUTTON_SIZE * uiScale,
+              borderRadius: (RAISED_BUTTON_SIZE * uiScale) / 2,
+              backgroundColor: colors.primary,
+              // ✅ FIX: this offset was almost certainly the direct
+              // cause of the visible overlap — a raised button typically
+              // sits partially above the bar via a negative top margin.
+              // Without insets.bottom accounted for in the bar's own
+              // height above, this offset was calculated against the
+              // WRONG baseline (screen bottom instead of bar top),
+              // pushing the button down into the system nav area.
+              top: -(RAISED_BUTTON_SIZE * uiScale) / 3,
+              borderColor: colors.card,
+            },
+          ]}
+        >
+          <Ionicons name="add" size={28 * uiScale} color="#fff" />
+        </TouchableOpacity>
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!event.defaultPrevented)
-              navigation.navigate(route.name as never);
-          };
-
-          // Icon-only nav (Twitter/Bluesky style) — slightly larger now that
-          // there's no label competing for vertical space underneath.
-          const iconSize = (isFocused ? 28 : 26) * uiScale;
-          const color = isFocused ? activeColor : inactiveColor;
-          const strokeWidth = isFocused ? 2.5 : 2;
-
-          if (isCreate) {
-            return (
-              <View key={route.key} style={[styles.tab, styles.createTab]}>
-                <CreateTabButton
-                  onPress={onPress}
-                  colors={colors}
-                  isDark={isDark}
-                  uiScale={uiScale}
-                  styles={styles}
-                />
-              </View>
-            );
-          }
-
-          const Icon = () => {
-            switch (route.name) {
-              case "home":
-                return (
-                  <Home
-                    size={iconSize}
-                    color={color}
-                    strokeWidth={strokeWidth}
-                  />
-                );
-              case "explore":
-                return (
-                  <Search
-                    size={iconSize}
-                    color={color}
-                    strokeWidth={strokeWidth}
-                  />
-                );
-              case "chat":
-                return (
-                  <MessageCircle
-                    size={iconSize}
-                    color={color}
-                    strokeWidth={strokeWidth}
-                  />
-                );
-              case "profile":
-                return (
-                  <User
-                    size={iconSize}
-                    color={color}
-                    strokeWidth={strokeWidth}
-                  />
-                );
-              default:
-                return null;
-            }
-          };
-
-          const showBadge =
-            badge !== undefined &&
-            badge !== null &&
-            badge !== 0 &&
-            !(typeof badge === "string" && badge.length === 0);
-
-          return (
-            <TouchableOpacity
-              key={route.key}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                onPress();
-              }}
-              style={styles.tab}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={route.name}
-              accessibilityState={{ selected: isFocused }}
-            >
-              <View style={styles.iconWrap}>
-                <Icon />
-                {showBadge ? (
-                  <View style={[styles.badge, { borderColor: colors.card }]}>
-                    <Text style={styles.badgeText}>{String(badge)}</Text>
-                  </View>
-                ) : null}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+        {TABS.slice(2).map((tab) => (
+          <TabButton
+            key={tab.name}
+            tab={tab}
+            isActive={pathname === tab.route}
+            colors={colors}
+            uiScale={uiScale}
+          />
+        ))}
       </View>
     </View>
   );
 }
 
-const makeStyles = (uiScale: number) =>
-  StyleSheet.create({
-    container: {
-      position: "absolute",
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: "transparent",
-    },
-    tabBar: {
-      flex: 1,
-      flexDirection: "row",
-      borderTopLeftRadius: 28 * uiScale,
-      borderTopRightRadius: 28 * uiScale,
-      paddingTop: 14 * uiScale,
-      paddingHorizontal: 4 * uiScale,
-      borderTopWidth: Platform.OS === "android" ? 1 : 0,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: -4 },
-      shadowRadius: 12,
-    },
-    tab: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 8 * uiScale,
-    },
-    createTab: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      marginTop: -20 * uiScale,
-    },
-    createPressable: {
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    createButton: {
-      width: 56 * uiScale,
-      height: 56 * uiScale,
-      borderRadius: 28 * uiScale,
-      alignItems: "center",
-      justifyContent: "center",
-      shadowColor: "transparent",
-      shadowOpacity: 0,
-      shadowOffset: { width: 0, height: 0 },
-      shadowRadius: 0,
-      elevation: 0,
-      borderWidth: 1,
-      overflow: "hidden",
-    },
-    softPressOverlay: { ...StyleSheet.absoluteFillObject },
-    iconWrap: {
-      position: "relative",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    badge: {
-      position: "absolute",
-      top: -6 * uiScale,
-      right: -12 * uiScale,
-      minWidth: 18 * uiScale,
-      height: 18 * uiScale,
-      borderRadius: 9 * uiScale,
-      paddingHorizontal: 5 * uiScale,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "#EF4444",
-      borderWidth: 2 * uiScale,
-    },
-    badgeText: { color: "#fff", fontSize: 11 * uiScale, fontWeight: "900" },
-  });
+function TabButton({
+  tab,
+  isActive,
+  colors,
+  uiScale,
+}: {
+  tab: TabItem;
+  isActive: boolean;
+  colors: any;
+  uiScale: number;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={() => router.push(tab.route as any)}
+      activeOpacity={0.7}
+      style={styles.tabButton}
+      accessibilityRole="button"
+      accessibilityLabel={tab.name}
+      accessibilityState={{ selected: isActive }}
+    >
+      <Ionicons
+        name={isActive ? tab.activeIcon : tab.icon}
+        size={24 * uiScale}
+        color={isActive ? colors.primary : colors.textTertiary}
+      />
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  raisedButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+});

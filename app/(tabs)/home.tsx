@@ -41,8 +41,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { MaterialTabBar, Tabs } from "react-native-collapsible-tab-view";
+import { Tabs } from "react-native-collapsible-tab-view";
 import Animated, {
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -55,6 +57,90 @@ import {
 } from "react-native-safe-area-context";
 
 type FeedTab = "for-you" | "following" | "my-community";
+
+// ✅ NEW: custom tab bar matching the reference design — a compact,
+// left-aligned filled pill around the ACTIVE tab only (sized to its own
+// text), with the others as plain text. Replaces MaterialTabBar, whose
+// evenly-spaced full-width-row + shared-sliding-indicator model is a
+// fundamentally different paradigm than this design — two attempts to
+// force that look out of MaterialTabBar's styling props both made things
+// worse rather than better.
+//
+// Fully self-contained, deterministic height (PILL_TAB_BAR_HEIGHT below)
+// — no more guessing at a third-party component's real rendered height,
+// which was the root cause of the earlier tabBarHeight tuning failures.
+//
+// ⚠️ One assumption worth flagging: keeping the active pill in sync when
+// SWIPING between tabs (not just tapping) relies on reading
+// react-native-collapsible-tab-view's `focusedTab` shared value via
+// useAnimatedReaction. If swipe doesn't update which pill is
+// highlighted after this, that prop name is the one thing to verify
+// against your installed version.
+const PILL_TAB_BAR_HEIGHT = 56;
+
+function PillTabBar(props: any) {
+  const { colors, uiScale, fontScale } = useTheme();
+  const { tabNames, onTabPress, focusedTab } = props;
+  const [activeName, setActiveName] = useState<string>(
+    tabNames?.[0] ?? "For You",
+  );
+
+  useAnimatedReaction(
+    () => focusedTab?.value,
+    (current, previous) => {
+      if (current && current !== previous) {
+        runOnJS(setActiveName)(current);
+      }
+    },
+    [focusedTab],
+  );
+
+  return (
+    <View
+      style={[
+        styles.pillTabBar,
+        {
+          height: PILL_TAB_BAR_HEIGHT * uiScale,
+          backgroundColor: colors.background,
+          borderBottomColor: colors.border,
+          paddingHorizontal: 16 * uiScale,
+          gap: 8 * uiScale,
+        },
+      ]}
+    >
+      {(tabNames ?? []).map((name: string) => {
+        const active = name === activeName;
+        return (
+          <TouchableOpacity
+            key={name}
+            onPress={() => onTabPress?.(name)}
+            activeOpacity={0.8}
+            style={[
+              styles.pillTabButton,
+              {
+                paddingHorizontal: 16 * uiScale,
+                paddingVertical: 8 * uiScale,
+                borderRadius: 999,
+                backgroundColor: active ? colors.primary : "transparent",
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: active ? "#fff" : colors.textTertiary,
+                fontWeight: active ? "900" : "700",
+                fontSize: 13.5 * fontScale,
+              }}
+              numberOfLines={1}
+            >
+              {name}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 const timeAgo = (iso: string) => {
   const diff = Date.now() - new Date(iso).getTime();
@@ -613,42 +699,8 @@ export default function HomeScreen() {
   );
 
   const renderTabBar = useCallback(
-    (props: any) => (
-      <MaterialTabBar
-        {...props}
-        scrollEnabled={false}
-        activeColor="#fff"
-        inactiveColor={colors.textTertiary}
-        // ✅ CHANGED: pill-shaped filled indicator instead of a thin
-        // underline strip — same underlying indicator mechanism
-        // (already correctly animates width/position to the active
-        // tab), just styled as a full pill rather than a 3px line.
-        // Deliberately NOT a custom-built tab bar component — reusing
-        // MaterialTabBar's existing, already-working style props avoids
-        // the risk of building something that doesn't integrate
-        // correctly with the library's internal animation/measurement.
-        indicatorStyle={{
-          backgroundColor: colors.primary,
-          height: "78%",
-          borderRadius: 999,
-          top: "11%",
-        }}
-        labelStyle={{
-          fontSize: 13,
-          fontWeight: "800",
-          textTransform: "none",
-        }}
-        tabStyle={{ paddingVertical: 10 }}
-        style={{
-          backgroundColor: colors.background,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          shadowOpacity: 0,
-          elevation: 0,
-        }}
-      />
-    ),
-    [colors],
+    (props: any) => <PillTabBar {...props} />,
+    [],
   );
 
   return (
@@ -660,6 +712,11 @@ export default function HomeScreen() {
       <Tabs.Container
         renderHeader={renderHeader}
         renderTabBar={renderTabBar}
+        // ✅ Safe now — this is a fully-known, fixed number for our own
+        // custom PillTabBar (PILL_TAB_BAR_HEIGHT * uiScale), not a guess
+        // at a third-party component's opaque rendered height like the
+        // earlier failed attempts with MaterialTabBar.
+        tabBarHeight={PILL_TAB_BAR_HEIGHT * uiScale}
         headerContainerStyle={{
           backgroundColor: colors.background,
           shadowOpacity: 0,
@@ -727,6 +784,15 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  pillTabBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+  },
+  pillTabButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
