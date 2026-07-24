@@ -40,15 +40,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="create"
-        // The raised "+" button in CurvedTabBar is the single entry
-        // point for all post creation in the app, so this route is
-        // hidden from the tab bar entirely rather than given its own
-        // slot. Excluding it also gives 4 real routes total, which
-        // splits evenly (2 and 2) around the "+" button.
-        options={{ href: null }}
-      />
-      <Tabs.Screen
         name="chat"
         options={{
           title: "Chat",

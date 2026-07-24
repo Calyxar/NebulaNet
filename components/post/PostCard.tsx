@@ -492,7 +492,7 @@ export default function PostCard(props: PostCardProps) {
               accessibilityRole="button"
               accessibilityLabel={`View ${author.name}'s profile`}
             >
-              <Avatar size={40} name={author.name} image={author.avatar} />
+              <Avatar size={36} name={author.name} image={author.avatar} />
               <View style={styles.authorDetails}>
                 <Text style={[styles.authorName, { color: colors.text }]}>
                   {author.name}
@@ -763,14 +763,14 @@ function Action({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 4,
+    elevation: 1,
   },
   topLabelsRow: {
     flexDirection: "row",
@@ -796,12 +796,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 12,
+    alignItems: "flex-start",
+    marginBottom: 8,
   },
   authorInfo: { flexDirection: "row", flex: 1 },
-  authorDetails: { marginLeft: 12, flex: 1 },
-  authorName: { fontSize: 16, fontWeight: "600" },
-  authorUsername: { fontSize: 14 },
+  authorDetails: { marginLeft: 10, flex: 1 },
+  authorName: { fontSize: 15, fontWeight: "600" },
+  authorUsername: { fontSize: 13 },
   community: { fontSize: 14, fontWeight: "500" },
   headerRight: { alignItems: "flex-end" },
   timestamp: { fontSize: 12 },
@@ -814,12 +815,12 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
-  text: { fontSize: 16, lineHeight: 22 },
+  text: { fontSize: 15, lineHeight: 21 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
   singleImageWrap: {
     width: "100%",
-    height: 220,
+    height: 260,
     borderRadius: 14,
     overflow: "hidden",
   },
@@ -855,9 +856,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   statText: { marginLeft: 4, fontSize: 13 },
-  actions: { flexDirection: "row", justifyContent: "space-around" },
+  actions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+  },
   actionButton: { alignItems: "center", padding: 4 },
-  actionText: { fontSize: 11, marginTop: 4 },
+  actionText: { fontSize: 11, marginTop: 8 },
 });
 
 const quotedStyles = StyleSheet.create({

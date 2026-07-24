@@ -106,7 +106,7 @@ export default function CurvedTabBar({
         {leftRoutes.map(renderTab)}
 
         <TouchableOpacity
-          onPress={() => router.push("/create/post" as any)}
+          onPress={() => router.push("/create" as any)}
           activeOpacity={0.85}
           style={[
             styles.raisedButton,

@@ -371,7 +371,7 @@ function FeedList({
       viewabilityConfig={viewabilityConfig}
       onViewableItemsChanged={onViewableItemsChanged}
       contentContainerStyle={{
-        paddingTop: 24 * uiScale,
+        paddingTop: 8 * uiScale,
         paddingBottom: bottomPad,
       }}
       showsVerticalScrollIndicator={false}
@@ -799,12 +799,12 @@ const styles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
   },
-  brandLogo: { width: 32, height: 32, borderRadius: 9 },
-  brandName: { fontSize: 19, fontWeight: "900", letterSpacing: -0.5 },
+  brandLogo: { width: 38, height: 38, borderRadius: 10 },
+  brandName: { fontSize: 22, fontWeight: "900", letterSpacing: -0.6 },
   bellWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -901,10 +901,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   card: {
-    marginHorizontal: 14,
+    marginHorizontal: 18,
     marginBottom: 12,
-    borderRadius: 22,
-    padding: 14,
+    borderRadius: 24,
+    padding: 18,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 16,

@@ -114,7 +114,7 @@ export default function AppHeader({
     <View
       style={[
         styles.container,
-        { backgroundColor, height: compact ? 48 : 56 },
+        { backgroundColor, height: compact ? 60 : 68 },
         containerStyle,
       ]}
     >
@@ -152,7 +152,7 @@ export default function AppHeader({
 const styles = StyleSheet.create({
   container: {
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   titleLayer: {
     position: "absolute",

@@ -341,10 +341,23 @@ export function useDeletePost() {
 
   return useMutation({
     mutationFn: async (postId: string) => {
+      console.log("Deleting post:", postId);
+
       await firestore().collection("posts").doc(postId).delete();
+
+      console.log("Delete succeeded");
+
       return postId;
     },
-    onSuccess: (postId) => removePostFromLists(qc, postId),
+
+    onSuccess: (postId) => {
+      console.log("Mutation succeeded");
+      removePostFromLists(qc, postId);
+    },
+
+    onError: (error) => {
+      console.error("Delete failed:", error);
+    },
   });
 }
 
