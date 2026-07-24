@@ -1,15 +1,27 @@
-// components/navigation/AppHeader.tsx ✅ FIXED
-// ✅ FIXED: title was flex-centered between whatever's in left/leftWide
-// and right/rightWide. When those two sides have unequal width (e.g.
-// Analytics: a back button on the left, nothing on the right at all),
-// the title visibly drifted toward the emptier side instead of staying
-// centered on screen — confirmed via the Analytics screen's "Analytics"
-// title sitting off to one side.
-// Fix: the title now renders as its own absolutely-positioned layer
-// (left: 0, right: 0, textAlign: 'center'), stacked UNDER the row of
-// interactive left/right buttons via pointerEvents="none" — so it's
-// centered against the full header width regardless of what's on either
-// side, and taps still pass through to the real buttons on top of it.
+// components/navigation/AppHeader.tsx ✅ FIXED (2nd pass)
+// ✅ FIXED: the row unconditionally inserted a `{flex:1}` spacer
+// whenever `leftWide` was absent, with no check for `rightWide`. On
+// screens using rightWide alone (e.g. Chat: search + "New Chat"), that
+// gave TWO competing flex:1 boxes — the spacer AND rightWide's own
+// wideSlot — splitting the remaining width 50/50 instead of letting
+// rightWide claim it all. That shoved the right-side buttons toward the
+// horizontal center instead of the true right edge, which visually
+// crowded/overlapped the absolutely-centered title text (row paints on
+// top of the title layer since it's the later sibling) — reading as the
+// title being "misaligned" rather than truly centered.
+// Fix: only insert the spacer when NEITHER side is a "wide" slot —
+// `!leftWide && !rightWide` — since a wide slot already claims flex:1
+// on its own and needs no extra spacer competing with it.
+// ✅ FIXED: rightWide's wideSlot previously defaulted to
+// `alignItems: "stretch"` (the RN default for a column container),
+// stretching whatever's inside it (e.g. headerActions) to the slot's
+// full width — and since that inner content had no justifyContent of
+// its own, it hugged the LEFT edge of the stretched box, not the right
+// edge of the header. rightWide now gets its own style with
+// `alignItems: "flex-end"` so right-side content is pushed flush
+// against the true right edge regardless of what a given screen puts
+// inside it. leftWide keeps the original stretch behavior (correct for
+// things like a full-width search bar).
 
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -92,6 +104,12 @@ export default function AppHeader({
   // most of the row), not be mirrored.
   const skipRightGhost = !!leftWide && !right && !rightWide;
 
+  // ✅ FIX: only add the middle spacer when NEITHER side is "wide" —
+  // a wide slot already claims flex:1 itself, so pairing it with this
+  // spacer double-counts the available space and shrinks/shifts the
+  // wide content away from its edge instead of letting it fill up to it.
+  const needsMiddleSpacer = !leftWide && !rightWide;
+
   return (
     <View
       style={[
@@ -100,9 +118,9 @@ export default function AppHeader({
         containerStyle,
       ]}
     >
-      {/* ✅ FIX: absolutely-positioned centered title layer, stacked
-          beneath the row below. pointerEvents="none" lets taps pass
-          through to the real left/right buttons on top of it. */}
+      {/* Centered title layer, stacked beneath the row below.
+          pointerEvents="none" lets taps pass through to the real
+          left/right buttons on top of it. */}
       {hasTitle && (
         <View style={styles.titleLayer} pointerEvents="none">
           <Text
@@ -116,18 +134,13 @@ export default function AppHeader({
 
       <View style={styles.row}>
         {leftWide ? (
-          <View style={styles.wideSlot}>{leftWide}</View>
+          <View style={styles.wideSlotLeft}>{leftWide}</View>
         ) : (
           <View style={styles.side}>{leftNode}</View>
         )}
-        {/* Spacer — no title rendered here anymore; the title is the
-            absolutely-positioned layer above, not part of this row's
-            flex layout, so it can't be pushed off-center by unequal
-            left/right widths. Collapses to zero width when leftWide is
-            already flex:1 and filling the row itself. */}
-        {!leftWide && <View style={{ flex: 1 }} />}
+        {needsMiddleSpacer && <View style={{ flex: 1 }} />}
         {rightWide ? (
-          <View style={styles.wideSlot}>{rightWide}</View>
+          <View style={styles.wideSlotRight}>{rightWide}</View>
         ) : !skipRightGhost ? (
           <View style={styles.side}>{rightNode}</View>
         ) : null}
@@ -165,9 +178,18 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "center",
   },
-  wideSlot: {
+  // leftWide keeps stretch behavior — correct for full-width content
+  // like a search bar that's meant to fill the space it's given.
+  wideSlotLeft: {
     flex: 1,
     minWidth: 0,
+  },
+  // rightWide is pinned to the true right edge instead of stretching
+  // and hugging the left of its own slot.
+  wideSlotRight: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "flex-end",
   },
   iconBtn: {
     width: 40,
