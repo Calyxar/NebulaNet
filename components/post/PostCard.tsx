@@ -1,22 +1,4 @@
-// components/post/PostCard.tsx — canonical PostCard for NebulaNet 2.0
-// ✅ Hashtags tappable in feed (Twitter-style)
-// ✅ "You reposted" label + quote-repost preview card
-// ✅ isReposted/repostCount seeded from feed-query props instead of a
-//    per-card Firestore read — avoids an N+1 read.
-// ✅ "Not interested" in the "..." menu — Phase B of the recommendation-
-//    engine work, backed by useMarkNotInterested.
-// ✅ NEW: "Boost this post" in the "..." menu (owner-only) — Phase 4
-//    monetization. Backed by purchasePostBoost from
-//    lib/monetization/boostPost.ts, which handles the real RevenueCat
-//    purchase + server-side verification via the applyPostBoost Cloud
-//    Function. This component never writes is_boosted/boosted_until
-//    itself — it only triggers the purchase flow and reflects whatever
-//    the props say once the parent's data refetches after purchase.
-// ✅ NEW: "🚀 Boosted" badge, shown whenever isBoosted is true AND
-//    boostedUntil hasn't passed — checked client-side against the actual
-//    timestamp (not just the flag) so an expired boost stops showing the
-//    badge immediately rather than waiting on a server-side cleanup job,
-//    same reasoning as hasActiveBoost() in lib/firestore/posts.ts.
+// components/post/PostCard.tsx
 
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
@@ -80,7 +62,6 @@ interface PostCardProps {
   quotedPost?: QuotedPostPreview | null;
   media?: string[];
   viewCount?: number;
-  // ✅ NEW: monetization — paid post boosts
   isBoosted?: boolean;
   boostedUntil?: string | null;
   onLikePress?: () => void | Promise<void>;
@@ -223,9 +204,15 @@ export default function PostCard(props: PostCardProps) {
 
   const isOwned = !!user?.uid && user.uid === author.id;
 
-  // ✅ NEW: active only while boostedUntil hasn't passed — an expired
-  // boost stops showing the badge immediately rather than waiting on a
-  // server-side cleanup job to flip isBoosted back to false.
+  console.log("DELETE DEBUG:", {
+    postId: id,
+    postContentPreview: content?.slice(0, 30),
+    userUid: user?.uid,
+    authorId: author.id,
+    authorName: author.name,
+    isOwned,
+  });
+
   const hasActiveBoost =
     isBoosted &&
     !!boostedUntil &&
@@ -303,12 +290,6 @@ export default function PostCard(props: PostCardProps) {
     });
   };
 
-  // ✅ NEW: kicks off the real RevenueCat purchase flow. purchasePostBoost
-  // handles the store payment sheet + server-side verification; this
-  // component only shows the confirmation prompt and loading/error state
-  // around it. It never writes is_boosted/boosted_until itself — that
-  // only happens inside the applyPostBoost Cloud Function once a real
-  // purchase is verified.
   const handleBoost = () => {
     if (hasActiveBoost) {
       Alert.alert(
@@ -336,8 +317,6 @@ export default function PostCard(props: PostCardProps) {
               } else if (result.status === "error") {
                 Alert.alert("Boost failed", result.message);
               }
-              // "cancelled" (user backed out of the payment sheet) shows
-              // nothing — same as any other cancelled purchase flow.
             } finally {
               setIsBoostingPost(false);
             }
@@ -348,6 +327,13 @@ export default function PostCard(props: PostCardProps) {
   };
 
   const handleMoreOptions = () => {
+    console.log("DELETE DEBUG (on tap):", {
+      postId: id,
+      userUid: user?.uid,
+      authorId: author.id,
+      isOwned,
+    });
+
     const buttons: AlertButton[] = [
       { text: "View Post", onPress: openPost },
       { text: "Not interested", onPress: handleNotInterested },
@@ -362,8 +348,6 @@ export default function PostCard(props: PostCardProps) {
     ];
 
     if (isOwned) {
-      // ✅ NEW: owner-only, placed right after the always-present actions
-      // and before the destructive Delete option below.
       buttons.push({
         text: hasActiveBoost ? "Boosted" : "Boost this post",
         onPress: handleBoost,
@@ -460,9 +444,6 @@ export default function PostCard(props: PostCardProps) {
             borderColor: colors.border,
             shadowOpacity: isDark ? 0.22 : 0.04,
           },
-          // ✅ NEW: a subtle border tint on boosted posts, in addition to
-          // the badge — keeps them visually distinct even at a glance in
-          // a fast-scrolling feed.
           hasActiveBoost && { borderColor: colors.primary, borderWidth: 1.5 },
         ]}
       >

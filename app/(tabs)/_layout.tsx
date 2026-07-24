@@ -1,15 +1,5 @@
-// app/(tabs)/_layout.tsx ✅ FIXED
-// ✅ FIXED: added tabBarIcon to every Tabs.Screen — this was never set
-//           anywhere, so CurvedTabBar's per-tab renderTab() had nothing
-//           to call and was falling through to its "ellipse-outline"
-//           empty-circle fallback for every single tab.
-// ✅ FIXED: "create" tab now uses `href: null` (same pattern already
-//           used for "notifications") so it's excluded from the tab bar
-//           entirely. CurvedTabBar already renders its own raised "+"
-//           button that navigates to /create/post — having "create" ALSO
-//           registered as a normal tab route was giving it a second,
-//           competing slot and throwing off the left/right split math
-//           (midpoint = Math.ceil(routes.length / 2)).
+// app/(tabs)/_layout.tsx
+
 import CurvedTabBar from "@/components/navigation/CurvedTabBar";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -51,9 +41,11 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="create"
-        // ✅ Hidden from the tab bar — the raised "+" button in
-        // CurvedTabBar already navigates to /create/post, so this
-        // screen doesn't need its own tab slot.
+        // The raised "+" button in CurvedTabBar is the single entry
+        // point for all post creation in the app, so this route is
+        // hidden from the tab bar entirely rather than given its own
+        // slot. Excluding it also gives 4 real routes total, which
+        // splits evenly (2 and 2) around the "+" button.
         options={{ href: null }}
       />
       <Tabs.Screen
@@ -83,10 +75,7 @@ export default function TabLayout() {
         }}
       />
       {/* notifications is accessed via the bell icon in AppHeader, not a tab */}
-      <Tabs.Screen
-        name="notifications"
-        options={{ href: null }} // hides it from the tab bar entirely
-      />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }

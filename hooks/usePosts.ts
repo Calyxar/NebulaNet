@@ -1,27 +1,4 @@
-// hooks/usePosts.ts — React Native Firebase ✅
-// ✅ FIXED (earlier): user_preferences query uses doc.exists() (called as
-// a function) — confirmed correct for this project's Firestore typings.
-// ✅ FIXED (earlier): useToggleRepost's onSettled no longer broadly
-// invalidates postKeys.lists() — that match also caught the For You
-// feed's ["...postKeys.lists(), "for-you-ranked"] key, forcing a full
-// re-rank/refetch on every repost anywhere in the app.
-// ✅ FIXED: For You feed pagination — split into a cached ranked pool
-// (computeForYouRankedPool, re-ranked only on staleTime expiry or
-// refetch) and pure in-memory pagination (sliceForYouFeedPage) — see
-// lib/firestore/posts.ts. refetch is overridden so pull-to-refresh
-// re-ranks the pool before re-slicing.
-// ✅ FIXED: toggleRepost's real signature is (postId, isReposted) — it
-// resolves the current user internally, doesn't take a userId argument.
-// ✅ NEW: useMarkNotInterested — backs the "Not interested" post action.
-// ✅ NEW: usePost/useComments/useAddComment/useToggleCommentLike +
-// CommentWithAuthor type — these back app/post/[id].tsx's imports, which
-// were failing to compile entirely (5 missing exports). Follows the same
-// patterns already established in this file: postKeys for query keys,
-// the likes/{uid} subcollection pattern used for posts, optimistic
-// mutation shape matching useToggleLike/useToggleBookmark. Field names
-// were inferred from established conventions in this file rather than
-// the screen's exact body — flag if any don't match what the screen
-// actually expects.
+// hooks/usePosts.ts
 
 import { useAuth } from "@/hooks/useAuth";
 import { markNotInterested } from "@/lib/firestore/affinity";
@@ -400,25 +377,15 @@ export function useMarkNotInterested() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Post detail + comments — backs app/post/[id].tsx
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type CommentWithAuthor = {
   id: string;
   post_id: string;
   user_id: string;
   content: string;
   created_at: string;
-  // ✅ FIX: renamed from like_count — CommentRow.tsx and app/post/
-  // viewer.tsx both independently expect likes_count, outweighing an
-  // earlier unconfirmed guess of like_count for comments specifically
-  // (posts still use like_count — that's a separate, correct field).
   likes_count: number;
   user_has_liked: boolean;
   parent_id: string | null;
-  // ✅ NEW: CommentRow.tsx expects a nested replies array, not just a
-  // flat parent_id to build the tree from client-side.
   replies: CommentWithAuthor[];
   author: {
     id: string;
@@ -446,13 +413,6 @@ export function usePost(postId: string) {
       try {
         snap = await firestore().collection("posts").doc(postId).get();
       } catch (e) {
-        // ✅ FIX: surface the real error instead of letting it collapse
-        // into the same "Post not found" UI as a genuine missing doc.
-        // Most likely culprit for "not found even for my own posts":
-        // a Firestore rules evaluation failure (e.g. a get() inside a
-        // rule helper like isMinor() throwing on a missing/incomplete
-        // profile doc), which denies the read outright rather than
-        // gracefully evaluating false.
         console.error("usePost: Firestore read failed for", postId, e);
         throw e;
       }
@@ -462,16 +422,6 @@ export function usePost(postId: string) {
       let isLiked = false;
       let isSaved = false;
       if (user?.uid) {
-        // ✅ FIX: this was NOT wrapped in error handling before — only
-        // the main post read above was. If these specific subcollection
-        // reads are the ones actually getting denied (a very real
-        // possibility if the deployed rules/path structure for likes/
-        // saves doesn't quite match what's queried here), the error
-        // propagated up uncaught and looked identical to the whole post
-        // failing to load — including "even on my own posts," since
-        // this has nothing to do with post ownership. Not knowing your
-        // own like/save status shouldn't be able to crash the post view
-        // — degrade gracefully to false/false instead.
         try {
           const [likeSnap, saveSnap] = await Promise.all([
             firestore()
@@ -522,26 +472,12 @@ export function usePost(postId: string) {
         boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
         quote_post_id: x.quote_post_id ?? null,
         quote_post: x.quote_post ?? null,
-        // ✅ FIX: this was the actual crash. The screen renders this
-        // directly inline as text (`in {post.community}`) — returning
-        // the raw community object here (whatever shape is on the post
-        // doc, likely {id, name, slug}) made React Native hard-crash
-        // trying to render an object as a JSX child. Returning just the
-        // name as a plain string instead. If the screen ALSO needs
-        // community.slug elsewhere (e.g. a tappable link to the
-        // community), tell me and I'll restructure this properly rather
-        // than flattening it away.
         community: x.community?.name ?? null,
       };
     },
   });
 }
 
-// ✅ FIX: widened to accept undefined — app/post/viewer.tsx deliberately
-// passes undefined when comments aren't expanded yet (lazy-loading, only
-// fetch once the user actually opens the comment section). enabled:
-// !!postId below already handled this correctly at runtime; only the
-// type signature was too strict for that legitimate call pattern.
 export function useComments(postId: string | undefined) {
   const { user } = useAuth();
 
@@ -549,11 +485,6 @@ export function useComments(postId: string | undefined) {
     queryKey: ["post-comments", postId, user?.uid],
     enabled: !!postId,
     queryFn: async (): Promise<CommentWithAuthor[]> => {
-      // ✅ Narrows postId to `string` for the rest of this function —
-      // this should never actually throw at runtime since `enabled:
-      // !!postId` above already prevents queryFn from running when
-      // postId is undefined; this is purely to satisfy TypeScript
-      // without needing `postId!` scattered through the function below.
       if (!postId) throw new Error("useComments: postId is required");
 
       let snap;
@@ -575,9 +506,6 @@ export function useComments(postId: string | undefined) {
           const x = d.data() as any;
           let isLiked = false;
           if (user?.uid) {
-            // ✅ FIX: same gap as usePost's like/save check — this
-            // wasn't wrapped, so one denied comment-like read could fail
-            // the entire comment list. Degrade gracefully instead.
             try {
               const likeSnap = await d.ref
                 .collection("likes")
@@ -614,9 +542,6 @@ export function useComments(postId: string | undefined) {
         }),
       );
 
-      // ✅ NEW: nest replies under their parent instead of leaving a flat
-      // list — CommentRow.tsx expects a real `replies` array on each
-      // comment, not a flat parent_id it has to group client-side.
       const byId = new Map(flatComments.map((c) => [c.id, c]));
       const topLevel: CommentWithAuthor[] = [];
       flatComments.forEach((c) => {
@@ -680,6 +605,58 @@ export function useAddComment() {
   });
 }
 
+export function useDeleteComment() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      commentId,
+    }: {
+      postId: string;
+      commentId: string;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+      await firestore()
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .doc(commentId)
+        .delete();
+      await firestore()
+        .collection("posts")
+        .doc(postId)
+        .update({ comment_count: firestore.FieldValue.increment(-1) });
+      return { postId, commentId };
+    },
+    onMutate: async ({ postId, commentId }) => {
+      const removeFromTree = (
+        comments: CommentWithAuthor[],
+      ): CommentWithAuthor[] =>
+        comments
+          .filter((c) => c.id !== commentId)
+          .map((c) =>
+            c.replies.length > 0
+              ? { ...c, replies: removeFromTree(c.replies) }
+              : c,
+          );
+
+      qc.setQueryData(
+        ["post-comments", postId, user?.uid],
+        (old: CommentWithAuthor[] | undefined) =>
+          old ? removeFromTree(old) : old,
+      );
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["post-comments", vars.postId, user?.uid],
+      });
+      qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+  });
+}
+
 export function useCreatePost() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -732,11 +709,6 @@ export function useToggleCommentLike() {
       }
     },
     onMutate: async ({ postId, commentId, isLiked }) => {
-      // ✅ FIX: useComments now returns a NESTED tree (replies live
-      // inside their parent's `replies` array, not flattened at the top
-      // level), so a flat top-level .map() would silently miss any
-      // comment that's actually a reply. Recurse through the tree
-      // instead.
       const patchTree = (comments: CommentWithAuthor[]): CommentWithAuthor[] =>
         comments.map((c) => {
           if (c.id === commentId) {

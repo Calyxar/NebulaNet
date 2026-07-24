@@ -1,4 +1,5 @@
 // hooks/useFeed.ts — ✅ FIXED: createPost now invalidates postKeys so home feed updates
+import { postKeys } from "@/hooks/usePosts";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import {
@@ -7,9 +8,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-
-// ✅ FIX: import postKeys so createPost invalidates the same cache home.tsx uses
-import { postKeys } from "@/hooks/usePosts";
 
 export type PostVisibility = "public" | "followers" | "private";
 
