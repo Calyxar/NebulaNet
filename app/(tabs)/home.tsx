@@ -26,6 +26,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { useQuery } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { Bell } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
@@ -43,12 +44,14 @@ import {
 } from "react-native";
 import { Tabs } from "react-native-collapsible-tab-view";
 import Animated, {
+  Easing,
   runOnJS,
   useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import {
@@ -58,24 +61,6 @@ import {
 
 type FeedTab = "for-you" | "following" | "my-community";
 
-// ✅ NEW: custom tab bar matching the reference design — a compact,
-// left-aligned filled pill around the ACTIVE tab only (sized to its own
-// text), with the others as plain text. Replaces MaterialTabBar, whose
-// evenly-spaced full-width-row + shared-sliding-indicator model is a
-// fundamentally different paradigm than this design — two attempts to
-// force that look out of MaterialTabBar's styling props both made things
-// worse rather than better.
-//
-// Fully self-contained, deterministic height (PILL_TAB_BAR_HEIGHT below)
-// — no more guessing at a third-party component's real rendered height,
-// which was the root cause of the earlier tabBarHeight tuning failures.
-//
-// ⚠️ One assumption worth flagging: keeping the active pill in sync when
-// SWIPING between tabs (not just tapping) relies on reading
-// react-native-collapsible-tab-view's `focusedTab` shared value via
-// useAnimatedReaction. If swipe doesn't update which pill is
-// highlighted after this, that prop name is the one thing to verify
-// against your installed version.
 const PILL_TAB_BAR_HEIGHT = 56;
 
 function PillTabBar(props: any) {
@@ -162,6 +147,7 @@ const hasNSFWContent = (post: Post): boolean => {
 
 function SkeletonBox({ style }: { style: any }) {
   const opacity = useSharedValue(0.3);
+
   React.useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
@@ -172,11 +158,18 @@ function SkeletonBox({ style }: { style: any }) {
       false,
     );
   }, []);
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
   return (
     <Animated.View
       style={[
-        { backgroundColor: "#E5E7EB", borderRadius: 8 },
+        {
+          backgroundColor: "#E5E7EB",
+          borderRadius: 8,
+        },
         style,
         animatedStyle,
       ]}
@@ -243,6 +236,12 @@ function FeedList({
   const insets = useSafeAreaInsets();
   const feedDensity = useFeedDensity();
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const logoRotation = useSharedValue(0);
+  const logoScale = useSharedValue(0);
+  const logoOpacity = useSharedValue(0);
+
   const bottomPad = useMemo(
     () => getTabBarHeight(insets.bottom) + 12,
     [insets.bottom],
@@ -257,6 +256,45 @@ function FeedList({
     isRefetching,
     isLoading,
   } = useInfiniteFeedPosts(tab, { communityIds });
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    logoOpacity.value = withTiming(1, {
+      duration: 200,
+    });
+
+    logoScale.value = withSpring(1);
+
+    logoRotation.value = withRepeat(
+      withTiming(360, {
+        duration: 1000,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    );
+
+    const start = Date.now();
+
+    await refetch();
+
+    const elapsed = Date.now() - start;
+
+    if (elapsed < 900) {
+      await new Promise((resolve) => setTimeout(resolve, 900 - elapsed));
+    }
+
+    logoRotation.value = 0;
+    logoScale.value = withTiming(0);
+    logoOpacity.value = withTiming(0);
+
+    setRefreshing(false);
+  };
 
   const posts = useMemo(
     () => data?.pages.flatMap((p) => p.posts) ?? [],
@@ -277,7 +315,6 @@ function FeedList({
         <View style={{ marginHorizontal: 14 * uiScale }}>
           <PostCard
             id={item.id}
-            title={(item as any).title}
             content={item.content}
             post_type={item.post_type ?? undefined}
             poll={(item as any).poll}
@@ -310,72 +347,112 @@ function FeedList({
     [onLike, onSave, uiScale],
   );
 
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [
+      { scale: logoScale.value },
+      {
+        rotate: `${logoRotation.value}deg`,
+      },
+    ],
+  }));
+
   return (
-    <Tabs.FlatList
-      data={filteredPosts}
-      keyExtractor={(item: Post) => item.id}
-      renderItem={renderItem}
-      ListHeaderComponent={
-        <View>
-          {storiesElement}
-          {ListHeaderComponent}
-        </View>
-      }
-      onEndReached={() => hasNextPage && fetchNextPage()}
-      onEndReachedThreshold={0.45}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefetching}
-          onRefresh={refetch}
-          colors={[colors.primary]}
-          tintColor={colors.primary}
+    <>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            top: 12,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            zIndex: 999,
+          },
+          logoStyle,
+        ]}
+      >
+        <Image
+          source={require("@/assets/images/icon.png")}
+          style={{
+            width: 54,
+            height: 54,
+            borderRadius: 14,
+          }}
         />
-      }
-      ListEmptyComponent={
-        isLoading ? (
-          <View style={{ paddingTop: 8 }}>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <SkeletonPost
-                key={i}
-                colors={colors}
-                isDark={isDark}
-                feedDensity={feedDensity}
+      </Animated.View>
+      <Tabs.FlatList
+        data={filteredPosts}
+        keyExtractor={(item: Post) => item.id}
+        renderItem={renderItem}
+        ListHeaderComponent={
+          <View>
+            {storiesElement}
+            {ListHeaderComponent}
+          </View>
+        }
+        onEndReached={() => hasNextPage && fetchNextPage()}
+        onEndReachedThreshold={0.45}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+            progressBackgroundColor={colors.card}
+            progressViewOffset={18}
+          />
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <View style={{ paddingTop: 8 }}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonPost
+                  key={i}
+                  colors={colors}
+                  isDark={isDark}
+                  feedDensity={feedDensity}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyFeed}>
+              <Ionicons
+                name="planet-outline"
+                size={34}
+                color={colors.textTertiary}
               />
-            ))}
-          </View>
-        ) : (
-          <View style={styles.emptyFeed}>
-            <Ionicons
-              name="planet-outline"
-              size={34}
-              color={colors.textTertiary}
-            />
-            <Text style={[styles.emptyFeedTitle, { color: colors.text }]}>
-              {emptyTitle}
-            </Text>
-            <Text
-              style={[styles.emptyFeedSubtitle, { color: colors.textTertiary }]}
-            >
-              {emptySubtitle}
-            </Text>
-          </View>
-        )
-      }
-      ListFooterComponent={
-        isFetchingNextPage ? (
-          <View style={{ paddingVertical: 20 }}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
-        ) : null
-      }
-      viewabilityConfig={viewabilityConfig}
-      onViewableItemsChanged={onViewableItemsChanged}
-      contentContainerStyle={{
-        paddingTop: 8 * uiScale,
-        paddingBottom: bottomPad,
-      }}
-      showsVerticalScrollIndicator={false}
-    />
+              <Text style={[styles.emptyFeedTitle, { color: colors.text }]}>
+                {emptyTitle}
+              </Text>
+              <Text
+                style={[
+                  styles.emptyFeedSubtitle,
+                  { color: colors.textTertiary },
+                ]}
+              >
+                {emptySubtitle}
+              </Text>
+            </View>
+          )
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View style={{ paddingVertical: 20 }}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : null
+        }
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+        contentContainerStyle={{
+          paddingTop: 8 * uiScale,
+          paddingBottom: bottomPad,
+        }}
+        showsVerticalScrollIndicator={false}
+      />
+    </>
   );
 }
 
@@ -712,10 +789,6 @@ export default function HomeScreen() {
       <Tabs.Container
         renderHeader={renderHeader}
         renderTabBar={renderTabBar}
-        // ✅ Safe now — this is a fully-known, fixed number for our own
-        // custom PillTabBar (PILL_TAB_BAR_HEIGHT * uiScale), not a guess
-        // at a third-party component's opaque rendered height like the
-        // earlier failed attempts with MaterialTabBar.
         tabBarHeight={PILL_TAB_BAR_HEIGHT * uiScale}
         headerContainerStyle={{
           backgroundColor: colors.background,

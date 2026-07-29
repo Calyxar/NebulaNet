@@ -1,5 +1,4 @@
 // hooks/usePosts.ts
-
 import { useAuth } from "@/hooks/useAuth";
 import { markNotInterested } from "@/lib/firestore/affinity";
 import {
@@ -27,7 +26,7 @@ export const postKeys = {
 };
 
 export function useFeedDensity(): "compact" | "standard" | "relaxed" {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [density, setDensity] = useState<"compact" | "standard" | "relaxed">(
     "standard",
   );
@@ -416,7 +415,7 @@ function tsToIsoLocal(v: any): string {
 }
 
 export function usePost(postId: string) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   return useQuery({
     queryKey: postKeys.detail(postId),
@@ -465,15 +464,21 @@ export function usePost(postId: string) {
       return {
         id: snap.id,
         user_id: x.user_id,
-        user: x.user ?? null,
+        user: {
+          username: x.user?.username ?? profile?.username ?? null,
+          full_name: x.user?.full_name ?? profile?.full_name ?? null,
+          avatar_url: x.user?.avatar_url ?? profile?.avatar_url ?? null,
+        },
         content: x.content ?? "",
         title: x.title ?? undefined,
         media_urls: Array.isArray(x.media_urls) ? x.media_urls : null,
         post_type: x.post_type ?? null,
+        poll: x.poll ?? null,
         created_at: tsToIsoLocal(x.created_at_ts ?? x.created_at),
         like_count: x.like_count ?? 0,
         comment_count: x.comment_count ?? 0,
         share_count: x.share_count ?? 0,
+        view_count: x.view_count ?? 0,
         repost_count: x.repost_count ?? 0,
         save_count: x.save_count ?? 0,
         is_liked: isLiked,
@@ -672,12 +677,20 @@ export function useDeleteComment() {
 
 export function useCreatePost() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   return useMutation({
     mutationFn: async (data: Omit<CreatePostData, "user_id">) => {
       if (!user?.uid) throw new Error("Not signed in");
-      return createPost({ ...data, user_id: user.uid });
+      return createPost({
+        ...data,
+        user_id: user.uid,
+        user: {
+          username: profile?.username ?? null,
+          full_name: profile?.full_name ?? null,
+          avatar_url: profile?.avatar_url ?? null,
+        },
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: postKeys.lists() });

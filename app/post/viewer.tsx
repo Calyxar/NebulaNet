@@ -1,29 +1,4 @@
 // app/post/viewer.tsx
-// Swipeable post viewer: opens to a tapped post's index within a given
-// list of post IDs (e.g. the Explore Discover grid, or a profile's Media
-// grid) and lets the user swipe left/right to move through the REST OF
-// THAT SAME LIST, instead of tap -> view -> back -> tap-next like the
-// grid previously forced. Matches Twitter's pattern for tapping into a
-// media grid: full post card per page (content, actions, etc.), not a
-// stripped media-only lightbox.
-//
-// Navigation contract:
-//   router.push({
-//     pathname: "/post/viewer",
-//     params: {
-//       postIds: JSON.stringify(["id1", "id2", "id3"]),
-//       initialIndex: "2",
-//     },
-//   })
-//
-// Comments are collapsed by default per page (tap "View comments" to
-// expand) — avoids firing a Firestore comments query for every page
-// FlatList keeps mounted in its render window while the user swipes
-// quickly through a large grid.
-//
-// ✅ Dates now use formatDate() from @/utils/format (Twitter/Bluesky-style
-// "2h" / "3d" / "Jun 22") instead of date-fns's formatDistanceToNow
-// ("2 hours ago") — matches app/post/[id].tsx.
 
 import VideoPlayer from "@/components/media/VideoPlayer";
 import MentionHashtagText from "@/components/MentionHashtagText";
@@ -31,6 +6,7 @@ import MediaGallery from "@/components/post/MediaGallery";
 import PollCard from "@/components/post/PollCard";
 import PostOptionsSheet, {
   type PostOption,
+  type PostOptionsSheetRef,
 } from "@/components/post/PostOptionsSheet";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -166,6 +142,7 @@ function PostViewerPage({
   const [repostStatusChecked, setRepostStatusChecked] = useState(false);
 
   const commentInputRef = useRef<TextInput>(null);
+  const postOptionsSheetRef = useRef<PostOptionsSheetRef>(null);
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -926,11 +903,7 @@ function PostViewerPage({
         shareMessage="Check out this post on NebulaNet!"
         onShared={handleShareComplete}
       />
-      <PostOptionsSheet
-        visible={optionsVisible}
-        onClose={() => setOptionsVisible(false)}
-        options={postOptions}
-      />
+      <PostOptionsSheet ref={postOptionsSheetRef} options={postOptions} />
     </View>
   );
 }

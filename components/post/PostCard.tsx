@@ -1,8 +1,13 @@
 // components/post/PostCard.tsx
 
+import ImageViewer from "@/components/media/ImageViewer";
 import VideoPlayer from "@/components/media/VideoPlayer";
 import HashtagText from "@/components/post/HashtagText";
 import PollCard from "@/components/post/PollCard";
+import PostOptionsSheet, {
+  type PostOption,
+  type PostOptionsSheetRef,
+} from "@/components/post/PostOptionsSheet";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import Avatar from "@/components/user/Avatar";
@@ -18,18 +23,19 @@ import { purchasePostBoost } from "@/lib/monetization/boostPost";
 import { generatePostLink } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Image,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  type AlertButton,
 } from "react-native";
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -43,7 +49,6 @@ interface QuotedPostPreview {
 
 interface PostCardProps {
   id: string;
-  title?: string;
   content: string;
   post_type?: "text" | "poll" | "image" | "video" | string;
   poll?: PollData;
@@ -68,7 +73,6 @@ interface PostCardProps {
   onCommentPress?: () => void;
   onSharePress?: () => void | Promise<void>;
   onSavePress?: () => void | Promise<void>;
-  getMoreActions?: () => AlertButton[];
   onVisible?: () => void;
 }
 
@@ -157,7 +161,6 @@ function QuotedPostCard({
 export default function PostCard(props: PostCardProps) {
   const {
     id,
-    title,
     content,
     post_type,
     poll,
@@ -180,7 +183,6 @@ export default function PostCard(props: PostCardProps) {
     boostedUntil = null,
     onLikePress,
     onSavePress,
-    getMoreActions,
     onVisible,
   } = props;
 
@@ -192,15 +194,25 @@ export default function PostCard(props: PostCardProps) {
   const markNotInterestedMutation = useMarkNotInterested();
 
   const [expanded, setExpanded] = useState(false);
+  const [optionsVisible, setOptionsVisible] = useState(false);
   const [isReposted, setIsReposted] = useState(isRepostedProp);
   const [repostCount, setRepostCount] = useState(reposts);
   const [isReposting, setIsReposting] = useState(false);
   const [shareCount, setShareCount] = useState(shares);
   const [isBoostingPost, setIsBoostingPost] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(0);
+  const [showHeart, setShowHeart] = useState(false);
+
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+
   const hasTrackedView = useRef(false);
+  const lastTap = useRef(0);
 
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
+  const postOptionsSheetRef = useRef<PostOptionsSheetRef>(null);
 
   const isOwned = !!user?.uid && user.uid === author.id;
 
@@ -237,6 +249,8 @@ export default function PostCard(props: PostCardProps) {
   const openPost = () => router.push(`/post/${id}` as any);
 
   const handleRepost = async () => {
+    await Haptics.selectionAsync();
+
     if (isReposting) return;
     setIsReposting(true);
     const prev = isReposted;
@@ -262,6 +276,59 @@ export default function PostCard(props: PostCardProps) {
     } catch {
       setShareCount(prev);
     }
+  };
+
+  const playHeartAnimation = () => {
+    setShowHeart(true);
+
+    heartScale.setValue(0.5);
+    heartOpacity.setValue(0);
+
+    Animated.parallel([
+      Animated.spring(heartScale, {
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.timing(heartOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      Animated.timing(heartOpacity, {
+        toValue: 0,
+        duration: 300,
+        delay: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowHeart(false);
+      });
+    });
+  };
+
+  const handleImageTap = async (index: number) => {
+    const now = Date.now();
+
+    if (now - lastTap.current < 300) {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      playHeartAnimation();
+
+      if (!isLiked) {
+        await onLikePress?.();
+      }
+    } else {
+      setSelectedImage(index);
+
+      setTimeout(async () => {
+        if (Date.now() - lastTap.current >= 300) {
+          await Haptics.selectionAsync();
+          setViewerVisible(true);
+        }
+      }, 300);
+    }
+
+    lastTap.current = now;
   };
 
   const handleQuoteRepost = () => {
@@ -308,6 +375,9 @@ export default function PostCard(props: PostCardProps) {
           onPress: async () => {
             setIsBoostingPost(true);
             try {
+              await Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              );
               const result = await purchasePostBoost(id);
               if (result.status === "success") {
                 Alert.alert(
@@ -327,52 +397,54 @@ export default function PostCard(props: PostCardProps) {
   };
 
   const handleMoreOptions = () => {
-    console.log("DELETE DEBUG (on tap):", {
-      postId: id,
-      userUid: user?.uid,
-      authorId: author.id,
-      isOwned,
+    setOptionsVisible(true);
+  };
+
+  const postOptions: PostOption[] = [
+    {
+      label: "View Post",
+      icon: "eye-outline",
+      onPress: openPost,
+    },
+    {
+      label: "Not interested",
+      icon: "thumbs-down-outline",
+      onPress: handleNotInterested,
+    },
+    {
+      label: isReposted ? "Undo Repost" : "Repost",
+      icon: "repeat-outline",
+      onPress: () => repostSheetRef.current?.present(),
+    },
+    {
+      label: " Share Post",
+      icon: "share-social-outline",
+      onPress: () => shareSheetRef.current?.present(),
+    },
+  ];
+
+  if (isOwned) {
+    postOptions.push({
+      label: hasActiveBoost ? "Boosted" : "Boost this post",
+      icon: "rocket-outline",
+      onPress: handleBoost,
+      disabled: hasActiveBoost,
     });
 
-    const buttons: AlertButton[] = [
-      { text: "View Post", onPress: openPost },
-      { text: "Not interested", onPress: handleNotInterested },
-      {
-        text: isReposted ? "Undo Repost" : "Repost",
-        onPress: () => (repostSheetRef.current as any)?.present(),
-      },
-      {
-        text: "Share Post",
-        onPress: () => (shareSheetRef.current as any)?.present(),
-      },
-    ];
-
-    if (isOwned) {
-      buttons.push({
-        text: hasActiveBoost ? "Boosted" : "Boost this post",
-        onPress: handleBoost,
-      });
-      buttons.push({
-        text: "Delete Post",
-        style: "destructive",
-        onPress: handleDelete,
-      });
-    } else {
-      buttons.push({
-        text: "Report Post",
-        style: "destructive",
-        onPress: () =>
-          Alert.alert("Report", "Reporting will be available soon."),
-      });
-    }
-
-    const extraButtons = getMoreActions?.() ?? [];
-    Alert.alert("Post Options", undefined, [
-      ...buttons,
-      ...extraButtons,
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
+    postOptions.push({
+      label: "Delete Post",
+      icon: "trash-outline",
+      onPress: handleDelete,
+      destructive: true,
+    });
+  } else {
+    postOptions.push({
+      label: "Report Post",
+      icon: "flag-outline",
+      onPress: () => Alert.alert("Report", "Reporting will be available soon."),
+      destructive: true,
+    });
+  }
 
   const isTruncated = !isPoll && content.length > 150;
   const displayContent =
@@ -388,16 +460,33 @@ export default function PostCard(props: PostCardProps) {
       return (
         <TouchableOpacity
           activeOpacity={0.9}
-          onPress={openPost}
+          onPress={() => handleImageTap(0)}
           style={styles.singleImageWrap}
           accessibilityRole="imagebutton"
           accessibilityLabel="Open post image"
         >
-          <Image
-            source={{ uri: imageUrls[0] }}
-            style={styles.singleImage}
-            resizeMode="cover"
-          />
+          <View style={{ flex: 1 }}>
+            <Image
+              source={{ uri: imageUrls[0] }}
+              style={styles.singleImage}
+              resizeMode="cover"
+            />
+
+            {showHeart && (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.likeAnimation,
+                  {
+                    opacity: heartOpacity,
+                    transform: [{ scale: heartScale }],
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={90} color="#FF375F" />
+              </Animated.View>
+            )}
+          </View>
         </TouchableOpacity>
       );
     }
@@ -407,7 +496,7 @@ export default function PostCard(props: PostCardProps) {
           <TouchableOpacity
             key={url + idx}
             activeOpacity={0.9}
-            onPress={openPost}
+            onPress={() => handleImageTap(idx)}
             style={[
               styles.gridCell,
               imageUrls.length === 2 && { width: "49%" },
@@ -492,24 +581,35 @@ export default function PostCard(props: PostCardProps) {
               accessibilityRole="button"
               accessibilityLabel={`View ${author.name}'s profile`}
             >
-              <Avatar size={36} name={author.name} image={author.avatar} />
+              <Avatar size={32} name={author.name} image={author.avatar} />
               <View style={styles.authorDetails}>
                 <Text style={[styles.authorName, { color: colors.text }]}>
                   {author.name}
                 </Text>
-                <Text
-                  style={[
-                    styles.authorUsername,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  @{author.username}
-                </Text>
-                {community && (
+
+                <View style={styles.userMeta}>
                   <Text
-                    style={[styles.community, { color: colors.textSecondary }]}
+                    style={[
+                      styles.authorUsername,
+                      { color: colors.textSecondary },
+                    ]}
                   >
-                    in {community.name}
+                    @{author.username}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.timestampInline,
+                      { color: colors.textTertiary },
+                    ]}
+                  >
+                    • {timestamp}
+                  </Text>
+                </View>
+
+                {community && (
+                  <Text style={[styles.community, { color: colors.primary }]}>
+                    {community.name}
                   </Text>
                 )}
               </View>
@@ -517,11 +617,8 @@ export default function PostCard(props: PostCardProps) {
           </Link>
 
           <View style={styles.headerRight}>
-            <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-              {timestamp}
-            </Text>
             <TouchableOpacity
-              onPress={handleMoreOptions}
+              onPress={() => postOptionsSheetRef.current?.present()}
               style={styles.moreButton}
               hitSlop={12}
               activeOpacity={0.8}
@@ -549,9 +646,7 @@ export default function PostCard(props: PostCardProps) {
                 <Text
                   style={[styles.pollQuestion, { color: colors.text }]}
                   numberOfLines={3}
-                >
-                  {title || content}
-                </Text>
+                ></Text>
               </TouchableOpacity>
               <PollCard
                 postId={id}
@@ -565,13 +660,6 @@ export default function PostCard(props: PostCardProps) {
             </>
           ) : (
             <>
-              {!!title && (
-                <TouchableOpacity activeOpacity={0.85} onPress={openPost}>
-                  <Text style={[styles.title, { color: colors.text }]}>
-                    {title}
-                  </Text>
-                </TouchableOpacity>
-              )}
               <HashtagText
                 text={displayContent}
                 style={StyleSheet.flatten([
@@ -655,20 +743,23 @@ export default function PostCard(props: PostCardProps) {
         <View style={styles.actions}>
           <Action
             icon={isLiked ? "heart" : "heart-outline"}
-            label="Like"
+            count={likes}
             color={isLiked ? "#FF375F" : colors.textSecondary}
-            onPress={() => void onLikePress?.()}
+            onPress={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              await onLikePress?.();
+            }}
             accessibilityState={{ selected: isLiked }}
           />
           <Action
             icon="chatbubble-outline"
-            label="Comment"
+            count={comments}
             color={colors.textSecondary}
             onPress={openPost}
           />
           <Action
             icon={isReposted ? "repeat" : "repeat-outline"}
-            label={isReposted ? "Reposted" : "Repost"}
+            count={repostCount}
             color={isReposted ? colors.primary : colors.textSecondary}
             disabled={isReposting}
             onPress={() => (repostSheetRef.current as any)?.present()}
@@ -676,15 +767,18 @@ export default function PostCard(props: PostCardProps) {
           />
           <Action
             icon="share-outline"
-            label="Share"
+            count={shareCount}
             color={colors.textSecondary}
             onPress={() => (shareSheetRef.current as any)?.present()}
           />
           <Action
             icon={isSaved ? "bookmark" : "bookmark-outline"}
-            label="Save"
+            count={saves}
             color={isSaved ? colors.primary : colors.textSecondary}
-            onPress={() => void onSavePress?.()}
+            onPress={async () => {
+              await Haptics.selectionAsync();
+              await onSavePress?.();
+            }}
             accessibilityState={{ selected: isSaved }}
           />
         </View>
@@ -704,6 +798,13 @@ export default function PostCard(props: PostCardProps) {
         text={content}
         shareMessage={`Check out this post on NebulaNet: ${content.slice(0, 100)}${content.length > 100 ? "..." : ""}`}
         onShared={handleShare}
+      />
+      <PostOptionsSheet ref={postOptionsSheetRef} options={postOptions} />
+      <ImageViewer
+        visible={viewerVisible}
+        images={imageUrls}
+        initialIndex={selectedImage}
+        onClose={() => setViewerVisible(false)}
       />
     </>
   );
@@ -732,17 +833,17 @@ function Stat({
 
 function Action({
   icon,
-  label,
+  count,
   color,
   disabled,
   onPress,
   accessibilityState,
 }: {
   icon: any;
-  label: string;
+  count?: number;
   color: string;
   disabled?: boolean;
-  onPress?: (e?: any) => void;
+  onPress?: () => void;
   accessibilityState?: { selected?: boolean };
 }) {
   return (
@@ -750,13 +851,14 @@ function Action({
       style={styles.actionButton}
       onPress={onPress}
       disabled={disabled}
-      activeOpacity={0.85}
-      accessibilityRole="button"
-      accessibilityLabel={label}
+      activeOpacity={0.8}
       accessibilityState={accessibilityState}
     >
       <Ionicons name={icon} size={22} color={color} />
-      <Text style={[styles.actionText, { color }]}>{label}</Text>
+
+      {count !== undefined && (
+        <Text style={[styles.actionCount, { color }]}>{count}</Text>
+      )}
     </TouchableOpacity>
   );
 }
@@ -764,8 +866,9 @@ function Action({
 const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 6,
     borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -801,9 +904,18 @@ const styles = StyleSheet.create({
   },
   authorInfo: { flexDirection: "row", flex: 1 },
   authorDetails: { marginLeft: 10, flex: 1 },
-  authorName: { fontSize: 15, fontWeight: "600" },
-  authorUsername: { fontSize: 13 },
-  community: { fontSize: 14, fontWeight: "500" },
+  authorName: { fontSize: 14, fontWeight: "700" },
+  authorUsername: { fontSize: 12 },
+  userMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  timestampInline: {
+    fontSize: 12,
+  },
+  community: { fontSize: 11 },
   headerRight: { alignItems: "flex-end" },
   timestamp: { fontSize: 12 },
   moreButton: { padding: 4 },
@@ -814,7 +926,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 23,
   },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   text: { fontSize: 15, lineHeight: 21 },
   readMore: { fontWeight: "500", marginTop: 4 },
   viewCount: { fontSize: 12, marginBottom: 8 },
@@ -861,8 +972,31 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 4,
   },
-  actionButton: { alignItems: "center", padding: 4 },
-  actionText: { fontSize: 11, marginTop: 8 },
+  actionButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    paddingVertical: 6,
+  },
+
+  actionCount: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  likeAnimation: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -48,
+    marginTop: -48,
+  },
+
+  heartOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
 
 const quotedStyles = StyleSheet.create({

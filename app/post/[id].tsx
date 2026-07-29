@@ -1,69 +1,31 @@
-// app/post/viewer.tsx
-// Swipeable post viewer: opens to a tapped post's index within a given
-// list of post IDs (e.g. the Explore Discover grid, or a profile's Media
-// grid) and lets the user swipe left/right to move through the REST OF
-// THAT SAME LIST, instead of tap -> view -> back -> tap-next like the
-// grid previously forced. Matches Twitter's pattern for tapping into a
-// media grid: full post card per page (content, actions, etc.), not a
-// stripped media-only lightbox.
-//
-// Navigation contract:
-//   router.push({
-//     pathname: "/post/viewer",
-//     params: {
-//       postIds: JSON.stringify(["id1", "id2", "id3"]),
-//       initialIndex: "2",
-//     },
-//   })
-//
-// Comments are collapsed by default per page (tap "View comments" to
-// expand) — avoids firing a Firestore comments query for every page
-// FlatList keeps mounted in its render window while the user swipes
-// quickly through a large grid.
-//
-// ✅ NEW: delete comment — own comments show a trash icon (mirrors the
-// like button's placement/style). Deleting doesn't attempt to swap in
-// the real nested-reply CommentRow component used on app/post/[id].tsx —
-// this screen's comments have always been rendered as a flat top-3-then-
-// "show more" list with no reply threading, so a flat delete matches
-// what's already here rather than a bigger restructure.
-
-import VideoPlayer from "@/components/media/VideoPlayer";
-import MentionHashtagText from "@/components/MentionHashtagText";
-import MediaGallery from "@/components/post/MediaGallery";
+// app/post/[id].tsx
+import CommentRow from "@/components/post/CommentRow";
 import PollCard from "@/components/post/PollCard";
-import PostOptionsSheet, {
-  type PostOption,
-} from "@/components/post/PostOptionsSheet";
 import RepostSheet, { type RepostSheetRef } from "@/components/RepostSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
-import { PostCardSkeleton } from "@/components/Skeleton";
+import Avatar from "@/components/user/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  postKeys,
   useAddComment,
   useComments,
   useDeleteComment,
+  useDeletePost,
   usePost,
   useToggleBookmark,
   useToggleCommentLike,
   useToggleLike,
+  useToggleRepost,
   type CommentWithAuthor,
 } from "@/hooks/usePosts";
-import { useOptimisticSharePost } from "@/hooks/useShares";
-import { db } from "@/lib/firebase";
-import { getRepostStatus, toggleRepost } from "@/lib/firestore/reposts";
+import { generatePostLink } from "@/lib/share";
 import { useTheme } from "@/providers/ThemeProvider";
 import { formatDate } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
-import { useQueryClient } from "@tanstack/react-query";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  Dimensions,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -76,14 +38,11 @@ import {
   TouchableOpacity,
   View,
   type AlertButton,
-  type ViewToken,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-
-const { width: SCREEN_W } = Dimensions.get("window");
 
 function coerceParamToString(v: unknown): string | null {
   if (typeof v === "string" && v.trim().length) return v;
@@ -92,122 +51,150 @@ function coerceParamToString(v: unknown): string | null {
   return null;
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-function Avatar({
-  uri,
-  name,
-  size,
-  fallbackColor,
-}: {
-  uri?: string | null;
-  name: string;
-  size: number;
-  fallbackColor?: string;
-}) {
-  if (uri)
-    return (
-      <Image
-        source={{ uri }}
-        style={{ width: size, height: size, borderRadius: size / 2 }}
-      />
-    );
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: fallbackColor ?? "#7C3AED",
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <Text
-        style={{ color: "#fff", fontSize: size * 0.36, fontWeight: "bold" }}
-      >
-        {getInitials(name || "?")}
-      </Text>
-    </View>
+const isVideoUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return ["mp4", "mov", "m4v", "webm", "mkv", "avi"].some((e) =>
+    clean.endsWith(`.${e}`),
   );
+};
+
+function findCommentById(
+  comments: CommentWithAuthor[],
+  id: string,
+): CommentWithAuthor | null {
+  for (const c of comments) {
+    if (c.id === id) return c;
+    if (c.replies?.length) {
+      const found = findCommentById(c.replies, id);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
-function PostViewerPage({
-  postId,
-  isActive,
-  onRequestClose,
-}: {
-  postId: string;
-  isActive: boolean;
-  onRequestClose: () => void;
-}) {
-  const { user, profile } = useAuth();
+export default function PostDetailScreen() {
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const postId = coerceParamToString(params.id);
+
+  const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const { bottom: bottomInset } = useSafeAreaInsets();
-  const qc = useQueryClient();
 
   const [comment, setComment] = useState("");
-  const [commentsExpanded, setCommentsExpanded] = useState(false);
-  const [showAllComments, setShowAllComments] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<CommentWithAuthor | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
-  const [optionsVisible, setOptionsVisible] = useState(false);
-  const [shareCount, setShareCount] = useState(0);
-  const [repostStatusChecked, setRepostStatusChecked] = useState(false);
+  const [repostCount, setRepostCount] = useState(0);
+  const [isReposting, setIsReposting] = useState(false);
 
   const commentInputRef = useRef<TextInput>(null);
   const repostSheetRef = useRef<RepostSheetRef>(null);
   const shareSheetRef = useRef<ShareSheetRef>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const { data: post, isLoading: isLoadingPost } = usePost(postId);
+  const {
+    data: post,
+    isLoading: isLoadingPost,
+    isError: isPostError,
+  } = usePost(postId ?? "");
   const { data: comments = [], isLoading: isLoadingComments } = useComments(
-    commentsExpanded ? postId! : undefined,
+    postId ?? undefined,
   );
+
   const toggleLikeMutation = useToggleLike();
   const toggleBookmarkMutation = useToggleBookmark();
+  const toggleRepostMutation = useToggleRepost();
   const addCommentMutation = useAddComment();
   const toggleCommentLikeMutation = useToggleCommentLike();
   const deleteCommentMutation = useDeleteComment();
-  const sharePostMutation = useOptimisticSharePost();
+  const deletePostMutation = useDeletePost();
 
-  const displayedComments = useMemo(
-    () => (showAllComments ? comments : comments.slice(0, 3)),
-    [showAllComments, comments],
-  );
+  const viewerId = user?.uid;
+  const isOwner = !!post?.user_id && !!viewerId && post.user_id === viewerId;
 
-  const viewerId = useMemo(() => {
-    const u = user as any;
-    return (u?.uid as string | undefined) || (u?.id as string | undefined);
-  }, [user]);
-
-  const isOwner = useMemo(
-    () => !!post?.user_id && !!viewerId && post.user_id === viewerId,
-    [post?.user_id, viewerId],
-  );
-
-  React.useEffect(() => {
-    if (isActive && post?.id && !repostStatusChecked) {
-      getRepostStatus(post.id).then((status) => {
-        setIsReposted(status);
-        setRepostStatusChecked(true);
-      });
+  useEffect(() => {
+    if (post) {
+      setIsReposted(!!post.is_reposted);
+      setRepostCount(post.repost_count ?? 0);
     }
-  }, [isActive, post?.id, repostStatusChecked]);
+  }, [post?.id, post?.is_reposted, post?.repost_count]);
 
-  React.useEffect(() => {
-    if (post?.share_count !== undefined) {
-      setShareCount(post.share_count);
-    }
-  }, [post?.share_count]);
+  if (!postId) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <View style={styles.centeredBox}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={64}
+            color={colors.border}
+          />
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+            No post specified
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
+          >
+            <Text style={styles.pillBtnText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isLoadingPost) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <Header title="Post" onBack={() => router.back()} colors={colors} />
+        <View style={styles.centeredBox}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isPostError || !post) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <Header title="Post" onBack={() => router.back()} colors={colors} />
+        <View style={styles.centeredBox}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={64}
+            color={colors.border}
+          />
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>
+            This post couldn't be found
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.pillBtn, { backgroundColor: colors.primary }]}
+          >
+            <Text style={styles.pillBtnText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const authorName =
+    post.user?.full_name?.trim() || post.user?.username?.trim() || "User";
+  const isTruncated = (post.content?.length ?? 0) > 280;
+  const displayContent =
+    expanded || !isTruncated ? post.content : `${post.content.slice(0, 280)}…`;
+  const isPoll = post.post_type === "poll" && !!(post as any).poll;
+
+  const safeMedia: string[] = Array.isArray(post.media_urls)
+    ? post.media_urls
+    : [];
+  const imageUrls = safeMedia.filter((url) => !isVideoUrl(url));
 
   const handleLike = async () => {
     if (!post) return;
@@ -234,45 +221,43 @@ function PostViewerPage({
   };
 
   const handleRepost = async () => {
-    if (!post) return;
+    if (isReposting) return;
+    setIsReposting(true);
+    const prev = isReposted;
+    const prevCount = repostCount;
+    setIsReposted(!prev);
+    setRepostCount(prev ? Math.max(0, prevCount - 1) : prevCount + 1);
     try {
-      const newStatus = await toggleRepost(post.id, isReposted);
-      setIsReposted(newStatus);
-      qc.invalidateQueries({ queryKey: postKeys.detail(post.id) });
-      qc.invalidateQueries({ queryKey: postKeys.lists() });
-      qc.invalidateQueries({ queryKey: ["my-reposts"] });
-    } catch (e: any) {
-      Alert.alert(
-        "Error",
-        `${e?.code ?? ""} ${e?.message ?? "Failed to repost"}`,
-      );
+      await toggleRepostMutation.mutateAsync({
+        postId: post.id,
+        isReposted: prev,
+      });
+    } catch {
+      setIsReposted(prev);
+      setRepostCount(prevCount);
+      Alert.alert("Error", "Could not repost. Please try again.");
+    } finally {
+      setIsReposting(false);
     }
   };
 
   const handleQuoteRepost = () => {
-    if (!post) return;
-    router.push(`/create/quote?postId=${post.id}` as any);
-  };
-
-  const handleShareComplete = async () => {
-    if (!post) return;
-    const prev = shareCount;
-    setShareCount((c) => c + 1);
-    try {
-      await sharePostMutation.mutateAsync(post.id);
-    } catch {
-      setShareCount(prev);
-    }
+    router.push({
+      pathname: "/create/post",
+      params: { quotePostId: post.id },
+    } as any);
   };
 
   const handlePostComment = async () => {
-    if (!comment.trim() || !post) return;
+    if (!comment.trim()) return;
     try {
       await addCommentMutation.mutateAsync({
         post_id: post.id,
         content: comment.trim(),
+        parent_id: replyingTo?.id ?? null,
       });
       setComment("");
+      setReplyingTo(null);
       setTimeout(
         () => scrollViewRef.current?.scrollToEnd({ animated: true }),
         150,
@@ -282,661 +267,398 @@ function PostViewerPage({
     }
   };
 
-  const handleCommentLike = async (commentId: string) => {
-    if (!post) return;
-    const c = comments.find((x: CommentWithAuthor) => x.id === commentId);
-    if (!c) return;
-    try {
-      await toggleCommentLikeMutation.mutateAsync({
-        commentId,
-        postId: post.id,
-        isLiked: !!c.user_has_liked,
-      });
-    } catch {
-      Alert.alert("Error", "Failed to update comment like");
-    }
+  const handleCommentLike = (commentId: string) => {
+    const target = findCommentById(comments, commentId);
+    if (!target) return;
+    toggleCommentLikeMutation.mutate({
+      postId: post.id,
+      commentId,
+      isLiked: target.user_has_liked,
+    });
   };
 
-  // ✅ NEW: only the comment's own author sees this — confirm, then
-  // delete via useDeleteComment (handles cache + comment_count itself).
-  const handleDeleteComment = (commentId: string) => {
-    if (!post) return;
-    Alert.alert("Delete comment?", "This cannot be undone.", [
+  const handleCommentReply = (target: CommentWithAuthor) => {
+    setReplyingTo(target);
+    commentInputRef.current?.focus();
+  };
+
+  const handleCommentDelete = (commentId: string) => {
+    deleteCommentMutation.mutate({ postId: post.id, commentId });
+  };
+
+  const handleDeletePost = () => {
+    Alert.alert("Delete post?", "This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
-        onPress: () =>
-          deleteCommentMutation.mutate({ postId: post.id, commentId }),
+        onPress: () => {
+          deletePostMutation.mutate(post.id);
+          router.back();
+        },
       },
     ]);
   };
 
-  const doDelete = async () => {
-    if (!post) return;
-    setIsDeleting(true);
-    try {
-      if (!viewerId) throw new Error("Not logged in");
-      const ref = db.collection("posts").doc(post.id);
-      const snap = await ref.get();
-      if (!snap.exists) throw new Error("Post not found");
-      const data: any = snap.data();
-      if (data?.user_id && data.user_id !== viewerId)
-        throw new Error("You can only delete your own post");
-      await ref.delete();
-      Alert.alert("Deleted", "Your post was deleted.", [
-        { text: "OK", onPress: onRequestClose },
-      ]);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to delete post");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const confirmDelete = () => {
-    Alert.alert("Delete post?", "This will permanently delete your post.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: doDelete },
-    ] as AlertButton[]);
-  };
-
-  const postOptions = useMemo((): PostOption[] => {
-    const opts: PostOption[] = [];
-    opts.push({
-      label: isReposted ? "Undo Repost" : "Repost",
-      icon: "repeat-outline",
-      onPress: () => (repostSheetRef.current as any)?.present(),
-    });
-    opts.push({
-      label: "Share",
-      icon: "arrow-redo-outline",
-      onPress: () => (shareSheetRef.current as any)?.present(),
-    });
+  const handleMoreOptions = () => {
+    const buttons: AlertButton[] = [
+      {
+        text: isReposted ? "Undo Repost" : "Repost",
+        onPress: () => (repostSheetRef.current as any)?.present(),
+      },
+      {
+        text: "Share Post",
+        onPress: () => (shareSheetRef.current as any)?.present(),
+      },
+    ];
     if (isOwner) {
-      opts.push({
-        label: isDeleting ? "Deleting…" : "Delete Post",
-        icon: "trash-outline",
-        destructive: true,
-        disabled: isDeleting,
-        onPress: confirmDelete,
+      buttons.push({
+        text: "Delete Post",
+        style: "destructive",
+        onPress: handleDeletePost,
       });
     } else {
-      opts.push({
-        label: "Report",
-        icon: "flag-outline",
-        destructive: true,
-        onPress: () => {},
+      buttons.push({
+        text: "Report Post",
+        style: "destructive",
+        onPress: () =>
+          Alert.alert("Report", "Reporting will be available soon."),
       });
     }
-    return opts;
-  }, [isOwner, isDeleting, isReposted]);
-
-  if (isLoadingPost || !post) {
-    return (
-      <View style={{ width: SCREEN_W }}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <PostCardSkeleton />
-        </ScrollView>
-      </View>
-    );
-  }
-
-  const isPoll = (post as any)?.post_type === "poll";
-  const hasMedia = (post.media_urls?.length ?? 0) > 0;
-  const isVideo =
-    typeof post.media_urls?.[0] === "string" &&
-    /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(post.media_urls[0].split("?")[0]);
-  const postAuthorName =
-    post.user?.full_name?.trim() || post.user?.username?.trim() || "Unknown";
+    Alert.alert("Post Options", undefined, [
+      ...buttons,
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
 
   return (
-    <View style={{ width: SCREEN_W, flex: 1 }}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={["top", "left", "right"]}
       >
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <Header title="Post" onBack={() => router.back()} colors={colors}>
+          <TouchableOpacity
+            onPress={handleMoreOptions}
+            style={styles.headerBtn}
+            hitSlop={12}
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color={colors.text}
+            />
+          </TouchableOpacity>
+        </Header>
+
         <ScrollView
           ref={scrollViewRef}
-          style={styles.flex}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          scrollEventThrottle={16}
         >
+          {/* Post card */}
           <View
             style={[
               styles.postCard,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.06,
-              },
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <Pressable
-              style={styles.authorRow}
-              onPress={() =>
-                post.user_id
-                  ? router.push(`/user/${post.user_id}` as any)
-                  : undefined
-              }
-            >
-              <Avatar
-                uri={post.user?.avatar_url}
-                name={postAuthorName}
-                size={44}
-                fallbackColor={colors.primary}
-              />
-              <View style={styles.authorInfo}>
-                <Text style={[styles.authorName, { color: colors.text }]}>
-                  {postAuthorName}
-                </Text>
-                {post.user?.username && (
-                  <Text
-                    style={[
-                      styles.authorUsername,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    @{post.user.username}
-                  </Text>
-                )}
-              </View>
-              <Text style={[styles.timestamp, { color: colors.textTertiary }]}>
-                {formatDate(post.created_at)}
-              </Text>
-            </Pressable>
-
-            {post.community && (
-              <Pressable
-                style={[
-                  styles.communityBadge,
-                  { backgroundColor: colors.primary + "18" },
-                ]}
-                onPress={() =>
-                  router.push(`/community/${post.community!.slug}` as any)
-                }
+            <View style={styles.authorRow}>
+              <TouchableOpacity
+                onPress={() => router.push(`/user/${post.user_id}` as any)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  flex: 1,
+                  gap: 10,
+                }}
+                activeOpacity={0.85}
               >
-                <Ionicons name="people" size={13} color={colors.primary} />
-                <Text style={[styles.communityText, { color: colors.primary }]}>
-                  {post.community.name}
-                </Text>
-              </Pressable>
-            )}
+                <Avatar
+                  size={44}
+                  name={authorName}
+                  image={post.user?.avatar_url}
+                />
+                <View style={styles.authorInfo}>
+                  <Text style={[styles.authorName, { color: colors.text }]}>
+                    {authorName}
+                  </Text>
+                  {!!post.user?.username && (
+                    <Text
+                      style={[
+                        styles.authorUsername,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      @{post.user.username}
+                    </Text>
+                  )}
+                  {!!post.community && (
+                    <Text
+                      style={[
+                        styles.community,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      in {post.community}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
 
-            {!!post.title && !isPoll && (
+            {!!post.title && (
               <Text style={[styles.postTitle, { color: colors.text }]}>
                 {post.title}
               </Text>
             )}
-            {isPoll && (
-              <Text style={[styles.pollQuestion, { color: colors.text }]}>
-                {post.title || post.content}
-              </Text>
-            )}
-            {!isPoll && !!post.content && (
-              <MentionHashtagText
-                content={post.content ?? ""}
-                style={[styles.postBody, { color: colors.textSecondary }]}
-                hashtagColor="#7c3aed"
-              />
-            )}
-            {isPoll && (post as any).poll && (
+
+            {isPoll ? (
               <PollCard
                 postId={post.id}
                 poll={(post as any).poll}
                 accentColor={colors.primary}
                 textColor={colors.text}
-                subColor={colors.textTertiary}
+                subColor={colors.textSecondary}
                 cardBg={colors.surface}
                 borderColor={colors.border}
               />
+            ) : (
+              <>
+                <Text style={[styles.postBody, { color: colors.text }]}>
+                  {displayContent}
+                </Text>
+                {isTruncated && (
+                  <Text
+                    style={[styles.readMore, { color: colors.primary }]}
+                    onPress={() => setExpanded((v) => !v)}
+                  >
+                    {expanded ? "Show less" : "Read more"}
+                  </Text>
+                )}
+              </>
             )}
-            {hasMedia &&
-              !isPoll &&
-              (isVideo ? (
-                <VideoPlayer
-                  uri={post.media_urls![0]}
-                  style={{ height: 280, borderRadius: 14, marginTop: 12 }}
-                />
-              ) : (
-                <MediaGallery media={post.media_urls} />
-              ))}
+
+            {imageUrls.length > 0 && (
+              <View style={{ marginTop: 10, gap: 6 }}>
+                {imageUrls.map((url, idx) => (
+                  <Image
+                    key={url + idx}
+                    source={{ uri: url }}
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                ))}
+              </View>
+            )}
+
+            <Text
+              style={[
+                styles.timestamp,
+                { color: colors.textTertiary, marginTop: 10 },
+              ]}
+            >
+              {formatDate(post.created_at)}
+            </Text>
           </View>
 
+          {/* Stats + actions card */}
           <View
             style={[
               styles.statsCard,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.06,
-              },
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <View style={styles.statsRow}>
-              {[
-                { val: post.like_count ?? 0, label: "like" },
-                { val: post.comment_count ?? 0, label: "comment" },
-                { val: (post as any).repost_count ?? 0, label: "repost" },
-                { val: shareCount, label: "share" },
-              ].map(({ val, label }) => (
-                <Text
-                  key={label}
-                  style={[styles.statText, { color: colors.textSecondary }]}
-                >
-                  <Text style={[styles.statNum, { color: colors.text }]}>
-                    {val.toLocaleString()}
-                  </Text>{" "}
-                  {val === 1 ? label : `${label}s`}
-                </Text>
-              ))}
+            <View style={[styles.statsRow, { borderColor: colors.border }]}>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
+                  {post.like_count}
+                </Text>{" "}
+                Likes
+              </Text>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
+                  {post.comment_count}
+                </Text>{" "}
+                Comments
+              </Text>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
+                  {repostCount}
+                </Text>{" "}
+                Reposts
+              </Text>
+              <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                <Text style={[styles.statNum, { color: colors.text }]}>
+                  {post.save_count}
+                </Text>{" "}
+                Saves
+              </Text>
             </View>
 
-            <View style={[styles.actionRow, { borderTopColor: colors.border }]}>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={handleLike}
-                activeOpacity={0.75}
-              >
+            <View style={[styles.actionRow, { borderColor: colors.border }]}>
+              <TouchableOpacity style={styles.actionBtn} onPress={handleLike}>
                 <Ionicons
                   name={post.is_liked ? "heart" : "heart-outline"}
-                  size={22}
-                  color={post.is_liked ? colors.like : colors.textSecondary}
+                  size={24}
+                  color={post.is_liked ? "#FF375F" : colors.textSecondary}
                 />
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      color: post.is_liked ? colors.like : colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Like
-                </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.actionBtn}
-                onPress={() => {
-                  setCommentsExpanded(true);
-                  setTimeout(() => {
-                    commentInputRef.current?.focus();
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
-                activeOpacity={0.75}
+                onPress={() => commentInputRef.current?.focus()}
               >
                 <Ionicons
                   name="chatbubble-outline"
                   size={22}
                   color={colors.textSecondary}
                 />
-                <Text
-                  style={[styles.actionLabel, { color: colors.textSecondary }]}
-                >
-                  Comment
-                </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={() => (repostSheetRef.current as any)?.present()}
-                activeOpacity={0.75}
+                disabled={isReposting}
               >
                 <Ionicons
                   name={isReposted ? "repeat" : "repeat-outline"}
-                  size={22}
+                  size={24}
                   color={isReposted ? colors.primary : colors.textSecondary}
                 />
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      color: isReposted ? colors.primary : colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Repost
-                </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={() => (shareSheetRef.current as any)?.present()}
-                activeOpacity={0.75}
               >
                 <Ionicons
-                  name="arrow-redo-outline"
+                  name="share-outline"
                   size={22}
                   color={colors.textSecondary}
                 />
-                <Text
-                  style={[styles.actionLabel, { color: colors.textSecondary }]}
-                >
-                  Share
-                </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={handleBookmark}
-                activeOpacity={0.75}
               >
                 <Ionicons
                   name={post.is_saved ? "bookmark" : "bookmark-outline"}
                   size={22}
-                  color={post.is_saved ? colors.save : colors.textSecondary}
+                  color={post.is_saved ? colors.primary : colors.textSecondary}
                 />
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      color: post.is_saved ? colors.save : colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Save
-                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
+          {/* Comments */}
           <View
             style={[
               styles.commentsSection,
-              {
-                backgroundColor: colors.card,
-                shadowOpacity: isDark ? 0.25 : 0.05,
-              },
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            {!commentsExpanded ? (
-              <TouchableOpacity
-                style={styles.viewCommentsBtn}
-                onPress={() => setCommentsExpanded(true)}
-                activeOpacity={0.85}
-              >
+            <Text style={[styles.commentsSectionTitle, { color: colors.text }]}>
+              Comments
+            </Text>
+
+            {isLoadingComments ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : comments.length === 0 ? (
+              <View style={styles.noComments}>
                 <Ionicons
                   name="chatbubble-outline"
-                  size={16}
-                  color={colors.primary}
+                  size={32}
+                  color={colors.textTertiary}
                 />
                 <Text
-                  style={[styles.viewCommentsText, { color: colors.primary }]}
+                  style={[
+                    styles.noCommentsText,
+                    { color: colors.textSecondary },
+                  ]}
                 >
-                  {(post.comment_count ?? 0) > 0
-                    ? `View ${post.comment_count} comment${post.comment_count === 1 ? "" : "s"}`
-                    : "View comments"}
+                  No comments yet — be the first to reply
                 </Text>
-              </TouchableOpacity>
+              </View>
             ) : (
-              <>
-                <Text
-                  style={[styles.commentsSectionTitle, { color: colors.text }]}
-                >
-                  Comments
-                  {comments.length > 0 && (
-                    <Text
-                      style={{ color: colors.textTertiary, fontWeight: "600" }}
-                    >
-                      {" "}
-                      ({comments.length})
-                    </Text>
-                  )}
-                </Text>
-
-                {isLoadingComments ? (
-                  <View style={styles.commentsLoading}>
-                    {Array(3)
-                      .fill(null)
-                      .map((_, i) => (
-                        <View key={i} style={styles.commentSkeletonRow}>
-                          <View
-                            style={[
-                              styles.commentSkeletonAvatar,
-                              { backgroundColor: colors.border },
-                            ]}
-                          />
-                          <View style={styles.commentSkeletonLines}>
-                            <View
-                              style={[
-                                styles.commentSkeletonName,
-                                { backgroundColor: colors.border },
-                              ]}
-                            />
-                            <View
-                              style={[
-                                styles.commentSkeletonBody,
-                                { backgroundColor: colors.border },
-                              ]}
-                            />
-                          </View>
-                        </View>
-                      ))}
-                  </View>
-                ) : comments.length === 0 ? (
-                  <View style={styles.noComments}>
-                    <Ionicons
-                      name="chatbubble-outline"
-                      size={32}
-                      color={colors.border}
-                    />
-                    <Text
-                      style={[
-                        styles.noCommentsText,
-                        { color: colors.textTertiary },
-                      ]}
-                    >
-                      No comments yet. Be first!
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    {displayedComments.map(
-                      (c: CommentWithAuthor, idx: number) => {
-                        const authorName =
-                          c.author?.full_name?.trim() ||
-                          c.author?.username?.trim() ||
-                          "User";
-                        // ✅ NEW — only this comment's own author sees
-                        // the delete icon.
-                        const isCommentOwner =
-                          !!viewerId && c.user_id === viewerId;
-                        return (
-                          <View
-                            key={c.id}
-                            style={[
-                              styles.commentRow,
-                              idx !== 0 && [
-                                styles.commentBorder,
-                                { borderTopColor: colors.border },
-                              ],
-                            ]}
-                          >
-                            <Avatar
-                              uri={c.author?.avatar_url}
-                              name={authorName}
-                              size={34}
-                              fallbackColor={colors.primary}
-                            />
-                            <View style={styles.commentBody}>
-                              <View style={styles.commentHeader}>
-                                <Text
-                                  style={[
-                                    styles.commentAuthor,
-                                    { color: colors.text },
-                                  ]}
-                                >
-                                  {authorName}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.commentTime,
-                                    { color: colors.textTertiary },
-                                  ]}
-                                >
-                                  {formatDate(c.created_at)}
-                                </Text>
-                              </View>
-                              <MentionHashtagText
-                                content={c.content ?? ""}
-                                style={StyleSheet.flatten([
-                                  styles.commentText,
-                                  { color: colors.textSecondary },
-                                ])}
-                                hashtagColor="#7c3aed"
-                              />
-                              <View style={styles.commentActionsRow}>
-                                <TouchableOpacity
-                                  style={styles.commentLikeBtn}
-                                  onPress={() => handleCommentLike(c.id)}
-                                  activeOpacity={0.75}
-                                >
-                                  <Ionicons
-                                    name={
-                                      c.user_has_liked
-                                        ? "heart"
-                                        : "heart-outline"
-                                    }
-                                    size={14}
-                                    color={
-                                      c.user_has_liked
-                                        ? colors.like
-                                        : colors.textTertiary
-                                    }
-                                  />
-                                  {(c.likes_count ?? 0) > 0 && (
-                                    <Text
-                                      style={[
-                                        styles.commentLikeCount,
-                                        { color: colors.textTertiary },
-                                      ]}
-                                    >
-                                      {c.likes_count}
-                                    </Text>
-                                  )}
-                                </TouchableOpacity>
-
-                                {isCommentOwner && (
-                                  <TouchableOpacity
-                                    style={styles.commentDeleteBtn}
-                                    onPress={() => handleDeleteComment(c.id)}
-                                    activeOpacity={0.75}
-                                  >
-                                    <Ionicons
-                                      name="trash-outline"
-                                      size={13}
-                                      color={colors.textTertiary}
-                                    />
-                                  </TouchableOpacity>
-                                )}
-                              </View>
-                            </View>
-                          </View>
-                        );
-                      },
-                    )}
-                    {comments.length > 3 && (
-                      <TouchableOpacity
-                        style={styles.showMoreBtn}
-                        onPress={() => setShowAllComments((v) => !v)}
-                        activeOpacity={0.85}
-                      >
-                        <Text
-                          style={[
-                            styles.showMoreText,
-                            { color: colors.primary },
-                          ]}
-                        >
-                          {showAllComments
-                            ? "Show less"
-                            : `Show ${comments.length - 3} more comment${comments.length - 3 === 1 ? "" : "s"}`}
-                        </Text>
-                        <Ionicons
-                          name={showAllComments ? "chevron-up" : "chevron-down"}
-                          size={14}
-                          color={colors.primary}
-                        />
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )}
-              </>
+              comments.map((c) => (
+                <CommentRow
+                  key={c.id}
+                  comment={c}
+                  colors={colors}
+                  formatDate={formatDate}
+                  onLike={handleCommentLike}
+                  onReply={handleCommentReply}
+                  onDelete={handleCommentDelete}
+                  currentUserId={viewerId}
+                />
+              ))
             )}
           </View>
-
-          <View style={{ height: 80 }} />
         </ScrollView>
 
-        {commentsExpanded && (
+        {/* Composer */}
+        <View
+          style={[
+            styles.commentInputBarWrap,
+            { paddingBottom: Math.max(bottomInset, 10) },
+          ]}
+        >
+          {replyingTo && (
+            <View
+              style={[styles.replyingBanner, { borderColor: colors.border }]}
+            >
+              <Text
+                style={[styles.replyingText, { color: colors.textSecondary }]}
+              >
+                Replying to{" "}
+                {replyingTo.author?.full_name ||
+                  replyingTo.author?.username ||
+                  "User"}
+              </Text>
+              <Pressable onPress={() => setReplyingTo(null)} hitSlop={8}>
+                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+          )}
           <View
             style={[
               styles.commentInputBar,
-              {
-                backgroundColor: colors.card,
-                borderTopColor: colors.border,
-                paddingBottom: bottomInset > 0 ? bottomInset : 12,
-              },
+              { borderColor: colors.border, backgroundColor: colors.card },
             ]}
           >
-            <Avatar
-              uri={profile?.avatar_url}
-              name={
-                profile?.full_name || profile?.username || user?.email || "Me"
-              }
-              size={32}
-              fallbackColor={colors.primary}
-            />
             <TextInput
               ref={commentInputRef}
-              style={[
-                styles.commentInput,
-                {
-                  backgroundColor: colors.inputBackground,
-                  borderColor: colors.border,
-                  color: colors.text,
-                },
-              ]}
-              placeholder="Write a comment…"
-              placeholderTextColor={colors.placeholder}
               value={comment}
               onChangeText={setComment}
+              placeholder="Add a comment..."
+              placeholderTextColor={colors.textTertiary}
+              style={[
+                styles.commentInput,
+                { color: colors.text, borderColor: colors.border },
+              ]}
               multiline
-              maxLength={500}
-              returnKeyType="send"
-              onSubmitEditing={handlePostComment}
-              onFocus={() =>
-                setTimeout(
-                  () => scrollViewRef.current?.scrollToEnd({ animated: true }),
-                  450,
-                )
-              }
             />
             <TouchableOpacity
+              onPress={handlePostComment}
+              disabled={!comment.trim() || addCommentMutation.isPending}
               style={[
                 styles.sendBtn,
-                { backgroundColor: colors.primary + "20" },
+                { backgroundColor: colors.primary },
                 (!comment.trim() || addCommentMutation.isPending) &&
                   styles.sendBtnDisabled,
               ]}
-              onPress={handlePostComment}
-              disabled={!comment.trim() || addCommentMutation.isPending}
-              activeOpacity={0.85}
             >
-              <Ionicons
-                name="send"
-                size={18}
-                color={
-                  comment.trim() && !addCommentMutation.isPending
-                    ? colors.primary
-                    : colors.border
-                }
-              />
+              {addCommentMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="arrow-up" size={18} color="#fff" />
+              )}
             </TouchableOpacity>
           </View>
-        )}
-      </KeyboardAvoidingView>
+        </View>
+      </SafeAreaView>
 
       <RepostSheet
         ref={repostSheetRef}
@@ -948,192 +670,53 @@ function PostViewerPage({
       <ShareSheet
         ref={shareSheetRef}
         title="Share Post"
-        url={`https://nebulanet.space/post/${post.id}`}
+        url={generatePostLink(post.id)}
         text={post.content}
-        shareMessage="Check out this post on NebulaNet!"
-        onShared={handleShareComplete}
+        shareMessage={`Check out this post on NebulaNet: ${post.content.slice(0, 100)}${
+          post.content.length > 100 ? "..." : ""
+        }`}
       />
-      <PostOptionsSheet
-        visible={optionsVisible}
-        onClose={() => setOptionsVisible(false)}
-        options={postOptions}
-      />
+    </KeyboardAvoidingView>
+  );
+}
+
+function Header({
+  title,
+  onBack,
+  colors,
+  children,
+}: {
+  title: string;
+  onBack: () => void;
+  colors: any;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={[styles.header, { borderColor: colors.border }]}>
+      <TouchableOpacity onPress={onBack} style={styles.headerBtn} hitSlop={12}>
+        <Ionicons name="arrow-back" size={22} color={colors.text} />
+      </TouchableOpacity>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>{title}</Text>
+      <View style={styles.headerBtn}>{children}</View>
     </View>
   );
 }
 
-export default function PostViewerScreen() {
-  const params = useLocalSearchParams();
-  const { colors, isDark } = useTheme();
-
-  const postIds = useMemo((): string[] => {
-    const raw = coerceParamToString((params as any)?.postIds);
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? parsed.filter((x) => typeof x === "string")
-        : [];
-    } catch {
-      return [];
-    }
-  }, [params]);
-
-  const initialIndex = useMemo(() => {
-    const raw = coerceParamToString((params as any)?.initialIndex);
-    const n = raw ? parseInt(raw, 10) : 0;
-    return Number.isFinite(n) && n >= 0 && n < postIds.length ? n : 0;
-  }, [params, postIds.length]);
-
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
-  const listRef = useRef<FlatList<string>>(null);
-
-  const gradientColors = isDark
-    ? [colors.background, colors.background, colors.background]
-    : (["#DCEBFF", "#EEF4FF", "#FFFFFF"] as const);
-
-  const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      const first = viewableItems[0];
-      if (first?.index != null) setActiveIndex(first.index);
-    },
-  ).current;
-
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-
-  const getItemLayout = useCallback(
-    (_: any, index: number) => ({
-      length: SCREEN_W,
-      offset: SCREEN_W * index,
-      index,
-    }),
-    [],
-  );
-
-  const renderItem = useCallback(
-    ({ item, index }: { item: string; index: number }) => (
-      <PostViewerPage
-        postId={item}
-        isActive={index === activeIndex}
-        onRequestClose={() => router.back()}
-      />
-    ),
-    [activeIndex],
-  );
-
-  if (postIds.length === 0) {
-    return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={[
-                styles.headerBtn,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="arrow-back" size={22} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
-              Post
-            </Text>
-            <View style={styles.headerBtn} />
-          </View>
-          <View style={styles.centeredBox}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={64}
-              color={colors.border}
-            />
-            <Text style={[styles.errorText, { color: colors.textSecondary }]}>
-              No posts to show
-            </Text>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={[styles.pillBtn, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.pillBtnText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  return (
-    <LinearGradient
-      colors={gradientColors as any}
-      locations={[0, 0.42, 1]}
-      style={{ flex: 1 }}
-    >
-      <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        <View style={[styles.header, { backgroundColor: "transparent" }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={[
-              styles.headerBtn,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>
-            {activeIndex + 1} of {postIds.length}
-          </Text>
-          <View style={styles.headerBtn} />
-        </View>
-
-        <FlatList
-          ref={listRef}
-          data={postIds}
-          keyExtractor={(id) => id}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={initialIndex}
-          getItemLayout={getItemLayout}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          renderItem={renderItem}
-          windowSize={3}
-          maxToRenderPerBatch={2}
-          removeClippedSubviews
-        />
-      </SafeAreaView>
-    </LinearGradient>
-  );
-}
-
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   container: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    borderBottomWidth: 1,
   },
   headerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
   },
   headerTitle: { fontSize: 16, fontWeight: "800" },
   centeredBox: {
@@ -1151,63 +734,43 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   pillBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  scrollContent: { paddingTop: 12, paddingHorizontal: 14 },
+  scrollContent: { paddingTop: 12, paddingHorizontal: 14, paddingBottom: 24 },
   postCard: {
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
   },
-  statsCard: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  authorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 10,
-  },
+  authorRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
   authorInfo: { flex: 1 },
-  authorName: { fontSize: 15, fontWeight: "700" },
+  authorName: { fontSize: 16, fontWeight: "700" },
   authorUsername: { fontSize: 13, marginTop: 1 },
+  community: { fontSize: 13, fontWeight: "500", marginTop: 2 },
   timestamp: { fontSize: 12 },
-  communityBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    marginBottom: 10,
-  },
-  communityText: { fontSize: 12, fontWeight: "700" },
   postTitle: {
     fontSize: 20,
     fontWeight: "800",
     marginBottom: 8,
     lineHeight: 26,
   },
-  pollQuestion: {
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 4,
-    lineHeight: 24,
+  postBody: { fontSize: 16, lineHeight: 24 },
+  readMore: { fontWeight: "600", marginTop: 4 },
+  postImage: {
+    width: "100%",
+    height: 260,
+    borderRadius: 14,
   },
-  postBody: { fontSize: 16, lineHeight: 24, marginBottom: 8 },
+  statsCard: {
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
   statsRow: {
     flexDirection: "row",
     gap: 16,
     paddingBottom: 12,
+    borderBottomWidth: 1,
     flexWrap: "wrap",
   },
   statText: { fontSize: 13 },
@@ -1215,90 +778,28 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingTop: 4,
-    borderTopWidth: 1,
+    paddingTop: 10,
   },
-  actionBtn: {
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    gap: 4,
-  },
-  actionLabel: { fontSize: 11, fontWeight: "600" },
+  actionBtn: { padding: 6 },
   commentsSection: {
     borderRadius: 20,
     padding: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
   },
-  viewCommentsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 4,
-  },
-  viewCommentsText: { fontSize: 14, fontWeight: "700" },
   commentsSectionTitle: { fontSize: 16, fontWeight: "800", marginBottom: 14 },
-  commentsLoading: { gap: 16 },
-  commentSkeletonRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
-  },
-  commentSkeletonAvatar: { width: 34, height: 34, borderRadius: 17 },
-  commentSkeletonLines: { flex: 1, gap: 6 },
-  commentSkeletonName: { height: 12, width: "35%", borderRadius: 6 },
-  commentSkeletonBody: { height: 12, width: "80%", borderRadius: 6 },
   noComments: { alignItems: "center", paddingVertical: 24, gap: 8 },
-  noCommentsText: { fontSize: 14, fontWeight: "500" },
-  commentRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
-    paddingVertical: 10,
-  },
-  commentBorder: { borderTopWidth: 1 },
-  commentBody: { flex: 1 },
-  commentHeader: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-    marginBottom: 3,
-  },
-  commentAuthor: { fontSize: 13, fontWeight: "700" },
-  commentTime: { fontSize: 11 },
-  commentText: { fontSize: 14, lineHeight: 20 },
-  // ✅ NEW — wraps the like button and (owner-only) delete button so
-  // they sit on the same row instead of the like button being the only
-  // thing anchored under the comment text.
-  commentActionsRow: {
+  noCommentsText: { fontSize: 14, textAlign: "center" },
+  commentInputBarWrap: { paddingTop: 6 },
+  replyingBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
-    marginTop: 6,
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderTopWidth: 1,
   },
-  commentLikeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  commentLikeCount: { fontSize: 11, fontWeight: "600" },
-  // ✅ NEW
-  commentDeleteBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  showMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingTop: 12,
-    justifyContent: "center",
-  },
-  showMoreText: { fontSize: 13, fontWeight: "700" },
+  replyingText: { fontSize: 12, fontWeight: "600" },
   commentInputBar: {
     flexDirection: "row",
     alignItems: "flex-end",

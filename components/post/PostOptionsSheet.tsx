@@ -1,17 +1,15 @@
 // components/post/PostOptionsSheet.tsx
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useRef } from "react";
 import {
-    Animated,
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
+import React, { forwardRef, useCallback, useMemo } from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+export type PostOptionsSheetRef = BottomSheetModal;
 
 export interface PostOption {
   label: string;
@@ -21,232 +19,157 @@ export interface PostOption {
   disabled?: boolean;
 }
 
-interface PostOptionsSheetProps {
-  visible: boolean;
-  onClose: () => void;
+interface Props {
   options: PostOption[];
 }
 
-export default function PostOptionsSheet({
-  visible,
-  onClose,
-  options,
-}: PostOptionsSheetProps) {
-  const { colors, isDark } = useTheme();
-  const { bottom } = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(300)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+const PostOptionsSheet = forwardRef<PostOptionsSheetRef, Props>(
+  ({ options }, ref) => {
+    const { colors } = useTheme();
 
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.spring(translateY, {
-          toValue: 0,
-          damping: 22,
-          stiffness: 260,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 300,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
+    const snapPoints = useMemo(() => ["55%"], []);
 
-  const handleOptionPress = useCallback(
-    (option: PostOption) => {
-      onClose();
-      setTimeout(option.onPress, 180);
-    },
-    [onClose],
-  );
+    const dismiss = () => (ref as any)?.current?.dismiss();
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={onClose}
-    >
-      <Animated.View style={[styles.backdrop, { opacity }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      </Animated.View>
+    const renderBackdrop = useCallback(
+      (props: any) => (
+        <BottomSheetBackdrop
+          {...props}
+          appearsOnIndex={0}
+          disappearsOnIndex={-1}
+          pressBehavior="close"
+        />
+      ),
+      [],
+    );
 
-      <Animated.View
-        style={[styles.sheetWrapper, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+    return (
+      <BottomSheetModal
+        ref={ref}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        handleIndicatorStyle={{ backgroundColor: colors.border }}
+        backgroundStyle={{ backgroundColor: colors.card }}
       >
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.card,
-              paddingBottom: bottom > 0 ? bottom : 20,
-            },
-          ]}
+        <BottomSheetView
+          style={[styles.sheet, { backgroundColor: colors.card }]}
         >
-          <View style={[styles.handle, { backgroundColor: colors.border }]} />
-
           <Text style={[styles.title, { color: colors.text }]}>
             Post Options
           </Text>
 
-          <View style={styles.optionsList}>
-            {options.map((option, index) => (
-              <TouchableOpacity
-                key={option.label}
+          {options.map((option) => (
+            <TouchableOpacity
+              key={option.label}
+              style={styles.item}
+              activeOpacity={0.85}
+              disabled={option.disabled}
+              onPress={() => {
+                dismiss();
+                setTimeout(option.onPress, 150);
+              }}
+            >
+              <View
                 style={[
-                  styles.optionRow,
-                  index !== options.length - 1 && [
-                    styles.optionBorder,
-                    { borderBottomColor: colors.border },
-                  ],
+                  styles.iconWrap,
+                  {
+                    backgroundColor: option.destructive
+                      ? "#FF3B3018"
+                      : `${colors.primary}18`,
+                  },
                 ]}
-                onPress={() => handleOptionPress(option)}
-                disabled={option.disabled}
-                activeOpacity={0.7}
               >
-                <View
-                  style={[
-                    styles.iconCircle,
-                    {
-                      backgroundColor: option.destructive
-                        ? "#FF3B3015"
-                        : colors.primary + "15",
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={option.icon}
-                    size={19}
-                    color={option.destructive ? "#FF3B30" : colors.primary}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.optionLabel,
-                    {
-                      color: option.destructive ? "#FF3B30" : colors.text,
-                      opacity: option.disabled ? 0.4 : 1,
-                    },
-                  ]}
-                >
-                  {option.label}
-                </Text>
                 <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={colors.textTertiary}
+                  name={option.icon}
+                  size={20}
+                  color={option.destructive ? "#FF3B30" : colors.primary}
                 />
-              </TouchableOpacity>
-            ))}
-          </View>
+              </View>
+
+              <Text
+                style={[
+                  styles.itemText,
+                  {
+                    color: option.destructive ? "#FF3B30" : colors.text,
+                    opacity: option.disabled ? 0.4 : 1,
+                  },
+                ]}
+              >
+                {option.label}
+              </Text>
+
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textTertiary}
+              />
+            </TouchableOpacity>
+          ))}
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
           <TouchableOpacity
-            style={[
-              styles.cancelBtn,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-            onPress={onClose}
-            activeOpacity={0.8}
+            style={styles.cancel}
+            activeOpacity={0.85}
+            onPress={dismiss}
           >
-            <Text style={[styles.cancelLabel, { color: colors.text }]}>
+            <Text style={[styles.cancelText, { color: colors.textSecondary }]}>
               Cancel
             </Text>
           </TouchableOpacity>
-        </View>
-      </Animated.View>
-    </Modal>
-  );
-}
+        </BottomSheetView>
+      </BottomSheetModal>
+    );
+  },
+);
+
+PostOptionsSheet.displayName = "PostOptionsSheet";
+
+export default PostOptionsSheet;
 
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
-  sheetWrapper: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
   sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 12,
-    paddingHorizontal: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 32,
   },
   title: {
-    fontSize: 17,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 16,
     textAlign: "center",
-    marginBottom: 18,
   },
-  optionsList: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  optionRow: {
+  item: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 4,
     gap: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 12,
+    borderRadius: 14,
   },
-  optionBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  iconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
   },
-  optionLabel: {
+  itemText: {
     flex: 1,
     fontSize: 15,
-    fontWeight: "600",
-  },
-  cancelBtn: {
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 15,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  cancelLabel: {
-    fontSize: 15,
     fontWeight: "700",
+  },
+  divider: {
+    height: 1,
+    marginVertical: 10,
+  },
+  cancel: {
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  cancelText: {
+    fontSize: 15,
+    fontWeight: "800",
   },
 });
