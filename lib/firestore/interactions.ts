@@ -271,3 +271,93 @@ export async function removeMySaveDoc(postId: string): Promise<void> {
   const uid = requireUid();
   await saveRef(postId, uid).delete();
 }
+
+/* =========================
+   Boosts
+========================= */
+
+export async function boostPost(
+  postId: string,
+  hours: number = 24,
+): Promise<void> {
+  const uid = requireUid();
+
+  const postRef = postDocRef(postId);
+  const boostRef = db.collection("post_boosts").doc(`${postId}_${uid}`);
+
+  const expires = new Date();
+  expires.setHours(expires.getHours() + hours);
+
+  await db.runTransaction(async (tx) => {
+    const [postSnap, boostSnap] = await Promise.all([
+      tx.get(postRef),
+      tx.get(boostRef),
+    ]);
+
+    if (!postSnap.exists()) {
+      throw new Error("Post not found");
+    }
+
+    if (boostSnap.exists()) {
+      return;
+    }
+
+    tx.set(boostRef, {
+      post_id: postId,
+      user_id: uid,
+      created_at: firestore.FieldValue.serverTimestamp(),
+      expires_at: expires,
+    });
+
+    tx.update(postRef, {
+      is_boosted: true,
+      boosted_until: expires,
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+export async function unboostPost(postId: string): Promise<void> {
+  const uid = requireUid();
+
+  const boostRef = db.collection("post_boosts").doc(`${postId}_${uid}`);
+  const postRef = postDocRef(postId);
+
+  await db.runTransaction(async (tx) => {
+    const [postSnap, boostSnap] = await Promise.all([
+      tx.get(postRef),
+      tx.get(boostRef),
+    ]);
+
+    if (!postSnap.exists()) return;
+    if (!boostSnap.exists()) return;
+
+    tx.delete(boostRef);
+
+    tx.update(postRef, {
+      is_boosted: false,
+      boosted_until: null,
+      updated_at_ts: firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+export async function isPostBoosted(postId: string): Promise<boolean> {
+  const uid = requireUid();
+
+  const snap = await db.collection("post_boosts").doc(`${postId}_${uid}`).get();
+
+  return snap.exists();
+}
+
+export async function toggleBoost(postId: string): Promise<boolean> {
+  const boosted = await isPostBoosted(postId);
+
+  if (boosted) {
+    await unboostPost(postId);
+    return false;
+  }
+
+  await boostPost(postId);
+  return true;
+}

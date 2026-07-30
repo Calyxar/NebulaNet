@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/hooks/useFeed";
 import {
   useToggleBookmark,
+  useToggleBoost,
   useToggleLike,
   useToggleRepost,
 } from "@/hooks/usePosts";
@@ -29,6 +30,7 @@ export function useFeedInteractions() {
   const { user } = useAuth();
   const toggleLikeMutation = useToggleLike();
   const toggleSaveMutation = useToggleBookmark();
+  const toggleBoostMutation = useToggleBoost();
   const toggleRepostMutation = useToggleRepost(); // kept for onRepost below
 
   const onLike = (postId: string, isLiked: boolean = false) => {
@@ -39,19 +41,19 @@ export function useFeedInteractions() {
     toggleSaveMutation.mutate({ postId, isSaved });
   };
 
-  // Dead code — PostCard.tsx no longer takes a repost callback prop, it
-  // manages repost internally. Left in place rather than removed since
-  // it's harmless and some future caller might still want a plain
-  // repost-by-id function without mounting a full PostCard.
+  const onBoost = (postId: string, isBoosted: boolean = false) => {
+    toggleBoostMutation.mutate({
+      postId,
+      isBoosted,
+    });
+  };
+
   const onRepost = (postId: string, isReposted: boolean = false) => {
     toggleRepostMutation.mutate({ postId, isReposted });
   };
 
   const viewabilityConfig = {
     itemVisiblePercentThreshold: 50,
-    // ✅ NEW (Phase C): without this, a fast scroll-past counts as a
-    // "view" the same as someone actually reading the post — the whole
-    // point of a dwell-time signal is distinguishing those two cases.
     minimumViewTime: 1000,
   };
 
@@ -72,6 +74,7 @@ export function useFeedInteractions() {
   return {
     onLike,
     onSave,
+    onBoost,
     onRepost,
     viewabilityConfig,
     onViewableItemsChanged,

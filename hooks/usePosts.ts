@@ -1,6 +1,7 @@
 // hooks/usePosts.ts
 import { useAuth } from "@/hooks/useAuth";
 import { markNotInterested } from "@/lib/firestore/affinity";
+import { toggleBoost } from "@/lib/firestore/interactions";
 import {
   createPost,
   forYouFeed,
@@ -293,6 +294,51 @@ export function useToggleBookmark() {
     },
     onSettled: (_d, _e, vars) => {
       qc.invalidateQueries({ queryKey: postKeys.detail(vars.postId) });
+    },
+  });
+}
+
+export function useToggleBoost() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      postId,
+      isBoosted,
+    }: {
+      postId: string;
+      isBoosted: boolean;
+    }) => {
+      if (!user?.uid) throw new Error("Not signed in");
+
+      return toggleBoost(postId);
+    },
+
+    onMutate: async ({ postId, isBoosted }) => {
+      patchPostInLists(qc, postId, (p) => ({
+        ...p,
+        is_boosted: !isBoosted,
+        boosted_until: !isBoosted
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          : null,
+      }));
+    },
+
+    onError: (_err, vars) => {
+      qc.invalidateQueries({
+        queryKey: postKeys.detail(vars.postId),
+      });
+    },
+
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({
+        queryKey: postKeys.detail(vars.postId),
+      });
+
+      qc.invalidateQueries({
+        queryKey: [...postKeys.lists()],
+      });
     },
   });
 }

@@ -321,3 +321,17 @@ export const forYouFeed = {
   computeForYouRankedPool,
   sliceForYouFeedPage,
 };
+
+export async function boostPost(
+  postId: string,
+  hours: number = 24,
+): Promise<void> {
+  const expires = new Date(Date.now() + hours * 60 * 60 * 1000);
+
+  await firestore().collection("posts").doc(postId).update({
+    is_boosted: true,
+    boosted_until: expires.toISOString(),
+    updated_at: new Date().toISOString(),
+    updated_at_ts: firestore.FieldValue.serverTimestamp(),
+  });
+}
