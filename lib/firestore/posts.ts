@@ -133,15 +133,31 @@ async function computeForYouRankedPool(userId?: string): Promise<ScoredPost[]> {
     followingIds = followSnap.docs.map((d) => (d.data() as any).following_id);
   }
 
-  let followingSnap: FirebaseFirestoreTypes.QuerySnapshot | null = null;
+  const followingDocs: FirebaseFirestoreTypes.QueryDocumentSnapshot[] = [];
+
   if (followingIds.length > 0) {
-    const chunk = followingIds.slice(0, 10); // Firestore "in" cap
-    followingSnap = await firestore()
-      .collection("posts")
-      .where("user_id", "in", chunk)
-      .orderBy("created_at_ts", "desc")
-      .limit(FOLLOWING_CANDIDATE_LIMIT)
-      .get();
+    const CHUNK_SIZE = 10;
+
+    const chunks = [];
+
+    for (let i = 0; i < followingIds.length; i += CHUNK_SIZE) {
+      chunks.push(followingIds.slice(i, i + CHUNK_SIZE));
+    }
+
+    const snapshots = await Promise.all(
+      chunks.map((chunk) =>
+        firestore()
+          .collection("posts")
+          .where("user_id", "in", chunk)
+          .orderBy("created_at_ts", "desc")
+          .limit(FOLLOWING_CANDIDATE_LIMIT)
+          .get(),
+      ),
+    );
+
+    snapshots.forEach((snap) => {
+      followingDocs.push(...snap.docs);
+    });
   }
 
   const mutedAuthors = new Set(affinity.muted_authors);
@@ -176,7 +192,14 @@ async function computeForYouRankedPool(userId?: string): Promise<ScoredPost[]> {
 
   addCandidates(recentSnap, false);
   addCandidates(popularSnap, false);
-  if (followingSnap) addCandidates(followingSnap, true);
+  if (followingDocs.length > 0) {
+    addCandidates(
+      {
+        docs: followingDocs,
+      } as FirebaseFirestoreTypes.QuerySnapshot,
+      true,
+    );
+  }
 
   return Array.from(seen.values())
     .sort((a, b) => b._score - a._score)

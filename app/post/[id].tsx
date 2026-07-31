@@ -381,7 +381,7 @@ export default function PostDetailScreen() {
                 <Avatar
                   size={44}
                   name={authorName}
-                  image={post.user?.avatar_url}
+                  image={post.user?.avatar_url ?? undefined}
                 />
                 <View style={styles.authorInfo}>
                   <Text style={[styles.authorName, { color: colors.text }]}>
@@ -397,14 +397,14 @@ export default function PostDetailScreen() {
                       @{post.user.username}
                     </Text>
                   )}
-                  {!!post.community && (
+                  {!!post.community?.name && (
                     <Text
                       style={[
                         styles.community,
                         { color: colors.textSecondary },
                       ]}
                     >
-                      in {post.community}
+                      in {post.community.name}
                     </Text>
                   )}
                 </View>

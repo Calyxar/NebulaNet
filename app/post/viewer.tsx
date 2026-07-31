@@ -472,7 +472,7 @@ function PostViewerPage({
                   style={{ height: 280, borderRadius: 14, marginTop: 12 }}
                 />
               ) : (
-                <MediaGallery media={post.media_urls} />
+                <MediaGallery media={post.media_urls ?? []} />
               ))}
           </View>
 

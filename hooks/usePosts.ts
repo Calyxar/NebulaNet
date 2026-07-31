@@ -9,6 +9,7 @@ import {
   type PaginatedPosts,
 } from "@/lib/firestore/posts";
 import { toggleRepost } from "@/lib/firestore/reposts";
+import { chunkArray } from "@/lib/utils/chunk";
 import firestore, {
   FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
@@ -20,6 +21,8 @@ import {
 } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+const FIRESTORE_IN_LIMIT = 30;
+
 export const postKeys = {
   all: ["posts"] as const,
   lists: () => [...postKeys.all, "list"] as const,
@@ -27,7 +30,7 @@ export const postKeys = {
 };
 
 export function useFeedDensity(): "compact" | "standard" | "relaxed" {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const [density, setDensity] = useState<"compact" | "standard" | "relaxed">(
     "standard",
   );
@@ -69,6 +72,81 @@ export function useCurrentUserProfileSync() {
   }, [user?.uid, qc]);
 }
 
+interface FirestorePost {
+  id?: string;
+
+  user_id: string;
+
+  content?: string;
+  title?: string;
+
+  media_urls?: string[];
+
+  post_type?: string;
+
+  poll?: unknown;
+
+  created_at?: string;
+
+  created_at_ts?: FirebaseFirestoreTypes.Timestamp;
+
+  like_count?: number;
+  comment_count?: number;
+  share_count?: number;
+  view_count?: number;
+  repost_count?: number;
+  save_count?: number;
+
+  is_reposted?: boolean;
+  is_repost?: boolean;
+  is_nsfw?: boolean;
+  is_boosted?: boolean;
+
+  boosted_until?: FirebaseFirestoreTypes.Timestamp | string | null;
+
+  quote_post_id?: string | null;
+
+  quote_post?: unknown;
+
+  community?: {
+    id?: string;
+    slug?: string;
+    name?: string;
+  };
+
+  user?: {
+    username?: string;
+    full_name?: string;
+    avatar_url?: string;
+  };
+}
+
+interface FirestoreComment {
+  user_id: string;
+  content?: string;
+  created_at?: string;
+  created_at_ts?: FirebaseFirestoreTypes.Timestamp;
+  likes_count?: number;
+  like_count?: number;
+  parent_id?: string | null;
+
+  user?: {
+    username?: string;
+    full_name?: string;
+    avatar_url?: string;
+  };
+}
+
+interface FeedPage {
+  posts: FirestorePost[];
+  nextCursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
+}
+
+interface InfiniteFeedData {
+  pages: FeedPage[];
+  pageParams: unknown[];
+}
+
 type FeedTab = "for-you" | "following" | "my-community";
 
 async function fetchStandardFeedPage(
@@ -81,11 +159,6 @@ async function fetchStandardFeedPage(
   posts: any[];
   nextCursor: FirebaseFirestoreTypes.QueryDocumentSnapshot | null;
 }> {
-  let ref = firestore()
-    .collection("posts")
-    .orderBy("created_at_ts", "desc")
-    .limit(pageSize);
-
   if (tab === "following" && userId) {
     const followSnap = await firestore()
       .collection("follows")
@@ -93,21 +166,123 @@ async function fetchStandardFeedPage(
       .where("status", "==", "accepted")
       .limit(10)
       .get();
-    const followingIds = followSnap.docs.map(
-      (d) => (d.data() as any).following_id,
+
+    const followingIds: string[] = followSnap.docs.map(
+      (d) => d.get("following_id") as string,
     );
-    if (followingIds.length === 0) return { posts: [], nextCursor: null };
-    ref = ref.where("user_id", "in", followingIds) as any;
-  } else if (tab === "my-community" && communityIds.length > 0) {
-    ref = ref.where("community_id", "in", communityIds.slice(0, 10)) as any;
+
+    if (followingIds.length === 0) {
+      return {
+        posts: [],
+        nextCursor: null,
+      };
+    }
+
+    const chunks = chunkArray(followingIds, FIRESTORE_IN_LIMIT);
+
+    const snapshots = await Promise.all(
+      chunks.map((ids) => {
+        let q = firestore()
+          .collection("posts")
+          .where("user_id", "in", ids)
+          .orderBy("created_at_ts", "desc")
+          .limit(pageSize);
+
+        if (cursor) {
+          q = q.startAfter(cursor) as any;
+        }
+
+        return q.get();
+      }),
+    );
+
+    const merged = snapshots
+      .flatMap((s) => s.docs)
+      .sort(
+        (a, b) =>
+          (b.data().created_at_ts?.toMillis?.() ?? 0) -
+          (a.data().created_at_ts?.toMillis?.() ?? 0),
+      );
+
+    const unique = Array.from(new Map(merged.map((d) => [d.id, d])).values());
+
+    const page = unique.slice(0, pageSize);
+
+    return {
+      posts: page.map((d) => ({
+        id: d.id,
+        ...(d.data() as FirestorePost),
+      })),
+      nextCursor: page.length === pageSize ? page[page.length - 1] : null,
+    };
   }
 
-  if (cursor) ref = ref.startAfter(cursor) as any;
+  if (tab === "my-community") {
+    if (communityIds.length === 0) {
+      return {
+        posts: [],
+        nextCursor: null,
+      };
+    }
+
+    const chunks = chunkArray(communityIds, FIRESTORE_IN_LIMIT);
+
+    const snapshots = await Promise.all(
+      chunks.map((ids) => {
+        let q = firestore()
+          .collection("posts")
+          .where("community_id", "in", ids)
+          .orderBy("created_at_ts", "desc")
+          .limit(pageSize);
+
+        if (cursor) {
+          q = q.startAfter(cursor) as any;
+        }
+
+        return q.get();
+      }),
+    );
+
+    const merged = snapshots
+      .flatMap((s) => s.docs)
+      .sort(
+        (a, b) =>
+          (b.data().created_at_ts?.toMillis?.() ?? 0) -
+          (a.data().created_at_ts?.toMillis?.() ?? 0),
+      );
+
+    const unique = Array.from(new Map(merged.map((d) => [d.id, d])).values());
+
+    const page = unique.slice(0, pageSize);
+
+    return {
+      posts: page.map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      })),
+      nextCursor: page.length === pageSize ? page[page.length - 1] : null,
+    };
+  }
+
+  let ref = firestore()
+    .collection("posts")
+    .orderBy("created_at_ts", "desc")
+    .limit(pageSize);
+
+  if (cursor) {
+    ref = ref.startAfter(cursor) as any;
+  }
 
   const snap = await ref.get();
-  const posts = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-  const nextCursor = snap.docs.length === pageSize ? snap.docs.at(-1)! : null;
-  return { posts, nextCursor };
+
+  return {
+    posts: snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as FirestorePost),
+    })),
+    nextCursor:
+      snap.docs.length === pageSize ? snap.docs[snap.docs.length - 1] : null,
+  };
 }
 
 export function useInfiniteFeedPosts(
@@ -164,18 +339,18 @@ export function useInfiniteForYouFeed(opts?: { enabled?: boolean }) {
 function patchPostInLists(
   qc: ReturnType<typeof useQueryClient>,
   postId: string,
-  patch: (post: any) => any,
+  patch: (post: FirestorePost) => FirestorePost,
 ) {
   qc.getQueryCache()
     .findAll({ queryKey: postKeys.lists() })
     .forEach((query) => {
-      qc.setQueryData(query.queryKey, (old: any) => {
+      qc.setQueryData(query.queryKey, (old: InfiniteFeedData | undefined) => {
         if (!old?.pages) return old;
         return {
           ...old,
-          pages: old.pages.map((page: any) => ({
+          pages: old.pages.map((page: FeedPage) => ({
             ...page,
-            posts: page.posts?.map((p: any) =>
+            posts: page.posts?.map((p: FirestorePost) =>
               p.id === postId ? patch(p) : p,
             ),
           })),
@@ -191,13 +366,13 @@ function removePostFromLists(
   qc.getQueryCache()
     .findAll({ queryKey: postKeys.lists() })
     .forEach((query) => {
-      qc.setQueryData(query.queryKey, (old: any) => {
+      qc.setQueryData(query.queryKey, (old: InfiniteFeedData | undefined) => {
         if (!old?.pages) return old;
         return {
           ...old,
-          pages: old.pages.map((page: any) => ({
+          pages: old.pages.map((page: FeedPage) => ({
             ...page,
-            posts: page.posts?.filter((p: any) => p.id !== postId),
+            posts: page.posts?.filter((p: FirestorePost) => p.id !== postId),
           })),
         };
       });
@@ -453,10 +628,22 @@ export type CommentWithAuthor = {
   } | null;
 };
 
-function tsToIsoLocal(v: any): string {
+function tsToIsoLocal(v: unknown): string {
   if (!v) return new Date().toISOString();
-  if (typeof v === "string") return v;
-  if (typeof v?.toDate === "function") return v.toDate().toISOString();
+
+  if (typeof v === "string") {
+    return v;
+  }
+
+  if (
+    typeof v === "object" &&
+    v !== null &&
+    "toDate" in v &&
+    typeof (v as { toDate: () => Date }).toDate === "function"
+  ) {
+    return (v as { toDate: () => Date }).toDate().toISOString();
+  }
+
   return new Date().toISOString();
 }
 
@@ -475,7 +662,7 @@ export function usePost(postId: string) {
         throw e;
       }
       if (!snap.exists()) return null;
-      const x = snap.data() as any;
+      const x = snap.data() as FirestorePost;
 
       let isLiked = false;
       let isSaved = false;
@@ -536,7 +723,7 @@ export function usePost(postId: string) {
         boosted_until: x.boosted_until ? tsToIsoLocal(x.boosted_until) : null,
         quote_post_id: x.quote_post_id ?? null,
         quote_post: x.quote_post ?? null,
-        community: x.community?.name ?? null,
+        community: x.community ?? null,
       };
     },
   });
@@ -567,7 +754,7 @@ export function useComments(postId: string | undefined) {
 
       const flatComments = await Promise.all(
         snap.docs.map(async (d) => {
-          const x = d.data() as any;
+          const x = d.data() as FirestoreComment;
           let isLiked = false;
           if (user?.uid) {
             try {
