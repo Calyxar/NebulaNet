@@ -1,13 +1,4 @@
 // app/community/create.tsx
-// ✅ FIXED: was using the legacy Web SDK (`db` from @/lib/firebase) for
-//    every Firestore call — same pattern found and fixed in
-//    app/profile/requests.tsx, app/profile/blocked.tsx,
-//    app/community/[slug].tsx, and app/community/[slug]/manage.tsx. Now
-//    uses firestore() throughout.
-// ✅ REDESIGNED: wrapped in the shared blue gradient and threaded
-//    uiScale/fontScale through, matching the rest of the redesign — this
-//    screen previously had neither.
-// (user?.uid was already correct here — left as-is.)
 
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/firebase";
@@ -52,7 +43,10 @@ export default function CreateCommunityScreen() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("Technology");
+
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [bannerUri, setBannerUri] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
@@ -91,6 +85,26 @@ export default function CreateCommunityScreen() {
     setImageUri(result.assets[0].uri);
   };
 
+  const pickBanner = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (perm.status !== "granted") {
+      Alert.alert("Permission required", "Please allow photo permissions.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [3, 1],
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    setBannerUri(result.assets[0].uri);
+  };
+
   const createCommunity = async () => {
     if (!user?.uid || !auth.currentUser) {
       Alert.alert("Not logged in", "Please log in again.");
@@ -127,6 +141,7 @@ export default function CreateCommunityScreen() {
 
       // ✅ Upload image to Firebase Storage if selected
       let image_url: string | null = null;
+      let banner_url: string | null = null;
       if (imageUri) {
         const result = await uploadFile(imageUri, "community", "image", {
           compressImages: true,
@@ -139,13 +154,28 @@ export default function CreateCommunityScreen() {
         }
       }
 
+      if (bannerUri) {
+        const result = await uploadFile(bannerUri, "community", "image", {
+          compressImages: true,
+          maxWidth: 1600,
+          maxHeight: 600,
+          quality: 0.9,
+        });
+
+        if (result.success && result.url) {
+          banner_url = result.url;
+        }
+      }
+
       const communityRef = await firestore()
         .collection("communities")
         .add({
           slug: s,
           name: n,
           description: description.trim() || null,
+          category,
           image_url,
+          banner_url,
           is_private: false,
           owner_id: auth.currentUser.uid,
           member_count: 1,
@@ -320,6 +350,32 @@ export default function CreateCommunityScreen() {
               >
                 Description
               </Text>
+              <Text
+                style={[
+                  styles.label,
+                  { color: colors.text, fontSize: 13 * fontScale },
+                ]}
+              >
+                Category
+              </Text>
+
+              <TextInput
+                value={category}
+                onChangeText={setCategory}
+                placeholder="Technology"
+                placeholderTextColor={colors.textTertiary}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    color: colors.text,
+                    borderRadius: 12 * uiScale,
+                    paddingHorizontal: 12 * uiScale,
+                    paddingVertical: 11 * uiScale,
+                  },
+                ]}
+              />
               <TextInput
                 value={description}
                 onChangeText={setDescription}
@@ -352,6 +408,46 @@ export default function CreateCommunityScreen() {
               </Text>
 
               <View style={{ height: 16 * uiScale }} />
+
+              <Text
+                style={[
+                  styles.label,
+                  { color: colors.text, fontSize: 13 * fontScale },
+                ]}
+              >
+                Community Banner
+              </Text>
+
+              <TouchableOpacity
+                onPress={pickBanner}
+                style={[
+                  styles.pickBtn,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    height: 140 * uiScale,
+                    borderRadius: 16 * uiScale,
+                    marginBottom: 16 * uiScale,
+                  },
+                ]}
+              >
+                {bannerUri ? (
+                  <Image
+                    source={{ uri: bannerUri }}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      borderRadius: 16 * uiScale,
+                    }}
+                  />
+                ) : (
+                  <Ionicons
+                    name="image-outline"
+                    size={32}
+                    color={colors.primary}
+                  />
+                )}
+              </TouchableOpacity>
 
               <Text
                 style={[

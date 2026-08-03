@@ -1,24 +1,4 @@
 // hooks/useNotifications.ts ✅ FIXED
-// Fix 1: reads notification_sound from user_settings before playing sound
-// Fix 2: respects "silent", "vibrate", and "default" preferences
-// Fix 3: reads muted state from AsyncStorage before showing notification
-// Fix 4: REMOVED duplicate channel creation — lib/notifications.ts's
-//        setupNotificationChannels() is now the single source of truth.
-//        Having two places create a "default" channel caused a race
-//        condition where whichever ran last silently won, and since
-//        Android locks channel sound settings permanently after first
-//        creation, the device could get stuck with a no-sound channel.
-// Fix 5: channel IDs updated to _v2 suffix to match lib/notifications.ts
-// Fix 6: the sound-preference useEffect's onAuthStateChanged callback was
-//        async and returned its onSnapshot unsubscribe function — Firebase
-//        discards return values from auth-state callbacks, so that
-//        Firestore listener was never torn down on unmount or on a
-//        subsequent auth-state change (sign-out/sign-in, account switch).
-//        Each re-fire left a new, permanently-open listener on
-//        user_settings behind. Now captures and unsubscribes the previous
-//        listener before creating a new one, and cleans up on unmount —
-//        the same pattern the notifications listener effect below this one
-//        already used correctly.
 
 import { getNotificationsMuted } from "@/lib/notifications";
 import auth from "@react-native-firebase/auth";
@@ -43,10 +23,12 @@ export interface Notification {
     | "story_like"
     | "message"
     | "join_request"
-    | "repost";
+    | "repost"
+    | "system";
   sender_id: string;
   receiver_id: string;
   post_id?: string;
+  text?: string;
   comment_id?: string;
   community_id?: string;
   story_id?: string;
@@ -130,11 +112,6 @@ export function useNotifications() {
     };
   }, []);
 
-  // ✅ FIX 4: NO LONGER creates channels here. lib/notifications.ts's
-  // setupNotificationChannels() (called once in app/_layout.tsx) is the
-  // single source of truth for channel creation. This avoids two competing
-  // setNotificationChannelAsync("default", ...) calls with different
-  // configs racing against each other.
   useEffect(() => {
     Notifications.requestPermissionsAsync().catch(() => {});
   }, []);
@@ -245,8 +222,8 @@ export function useNotifications() {
         } as Notification;
       });
     },
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const unreadCount = (notificationsQuery.data ?? []).filter(
@@ -277,6 +254,7 @@ export function useNotifications() {
           snap.docChanges().forEach(async (change) => {
             if (change.type === "added") {
               const data = change.doc.data() as any;
+
               const notification: Notification = {
                 id: change.doc.id,
                 ...data,
@@ -287,14 +265,28 @@ export function useNotifications() {
               await showLocalNotification(
                 getNotificationTitle(notification),
                 getNotificationBody(notification),
-                { notificationId: notification.id, type: notification.type },
+                {
+                  notificationId: notification.id,
+                  type: notification.type,
+                },
               );
 
-              queryClient.invalidateQueries({ queryKey: ["notifications"] });
-            }
+              const rows = snap.docs.map((d) => {
+                const row = d.data() as any;
 
-            if (change.type === "modified" || change.type === "removed") {
-              queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                return {
+                  id: d.id,
+                  ...row,
+                  is_read: row.is_read ?? row.read ?? false,
+                  created_at: tsToIso(row.created_at_ts ?? row.created_at),
+                } as Notification;
+              });
+
+              queryClient.setQueryData(["notifications"], rows);
+            } else {
+              queryClient.invalidateQueries({
+                queryKey: ["notifications"],
+              });
             }
           });
         });
@@ -402,6 +394,8 @@ export function useNotifications() {
           return `${name} sent you a message`;
         case "join_request":
           return `${name} wants to join your community`;
+        case "system":
+          return "Community Update";
         default:
           return "New notification";
       }
@@ -442,6 +436,8 @@ export function useNotifications() {
           return "Tap to reply";
         case "join_request":
           return "Tap to review the request";
+        case "system":
+          return notification.text ?? "You have a new notification.";
         default:
           return "You have a new notification";
       }
@@ -470,6 +466,8 @@ export function useNotifications() {
         return "repeat";
       case "join_request":
         return "person";
+      case "system":
+        return "information-circle";
       default:
         return "notifications";
     }
@@ -497,6 +495,8 @@ export function useNotifications() {
         return "#32D74B";
       case "join_request":
         return "#5AC8FA";
+      case "system":
+        return "#6B7280";
       default:
         return "#7C3AED";
     }

@@ -28,24 +28,18 @@ service cloud.firestore {
         profileDoc(uid()).data.role == "admin";
     }
 
-    // ✅ NEW: official account check (e.g. @nebulanet). Used only for
-    // read-side display purposes by the client (badge rendering) — this
-    // function itself grants no special write permissions. An official
-    // account's posts go through the exact same /posts create/update/
-    // delete rules as any other user's; there's no separate write path.
+    function ownsCommunity(communityId) {
+  return signedIn() &&
+    get(
+      /databases/$(database)/documents/communities/$(communityId)
+    ).data.owner_id == uid();
+}
+
     function isOfficialAccount(userId) {
       return hasProfile(userId) &&
         profileDoc(userId).data.is_official == true;
     }
 
-    // ✅ NEW: minors (age_group "teen" or "under_13") are hard-blocked from
-    // reading is_nsfw content — enforced here at the rules layer, so no
-    // client-side toggle or modified app build can bypass it. Accounts with
-    // no age_group set (pre-existing users from before this field existed)
-    // are treated as adults by this check — defaulting unknown accounts to
-    // "minor" would lock out existing real adult users. A migration to
-    // backfill age_group on old accounts should be run separately; this
-    // function intentionally does not try to guess for missing data.
     function isMinor() {
       return signedIn() &&
         hasProfile(uid()) &&
@@ -64,11 +58,6 @@ service cloud.firestore {
     }
 
     function isSelfProfileUpdate(userId) {
-      // ✅ NEW: self-updates may touch any field EXCEPT is_official and
-      // role — those can only be changed by an admin (or directly via
-      // the Firebase console / Admin SDK). Without this, a user could
-      // set is_official: true on their own profile through the same
-      // update() call they use to change their bio.
       return isSelf(userId) &&
         resource.data.is_suspended != true &&
         !request.resource.data.diff(resource.data).affectedKeys()
@@ -111,12 +100,6 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
-      // ✅ NEW: minors can never read posts flagged is_nsfw == true.
-      // This is a per-document read check — Firestore evaluates it on the
-      // single-document get() and applies it as a query-time filter on
-      // list/collection queries too (queries against a flagged-true field
-      // a minor can't read simply omit those docs from results, they don't
-      // error the whole query).
       allow read, get, list: if signedIn() &&
         (resource.data.is_nsfw != true || !isMinor());
       allow create: if signedIn();
@@ -137,7 +120,27 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
 
       match /poll_votes/{voteId} {
-        allow read: if signedIn();
+        allow create: if signedIn() &&
+  request.resource.data.user_id == uid() &&
+
+  request.resource.data.like_count == 0 &&
+  request.resource.data.comment_count == 0 &&
+  request.resource.data.repost_count == 0 &&
+  request.resource.data.share_count == 0 &&
+  request.resource.data.save_count == 0 &&
+  request.resource.data.view_count == 0 &&
+
+  request.resource.data.is_boosted == false &&
+
+  (
+    !("boosted_until" in request.resource.data) ||
+    request.resource.data.boosted_until == null
+  ) &&
+
+  (
+    !("boosted_at" in request.resource.data) ||
+    request.resource.data.boosted_at == null
+  );
         allow create: if signedIn() && voteId == uid();
         allow update: if false;
         allow delete: if false;
@@ -150,10 +153,6 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.user_id == uid();
     }
 
-    // ✅ NEW: For You ranking signal — tracks how much a viewer engages
-    // with each author they interact with (via likes/comments/reposts).
-    // Only the viewer who owns the affinity record can read or write it;
-    // no one can read someone else's affinity scores toward other users.
     match /author_affinity/{affinityId} {
       allow read: if signedIn() && resource.data.viewer_id == uid();
       allow create, update: if signedIn() && request.resource.data.viewer_id == uid();
@@ -211,18 +210,23 @@ service cloud.firestore {
     }
 
     match /community_rules/{ruleId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if signedIn();
-      allow delete: if signedIn();
-    }
+  allow read: if signedIn();
+
+  allow create: if
+    ownsCommunity(request.resource.data.community_id);
+
+  allow update: if
+    ownsCommunity(resource.data.community_id);
+
+  allow delete: if
+    ownsCommunity(resource.data.community_id);
+}
 
     match /user_settings/{userId} {
       allow read: if isSelf(userId);
       allow write: if isSelf(userId);
     }
 
-    // ✅ ADDED: was missing — onboarding writes here, silently failed in production
     match /user_interests/{userId} {
       allow read: if signedIn();
       allow write: if isSelf(userId);
@@ -247,7 +251,6 @@ service cloud.firestore {
     match /story_comments/{commentId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      // ✅ ADDED: edit/delete own story comments
       allow update: if signedIn() && resource.data.user_id == uid();
       allow delete: if signedIn() && (resource.data.user_id == uid() || isAdmin());
     }

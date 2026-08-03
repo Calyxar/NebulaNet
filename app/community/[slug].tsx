@@ -1,23 +1,4 @@
 // app/community/[slug].tsx — FIXED ✅
-// Fix 1: Members now show username AND joined date
-// Fix 2: fetchMembersSafe guards pSnap.exists() properly
-// Fix 3: Media grid falls back to camelCase mediaUrls + added debug
-// Fix 4: See create-post screen (paste that file separately)
-// ✅ FIXED: this file was using the legacy Web SDK (`db` from
-//    @/lib/firebase) for every Firestore call — same pattern found in
-//    app/profile/requests.tsx and app/profile/blocked.tsx, apparently
-//    missed in the project's migration to @react-native-firebase. Now uses
-//    firestore() throughout, matching the rest of the app.
-// ✅ FIXED: the comment above the pSnap existence check said "use .exists
-//    (not .exists())" — that's backwards for this project's Firestore
-//    typings (confirmed earlier via the TS compiler: .exists() must be
-//    called as a function here) and directly contradicted the code right
-//    below it, which was already correctly calling `.exists()`. Comment
-//    corrected so it doesn't mislead a future edit into "fixing" working
-//    code, which is exactly what happened once already in this project.
-// ✅ REDESIGNED: this screen had no LinearGradient background and no
-//    uiScale/fontScale — brought onto the same blue-gradient / scaled-
-//    sizing pattern used by Profile, Explore, and the rest of the redesign.
 
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
@@ -144,10 +125,14 @@ export default function CommunityScreen() {
   const { colors, isDark, uiScale, fontScale } = useTheme();
 
   const [community, setCommunity] = useState<Community | null>(null);
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [media, setMedia] = useState<MediaGridItem[]>([]);
+
+  const postCount = posts.length;
+  const memberCount = community?.member_count ?? members.length;
 
   const [isJoined, setIsJoined] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
@@ -852,44 +837,141 @@ export default function CommunityScreen() {
           }
         />
 
-        {!!community.image_url && (
-          <View
+        {!!community.banner_url && (
+          <Image
+            source={{ uri: community.banner_url }}
             style={{
-              paddingHorizontal: 14 * uiScale,
-              paddingTop: 8 * uiScale,
-              paddingBottom: 6 * uiScale,
+              width: "100%",
+              height: heroHeight,
             }}
-          >
-            <Image
-              source={{ uri: community.image_url }}
-              style={[
-                styles.hero,
-                {
-                  height: heroHeight,
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                  borderRadius: 18 * uiScale,
-                },
-              ]}
-            />
-          </View>
+            resizeMode="cover"
+          />
         )}
 
-        {!!community.description && (
+        <View
+          style={{
+            marginTop: -42,
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          {community.image_url ? (
+            <Image
+              source={{ uri: community.image_url }}
+              style={{
+                width: 90,
+                height: 90,
+                borderRadius: 45,
+                borderWidth: 4,
+                borderColor: colors.background,
+              }}
+            />
+          ) : (
+            <View
+              style={{
+                width: 90,
+                height: 90,
+                borderRadius: 45,
+                backgroundColor: colors.surface,
+                borderWidth: 4,
+                borderColor: colors.background,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="people" size={36} color={colors.primary} />
+            </View>
+          )}
+        </View>
+
+        <View
+          style={{
+            paddingHorizontal: 20,
+            marginBottom: 18,
+            alignItems: "center",
+          }}
+        >
           <Text
-            style={[
-              styles.headerSub,
-              {
-                color: colors.textTertiary,
-                paddingHorizontal: 14 * uiScale,
-                paddingBottom: 8 * uiScale,
-                fontSize: 12.5 * fontScale,
-              },
-            ]}
+            style={{
+              color: colors.text,
+              fontSize: 26,
+              fontWeight: "900",
+            }}
           >
-            {community.description}
+            {community.name}
           </Text>
-        )}
+
+          <Text
+            style={{
+              color: colors.primary,
+              marginTop: 2,
+              fontWeight: "700",
+            }}
+          >
+            @{community.slug}
+          </Text>
+
+          <View
+            style={{
+              flexDirection: "row",
+              marginTop: 12,
+              gap: 18,
+            }}
+          >
+            <View style={{ alignItems: "center" }}>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontWeight: "900",
+                  fontSize: 18,
+                }}
+              >
+                {memberCount}
+              </Text>
+
+              <Text
+                style={{
+                  color: colors.textTertiary,
+                }}
+              >
+                Members
+              </Text>
+            </View>
+
+            <View style={{ alignItems: "center" }}>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontWeight: "900",
+                  fontSize: 18,
+                }}
+              >
+                {postCount}
+              </Text>
+
+              <Text
+                style={{
+                  color: colors.textTertiary,
+                }}
+              >
+                Posts
+              </Text>
+            </View>
+          </View>
+
+          {!!community.description && (
+            <Text
+              style={{
+                color: colors.textTertiary,
+                marginTop: 16,
+                textAlign: "center",
+                lineHeight: 22,
+              }}
+            >
+              {community.description}
+            </Text>
+          )}
+        </View>
 
         {isLocked ? (
           <View

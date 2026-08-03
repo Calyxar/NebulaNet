@@ -22,6 +22,7 @@ export const COL = {
 
   communities: "communities",
   community_members: "community_members",
+  community_join_requests: "community_join_requests",
   community_moderators: "community_moderators",
   community_rules: "community_rules",
 
@@ -56,12 +57,18 @@ export const postUserId = (postId: string, userId: string) =>
    Generic refs
 ========================= */
 
-export const colRef = <T extends FirebaseFirestoreTypes.DocumentData = FirebaseFirestoreTypes.DocumentData>(
+export const colRef = <
+  T extends FirebaseFirestoreTypes.DocumentData =
+    FirebaseFirestoreTypes.DocumentData,
+>(
   name: string,
 ): FirebaseFirestoreTypes.CollectionReference<T> =>
   db.collection(name) as FirebaseFirestoreTypes.CollectionReference<T>;
 
-export const docRef = <T extends FirebaseFirestoreTypes.DocumentData = FirebaseFirestoreTypes.DocumentData>(
+export const docRef = <
+  T extends FirebaseFirestoreTypes.DocumentData =
+    FirebaseFirestoreTypes.DocumentData,
+>(
   name: string,
   id: string,
 ): FirebaseFirestoreTypes.DocumentReference<T> =>
@@ -87,10 +94,7 @@ export const conversationRef = (conversationId: string) =>
 export const messageRef = (messageId: string) =>
   docRef(COL.messages, messageId);
 export const participantRef = (conversationId: string, userId: string) =>
-  docRef(
-    COL.conversation_participants,
-    participantId(conversationId, userId),
-  );
+  docRef(COL.conversation_participants, participantId(conversationId, userId));
 
 export const followRef = (followerId: string, followingId: string) =>
   docRef(COL.follows, followId(followerId, followingId));

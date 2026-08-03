@@ -1,7 +1,4 @@
 // lib/firestore/communities.ts — FIRESTORE ✅
-// Matches Supabase schema:
-// communities: id, name, description, image_url, member_count, created_at, updated_at, slug, owner_id
-// community_members: id, user_id, community_id, role, created_at
 
 import { auth, db } from "@/lib/firebase";
 import firestore from "@react-native-firebase/firestore";
@@ -283,10 +280,8 @@ export async function joinCommunity(communityId: string): Promise<void> {
   });
 
   const communityRef = db.collection("communities").doc(communityId);
-  const communitySnap = await communityRef.get();
-  const current = (communitySnap.data() as any)?.member_count ?? 0;
   batch.update(communityRef, {
-    member_count: current + 1,
+    member_count: firestore.FieldValue.increment(1),
     updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
@@ -311,10 +306,8 @@ export async function leaveCommunity(communityId: string): Promise<void> {
   batch.delete(snap.docs[0].ref);
 
   const communityRef = db.collection("communities").doc(communityId);
-  const communitySnap = await communityRef.get();
-  const current = (communitySnap.data() as any)?.member_count ?? 1;
   batch.update(communityRef, {
-    member_count: Math.max(0, current - 1),
+    member_count: firestore.FieldValue.increment(-1),
     updated_at: firestore.FieldValue.serverTimestamp(),
   });
 
