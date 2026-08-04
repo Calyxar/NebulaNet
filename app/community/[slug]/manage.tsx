@@ -3,6 +3,11 @@
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  banUser,
+  unbanUser as firestoreUnbanUser,
+  getCommunityBans,
+} from "@/lib/firestore/communityBans";
+import {
   getCommunityMembers,
   getCommunityModerators,
   isModerator,
@@ -38,6 +43,14 @@ type Community = {
   owner_id?: string | null;
 };
 
+type BannedUser = {
+  id: string;
+  user_id: string;
+  reason: string | null;
+  username: string | null;
+  full_name: string | null;
+};
+
 type Rule = {
   id: string;
   title: string;
@@ -65,6 +78,7 @@ export default function CommunityManageScreen() {
   };
 
   const [members, setMembers] = useState<MemberProfile[]>([]);
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
   const [moderators, setModerators] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [workingUser, setWorkingUser] = useState<string | null>(null);
@@ -143,13 +157,36 @@ export default function CommunityManageScreen() {
       );
 
       setMembers(memberProfiles);
+      const bans = await getCommunityBans(c.id);
+
+      const bannedProfiles = await Promise.all(
+        bans.map(async (ban) => {
+          const profileSnap = await firestore()
+            .collection("profiles")
+            .doc(ban.user_id)
+            .get();
+
+          const profile = profileSnap.exists()
+            ? (profileSnap.data() as any)
+            : {};
+          return {
+            id: ban.id,
+            user_id: ban.user_id,
+            reason: ban.reason,
+            username: profile.username ?? null,
+            full_name: profile.full_name ?? null,
+          };
+        }),
+      );
+
+      setBannedUsers(bannedProfiles);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load");
       router.back();
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, user?.uid]);
 
   useEffect(() => {
     load();
@@ -250,12 +287,9 @@ export default function CommunityManageScreen() {
   }
 
   const promoteMember = (userId: string) => {
-  if (!community) return;
+    if (!community) return;
 
-  Alert.alert(
-    "Promote Moderator",
-    "Make this member a moderator?",
-    [
+    Alert.alert("Promote Moderator", "Make this member a moderator?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Promote",
@@ -266,22 +300,20 @@ export default function CommunityManageScreen() {
             await promoteToModerator(community.id, userId);
 
             await load();
+          } catch (e: any) {
+            Alert.alert("Error", e.message ?? "Failed");
           } finally {
             setWorkingUser(null);
           }
         },
       },
-    ],
-  );
-};
+    ]);
+  };
 
- const demoteMember = (userId: string) => {
-  if (!community) return;
+  const demoteMember = (userId: string) => {
+    if (!community) return;
 
-  Alert.alert(
-    "Remove Moderator",
-    "Remove moderator permissions?",
-    [
+    Alert.alert("Remove Moderator", "Remove moderator permissions?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -298,17 +330,13 @@ export default function CommunityManageScreen() {
           }
         },
       },
-    ],
-  );
-};
+    ]);
+  };
 
   const removeMember = (userId: string) => {
-  if (!community) return;
+    if (!community) return;
 
-  Alert.alert(
-    "Kick Member",
-    "Are you sure you want to remove this member?",
-    [
+    Alert.alert("Kick Member", "Are you sure you want to remove this member?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Kick",
@@ -325,9 +353,71 @@ export default function CommunityManageScreen() {
           }
         },
       },
-    ],
-  );
-};
+    ]);
+  };
+
+  const unbanMember = (userId: string) => {
+    if (!community) return;
+
+    Alert.alert("Unban User", "Allow this user to join this community again?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Unban",
+        onPress: async () => {
+          try {
+            setWorkingUser(userId);
+
+            await firestoreUnbanUser(community.id, userId);
+
+            await load();
+          } catch (e: any) {
+            Alert.alert("Error", e?.message ?? "Failed to unban member.");
+          } finally {
+            setWorkingUser(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const banMember = (userId: string) => {
+    if (!community || !user) return;
+
+    Alert.alert(
+      "Ban Member",
+      "This user will be removed from the community and prevented from rejoining.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Ban",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setWorkingUser(userId);
+
+              await banUser(
+                community.id,
+                userId,
+                user.uid,
+                "Banned by moderator",
+              );
+
+              Alert.alert("Success", "User has been banned.");
+
+              await load();
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to ban member.");
+            } finally {
+              setWorkingUser(null);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -875,6 +965,21 @@ export default function CommunityManageScreen() {
 
                       {!isSelf && (
                         <TouchableOpacity
+                          onPress={() => banMember(member.user_id)}
+                        >
+                          <Text
+                            style={{
+                              color: "#DC2626",
+                              fontWeight: "700",
+                            }}
+                          >
+                            Ban
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {!isSelf && (
+                        <TouchableOpacity
                           onPress={() => removeMember(member.user_id)}
                         >
                           <Text style={{ color: "#EF4444", fontWeight: "700" }}>
@@ -887,6 +992,105 @@ export default function CommunityManageScreen() {
                 </View>
               );
             })}
+          </View>
+          <Text
+            style={[
+              styles.sectionLabel,
+              {
+                color: colors.textTertiary,
+                marginTop: 8 * uiScale,
+                fontSize: 12 * fontScale,
+              },
+            ]}
+          >
+            BANNED USERS
+          </Text>
+
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                borderRadius: 16 * uiScale,
+                padding: 14 * uiScale,
+              },
+            ]}
+          >
+            {bannedUsers.length === 0 ? (
+              <Text
+                style={{
+                  color: colors.textTertiary,
+                  textAlign: "center",
+                  paddingVertical: 12 * uiScale,
+                }}
+              >
+                No banned users.
+              </Text>
+            ) : (
+              bannedUsers.map((ban, index) => (
+                <View
+                  key={ban.id}
+                  style={[
+                    styles.ruleRow,
+                    {
+                      alignItems: "center",
+                      paddingVertical: 12 * uiScale,
+                    },
+                    index !== 0 && {
+                      borderTopWidth: 1,
+                      borderTopColor: colors.border,
+                    },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontWeight: "700",
+                        fontSize: 15 * fontScale,
+                      }}
+                    >
+                      {ban.full_name || ban.username || "Unknown User"}
+                    </Text>
+
+                    {!!ban.username && (
+                      <Text
+                        style={{
+                          color: colors.textTertiary,
+                          fontSize: 12 * fontScale,
+                        }}
+                      >
+                        @{ban.username}
+                      </Text>
+                    )}
+
+                    {!!ban.reason && (
+                      <Text
+                        style={{
+                          color: "#EF4444",
+                          marginTop: 4,
+                          fontSize: 12 * fontScale,
+                        }}
+                      >
+                        Reason: {ban.reason}
+                      </Text>
+                    )}
+                  </View>
+
+                  <TouchableOpacity onPress={() => unbanMember(ban.user_id)}>
+                    <Text
+                      style={{
+                        color: "#22C55E",
+                        fontWeight: "700",
+                      }}
+                    >
+                      Unban
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
           </View>
         </ScrollView>
       </SafeAreaView>

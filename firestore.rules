@@ -368,9 +368,27 @@ service cloud.firestore {
       allow write: if signedIn();
     }
 
-    match /support_reports/{reportId} {
-      allow create: if signedIn() && request.resource.data.user_id == uid();
-      allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+       match /support_reports/{reportId} {
+  allow create: if signedIn() && request.resource.data.user_id == uid();
+  allow read: if signedIn() && (resource.data.user_id == uid() || isAdmin());
+}
+
+match /reports/{reportId} {
+  allow create: if signedIn() &&
+    request.resource.data.reporter_id == uid();
+
+  allow read: if signedIn() &&
+    (
+      resource.data.reporter_id == uid() ||
+      isAdmin()
+    );
+
+  allow update, delete: if isAdmin();
+}
+
+    match /post_views/{viewId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
     }
 
     match /post_views/{viewId} {

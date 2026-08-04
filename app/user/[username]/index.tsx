@@ -1,27 +1,4 @@
 // app/user/[username]/index.tsx ✅ REDESIGNED
-// ✅ Banner photo added — reads target.banner_url, gradient fallback,
-//    avatar overlaps banner bottom-left — matches own profile.tsx exactly.
-// ✅ Tabs switched from pill-background to underline style, matching
-//    home, explore, profile, and notifications.
-// ✅ Stats moved below bio (Twitter style) instead of next to avatar
-//    (Instagram style) — consistent with own profile.tsx.
-// ✅ Dead LocationPicker removed — it was never triggered on this screen.
-// ✅ Posts tab: reposts and quote-posts mixed into main timeline with
-//    "Reposted" label and embedded quoted-post card.
-// ✅ MentionHashtagText used throughout for #hashtags and @mentions.
-// ✅ Birthday: badge next to display name + one-time balloon overlay,
-//    driven by target.birthDate / target.birthMMDD / target.showBirthday.
-// ✅ FIXED: the isUid branch of the `target` query was returning the
-//    privacy-flags shape ({ hide_followers, hide_following,
-//    show_activity_publicly }) on a not-found doc instead of `null` —
-//    a copy-paste from the profile-privacy-flags query below. That gave
-//    `target` a union type it was never meant to have, which is why
-//    every target.id / target.username / etc. access in this file was
-//    failing to typecheck. Now returns null, matching the username-query
-//    branch right below it.
-// ✅ All Firestore doc-existence checks in this file use `.exists()`
-//    (called as a function) — confirmed correct for this project's
-//    @react-native-firebase typings.
 
 import MentionHashtagText from "@/components/MentionHashtagText";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
@@ -33,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMuteStatus, useToggleMute } from "@/hooks/useMuteUser";
 import { createOrOpenChat } from "@/lib/firestore/createOrOpenChat";
 import { createNotification } from "@/lib/firestore/notifications";
+import { createReport } from "@/lib/firestore/reports";
 import { invalidateAfterBlock } from "@/lib/queryKeys/invalidateSocial";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -676,6 +654,28 @@ export default function UserProfileScreen() {
     await Clipboard.setStringAsync(link);
     sheetRef.current?.close();
     Alert.alert("Copied", "Profile link copied to clipboard");
+  };
+
+  const submitReport = async (
+    reason: "spam" | "harassment" | "fake_account",
+  ) => {
+    if (!user?.uid || !target?.id) return;
+
+    try {
+      await createReport({
+        reporter_id: user.uid,
+        reported_id: target.id,
+        type: "user",
+        reason,
+      });
+
+      Alert.alert(
+        "Report Submitted",
+        "Thanks for helping keep NebulaNet safe.",
+      );
+    } catch (error: any) {
+      Alert.alert("Report Error", error.message ?? "Could not submit report.");
+    }
   };
 
   const canMessage = !isBlocked && (!isPrivate || isFollowing);
@@ -1803,7 +1803,29 @@ export default function UserProfileScreen() {
             }}
             onReport={() => {
               sheetRef.current?.close();
-              Alert.alert("Report", "Thank you — we'll review this account.");
+
+              Alert.alert(
+                "Report User",
+                "Why are you reporting this account?",
+                [
+                  {
+                    text: "Spam",
+                    onPress: () => submitReport("spam"),
+                  },
+                  {
+                    text: "Harassment",
+                    onPress: () => submitReport("harassment"),
+                  },
+                  {
+                    text: "Fake Account",
+                    onPress: () => submitReport("fake_account"),
+                  },
+                  {
+                    text: "Cancel",
+                    style: "cancel",
+                  },
+                ],
+              );
             }}
           />
         )}

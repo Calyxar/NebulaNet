@@ -3,6 +3,11 @@
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { deleteCommunityRequest } from "@/lib/firestore/deleteCommunity";
+import {
+  createJoinRequest,
+  cancelJoinRequest,
+  isJoinRequested,
+} from "@/lib/firestore/communityRequests";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
@@ -25,6 +30,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import { leaveCommunity } from "@/lib/firestore/communities";
 
 type ProfileMini = {
   username: string | null;
@@ -135,6 +141,7 @@ export default function CommunityScreen() {
   const memberCount = community?.member_count ?? members.length;
 
   const [isJoined, setIsJoined] = useState(false);
+  const [joinRequested, setJoinRequested] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "feed" | "members" | "rules" | "media"
@@ -220,30 +227,36 @@ export default function CommunityScreen() {
       let joined = false;
       let moderator = false;
       const ownerId = c.owner_id ?? null;
+      const uid = user?.uid ?? null;
 
-      if (user?.uid) {
+      if (uid) {
         try {
           const [memberSnap, modSnap] = await Promise.all([
             firestore()
               .collection("community_members")
               .where("community_id", "==", c.id)
-              .where("user_id", "==", user.uid)
+              .where("user_id", "==", uid)
               .limit(1)
               .get(),
+
             firestore()
               .collection("community_moderators")
               .where("community_id", "==", c.id)
-              .where("user_id", "==", user.uid)
+              .where("user_id", "==", uid)
               .limit(1)
               .get(),
           ]);
-          joined = !memberSnap.empty || (!!ownerId && ownerId === user.uid);
-          moderator = !modSnap.empty || (!!ownerId && ownerId === user.uid);
+          joined = !memberSnap.empty || (!!ownerId && ownerId === uid);
+          moderator = !modSnap.empty || (!!ownerId && ownerId === uid);
         } catch {
-          joined = !!ownerId && ownerId === user.uid;
+          joined = !!ownerId && ownerId === uid;
           moderator = joined;
         }
       }
+
+      const requested = uid ? await isJoinRequested(c.id, uid) : false;
+
+      setJoinRequested(requested);
 
       setIsJoined(joined);
       setIsModerator(moderator);
@@ -360,57 +373,114 @@ export default function CommunityScreen() {
   );
 
   const joinCommunity = useCallback(async () => {
-    if (!community?.id) return;
-    if (!user?.uid) {
-      Alert.alert("Sign in required", "Log in to join communities.");
-      return;
-    }
-    setJoining(true);
-    try {
-      await firestore().collection("community_members").add({
-        community_id: community.id,
-        user_id: user.uid,
-        joined_at: firestore.FieldValue.serverTimestamp(),
-      });
-      setIsJoined(true);
-      await bumpMemberCount(+1);
-      await loadCommunity();
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to join.");
-    } finally {
-      setJoining(false);
-    }
-  }, [community?.id, user?.uid, loadCommunity, bumpMemberCount]);
+  if (!community?.id) return;
 
-  const leaveCommunity = useCallback(async () => {
-    if (!community?.id || !user?.uid) return;
-    if (community.owner_id && community.owner_id === user.uid) {
-      Alert.alert("Owner", "You can't leave a community you own.");
-      return;
-    }
-    setJoining(true);
-    try {
-      const leaveSnap = await firestore()
+  if (!user?.uid) {
+    Alert.alert(
+      "Sign in required",
+      "Log in to join communities."
+    );
+    return;
+  }
+
+  setJoining(true);
+
+  try {
+
+    const isPrivate =
+      normalizeBool(community.is_private);
+
+
+    // PUBLIC COMMUNITY
+    if (!isPrivate) {
+
+      await firestore()
         .collection("community_members")
-        .where("community_id", "==", community.id)
-        .where("user_id", "==", user.uid)
-        .get();
-      await Promise.all(leaveSnap.docs.map((d) => d.ref.delete()));
-      setIsJoined(false);
-      await bumpMemberCount(-1);
-      await loadCommunity();
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to leave.");
-    } finally {
-      setJoining(false);
+        .add({
+          community_id: community.id,
+          user_id: user.uid,
+          role: "member",
+          joined_at:
+            firestore.FieldValue.serverTimestamp(),
+        });
+
+
+      setIsJoined(true);
+
+      await bumpMemberCount(1);
+
     }
-  }, [
-    community?.id,
-    community?.owner_id,
-    user?.uid,
-    loadCommunity,
-    bumpMemberCount,
-  ]);
+
+    // PRIVATE COMMUNITY
+    else {
+
+      await createJoinRequest(
+        community.id,
+        user.uid
+      );
+
+      setJoinRequested(true);
+
+      Alert.alert(
+        "Request Sent",
+        "The owner will review your request."
+      );
+
+    }
+
+
+    await loadCommunity();
+
+
+  } catch(e:any){
+
+    Alert.alert(
+      "Error",
+      e.message ?? "Something went wrong"
+    );
+
+  }
+  finally{
+    setJoining(false);
+  }
+
+},[
+ community,
+ user?.uid,
+ bumpMemberCount,
+ loadCommunity
+]);
+
+const cancelRequest = useCallback(async()=>{
+
+ if(!community?.id || !user?.uid)
+    return;
+
+
+ try{
+
+   await cancelJoinRequest(
+      community.id,
+      user.uid
+   );
+
+
+   setJoinRequested(false);
+
+
+ }catch(e:any){
+
+   Alert.alert(
+    "Error",
+    e.message
+   );
+
+ }
+
+},[
+ community?.id,
+ user?.uid
+]);
 
   const confirmDeleteCommunity = useCallback(() => {
     if (!community?.id || !community?.slug) return;
@@ -765,7 +835,15 @@ export default function CommunityScreen() {
             >
               {!isOwner && (
                 <TouchableOpacity
-                  onPress={isJoined ? leaveCommunity : joinCommunity}
+                  onPress={() => {
+                    if (isJoined) {
+                      return leaveCommunity(community?.id ?? "");
+                    }
+                    if (joinRequested) {
+                      return cancelRequest();
+                    }
+                    return joinCommunity();
+                  }}
                   disabled={joining}
                   activeOpacity={0.85}
                   style={[
@@ -786,7 +864,14 @@ export default function CommunityScreen() {
                       fontSize: 12 * fontScale,
                     }}
                   >
-                    {joining ? "..." : isJoined ? "Joined" : "Join"}
+                    {joining
+ ? "..."
+ : isJoined
+ ? "Joined"
+ : joinRequested
+ ? "Requested"
+ : "Join"
+}
                   </Text>
                 </TouchableOpacity>
               )}

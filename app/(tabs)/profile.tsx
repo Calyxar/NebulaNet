@@ -1,30 +1,7 @@
 // app/(tabs)/profile.tsx ✅
-// ✅ CONSOLIDATED: this screen used to have its own independent inline
-// repost/quote card renderer — the 4th separate copy of that UI in the
-// codebase (alongside components/post/PostCard.tsx and
-// app/user/[username]/index.tsx's version, both already using the
-// canonical PostCard). Replaced with <PostCard /> for every entry in
-// mergedFeed:
-//   - "post" kind → normal PostCard render, author = you
-//   - "quote" kind → author = you, quotedPost = the original post
-//   - "repost" kind → author = the ORIGINAL post's author (matching how
-//     home.tsx already renders reposts-in-feed), isRepostByMe = true
-// ✅ NEW: added a one-time batched is_liked/is_saved check across the
-// visible post set (not per-card — same anti-N+1 reasoning as the fix
-// that made PostCard stop doing its own per-card repost-status fetch).
-// ⚠️ KNOWN LIMITATION: useToggleLike/useToggleBookmark's optimistic cache
-// patch (in hooks/usePosts.ts) only touches postKeys.lists() — the query
-// keys home.tsx's feed uses. This screen's own query keys (user-own-posts,
-// user-reposts) aren't covered, so liking/saving here works correctly on
-// the server but won't visually update instantly the way it does on Home;
-// it catches up on the next refetch (staleTime: 0 here, so next focus).
-// Fixing this properly means generalizing patchPostInLists to match
-// arbitrary query shapes — flagged as a follow-up, not silently ignored.
-// ✅ FIXED: RefreshControl was previously misused as
-// Animated.ScrollView.RefreshControl (not a real API) — now imported and
-// used as a normal RefreshControl passed to the refreshControl prop.
 
 import PostCard from "@/components/post/PostCard";
+import ReportSheet, { type ReportSheetRef } from "@/components/ReportSheet";
 import ShareSheet, { type ShareSheetRef } from "@/components/ShareSheet";
 import FounderBadge from "@/components/user/FounderBadge";
 import { useAuth } from "@/hooks/useAuth";
@@ -142,6 +119,7 @@ export default function ProfileScreen() {
   const { colors, isDark } = useTheme();
   const { user, profile } = useAuth();
   const shareSheetRef = useRef<ShareSheetRef>(null);
+  const reportSheetRef = useRef<ReportSheetRef>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>("Post");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -869,6 +847,18 @@ export default function ProfileScreen() {
                     color={colors.text}
                   />
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.shareBtn,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => reportSheetRef.current?.present()}
+                >
+                  <Ionicons name="flag-outline" size={18} color={colors.text} />
+                </TouchableOpacity>
               </View>
 
               <View style={styles.nameRow}>
@@ -1227,6 +1217,7 @@ export default function ProfileScreen() {
         text={`Check out ${displayName} on NebulaNet!`}
         shareMessage={`Check out ${displayName} on NebulaNet!`}
       />
+      <ReportSheet ref={reportSheetRef} type="user" targetId={uid!} />
     </>
   );
 }
