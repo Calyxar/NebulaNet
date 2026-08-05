@@ -8,16 +8,30 @@ module.exports = function withNotificationColorFix(config) {
     manifest.$["xmlns:tools"] = "http://schemas.android.com/tools";
 
     const app = manifest.application?.[0];
-    if (app?.["meta-data"]) {
-      for (const meta of app["meta-data"]) {
-        if (
-          meta.$["android:name"] ===
-          "com.google.firebase.messaging.default_notification_color"
-        ) {
-          meta.$["tools:replace"] = "android:resource";
-        }
-      }
+    if (!app) return config;
+
+    app["meta-data"] = app["meta-data"] || [];
+
+    const existing = app["meta-data"].find(
+      (m) =>
+        m.$["android:name"] ===
+        "com.google.firebase.messaging.default_notification_color",
+    );
+
+    if (existing) {
+      existing.$["android:resource"] = "@color/notification_icon_color";
+      existing.$["tools:replace"] = "android:resource";
+    } else {
+      app["meta-data"].push({
+        $: {
+          "android:name":
+            "com.google.firebase.messaging.default_notification_color",
+          "android:resource": "@color/notification_icon_color",
+          "tools:replace": "android:resource",
+        },
+      });
     }
+
     return config;
   });
 };
