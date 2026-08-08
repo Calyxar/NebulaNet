@@ -77,6 +77,9 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const postId = coerceParamToString(params.id);
 
+  console.log("🔵 POST DETAIL PARAM:", params.id);
+  console.log("🔵 POST DETAIL ID:", postId);
+
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const { bottom: bottomInset } = useSafeAreaInsets();
