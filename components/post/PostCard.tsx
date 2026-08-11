@@ -865,15 +865,15 @@ function Action({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 6,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 10,
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 2,
   },
   topLabelsRow: {
     flexDirection: "row",
@@ -899,13 +899,25 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8,
+    alignItems: "center",
+    marginBottom: 12,
   },
-  authorInfo: { flexDirection: "row", flex: 1 },
-  authorDetails: { marginLeft: 10, flex: 1 },
-  authorName: { fontSize: 14, fontWeight: "700" },
-  authorUsername: { fontSize: 12 },
+  authorInfo: {
+    flexDirection: "row",
+    flex: 1,
+    alignItems: "center",
+  },
+  authorDetails: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  authorUsername: {
+    fontSize: 12.5,
+  },
   userMeta: {
     flexDirection: "row",
     alignItems: "center",
@@ -919,15 +931,23 @@ const styles = StyleSheet.create({
   headerRight: { alignItems: "flex-end" },
   timestamp: { fontSize: 12 },
   moreButton: { padding: 4 },
-  content: { marginBottom: 12 },
+  content: {
+    marginBottom: 14,
+  },
   pollQuestion: {
     fontSize: 17,
     fontWeight: "700",
-    marginBottom: 4,
-    lineHeight: 23,
+    marginBottom: 6,
+    lineHeight: 24,
   },
-  text: { fontSize: 15, lineHeight: 21 },
-  readMore: { fontWeight: "500", marginTop: 4 },
+  text: {
+    fontSize: 15.5,
+    lineHeight: 22,
+  },
+  readMore: {
+    fontWeight: "700",
+    marginTop: 5,
+  },
   viewCount: { fontSize: 12, marginBottom: 8 },
   singleImageWrap: {
     width: "100%",

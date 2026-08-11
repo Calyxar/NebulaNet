@@ -17,10 +17,26 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { algoliasearch } from "algoliasearch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const algoliaClient = algoliasearch(
-  process.env.EXPO_PUBLIC_ALGOLIA_APP_ID ?? "",
-  process.env.EXPO_PUBLIC_ALGOLIA_SEARCH_KEY ?? "",
-);
+const ALGOLIA_APP_ID = process.env.EXPO_PUBLIC_ALGOLIA_APP_ID;
+const ALGOLIA_SEARCH_KEY = process.env.EXPO_PUBLIC_ALGOLIA_SEARCH_KEY;
+
+console.log("[ALGOLIA DEBUG] appId:", JSON.stringify(ALGOLIA_APP_ID));
+console.log("[ALGOLIA DEBUG] search key exists:", !!ALGOLIA_SEARCH_KEY);
+
+const algoliaClient =
+  ALGOLIA_APP_ID && ALGOLIA_SEARCH_KEY
+    ? algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY)
+    : null;
+
+function getAlgoliaClient() {
+  if (!algoliaClient) {
+    throw new Error(
+      "Algolia is not configured. Missing EXPO_PUBLIC_ALGOLIA_APP_ID or EXPO_PUBLIC_ALGOLIA_SEARCH_KEY.",
+    );
+  }
+
+  return algoliaClient;
+}
 
 export type SearchType = "top" | "account" | "post" | "community";
 export type FollowStatusLite = "none" | "pending" | "accepted";
@@ -199,7 +215,7 @@ async function searchAccounts(
   if (!query) return [];
 
   const [{ hits }, followMap] = await Promise.all([
-    algoliaClient.searchSingleIndex({
+    getAlgoliaClient().searchSingleIndex({
       indexName: "profiles",
       searchParams: { query, hitsPerPage: lim, filters: "is_suspended:false" },
     }),
@@ -233,7 +249,7 @@ async function searchPosts(
 
   const filters = ["visibility:public", "is_visible:true"].join(" AND ");
 
-  const { hits } = await algoliaClient.searchSingleIndex({
+  const { hits } = await getAlgoliaClient().searchSingleIndex({
     indexName: "posts",
     searchParams: { query, hitsPerPage: lim * 2, filters },
   });
@@ -290,7 +306,7 @@ async function searchCommunities(
   if (!query) return [];
   const uid = auth.currentUser?.uid ?? null;
 
-  const { hits } = await algoliaClient.searchSingleIndex({
+  const { hits } = await getAlgoliaClient().searchSingleIndex({
     indexName: "communities",
     searchParams: { query, hitsPerPage: lim, filters: "is_private:false" },
   });
