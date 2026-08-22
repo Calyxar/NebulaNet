@@ -103,6 +103,7 @@ export async function approveJoinRequest(communityId: string, userId: string) {
   batch.set(firestore().collection(COL.community_members).doc(), {
     community_id: communityId,
     user_id: userId,
+    role: "member",
     joined_at: firestore.FieldValue.serverTimestamp(),
   });
 

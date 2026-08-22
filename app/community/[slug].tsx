@@ -1,13 +1,15 @@
 // app/community/[slug].tsx — FIXED ✅
 
+import ReportModal from "@/components/community/ReportModal";
 import AppHeader from "@/components/navigation/AppHeader";
 import { useAuth } from "@/hooks/useAuth";
-import { deleteCommunityRequest } from "@/lib/firestore/deleteCommunity";
+import { leaveCommunity } from "@/lib/firestore/communities";
 import {
-  createJoinRequest,
   cancelJoinRequest,
+  createJoinRequest,
   isJoinRequested,
 } from "@/lib/firestore/communityRequests";
+import { deleteCommunityRequest } from "@/lib/firestore/deleteCommunity";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
@@ -30,7 +32,6 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { leaveCommunity } from "@/lib/firestore/communities";
 
 type ProfileMini = {
   username: string | null;
@@ -151,6 +152,12 @@ export default function CommunityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [joining, setJoining] = useState(false);
   const [deletingCommunity, setDeletingCommunity] = useState(false);
+
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportType, setReportType] = useState<"post" | "comment" | "user">(
+    "post",
+  );
+  const [reportedId, setReportedId] = useState<string | null>(null);
 
   const gradientColors = isDark
     ? [colors.background, colors.background, colors.background]
@@ -373,114 +380,69 @@ export default function CommunityScreen() {
   );
 
   const joinCommunity = useCallback(async () => {
-  if (!community?.id) return;
+    if (!community?.id) return;
 
-  if (!user?.uid) {
-    Alert.alert(
-      "Sign in required",
-      "Log in to join communities."
-    );
-    return;
-  }
+    if (!user?.uid) {
+      Alert.alert("Sign in required", "Log in to join communities.");
+      return;
+    }
 
-  setJoining(true);
+    setJoining(true);
 
-  try {
+    try {
+      const isPrivate = normalizeBool(community.is_private);
 
-    const isPrivate =
-      normalizeBool(community.is_private);
-
-
-    // PUBLIC COMMUNITY
-    if (!isPrivate) {
-
-      await firestore()
-        .collection("community_members")
-        .add({
+      // PUBLIC COMMUNITY
+      if (!isPrivate) {
+        await firestore().collection("community_members").add({
           community_id: community.id,
           user_id: user.uid,
           role: "member",
-          joined_at:
-            firestore.FieldValue.serverTimestamp(),
+          joined_at: firestore.FieldValue.serverTimestamp(),
         });
 
+        setIsJoined(true);
 
-      setIsJoined(true);
+        await bumpMemberCount(1);
+      }
 
-      await bumpMemberCount(1);
+      // PRIVATE COMMUNITY
+      else {
+        await createJoinRequest(community.id, user.uid);
 
+        setJoinRequested(true);
+
+        Alert.alert("Request Sent", "The owner will review your request.");
+      }
+
+      await loadCommunity();
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Something went wrong");
+    } finally {
+      setJoining(false);
     }
+  }, [community, user?.uid, bumpMemberCount, loadCommunity]);
 
-    // PRIVATE COMMUNITY
-    else {
+  const cancelRequest = useCallback(async () => {
+    if (!community?.id || !user?.uid) return;
 
-      await createJoinRequest(
-        community.id,
-        user.uid
-      );
+    try {
+      await cancelJoinRequest(community.id, user.uid);
 
-      setJoinRequested(true);
-
-      Alert.alert(
-        "Request Sent",
-        "The owner will review your request."
-      );
-
+      setJoinRequested(false);
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
     }
+  }, [community?.id, user?.uid]);
 
-
-    await loadCommunity();
-
-
-  } catch(e:any){
-
-    Alert.alert(
-      "Error",
-      e.message ?? "Something went wrong"
-    );
-
-  }
-  finally{
-    setJoining(false);
-  }
-
-},[
- community,
- user?.uid,
- bumpMemberCount,
- loadCommunity
-]);
-
-const cancelRequest = useCallback(async()=>{
-
- if(!community?.id || !user?.uid)
-    return;
-
-
- try{
-
-   await cancelJoinRequest(
-      community.id,
-      user.uid
-   );
-
-
-   setJoinRequested(false);
-
-
- }catch(e:any){
-
-   Alert.alert(
-    "Error",
-    e.message
-   );
-
- }
-
-},[
- community?.id,
- user?.uid
-]);
+  const openReportModal = useCallback(
+    (type: "post" | "comment" | "user", id: string) => {
+      setReportType(type);
+      setReportedId(id);
+      setReportVisible(true);
+    },
+    [],
+  );
 
   const confirmDeleteCommunity = useCallback(() => {
     if (!community?.id || !community?.slug) return;
@@ -613,11 +575,31 @@ const cancelRequest = useCallback(async()=>{
                 </Text>
               </View>
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={colors.textTertiary}
-            />
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12 * uiScale,
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => openReportModal("post", item.id)}
+                activeOpacity={0.7}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name="flag-outline"
+                  size={18}
+                  color={colors.textTertiary}
+                />
+              </TouchableOpacity>
+
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={colors.textTertiary}
+              />
+            </View>
           </View>
 
           {!!item.content && (
@@ -654,7 +636,7 @@ const cancelRequest = useCallback(async()=>{
         </TouchableOpacity>
       );
     },
-    [colors, isDark, uiScale, fontScale],
+    [colors, isDark, uiScale, fontScale, openReportModal],
   );
 
   const numColumns = 3;
@@ -698,17 +680,32 @@ const cancelRequest = useCallback(async()=>{
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={gradientColors as any}
-        locations={[0, 0.42, 1]}
-        style={{ flex: 1 }}
-      >
-        <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+      <>
+        <LinearGradient
+          colors={gradientColors as any}
+          locations={[0, 0.42, 1]}
+          style={{ flex: 1 }}
+        >
+          <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+
+        {reportedId && community && (
+          <ReportModal
+            visible={reportVisible}
+            onClose={() => {
+              setReportVisible(false);
+              setReportedId(null);
+            }}
+            communityId={community.id}
+            type={reportType}
+            reportedId={reportedId}
+          />
+        )}
+      </>
     );
   }
 
@@ -835,14 +832,27 @@ const cancelRequest = useCallback(async()=>{
             >
               {!isOwner && (
                 <TouchableOpacity
-                  onPress={() => {
+                  onPress={async () => {
                     if (isJoined) {
-                      return leaveCommunity(community?.id ?? "");
+                      try {
+                        await leaveCommunity(community.id);
+                        setIsJoined(false);
+                        await loadCommunity();
+                      } catch (e: any) {
+                        Alert.alert(
+                          "Error",
+                          e?.message ?? "Failed to leave community.",
+                        );
+                      }
+                      return;
                     }
+
                     if (joinRequested) {
-                      return cancelRequest();
+                      await cancelRequest();
+                      return;
                     }
-                    return joinCommunity();
+
+                    await joinCommunity();
                   }}
                   disabled={joining}
                   activeOpacity={0.85}
@@ -865,13 +875,12 @@ const cancelRequest = useCallback(async()=>{
                     }}
                   >
                     {joining
- ? "..."
- : isJoined
- ? "Joined"
- : joinRequested
- ? "Requested"
- : "Join"
-}
+                      ? "..."
+                      : isJoined
+                        ? "Joined"
+                        : joinRequested
+                          ? "Requested"
+                          : "Join"}
                   </Text>
                 </TouchableOpacity>
               )}

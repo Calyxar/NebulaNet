@@ -15,6 +15,18 @@ import {
   promoteToModerator,
   removeModerator,
 } from "@/lib/firestore/communityModerators";
+import {
+  dismissCommunityReport,
+  getCommunityReports,
+  resolveCommunityReport,
+  type CommunityReport,
+} from "@/lib/firestore/communityReports";
+import {
+  approveJoinRequest,
+  declineJoinRequest,
+  getCommunityJoinRequests,
+  type CommunityJoinRequest,
+} from "@/lib/firestore/communityRequests";
 import { useTheme } from "@/providers/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
@@ -24,6 +36,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -49,6 +62,19 @@ type BannedUser = {
   reason: string | null;
   username: string | null;
   full_name: string | null;
+};
+
+type JoinRequestProfile = CommunityJoinRequest & {
+  username: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+};
+
+type CommunityReportProfile = CommunityReport & {
+  reporter_username: string | null;
+  reporter_full_name: string | null;
+  reported_username: string | null;
+  reported_full_name: string | null;
 };
 
 type Rule = {
@@ -79,6 +105,8 @@ export default function CommunityManageScreen() {
 
   const [members, setMembers] = useState<MemberProfile[]>([]);
   const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
+  const [joinRequests, setJoinRequests] = useState<JoinRequestProfile[]>([]);
+  const [reports, setReports] = useState<CommunityReportProfile[]>([]);
   const [moderators, setModerators] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [workingUser, setWorkingUser] = useState<string | null>(null);
@@ -157,6 +185,40 @@ export default function CommunityManageScreen() {
       );
 
       setMembers(memberProfiles);
+
+      const requests = await getCommunityJoinRequests(c.id);
+
+      const requestProfiles = await Promise.all(
+        requests.map(async (request) => {
+          try {
+            const profileSnap = await firestore()
+              .collection("profiles")
+              .doc(request.user_id)
+              .get();
+
+            const profile = profileSnap.exists()
+              ? (profileSnap.data() as any)
+              : {};
+
+            return {
+              ...request,
+              username: profile.username ?? null,
+              full_name: profile.full_name ?? null,
+              avatar_url: profile.avatar_url ?? null,
+            };
+          } catch {
+            return {
+              ...request,
+              username: null,
+              full_name: null,
+              avatar_url: null,
+            };
+          }
+        }),
+      );
+
+      setJoinRequests(requestProfiles);
+
       const bans = await getCommunityBans(c.id);
 
       const bannedProfiles = await Promise.all(
@@ -180,6 +242,90 @@ export default function CommunityManageScreen() {
       );
 
       setBannedUsers(bannedProfiles);
+      const communityReports = await getCommunityReports(c.id);
+
+      const reportProfiles = await Promise.all(
+        communityReports.map(async (report) => {
+          let reporterUsername: string | null = null;
+          let reporterFullName: string | null = null;
+          let reportedUsername: string | null = null;
+          let reportedFullName: string | null = null;
+
+          try {
+            const reporterSnap = await firestore()
+              .collection("profiles")
+              .doc(report.reporter_id)
+              .get();
+
+            if (reporterSnap.exists()) {
+              const profile = reporterSnap.data() as any;
+
+              reporterUsername = profile.username ?? null;
+              reporterFullName = profile.full_name ?? null;
+            }
+          } catch {}
+
+          // For user reports, reported_id is already a user ID.
+          // For post/comment reports, we try to find the
+          // associated user through the reported document.
+          try {
+            let reportedUserId: string | null = null;
+
+            if (report.reported_type === "user") {
+              reportedUserId = report.reported_id;
+            } else if (report.reported_type === "post") {
+              const postSnap = await firestore()
+                .collection("posts")
+                .doc(report.reported_id)
+                .get();
+
+              if (postSnap.exists()) {
+                const post = postSnap.data() as any;
+                reportedUserId =
+                  post.user_id ?? post.author_id ?? post.owner_id ?? null;
+              }
+            } else if (report.reported_type === "comment") {
+              const commentSnap = await firestore()
+                .collection("comments")
+                .doc(report.reported_id)
+                .get();
+
+              if (commentSnap.exists()) {
+                const comment = commentSnap.data() as any;
+                reportedUserId =
+                  comment.user_id ??
+                  comment.author_id ??
+                  comment.owner_id ??
+                  null;
+              }
+            }
+
+            if (reportedUserId) {
+              const reportedSnap = await firestore()
+                .collection("profiles")
+                .doc(reportedUserId)
+                .get();
+
+              if (reportedSnap.exists()) {
+                const profile = reportedSnap.data() as any;
+
+                reportedUsername = profile.username ?? null;
+                reportedFullName = profile.full_name ?? null;
+              }
+            }
+          } catch {}
+
+          return {
+            ...report,
+            reporter_username: reporterUsername,
+            reporter_full_name: reporterFullName,
+            reported_username: reportedUsername,
+            reported_full_name: reportedFullName,
+          };
+        }),
+      );
+
+      setReports(reportProfiles);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load");
       router.back();
@@ -378,6 +524,132 @@ export default function CommunityManageScreen() {
         },
       },
     ]);
+  };
+
+  const approveRequest = (request: JoinRequestProfile) => {
+    if (!community) return;
+
+    const displayName = request.full_name || request.username || "this user";
+
+    Alert.alert(
+      "Approve Join Request",
+      `Allow ${displayName} to join this community?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Approve",
+          onPress: async () => {
+            try {
+              setWorkingUser(request.user_id);
+
+              await approveJoinRequest(community.id, request.user_id);
+
+              await load();
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to approve request.");
+            } finally {
+              setWorkingUser(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const declineRequest = (request: JoinRequestProfile) => {
+    if (!community) return;
+
+    const displayName = request.full_name || request.username || "this user";
+
+    Alert.alert(
+      "Decline Join Request",
+      `Decline ${displayName}'s request to join?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Decline",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setWorkingUser(request.user_id);
+
+              await declineJoinRequest(community.id, request.user_id);
+
+              await load();
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to decline request.");
+            } finally {
+              setWorkingUser(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const resolveReport = (report: CommunityReportProfile) => {
+    if (!user?.uid) return;
+
+    Alert.alert("Resolve Report", "Mark this report as resolved?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Resolve",
+        onPress: async () => {
+          try {
+            setWorkingUser(report.id);
+
+            await resolveCommunityReport(report.id, user.uid);
+
+            await load();
+          } catch (e: any) {
+            Alert.alert("Error", e?.message ?? "Failed to resolve report.");
+          } finally {
+            setWorkingUser(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const dismissReport = (report: CommunityReportProfile) => {
+    if (!user?.uid) return;
+
+    Alert.alert(
+      "Dismiss Report",
+      "Dismiss this report without taking action?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Dismiss",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setWorkingUser(report.id);
+
+              await dismissCommunityReport(report.id, user.uid);
+
+              await load();
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to dismiss report.");
+            } finally {
+              setWorkingUser(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const banMember = (userId: string) => {
@@ -824,6 +1096,205 @@ export default function CommunityManageScreen() {
             </View>
           </View>
 
+          {normalizeBool(community.is_private) &&
+            community.owner_id === user?.uid && (
+              <>
+                <Text
+                  style={[
+                    styles.sectionLabel,
+                    {
+                      color: colors.textTertiary,
+                      marginTop: 8 * uiScale,
+                      fontSize: 12 * fontScale,
+                    },
+                  ]}
+                >
+                  JOIN REQUESTS
+                  {joinRequests.length > 0 ? ` · ${joinRequests.length}` : ""}
+                </Text>
+
+                <View
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                      borderRadius: 16 * uiScale,
+                      padding: 14 * uiScale,
+                    },
+                  ]}
+                >
+                  {joinRequests.length === 0 ? (
+                    <Text
+                      style={{
+                        color: colors.textTertiary,
+                        textAlign: "center",
+                        paddingVertical: 12 * uiScale,
+                      }}
+                    >
+                      No pending join requests.
+                    </Text>
+                  ) : (
+                    joinRequests.map((request, index) => {
+                      const displayName =
+                        request.full_name || request.username || "Unknown User";
+
+                      const username = request.username
+                        ? `@${request.username}`
+                        : null;
+
+                      const isWorking = workingUser === request.user_id;
+
+                      return (
+                        <View
+                          key={request.id}
+                          style={[
+                            styles.ruleRow,
+                            {
+                              alignItems: "center",
+                              paddingVertical: 12 * uiScale,
+                              gap: 12 * uiScale,
+                            },
+                            index !== 0 && {
+                              borderTopWidth: 1,
+                              borderTopColor: colors.border,
+                            },
+                          ]}
+                        >
+                          {request.avatar_url ? (
+                            <Image
+                              source={{
+                                uri: request.avatar_url,
+                              }}
+                              style={{
+                                width: 44 * uiScale,
+                                height: 44 * uiScale,
+                                borderRadius: 22 * uiScale,
+                              }}
+                            />
+                          ) : (
+                            <View
+                              style={{
+                                width: 44 * uiScale,
+                                height: 44 * uiScale,
+                                borderRadius: 22 * uiScale,
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.primary,
+                                  fontWeight: "900",
+                                }}
+                              >
+                                {displayName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontWeight: "800",
+                                fontSize: 14 * fontScale,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {displayName}
+                            </Text>
+
+                            {username && (
+                              <Text
+                                style={{
+                                  color: colors.textTertiary,
+                                  fontSize: 12 * fontScale,
+                                  marginTop: 2,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {username}
+                              </Text>
+                            )}
+
+                            <Text
+                              style={{
+                                color: colors.textTertiary,
+                                fontSize: 11 * fontScale,
+                                marginTop: 3,
+                              }}
+                            >
+                              Wants to join your community
+                            </Text>
+                          </View>
+
+                          <View
+                            style={{
+                              gap: 8,
+                              alignItems: "flex-end",
+                            }}
+                          >
+                            <TouchableOpacity
+                              onPress={() => approveRequest(request)}
+                              disabled={isWorking}
+                              style={{
+                                backgroundColor: "#22C55E",
+                                paddingHorizontal: 12 * uiScale,
+                                paddingVertical: 7 * uiScale,
+                                borderRadius: 999,
+                                minWidth: 78 * uiScale,
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: "#fff",
+                                  fontWeight: "900",
+                                  fontSize: 12 * fontScale,
+                                }}
+                              >
+                                {isWorking ? "..." : "Approve"}
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => declineRequest(request)}
+                              disabled={isWorking}
+                              style={{
+                                paddingHorizontal: 12 * uiScale,
+                                paddingVertical: 5 * uiScale,
+                                minWidth: 78 * uiScale,
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: "#EF4444",
+                                  fontWeight: "800",
+                                  fontSize: 12 * fontScale,
+                                }}
+                              >
+                                Decline
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </>
+            )}
+
           <Text
             style={[
               styles.sectionLabel,
@@ -992,6 +1463,182 @@ export default function CommunityManageScreen() {
                 </View>
               );
             })}
+            <Text
+              style={[
+                styles.sectionLabel,
+                {
+                  color: colors.textTertiary,
+                  marginTop: 8 * uiScale,
+                  fontSize: 12 * fontScale,
+                },
+              ]}
+            >
+              REPORTS
+              {reports.length > 0 ? ` · ${reports.length}` : ""}
+            </Text>
+
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  borderRadius: 16 * uiScale,
+                  padding: 14 * uiScale,
+                },
+              ]}
+            >
+              {reports.length === 0 ? (
+                <Text
+                  style={{
+                    color: colors.textTertiary,
+                    textAlign: "center",
+                    paddingVertical: 12 * uiScale,
+                  }}
+                >
+                  No pending reports.
+                </Text>
+              ) : (
+                reports.map((report, index) => {
+                  const isWorking = workingUser === report.id;
+
+                  const typeLabel =
+                    report.reported_type === "post"
+                      ? "Post"
+                      : report.reported_type === "comment"
+                        ? "Comment"
+                        : "User";
+
+                  return (
+                    <View
+                      key={report.id}
+                      style={[
+                        styles.ruleRow,
+                        {
+                          alignItems: "center",
+                          paddingVertical: 12 * uiScale,
+                          gap: 12 * uiScale,
+                        },
+                        index !== 0 && {
+                          borderTopWidth: 1,
+                          borderTopColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={{
+                          width: 40 * uiScale,
+                          height: 40 * uiScale,
+                          borderRadius: 20 * uiScale,
+                          backgroundColor: colors.surface,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      >
+                        <Ionicons
+                          name="flag"
+                          size={18 * uiScale}
+                          color="#EF4444"
+                        />
+                      </View>
+
+                      <View
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontWeight: "800",
+                            fontSize: 14 * fontScale,
+                          }}
+                        >
+                          {typeLabel} Report
+                        </Text>
+
+                        <Text
+                          style={{
+                            color: "#EF4444",
+                            fontWeight: "700",
+                            fontSize: 12 * fontScale,
+                            marginTop: 3,
+                          }}
+                          numberOfLines={2}
+                        >
+                          {report.reason}
+                        </Text>
+
+                        <Text
+                          style={{
+                            color: colors.textTertiary,
+                            fontSize: 11 * fontScale,
+                            marginTop: 3,
+                          }}
+                          numberOfLines={1}
+                        >
+                          Reported ID: {report.reported_id}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={{
+                          gap: 8,
+                          alignItems: "flex-end",
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => resolveReport(report)}
+                          disabled={isWorking}
+                          style={{
+                            backgroundColor: "#22C55E",
+                            paddingHorizontal: 12 * uiScale,
+                            paddingVertical: 7 * uiScale,
+                            borderRadius: 999,
+                            minWidth: 78 * uiScale,
+                            alignItems: "center",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: "#fff",
+                              fontWeight: "900",
+                              fontSize: 12 * fontScale,
+                            }}
+                          >
+                            {isWorking ? "..." : "Resolve"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => dismissReport(report)}
+                          disabled={isWorking}
+                          style={{
+                            paddingHorizontal: 12 * uiScale,
+                            paddingVertical: 5 * uiScale,
+                            minWidth: 78 * uiScale,
+                            alignItems: "center",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: "#EF4444",
+                              fontWeight: "800",
+                              fontSize: 12 * fontScale,
+                            }}
+                          >
+                            Dismiss
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
           </View>
           <Text
             style={[
@@ -1090,6 +1737,221 @@ export default function CommunityManageScreen() {
                   </TouchableOpacity>
                 </View>
               ))
+            )}
+          </View>
+          <Text
+            style={[
+              styles.sectionLabel,
+              {
+                color: colors.textTertiary,
+                marginTop: 8 * uiScale,
+                fontSize: 12 * fontScale,
+              },
+            ]}
+          >
+            REPORTS
+            {reports.length > 0 ? ` · ${reports.length}` : ""}
+          </Text>
+
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                borderRadius: 16 * uiScale,
+                padding: 14 * uiScale,
+              },
+            ]}
+          >
+            {reports.length === 0 ? (
+              <Text
+                style={{
+                  color: colors.textTertiary,
+                  textAlign: "center",
+                  paddingVertical: 12 * uiScale,
+                }}
+              >
+                No pending reports.
+              </Text>
+            ) : (
+              reports.map((report, index) => {
+                const reporter =
+                  report.reporter_full_name ||
+                  report.reporter_username ||
+                  "Unknown User";
+
+                const reported =
+                  report.reported_full_name ||
+                  report.reported_username ||
+                  "Unknown User";
+
+                const isWorking = workingUser === report.id;
+
+                return (
+                  <View
+                    key={report.id}
+                    style={[
+                      styles.ruleRow,
+                      {
+                        alignItems: "flex-start",
+                        paddingVertical: 14 * uiScale,
+                        gap: 12 * uiScale,
+                      },
+                      index !== 0 && {
+                        borderTopWidth: 1,
+                        borderTopColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            report.reported_type === "post"
+                              ? "document-text-outline"
+                              : report.reported_type === "comment"
+                                ? "chatbubble-outline"
+                                : "person-outline"
+                          }
+                          size={18}
+                          color={colors.primary}
+                        />
+
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontWeight: "900",
+                            fontSize: 14 * fontScale,
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {report.reported_type} Report
+                        </Text>
+                      </View>
+
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontWeight: "700",
+                          fontSize: 13 * fontScale,
+                          marginTop: 10,
+                        }}
+                      >
+                        Reported: {reported}
+                      </Text>
+
+                      <Text
+                        style={{
+                          color: colors.textTertiary,
+                          fontSize: 12 * fontScale,
+                          marginTop: 4,
+                        }}
+                      >
+                        Reported by: {reporter}
+                      </Text>
+
+                      <View
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderRadius: 10 * uiScale,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          padding: 10 * uiScale,
+                          marginTop: 10 * uiScale,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.textTertiary,
+                            fontSize: 11 * fontScale,
+                            fontWeight: "700",
+                            marginBottom: 3,
+                          }}
+                        >
+                          REASON
+                        </Text>
+
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontSize: 13 * fontScale,
+                          }}
+                        >
+                          {report.reason}
+                        </Text>
+                      </View>
+
+                      <Text
+                        style={{
+                          color: colors.textTertiary,
+                          fontSize: 10 * fontScale,
+                          marginTop: 8,
+                        }}
+                      >
+                        Status: {report.status}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        gap: 8,
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => resolveReport(report)}
+                        disabled={isWorking}
+                        style={{
+                          backgroundColor: "#22C55E",
+                          paddingHorizontal: 12 * uiScale,
+                          paddingVertical: 7 * uiScale,
+                          borderRadius: 999,
+                          minWidth: 80 * uiScale,
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontWeight: "900",
+                            fontSize: 12 * fontScale,
+                          }}
+                        >
+                          {isWorking ? "..." : "Resolve"}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => dismissReport(report)}
+                        disabled={isWorking}
+                        style={{
+                          paddingHorizontal: 12 * uiScale,
+                          paddingVertical: 5 * uiScale,
+                          minWidth: 80 * uiScale,
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#EF4444",
+                            fontWeight: "800",
+                            fontSize: 12 * fontScale,
+                          }}
+                        >
+                          Dismiss
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
             )}
           </View>
         </ScrollView>

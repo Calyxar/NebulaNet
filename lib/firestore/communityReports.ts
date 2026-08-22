@@ -1,7 +1,7 @@
 // lib/firestore/communityReports.ts
 
 import firestore, {
-    FirebaseFirestoreTypes,
+  FirebaseFirestoreTypes,
 } from "@react-native-firebase/firestore";
 
 export type CommunityReport = {
@@ -21,6 +21,8 @@ export type CommunityReport = {
   created_at?: FirebaseFirestoreTypes.Timestamp | null;
 
   resolved_by?: string | null;
+
+  resolved_at?: FirebaseFirestoreTypes.Timestamp | null;
 };
 
 /**

@@ -1,0 +1,230 @@
+[36m[1minfo[22m[39m [0mStarting logkitty[0m
+[0m[2m[14:28:04][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:04][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:04][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:04][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:05][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:05][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:06][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:06][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `ref`. Please use `ref()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `on`. Please use `onValue()` instead.[39m
+[0m
+[0m[2m[14:28:06][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:06][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `ref`. Please use `ref()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `on`. Please use `onValue()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `ref`. Please use `ref()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `on`. Please use `onValue()` instead.[39m
+[0m
+[0m[2m[14:28:07][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:07][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:07][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:07][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:07][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'dbvCPHsB9W2fltp4iXwS',
+                             [2m│ [22mpostContentPreview: 'I like this pic #ghostofyotei ',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'sY8OitGW0zXeepb3rrRw',
+                             [2m│ [22mpostContentPreview: 'Eating some delicious pizza #p',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'PRNqh2yqWCaBQCohX9RP',
+                             [2m│ [22mpostContentPreview: 'Tabby #tabby #cat #catsofnebul',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'J3zwZAjEaLYa6UVSXzgV',
+                             [2m│ [22mpostContentPreview: '#sinbad #movie #villain',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m│ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+                             [33m└ [39m[33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `doc`. Please use `doc()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22 Please use `getApp()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `collection`. Please use `collection()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m [33mW |[39m [1m[33mReactNativeJS[39m[22m [33m▶︎[39m [33mThis method is deprecated (as well as all React Native Firebase namespaced API) and will be removed in the next major release as part of move to match Firebase Web modular SDK API. Please see migration guide for more details: https://rnfirebase.io/migrating-to-v22. Method called was `where`. Please use `where()` instead.[39m
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'dbvCPHsB9W2fltp4iXwS',
+                             [2m│ [22mpostContentPreview: 'I like this pic #ghostofyotei ',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'sY8OitGW0zXeepb3rrRw',
+                             [2m│ [22mpostContentPreview: 'Eating some delicious pizza #p',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'PRNqh2yqWCaBQCohX9RP',
+                             [2m│ [22mpostContentPreview: 'Tabby #tabby #cat #catsofnebul',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'J3zwZAjEaLYa6UVSXzgV',
+                             [2m│ [22mpostContentPreview: '#sinbad #movie #villain',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'dbvCPHsB9W2fltp4iXwS',
+                             [2m│ [22mpostContentPreview: 'I like this pic #ghostofyotei ',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'sY8OitGW0zXeepb3rrRw',
+                             [2m│ [22mpostContentPreview: 'Eating some delicious pizza #p',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'PRNqh2yqWCaBQCohX9RP',
+                             [2m│ [22mpostContentPreview: 'Tabby #tabby #cat #catsofnebul',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'J3zwZAjEaLYa6UVSXzgV',
+                             [2m│ [22mpostContentPreview: '#sinbad #movie #villain',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'dbvCPHsB9W2fltp4iXwS',
+                             [2m│ [22mpostContentPreview: 'I like this pic #ghostofyotei ',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'sY8OitGW0zXeepb3rrRw',
+                             [2m│ [22mpostContentPreview: 'Eating some delicious pizza #p',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'PRNqh2yqWCaBQCohX9RP',
+                             [2m│ [22mpostContentPreview: 'Tabby #tabby #cat #catsofnebul',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m I | [1mReactNativeJS[22m ▶︎ 'DELETE DEBUG:', { postId: 'J3zwZAjEaLYa6UVSXzgV',
+                             [2m│ [22mpostContentPreview: '#sinbad #movie #villain',
+                             [2m│ [22muserUid: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorId: 'rIdGJRfTRUMAAYc0MawosprPVw73',
+                             [2m│ [22mauthorName: 'Abakdev',
+                             [2m└ [22misOwned: true }
+[0m
+[0m[2m[14:28:08][22m [31mE |[39m [1m[31mReactNativeJS[39m[22m [31m▶︎[39m [31m[Error: `appId` is missing.][39m
+[0m
+[0m[2m[14:28:08][22m [31mE |[39m [1m[31mReactNativeJS[39m[22m [31m▶︎[39m [31m[Error: `appId` is missing.][39m
+[0m
+[0m[2m[14:28:09][22m [31mE |[39m [1m[31mReactNativeJS[39m[22m [31m▶︎[39m [31m{ [TypeError: Cannot read property 'ErrorBoundary' of undefined][39m
+                             [31m│ [39m[31mcomponentStack: '\n    at SceneView (address at index.android.bundle:1:1190612)\n    at RCTView (<anonymous>)\n    at View (address at index.android.bundle:1:560586)\n    at RCTView (<anonymous>)\n    at View (address at index.android.bundle:1:560586)\n    at Animated(View) (address at index.android.bundle:1:714194)\n    at Background (address at index.android.bundle:1:1240067)\n    at Screen (address at index.android.bundle:1:1286407)\n    at RNSScreen (<anonymous>)\n    at Animated(Anonymous) (address at index.android.bundle:1:714194)\n    at Suspender (address at index.android.bundle:1:1303442)\n    at Suspense (<anonymous>)\n    at Freeze (address at index.android.bundle:1:1303502)\n    at DelayedFreeze (address at index.android.bundle:1:1303084)\n    at InnerScreen (address at index.android.bundle:1:1300792)\n    at anonymous (address at index.android.bundle:1:1302482)\n    at MaybeScreen (address at index.android.bundle:1:1296346)\n    at RNSScreenContainer (<anonymous>)\n    at ScreenContainer (address at index.android.bundle:1:1310361)\n    at MaybeScreenContainer (address at index.android.bundle:1:1296507)\n    at RCTView (<anonymous>)\n    at View (address at index.android.bundle:1:560586)\n    at FrameSizeProvider (address at index.android.bundle:1:1274193)\n    at SafeAreaProviderCompat (address at index.android.bundle:1:1285612)\n    at BottomTabView (address at index.android.bundle:1:1234527)\n    at PreventRemoveProvider (address at index.android.bundle:1:1170472)\n    at NavigationStateListenerProvider (address at index.android.bundle:1:1197937)\n    at NavigationContent (address at index.android.bundle:1:1187755)\n    at anonymous (address at index.android.bundle:1:1187658)\n    at BottomTabNavigator (address at index.android.bundle:1:1233606)\n    at anonymous (address at index.android.bundle:1:1220273)\n    at TabLayout (address at index.android.bundle:1:1965086)\n    at Suspense (<anonymous>)\n    at Route (address at index.android.bundle:1:1221353)\n    at BaseRoute (address at index.android.bundle:1:1228270)\n    at StaticContainer (address at index.android.bundle:1:1192597)\n    at EnsureSingleNavigator (address at index.android.bundle:1:1138959)\n    at SceneView (address at index.android.bundle:1:1190612)\n    at RNSScreenContentWrapper (<anonymous>)\n    at ScreenContentWrapper (<anonymous>)\n    at DebugContainer (<anonymous>)\n    at RNSScreen (<anonymous>)\n    at Animated(Anonymous) (address at index.android.bundle:1:714194)\n    at Suspender (address at index.android.bundle:1:1303442)\n    at Suspense (<anonymous>)\n    at Freeze (address at index.android.bundle:1:1303502)\n    at DelayedFreeze (address at index.android.bundle:1:1303084)\n    at InnerScreen (address at index.android.bundle:1:1300792)\n    at anonymous (address at index.android.bundle:1:1302482)\n    at ScreenStackItem (address at index.android.bundle:1:1312997)\n    at SceneView (address at index.android.bundle:1:1336436)\n    at RNSScreenStack (<anonymous>)\n    at anonymous (address at index.android.bundle:1:1312074)\n    at ScreenStack (address at index.android.bundle:1:1311261)\n    at RCTView (<anonymous>)\n    at View (address at index.android.bundle:1:560586)\n    at FrameSizeProvider (address at index.android.bundle:1:1274193)\n    at SafeAreaProviderCompat (address at index.android.bundle:1:1285612)\n    at NativeStackView (address at index.android.bundle:1:1334987)\n    at PreventRemoveProvider (address at index.android.bundle:1:1170472)\n    at NavigationStateListenerProvider (address at index.android.bundle:1:1197937)\n    at NavigationContent (address at index.android.bundle:1:1187755)\n    at anonymous (address at index.android.bundle:1:1187658)\n    at NativeStackNavigator (address at index.android.bundle:1:1331268)\n    at anonymous (address at index.android.bundle:1:1220273)\n    at anonymous (address at index.android.bundle:1:1111381)\n    at RootLayout (address at index.android.bundle:1:4525152)\n    at PortalProviderComponent ([39m
+                             [31m└ [39m[31misComponentError: true }[39m
+[0m
+[0m[2m[14:28:10][22m D | [1mReactNativeJS[22m ▶︎ [RevenueCat] ℹ️ App backgrounded
+                             [2m└ [22m[RevenueCat] ℹ️ No subscriber attributes to synchronize.
+[0m
+[0m[2m[14:28:10][22m I | [1mReactNative[22m ▶︎ [GESTURE HANDLER] Tearing down gesture handler registered for root view com.facebook.react.runtime.ReactSurfaceView{95cd948 V.E...... .......D 0,0-1080,2400 #1}
+[0m
